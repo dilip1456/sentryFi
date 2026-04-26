@@ -5,7 +5,8 @@ import { accounts, groupMeta, type AccountGroup, type Account } from "@/lib/fina
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
-const groupOrder: AccountGroup[] = ["cash", "credit", "investments", "liabilities"];
+const haveGroups: AccountGroup[] = ["cash", "investments"];
+const oweGroups: AccountGroup[] = ["credit", "liabilities"];
 
 const accentRing: Record<Account["accent"], string> = {
   mint: "from-positive/25 to-transparent text-positive ring-positive/20",
@@ -194,8 +195,73 @@ const GroupBlock = ({ group, onPick }: { group: AccountGroup; onPick: (a: Accoun
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {items.map((a) => <AccountTile key={a.id} account={a} onClick={() => onPick(a)} />)}
+      </div>
+    </div>
+  );
+};
+
+const Bucket = ({
+  kind,
+  groups,
+  onPick,
+}: {
+  kind: "have" | "owe";
+  groups: AccountGroup[];
+  onPick: (a: Account) => void;
+}) => {
+  const items = accounts.filter((a) => groups.includes(a.group));
+  const total = items.reduce((s, a) => s + a.balance, 0);
+  const isHave = kind === "have";
+
+  // Earnings / cost approximation per year from APR
+  const yearly = items.reduce((s, a) => s + (a.apr ? (a.balance * a.apr) / 100 : 0), 0);
+
+  return (
+    <div className={cn(
+      "surface-card p-5 md:p-6 relative overflow-hidden flex flex-col",
+      isHave ? "ring-1 ring-positive/10" : "ring-1 ring-negative/10"
+    )}>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-24 opacity-60"
+        style={{
+          background: isHave
+            ? "radial-gradient(60% 80% at 50% 0%, hsl(var(--positive) / 0.10), transparent 70%)"
+            : "radial-gradient(60% 80% at 50% 0%, hsl(var(--negative) / 0.10), transparent 70%)",
+        }}
+      />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <div className={cn(
+            "text-[10px] uppercase tracking-[0.22em] font-medium",
+            isHave ? "text-positive" : "text-negative"
+          )}>
+            {isHave ? "What you have" : "What you owe"}
+          </div>
+          <div className="mt-1 font-display text-3xl md:text-4xl tabular text-foreground">
+            {!isHave && "−"}{fmtUSD(Math.abs(total), { compact: true })}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            {items.length} accounts ·{" "}
+            {isHave ? (
+              <span className="text-positive">+{fmtUSD(Math.abs(yearly), { compact: true })}/yr earning</span>
+            ) : (
+              <span className="text-negative">−{fmtUSD(Math.abs(yearly), { compact: true })}/yr interest</span>
+            )}
+          </div>
+        </div>
+        <div className={cn(
+          "h-9 w-9 rounded-lg grid place-items-center border",
+          isHave ? "border-positive/30 bg-positive/10 text-positive" : "border-negative/30 bg-negative/10 text-negative"
+        )}>
+          {isHave ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+        </div>
+      </div>
+
+      <div className="relative mt-5 space-y-5 flex-1">
+        {groups.map((g) => <GroupBlock key={g} group={g} onPick={onPick} />)}
       </div>
     </div>
   );
@@ -210,15 +276,16 @@ export const AccountsSection = () => {
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">01 — Overview</div>
           <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">Where your money lives</h2>
-          <p className="text-xs text-muted-foreground mt-1.5">Tap any account for details, rates, and actions.</p>
+          <p className="text-xs text-muted-foreground mt-1.5">Two buckets — what you have, and what you owe. Tap any tile for details.</p>
         </div>
         <button className="hidden md:flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
           <MoreHorizontal className="h-4 w-4" /> Manage
         </button>
       </div>
 
-      <div className="space-y-6">
-        {groupOrder.map((g) => <GroupBlock key={g} group={g} onPick={setSelected} />)}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Bucket kind="have" groups={haveGroups} onPick={setSelected} />
+        <Bucket kind="owe" groups={oweGroups} onPick={setSelected} />
       </div>
 
       <AccountDetail account={selected} onClose={() => setSelected(null)} />
