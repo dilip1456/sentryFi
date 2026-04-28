@@ -1,16 +1,27 @@
 import {
   Wallet, PiggyBank, CreditCard, TrendingUp, Landmark, Banknote,
   Coffee, ShoppingBag, Car, Home, Utensils, Plane, Film, Zap,
+  Heart, Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
 export type AccountGroup = "cash" | "credit" | "investments" | "liabilities";
+
+/**
+ * Bucket: how this account participates in monthly cash flow
+ *  - "liquid"     → counted in "What you have" (spendable now)
+ *  - "longterm"   → assets, but locked / illiquid (retirement, etc.) — shown separately
+ *  - "revolving"  → credit cards: full statement balance paid every month
+ *  - "term"       → mortgage / auto / student loans: only the EMI affects monthly view
+ */
+export type Bucket = "liquid" | "longterm" | "revolving" | "term";
 
 export interface Account {
   id: string;
   name: string;
   institution: string;
   group: AccountGroup;
+  bucket: Bucket;
   balance: number;          // signed: positive for assets, negative for debt
   apr?: number;             // interest rate (positive earns, negative cost)
   limit?: number;           // for credit cards
@@ -19,32 +30,41 @@ export interface Account {
   icon: LucideIcon;
   accent: "mint" | "sky" | "amber" | "coral" | "violet";
   last4?: string;
+  // Term-loan specifics
+  emi?: number;             // monthly payment (EMI)
+  termMonthsLeft?: number;  // remaining term
+  originalBalance?: number; // for progress bar
+  // Revolving specifics
+  statementDue?: number;    // current statement amount (the bill due this month)
+  dueDay?: number;          // day of month payment is due
 }
 
 export const accounts: Account[] = [
-  // CASH
-  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421" },
-  { id: "chk-2", name: "Joint Checking", institution: "Bank of America", group: "cash", balance: 3120.10, apr: 0.01, trend30d: 1.1, icon: Wallet, accent: "sky", last4: "8830" },
-  { id: "hys-1", name: "High-Yield Savings", institution: "Marcus", group: "cash", balance: 42800.00, apr: 4.40, trend30d: 3.2, icon: PiggyBank, accent: "mint", last4: "1102" },
-  { id: "hys-2", name: "Emergency Fund", institution: "Ally", group: "cash", balance: 18500.00, apr: 4.20, trend30d: 0.9, icon: PiggyBank, accent: "mint", last4: "7745" },
-  { id: "sav-1", name: "Local Savings", institution: "Wells Fargo", group: "cash", balance: 6200.00, apr: 0.05, trend30d: 0.0, icon: Banknote, accent: "amber", last4: "3301" },
+  // CASH — liquid
+  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421" },
+  { id: "chk-2", name: "Joint Checking", institution: "Bank of America", group: "cash", bucket: "liquid", balance: 3120.10, apr: 0.01, trend30d: 1.1, icon: Wallet, accent: "sky", last4: "8830" },
+  { id: "hys-1", name: "High-Yield Savings", institution: "Marcus", group: "cash", bucket: "liquid", balance: 42800.00, apr: 4.40, trend30d: 3.2, icon: PiggyBank, accent: "mint", last4: "1102" },
+  { id: "hys-2", name: "Emergency Fund", institution: "Ally", group: "cash", bucket: "liquid", balance: 18500.00, apr: 4.20, trend30d: 0.9, icon: PiggyBank, accent: "mint", last4: "7745" },
+  { id: "sav-1", name: "Local Savings", institution: "Wells Fargo", group: "cash", bucket: "liquid", balance: 6200.00, apr: 0.05, trend30d: 0.0, icon: Banknote, accent: "amber", last4: "3301" },
 
-  // CREDIT
-  { id: "cc-1", name: "Sapphire Reserve", institution: "Chase", group: "credit", balance: -2840.22, apr: 22.49, limit: 25000, trend30d: 18.0, icon: CreditCard, accent: "violet", last4: "9921" },
-  { id: "cc-2", name: "Amex Gold", institution: "American Express", group: "credit", balance: -1120.40, apr: 24.99, limit: 15000, trend30d: -12.0, icon: CreditCard, accent: "amber", last4: "1004" },
-  { id: "cc-3", name: "Citi Custom Cash", institution: "Citi", group: "credit", balance: -480.10, apr: 0, limit: 8000, promo: "0% APR until Aug 2026", trend30d: 6.0, icon: CreditCard, accent: "mint", last4: "5520" },
-  { id: "cc-4", name: "Apple Card", institution: "Goldman Sachs", group: "credit", balance: -210.55, apr: 19.24, limit: 10000, trend30d: -3.0, icon: CreditCard, accent: "sky", last4: "8801" },
+  // BROKERAGE — liquid investments (can be sold quickly)
+  { id: "inv-3", name: "Brokerage", institution: "Schwab", group: "investments", bucket: "liquid", balance: 38420.50, apr: 7.2, trend30d: -0.8, icon: TrendingUp, accent: "sky", last4: "BRK1" },
 
-  // INVESTMENTS
-  { id: "inv-1", name: "401(k)", institution: "Fidelity", group: "investments", balance: 184320.00, apr: 8.4, trend30d: 2.1, icon: TrendingUp, accent: "mint", last4: "K401" },
-  { id: "inv-2", name: "Roth IRA", institution: "Vanguard", group: "investments", balance: 62150.00, apr: 9.1, trend30d: 1.8, icon: TrendingUp, accent: "mint", last4: "ROTH" },
-  { id: "inv-3", name: "Brokerage", institution: "Schwab", group: "investments", balance: 38420.50, apr: 7.2, trend30d: -0.8, icon: TrendingUp, accent: "sky", last4: "BRK1" },
-  { id: "inv-4", name: "HSA", institution: "Lively", group: "investments", balance: 14200.00, apr: 6.5, trend30d: 1.3, icon: Landmark, accent: "amber", last4: "HSA0" },
+  // INVESTMENTS — long-term / locked (not part of "what you have")
+  { id: "inv-1", name: "401(k)", institution: "Fidelity", group: "investments", bucket: "longterm", balance: 184320.00, apr: 8.4, trend30d: 2.1, icon: TrendingUp, accent: "mint", last4: "K401" },
+  { id: "inv-2", name: "Roth IRA", institution: "Vanguard", group: "investments", bucket: "longterm", balance: 62150.00, apr: 9.1, trend30d: 1.8, icon: TrendingUp, accent: "mint", last4: "ROTH" },
+  { id: "inv-4", name: "HSA", institution: "Lively", group: "investments", bucket: "longterm", balance: 14200.00, apr: 6.5, trend30d: 1.3, icon: Landmark, accent: "amber", last4: "HSA0" },
 
-  // LIABILITIES
-  { id: "lo-1", name: "Mortgage", institution: "Rocket", group: "liabilities", balance: -312400.00, apr: 6.75, trend30d: -0.2, icon: Home, accent: "coral", last4: "MTG0" },
-  { id: "lo-2", name: "Student Loan", institution: "Nelnet", group: "liabilities", balance: -18420.00, apr: 5.50, trend30d: -1.1, icon: Landmark, accent: "coral", last4: "EDU2" },
-  { id: "lo-3", name: "Auto Loan", institution: "Ally", group: "liabilities", balance: -9200.00, apr: 7.90, trend30d: -2.0, icon: Car, accent: "amber", last4: "AUTO" },
+  // CREDIT — revolving (paid in full monthly)
+  { id: "cc-1", name: "Sapphire Reserve", institution: "Chase", group: "credit", bucket: "revolving", balance: -2840.22, apr: 22.49, limit: 25000, trend30d: 18.0, icon: CreditCard, accent: "violet", last4: "9921", statementDue: 2840.22, dueDay: 15 },
+  { id: "cc-2", name: "Amex Gold", institution: "American Express", group: "credit", bucket: "revolving", balance: -1120.40, apr: 24.99, limit: 15000, trend30d: -12.0, icon: CreditCard, accent: "amber", last4: "1004", statementDue: 1120.40, dueDay: 22 },
+  { id: "cc-3", name: "Citi Custom Cash", institution: "Citi", group: "credit", bucket: "revolving", balance: -480.10, apr: 0, limit: 8000, promo: "0% APR until Aug 2026", trend30d: 6.0, icon: CreditCard, accent: "mint", last4: "5520", statementDue: 25.00, dueDay: 8 },
+  { id: "cc-4", name: "Apple Card", institution: "Goldman Sachs", group: "credit", bucket: "revolving", balance: -210.55, apr: 19.24, limit: 10000, trend30d: -3.0, icon: CreditCard, accent: "sky", last4: "8801", statementDue: 210.55, dueDay: 30 },
+
+  // LIABILITIES — term loans (only EMI shows in monthly)
+  { id: "lo-1", name: "Mortgage", institution: "Rocket", group: "liabilities", bucket: "term", balance: -312400.00, apr: 6.75, trend30d: -0.2, icon: Home, accent: "coral", last4: "MTG0", emi: 2480, termMonthsLeft: 322, originalBalance: 360000 },
+  { id: "lo-2", name: "Student Loan", institution: "Nelnet", group: "liabilities", bucket: "term", balance: -18420.00, apr: 5.50, trend30d: -1.1, icon: Landmark, accent: "coral", last4: "EDU2", emi: 320, termMonthsLeft: 68, originalBalance: 42000 },
+  { id: "lo-3", name: "Auto Loan", institution: "Ally", group: "liabilities", bucket: "term", balance: -9200.00, apr: 7.90, trend30d: -2.0, icon: Car, accent: "amber", last4: "AUTO", emi: 415, termMonthsLeft: 24, originalBalance: 24000 },
 ];
 
 export const netWorthSeries = [
@@ -177,3 +197,31 @@ export const groupMeta: Record<AccountGroup, { label: string; description: strin
   investments: { label: "Investments & Retirement", description: "Brokerage, retirement, and tax-advantaged" },
   liabilities: { label: "Loans & Liabilities", description: "Long-term debt obligations" },
 };
+
+export const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive" | "negative" | "info" | "warning" }> = {
+  liquid:    { label: "What you have",        sub: "Spendable now — cash & brokerage",  tone: "positive" },
+  longterm:  { label: "Long-term & locked",   sub: "Retirement, HSA — not for spending", tone: "info" },
+  revolving: { label: "Credit cards",         sub: "Paid in full every month",           tone: "warning" },
+  term:      { label: "Loans & liabilities",  sub: "Only the EMI hits monthly",          tone: "negative" },
+};
+
+// Recurring monthly subscriptions / fixed bills (non-loan)
+export interface Subscription {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  card: string;
+  icon: LucideIcon;
+}
+
+export const subscriptions: Subscription[] = [
+  { id: "s1", name: "Rent / HOA add-ons", category: "Housing", amount: 220, card: "Chase Checking", icon: Home },
+  { id: "s2", name: "Netflix", category: "Entertainment", amount: 22.99, card: "Apple Card", icon: Film },
+  { id: "s3", name: "Spotify Family", category: "Entertainment", amount: 16.99, card: "Apple Card", icon: Film },
+  { id: "s4", name: "PG&E (avg)", category: "Utilities", amount: 142, card: "Chase Checking", icon: Zap },
+  { id: "s5", name: "Internet — Xfinity", category: "Utilities", amount: 79, card: "Citi Custom Cash", icon: Zap },
+  { id: "s6", name: "Phone — T-Mobile", category: "Utilities", amount: 85, card: "Apple Card", icon: Zap },
+  { id: "s7", name: "Gym membership", category: "Health", amount: 45, card: "Amex Gold", icon: Heart },
+  { id: "s8", name: "iCloud + ChatGPT", category: "Software", amount: 32, card: "Apple Card", icon: Sparkles },
+];
