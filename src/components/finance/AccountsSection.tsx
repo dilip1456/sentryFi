@@ -440,7 +440,7 @@ export const AccountsSection = () => {
             · not part of "what you have" — counted toward future-you
           </span>
         </div>
-        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} />
+        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} defaultOpen={false} />
       </div>
 
       <AccountDetail account={selected} onClose={() => setSelected(null)} />
