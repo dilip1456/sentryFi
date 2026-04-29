@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, Lock,
+  TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, ChevronDown, Lock,
   Calendar, AlertCircle,
 } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
@@ -145,12 +145,15 @@ const BucketCard = ({
   bucket,
   items,
   onPick,
+  defaultOpen = true,
 }: {
   bucket: Bucket;
   items: Account[];
   onPick: (a: Account) => void;
+  defaultOpen?: boolean;
 }) => {
   const meta = bucketMeta[bucket];
+  const [open, setOpen] = useState(defaultOpen);
   if (items.length === 0) return null;
 
   // Group by institution
@@ -179,7 +182,10 @@ const BucketCard = ({
         }}
       />
 
-      <div className="relative px-5 pt-5 pb-4">
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative px-5 pt-5 pb-4 w-full text-left hover:bg-surface-hover/30 transition-colors"
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className={cn("text-[10px] uppercase tracking-[0.22em] font-medium", toneText[meta.tone])}>
@@ -191,31 +197,41 @@ const BucketCard = ({
             <div className="text-[11px] text-muted-foreground mt-1">{meta.sub}</div>
           </div>
 
-          <div className="text-right space-y-0.5 shrink-0">
-            {bucket === "liquid" && yearlyInterest > 0 && (
-              <Metric label="earning" value={`+${fmtUSD(yearlyInterest, { compact: true })}/yr`} tone="positive" />
-            )}
-            {bucket === "longterm" && (
-              <Metric label="locked" value={fmtUSD(Math.abs(total), { compact: true })} tone="info" icon={<Lock className="h-2.5 w-2.5" />} />
-            )}
-            {bucket === "revolving" && (
-              <Metric label="due this cycle" value={fmtUSD(monthlyStatement, { compact: true })} tone="warning" />
-            )}
-            {bucket === "term" && (
-              <>
-                <Metric label="EMI / mo" value={fmtUSD(monthlyEmi, { compact: true })} tone="negative" />
-                <Metric label="interest / yr" value={fmtUSD(Math.abs(yearlyInterest), { compact: true })} tone="negative" />
-              </>
-            )}
+          <div className="flex items-start gap-2 shrink-0">
+            <div className="text-right space-y-0.5">
+              {bucket === "liquid" && yearlyInterest > 0 && (
+                <Metric label="earning" value={`+${fmtUSD(yearlyInterest, { compact: true })}/yr`} tone="positive" />
+              )}
+              {bucket === "longterm" && (
+                <Metric label="locked" value={fmtUSD(Math.abs(total), { compact: true })} tone="info" icon={<Lock className="h-2.5 w-2.5" />} />
+              )}
+              {bucket === "revolving" && (
+                <Metric label="due this cycle" value={fmtUSD(monthlyStatement, { compact: true })} tone="warning" />
+              )}
+              {bucket === "term" && (
+                <>
+                  <Metric label="EMI / mo" value={fmtUSD(monthlyEmi, { compact: true })} tone="negative" />
+                  <Metric label="interest / yr" value={fmtUSD(Math.abs(yearlyInterest), { compact: true })} tone="negative" />
+                </>
+              )}
+            </div>
+            <div className={cn(
+              "h-6 w-6 mt-0.5 rounded-md grid place-items-center border border-border/60 text-muted-foreground transition-transform",
+              open && "rotate-180"
+            )}>
+              <ChevronDown className="h-3 w-3" />
+            </div>
           </div>
         </div>
-      </div>
+      </button>
 
-      <div className="relative px-3 pb-3 space-y-2 flex-1">
-        {Object.entries(byInst).map(([inst, list]) => (
-          <InstitutionBlock key={inst} institution={inst} items={list} onPick={onPick} />
-        ))}
-      </div>
+      {open && (
+        <div className="relative px-3 pb-3 space-y-2 flex-1 border-t border-border/30 pt-3 animate-fade-up">
+          {Object.entries(byInst).map(([inst, list]) => (
+            <InstitutionBlock key={inst} institution={inst} items={list} onPick={onPick} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -424,7 +440,7 @@ export const AccountsSection = () => {
             · not part of "what you have" — counted toward future-you
           </span>
         </div>
-        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} />
+        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} defaultOpen={false} />
       </div>
 
       <AccountDetail account={selected} onClose={() => setSelected(null)} />
