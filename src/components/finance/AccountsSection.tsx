@@ -145,12 +145,15 @@ const BucketCard = ({
   bucket,
   items,
   onPick,
+  defaultOpen = true,
 }: {
   bucket: Bucket;
   items: Account[];
   onPick: (a: Account) => void;
+  defaultOpen?: boolean;
 }) => {
   const meta = bucketMeta[bucket];
+  const [open, setOpen] = useState(defaultOpen);
   if (items.length === 0) return null;
 
   // Group by institution
