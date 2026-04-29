@@ -6,32 +6,44 @@ import { PoolsSection } from "@/components/finance/PoolsSection";
 import { InsightsSection } from "@/components/finance/InsightsSection";
 import { SpendingSection } from "@/components/finance/SpendingSection";
 import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
+import { BenefitsSection } from "@/components/finance/BenefitsSection";
+import { DealsSection } from "@/components/finance/DealsSection";
+import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { accounts } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, CalendarClock } from "lucide-react";
+import {
+  LayoutDashboard, CalendarClock, Sparkles, Tag, PieChart,
+  type LucideIcon,
+} from "lucide-react";
 
-type View = "overall" | "monthly";
+type View = "overall" | "monthly" | "benefits" | "deals" | "spending";
+
+const TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
+  { k: "overall",  label: "Overview",  icon: LayoutDashboard, sub: "Net worth & accounts" },
+  { k: "monthly",  label: "Monthly",   icon: CalendarClock,   sub: "Cash flow & bills" },
+  { k: "benefits", label: "Benefits",  icon: Sparkles,        sub: "Card perks & refi" },
+  { k: "deals",    label: "Deals",     icon: Tag,             sub: "Cashback & offers" },
+  { k: "spending", label: "Spending",  icon: PieChart,        sub: "Budgets & insights" },
+];
 
 const Index = () => {
   const [view, setView] = useState<View>("overall");
 
-  // Net worth excludes nothing — overall picture
   const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
   const netWorth = assets + liabilities;
 
+  const activeTab = TABS.find((t) => t.k === view)!;
+
   return (
     <div className="min-h-screen bg-background">
-      <TopBar />
+      <TopBar active={view} onChange={(v) => setView(v as View)} tabs={TABS.map((t) => ({ k: t.k, label: t.label }))} />
 
-      <main className="max-w-[1280px] mx-auto px-6 md:px-10 py-8 md:py-10 space-y-10">
-        {/* View switcher */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="inline-flex p-1 rounded-full border border-border bg-surface/60">
-            {([
-              { k: "overall", label: "Overall picture", icon: LayoutDashboard },
-              { k: "monthly", label: "Monthly maintenance", icon: CalendarClock },
-            ] as const).map((t) => {
+      <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
+        {/* Tab strip — mobile-friendly chip switcher */}
+        <div className="md:hidden -mx-4 px-4 overflow-x-auto">
+          <div className="inline-flex p-1 rounded-full border border-border bg-surface/60 min-w-max">
+            {TABS.map((t) => {
               const Icon = t.icon;
               const active = view === t.k;
               return (
@@ -39,38 +51,77 @@ const Index = () => {
                   key={t.k}
                   onClick={() => setView(t.k)}
                   className={cn(
-                    "px-4 py-1.5 rounded-full text-xs font-medium inline-flex items-center gap-1.5 transition-all",
-                    active
-                      ? "bg-foreground text-background shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                    "px-3 py-1.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 transition-all whitespace-nowrap",
+                    active ? "bg-foreground text-background" : "text-muted-foreground"
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="h-3 w-3" />
                   {t.label}
                 </button>
               );
             })}
           </div>
-          <div className="hidden md:block text-[11px] text-muted-foreground">
-            {view === "overall" ? "Full net-worth view" : "Cash flow & recurring obligations"}
+        </div>
+
+        {/* Section eyebrow */}
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">{activeTab.sub}</div>
+            <h1 className="font-display text-2xl md:text-3xl text-primary mt-0.5">{activeTab.label}</h1>
+          </div>
+          <div className="text-[10px] text-muted-foreground hidden md:block">
+            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </div>
         </div>
 
-        {view === "overall" ? (
-          <div className="space-y-12 md:space-y-16 animate-fade-up">
+        {view === "overall" && (
+          <div className="space-y-4 animate-fade-up">
             <NetWorthHeader netWorth={netWorth} assets={assets} liabilities={liabilities} />
             <AccountsSection />
-            <InsightsSection />
-          </div>
-        ) : (
-          <div className="space-y-12 md:space-y-16 animate-fade-up">
-            <MonthlyMaintenance />
-            <PoolsSection />
-            <SpendingSection />
+            <CollapsibleSection
+              eyebrow="Intelligence"
+              title="Insights & opportunities"
+              subtitle="Tap a card to see analysis & apply suggestions."
+              defaultOpen={false}
+            >
+              <InsightsSection />
+            </CollapsibleSection>
           </div>
         )}
 
-        <footer className="pt-8 pb-4 text-center text-xs text-muted-foreground">
+        {view === "monthly" && (
+          <div className="space-y-4 animate-fade-up">
+            <MonthlyMaintenance />
+            <CollapsibleSection
+              eyebrow="Allocation"
+              title="Virtual pools"
+              subtitle="Slice one HYSA into named buckets driven by salary rules."
+              defaultOpen={false}
+            >
+              <PoolsSection />
+            </CollapsibleSection>
+          </div>
+        )}
+
+        {view === "benefits" && <BenefitsSection />}
+
+        {view === "deals" && <DealsSection />}
+
+        {view === "spending" && (
+          <div className="space-y-4 animate-fade-up">
+            <SpendingSection />
+            <CollapsibleSection
+              eyebrow="Insights"
+              title="Spending opportunities"
+              subtitle="Pattern-based suggestions from your last 30 days."
+              defaultOpen={false}
+            >
+              <InsightsSection />
+            </CollapsibleSection>
+          </div>
+        )}
+
+        <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
           Atlas Finance · Demo data · Updated {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
         </footer>
       </main>
