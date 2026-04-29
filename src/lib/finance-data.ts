@@ -1,7 +1,7 @@
 import {
   Wallet, PiggyBank, CreditCard, TrendingUp, Landmark, Banknote,
   Coffee, ShoppingBag, Car, Home, Utensils, Plane, Film, Zap,
-  Heart, Sparkles,
+  Heart, Sparkles, ShieldCheck, Briefcase, Tv, Music, Globe, Hotel,
   type LucideIcon,
 } from "lucide-react";
 
