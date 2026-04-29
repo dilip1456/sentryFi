@@ -1,7 +1,7 @@
 import {
   Wallet, PiggyBank, CreditCard, TrendingUp, Landmark, Banknote,
   Coffee, ShoppingBag, Car, Home, Utensils, Plane, Film, Zap,
-  Heart, Sparkles,
+  Heart, Sparkles, ShieldCheck, Briefcase, Tv, Music, Globe, Hotel,
   type LucideIcon,
 } from "lucide-react";
 
@@ -225,3 +225,105 @@ export const subscriptions: Subscription[] = [
   { id: "s7", name: "Gym membership", category: "Health", amount: 45, card: "Amex Gold", icon: Heart },
   { id: "s8", name: "iCloud + ChatGPT", category: "Software", amount: 32, card: "Apple Card", icon: Sparkles },
 ];
+
+/* =================================================================
+ * BENEFITS — credit-card perks tracking
+ * ================================================================= */
+export type BenefitStatus = "unused" | "partial" | "used" | "expiring";
+export interface CardBenefit {
+  id: string;
+  cardId: string;       // matches Account.id
+  cardName: string;
+  name: string;
+  category: "Travel" | "Dining" | "Entertainment" | "Shopping" | "Lifestyle" | "Protection";
+  value: number;        // $ value per cycle
+  cycle: "monthly" | "quarterly" | "annual";
+  used: number;         // how much already redeemed this cycle
+  resetDate: string;    // human-readable
+  status: BenefitStatus;
+  icon: LucideIcon;
+  how: string;          // how to redeem
+}
+
+export const cardBenefits: CardBenefit[] = [
+  { id: "b1",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "TSA PreCheck / Global Entry", category: "Travel",       value: 100, cycle: "annual",    used: 0,   resetDate: "Renews Jul 2027", status: "unused",   icon: ShieldCheck, how: "Pay $100 application fee with card — auto-reimbursed in 1-2 cycles." },
+  { id: "b2",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "DoorDash DashPass + $5/mo credit", category: "Dining",   value: 5,   cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "unused",   icon: Utensils,    how: "Auto-applied to next DoorDash order. Activate DashPass in Chase portal." },
+  { id: "b3",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "Travel credit",            category: "Travel",       value: 300, cycle: "annual",    used: 180, resetDate: "Renews Sep 2026", status: "partial",  icon: Plane,       how: "Auto-applied to first $300 of travel charges per cardmember year." },
+  { id: "b4",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "Priority Pass lounges",     category: "Travel",       value: 469, cycle: "annual",    used: 469, resetDate: "Active",          status: "used",     icon: Globe,       how: "Enroll in Priority Pass via Chase. Use at 1,300+ lounges worldwide." },
+  { id: "b5",  cardId: "cc-2", cardName: "Amex Gold",        name: "Uber Cash",                 category: "Travel",       value: 10,  cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "expiring", icon: Car,         how: "Add Amex Gold to Uber wallet — credit auto-applies to next ride/Eats." },
+  { id: "b6",  cardId: "cc-2", cardName: "Amex Gold",        name: "Dining credit (Grubhub, Resy)", category: "Dining",  value: 10,  cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "expiring", icon: Utensils,    how: "Enroll once in Amex Offers. Use card at Grubhub, Resy, Goldbelly, Cheesecake Factory, etc." },
+  { id: "b7",  cardId: "cc-2", cardName: "Amex Gold",        name: "Resy dining credit",        category: "Dining",       value: 50,  cycle: "quarterly", used: 25,  resetDate: "Resets Jun 30",   status: "partial",  icon: Utensils,    how: "Use Amex Gold at any Resy-listed restaurant." },
+  { id: "b8",  cardId: "cc-4", cardName: "Apple Card",       name: "Daily Cash on Apple Pay",   category: "Shopping",     value: 0,   cycle: "monthly",   used: 0,   resetDate: "Always on",       status: "used",     icon: ShoppingBag, how: "Get 2% back on every Apple Pay purchase, 3% on Apple/select merchants." },
+  { id: "b9",  cardId: "cc-3", cardName: "Citi Custom Cash", name: "5% top spend category",     category: "Lifestyle",    value: 25,  cycle: "monthly",   used: 25,  resetDate: "On gas this cycle", status: "used",   icon: Sparkles,    how: "Auto-detects highest eligible category up to $500/mo." },
+  { id: "b10", cardId: "cc-1", cardName: "Sapphire Reserve", name: "Peloton membership credit", category: "Entertainment", value: 10, cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "unused",   icon: Heart,       how: "Use Sapphire Reserve for Peloton App / All-Access membership." },
+];
+
+/* =================================================================
+ * REFINANCE — opportunity analysis
+ * ================================================================= */
+export interface RefinanceOption {
+  id: string;
+  loanId: string;       // matches Account.id
+  loanName: string;
+  currentRate: number;
+  offeredRate: number;
+  lender: string;
+  closingCost: number;
+  monthsToBreakeven: number;
+  monthlySavings: number;
+  lifetimeSavings: number;
+  recommendation: "strong" | "consider" | "skip";
+  notes: string;
+}
+
+export const refinanceOptions: RefinanceOption[] = [
+  { id: "rf1", loanId: "lo-1", loanName: "Mortgage",     currentRate: 6.75, offeredRate: 5.85, lender: "Better.com",      closingCost: 4200, monthsToBreakeven: 22, monthlySavings: 188, lifetimeSavings: 38600, recommendation: "strong",   notes: "Rate has dropped 0.9pp since origination. Breakeven inside 2 years — strong refinance candidate." },
+  { id: "rf2", loanId: "lo-3", loanName: "Auto Loan",    currentRate: 7.90, offeredRate: 6.40, lender: "LightStream",     closingCost: 0,    monthsToBreakeven: 0,  monthlySavings: 24,  lifetimeSavings: 580,   recommendation: "consider", notes: "No closing cost. Modest monthly savings but instant payback." },
+  { id: "rf3", loanId: "lo-2", loanName: "Student Loan", currentRate: 5.50, offeredRate: 5.20, lender: "SoFi",            closingCost: 0,    monthsToBreakeven: 0,  monthlySavings: 6,   lifetimeSavings: 410,   recommendation: "skip",     notes: "Refinancing federal loans forfeits IDR / forgiveness protections. Skip unless certain." },
+];
+
+/* =================================================================
+ * DEALS — cross-card cashback offers (Amex Offers, Chase Offers, etc.)
+ * ================================================================= */
+export type DealKind = "cashback" | "points" | "statement";
+export interface CardOffer {
+  id: string;
+  merchant: string;
+  category: "Travel" | "Dining" | "Shopping" | "Streaming" | "Lifestyle";
+  cardId: string;
+  cardName: string;
+  reward: string;        // e.g. "10% back" or "5x points"
+  rewardValue: number;   // estimated $ value if you spend `minSpend`
+  minSpend: number;
+  expires: string;
+  optedIn: boolean;
+  kind: DealKind;
+  icon: LucideIcon;
+  source: "Amex Offers" | "Chase Offers" | "Citi Merchant" | "Apple Card";
+};
+
+export const cardOffers: CardOffer[] = [
+  { id: "o1",  merchant: "Delta Air Lines",  category: "Travel",    cardId: "cc-1", cardName: "Sapphire Reserve", reward: "5x points",     rewardValue: 75,  minSpend: 300, expires: "May 30",  optedIn: true,  kind: "points",    icon: Plane,       source: "Chase Offers" },
+  { id: "o2",  merchant: "Marriott Bonvoy",  category: "Travel",    cardId: "cc-2", cardName: "Amex Gold",        reward: "$50 back",      rewardValue: 50,  minSpend: 250, expires: "Jun 15",  optedIn: false, kind: "statement", icon: Hotel,       source: "Amex Offers" },
+  { id: "o3",  merchant: "Whole Foods",      category: "Shopping",  cardId: "cc-2", cardName: "Amex Gold",        reward: "10% back",      rewardValue: 30,  minSpend: 300, expires: "May 12",  optedIn: false, kind: "cashback",  icon: ShoppingBag, source: "Amex Offers" },
+  { id: "o4",  merchant: "Uber Eats",        category: "Dining",    cardId: "cc-2", cardName: "Amex Gold",        reward: "20% back",      rewardValue: 20,  minSpend: 100, expires: "May 8",   optedIn: true,  kind: "cashback",  icon: Utensils,    source: "Amex Offers" },
+  { id: "o5",  merchant: "Apple Store",      category: "Shopping",  cardId: "cc-4", cardName: "Apple Card",       reward: "3% back",       rewardValue: 30,  minSpend: 1000, expires: "Always", optedIn: true,  kind: "cashback",  icon: ShoppingBag, source: "Apple Card" },
+  { id: "o6",  merchant: "Netflix",          category: "Streaming", cardId: "cc-3", cardName: "Citi Custom Cash", reward: "5% back",       rewardValue: 1.5, minSpend: 23,  expires: "Always",  optedIn: false, kind: "cashback",  icon: Tv,          source: "Citi Merchant" },
+  { id: "o7",  merchant: "Spotify",          category: "Streaming", cardId: "cc-2", cardName: "Amex Gold",        reward: "$5 back",       rewardValue: 5,   minSpend: 17,  expires: "Jun 30",  optedIn: false, kind: "statement", icon: Music,       source: "Amex Offers" },
+  { id: "o8",  merchant: "Best Buy",         category: "Shopping",  cardId: "cc-1", cardName: "Sapphire Reserve", reward: "$25 back",      rewardValue: 25,  minSpend: 200, expires: "May 22",  optedIn: false, kind: "statement", icon: ShoppingBag, source: "Chase Offers" },
+  { id: "o9",  merchant: "Hilton Hotels",    category: "Travel",    cardId: "cc-1", cardName: "Sapphire Reserve", reward: "10% back",      rewardValue: 60,  minSpend: 600, expires: "Jun 30",  optedIn: false, kind: "cashback",  icon: Hotel,       source: "Chase Offers" },
+  { id: "o10", merchant: "Sephora",          category: "Shopping",  cardId: "cc-2", cardName: "Amex Gold",        reward: "15% back",      rewardValue: 22,  minSpend: 150, expires: "May 18",  optedIn: false, kind: "cashback",  icon: ShoppingBag, source: "Amex Offers" },
+  { id: "o11", merchant: "Lyft",             category: "Travel",    cardId: "cc-1", cardName: "Sapphire Reserve", reward: "5x + $10 cred", rewardValue: 18,  minSpend: 50,  expires: "Always",  optedIn: true,  kind: "points",    icon: Car,         source: "Chase Offers" },
+  { id: "o12", merchant: "DoorDash",         category: "Dining",    cardId: "cc-1", cardName: "Sapphire Reserve", reward: "$5 monthly",    rewardValue: 5,   minSpend: 12,  expires: "Monthly", optedIn: true,  kind: "statement", icon: Utensils,    source: "Chase Offers" },
+];
+
+/* Best card recommendation per spend category */
+export const bestCardByCategory: Record<string, { cardId: string; cardName: string; rate: string; note: string }> = {
+  Dining:        { cardId: "cc-2", cardName: "Amex Gold",        rate: "4x points",   note: "Best at restaurants, takeout, delivery" },
+  Groceries:     { cardId: "cc-2", cardName: "Amex Gold",        rate: "4x (≤ $25k/yr)", note: "US supermarkets only" },
+  Travel:        { cardId: "cc-1", cardName: "Sapphire Reserve", rate: "3x + $300 cr", note: "Includes lounges + Global Entry" },
+  Gas:           { cardId: "cc-3", cardName: "Citi Custom Cash", rate: "5% back",     note: "Top 5% category — can target gas" },
+  Streaming:     { cardId: "cc-3", cardName: "Citi Custom Cash", rate: "5% back",     note: "If selected as monthly top category" },
+  Shopping:      { cardId: "cc-4", cardName: "Apple Card",       rate: "2-3% back",   note: "Apple Pay everywhere" },
+  Entertainment: { cardId: "cc-1", cardName: "Sapphire Reserve", rate: "3x points",   note: "Includes streaming + Peloton credit" },
+};
