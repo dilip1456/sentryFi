@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, Lock,
+  TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, ChevronDown, Lock,
   Calendar, AlertCircle,
 } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
