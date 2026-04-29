@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, ChevronDown, Lock,
   Calendar, AlertCircle,
@@ -145,15 +145,16 @@ const BucketCard = ({
   bucket,
   items,
   onPick,
-  defaultOpen = true,
+  open,
+  onToggle,
 }: {
   bucket: Bucket;
   items: Account[];
   onPick: (a: Account) => void;
-  defaultOpen?: boolean;
+  open: boolean;
+  onToggle: () => void;
 }) => {
   const meta = bucketMeta[bucket];
-  const [open, setOpen] = useState(defaultOpen);
   if (items.length === 0) return null;
 
   // Group by institution
@@ -183,7 +184,7 @@ const BucketCard = ({
       />
 
       <button
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
         className="relative px-5 pt-5 pb-4 w-full text-left hover:bg-surface-hover/30 transition-colors"
       >
         <div className="flex items-start justify-between gap-3">
@@ -236,7 +237,7 @@ const BucketCard = ({
   );
 };
 
-const Metric = ({ label, value, tone, icon }: { label: string; value: string; tone: "positive" | "negative" | "info" | "warning"; icon?: React.ReactNode }) => (
+const Metric = ({ label, value, tone, icon }: { label: string; value: string; tone: "positive" | "negative" | "info" | "warning"; icon?: ReactNode }) => (
   <div className="text-right">
     <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
     <div className={cn("text-[12px] tabular font-medium inline-flex items-center gap-1", toneText[tone])}>
@@ -393,6 +394,7 @@ const Stat = ({ label, value, accent }: { label: string; value: string; accent?:
 /* ---------------------- main section ---------------------- */
 export const AccountsSection = () => {
   const [selected, setSelected] = useState<Account | null>(null);
+  const [allBucketsOpen, setAllBucketsOpen] = useState(true);
 
   const byBucket = (b: Bucket) => accounts.filter((a) => a.bucket === b);
 
@@ -424,9 +426,9 @@ export const AccountsSection = () => {
 
       {/* Top row — Have & Owe (revolving + term) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <BucketCard bucket="liquid"    items={byBucket("liquid")}    onPick={setSelected} />
-        <BucketCard bucket="revolving" items={byBucket("revolving")} onPick={setSelected} />
-        <BucketCard bucket="term"      items={byBucket("term")}      onPick={setSelected} />
+        <BucketCard bucket="liquid"    items={byBucket("liquid")}    onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
+        <BucketCard bucket="revolving" items={byBucket("revolving")} onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
+        <BucketCard bucket="term"      items={byBucket("term")}      onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
       </div>
 
       {/* Long-term assets — visually demoted */}
@@ -440,7 +442,7 @@ export const AccountsSection = () => {
             · not part of "what you have" — counted toward future-you
           </span>
         </div>
-        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} defaultOpen={false} />
+        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
       </div>
 
       <AccountDetail account={selected} onClose={() => setSelected(null)} />
