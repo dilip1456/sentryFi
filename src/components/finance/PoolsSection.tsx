@@ -199,10 +199,10 @@ export const PoolsSection = () => {
     <section className="space-y-6">
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">02 — Virtual Pools</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">One account, many purposes</h2>
-          <p className="text-xs text-muted-foreground mt-1.5 max-w-xl">
-            Keep a single high-yield savings account, but slice it into named pools. Allocation rules move money on payday — what's left is what you actually have to spend.
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Allocation rules</div>
+          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Virtual savings pools</h2>
+          <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
+            Keep one high-yield savings account, but slice it into named pools. Rules move money on payday — what's left is what you actually have to spend.
           </p>
         </div>
         <button className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
