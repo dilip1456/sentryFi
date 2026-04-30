@@ -37,6 +37,8 @@ export interface Account {
   // Revolving specifics
   statementDue?: number;    // current statement amount (the bill due this month)
   dueDay?: number;          // day of month payment is due
+  // Operations
+  isPayingAccount?: boolean; // primary checking that bills draft from
 }
 
 export const accounts: Account[] = [
