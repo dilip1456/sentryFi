@@ -37,11 +37,13 @@ export interface Account {
   // Revolving specifics
   statementDue?: number;    // current statement amount (the bill due this month)
   dueDay?: number;          // day of month payment is due
+  // Operations
+  isPayingAccount?: boolean; // primary checking that bills draft from
 }
 
 export const accounts: Account[] = [
   // CASH — liquid
-  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421" },
+  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421", isPayingAccount: true },
   { id: "chk-2", name: "Joint Checking", institution: "Bank of America", group: "cash", bucket: "liquid", balance: 3120.10, apr: 0.01, trend30d: 1.1, icon: Wallet, accent: "sky", last4: "8830" },
   { id: "hys-1", name: "High-Yield Savings", institution: "Marcus", group: "cash", bucket: "liquid", balance: 42800.00, apr: 4.40, trend30d: 3.2, icon: PiggyBank, accent: "mint", last4: "1102" },
   { id: "hys-2", name: "Emergency Fund", institution: "Ally", group: "cash", bucket: "liquid", balance: 18500.00, apr: 4.20, trend30d: 0.9, icon: PiggyBank, accent: "mint", last4: "7745" },
@@ -199,10 +201,10 @@ export const groupMeta: Record<AccountGroup, { label: string; description: strin
 };
 
 export const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive" | "negative" | "info" | "warning" }> = {
-  liquid:    { label: "What you have",        sub: "Spendable now — cash & brokerage",  tone: "positive" },
-  longterm:  { label: "Long-term & locked",   sub: "Retirement, HSA — not for spending", tone: "info" },
-  revolving: { label: "Credit cards",         sub: "Paid in full every month",           tone: "warning" },
-  term:      { label: "Loans & liabilities",  sub: "Only the EMI hits monthly",          tone: "negative" },
+  liquid:    { label: "Accounts & Savings",    sub: "Available cash and brokerage",          tone: "positive" },
+  longterm:  { label: "Long-term Investments", sub: "Retirement & HSA — held for the future", tone: "info" },
+  revolving: { label: "Credit Cards",          sub: "Statements paid in full each month",    tone: "warning" },
+  term:      { label: "Loans & Mortgages",     sub: "Only the monthly payment affects cash flow", tone: "negative" },
 };
 
 // Recurring monthly subscriptions / fixed bills (non-loan)
@@ -327,3 +329,49 @@ export const bestCardByCategory: Record<string, { cardId: string; cardName: stri
   Shopping:      { cardId: "cc-4", cardName: "Apple Card",       rate: "2-3% back",   note: "Apple Pay everywhere" },
   Entertainment: { cardId: "cc-1", cardName: "Sapphire Reserve", rate: "3x points",   note: "Includes streaming + Peloton credit" },
 };
+
+/* =================================================================
+ * UPCOMING — scheduled outflows in the next ~14 days
+ * ================================================================= */
+export interface UpcomingTx {
+  id: string;
+  label: string;
+  category: "Card payment" | "Loan payment" | "Subscription" | "Bill" | "Pool transfer";
+  amount: number;        // positive number; always an outflow
+  date: string;          // human-friendly
+  daysAway: number;
+  fromAccountId: string; // which account it drafts from
+  icon: LucideIcon;
+}
+
+export const upcomingTransactions: UpcomingTx[] = [
+  { id: "u1", label: "Apple Card statement",     category: "Card payment",   amount: 210.55,  date: "Apr 30", daysAway: 0, fromAccountId: "chk-1", icon: CreditCard },
+  { id: "u2", label: "Mortgage EMI",             category: "Loan payment",   amount: 2480.00, date: "May 1",  daysAway: 1, fromAccountId: "chk-1", icon: Home },
+  { id: "u3", label: "Pool transfer → HYSA",     category: "Pool transfer",  amount: 1725.00, date: "May 1",  daysAway: 1, fromAccountId: "chk-1", icon: PiggyBank },
+  { id: "u4", label: "PG&E electricity",         category: "Bill",           amount: 142.00,  date: "May 3",  daysAway: 3, fromAccountId: "chk-1", icon: Zap },
+  { id: "u5", label: "Auto loan EMI",            category: "Loan payment",   amount: 415.00,  date: "May 5",  daysAway: 5, fromAccountId: "chk-1", icon: Car },
+  { id: "u6", label: "Citi Custom Cash min pay", category: "Card payment",   amount: 25.00,   date: "May 8",  daysAway: 8, fromAccountId: "chk-1", icon: CreditCard },
+  { id: "u7", label: "Netflix",                  category: "Subscription",   amount: 22.99,   date: "May 9",  daysAway: 9, fromAccountId: "chk-1", icon: Tv },
+  { id: "u8", label: "Sapphire Reserve statement", category: "Card payment", amount: 2840.22, date: "May 15", daysAway: 15, fromAccountId: "chk-1", icon: CreditCard },
+];
+
+/* =================================================================
+ * ACTIONABLE ITEMS — things that need a decision now
+ * ================================================================= */
+export type ActionPriority = "urgent" | "soon" | "info";
+export interface ActionItem {
+  id: string;
+  priority: ActionPriority;
+  title: string;
+  detail: string;
+  cta: string;
+  icon: LucideIcon;
+}
+
+export const actionItems: ActionItem[] = [
+  { id: "a1", priority: "urgent", title: "Fund your paying account",          detail: "Chase Checking will fall short of next 14 days of bills. Move funds from Marcus HYSA.", cta: "Move $4,200", icon: Wallet },
+  { id: "a2", priority: "urgent", title: "Amex Gold credits expire May 1",   detail: "$10 Uber Cash + $10 dining credit reset in 1 day — use them before they're gone.",       cta: "Use credits",  icon: Sparkles },
+  { id: "a3", priority: "soon",   title: "Sapphire Reserve statement due",   detail: "$2,840 due May 15 — autopay set, but verify funds are available.",                       cta: "Verify",       icon: CreditCard },
+  { id: "a4", priority: "soon",   title: "Refinance mortgage saves $188/mo", detail: "Better.com offers 5.85% vs your 6.75%. Breakeven in 22 months.",                          cta: "Review",       icon: Home },
+  { id: "a5", priority: "info",   title: "Idle cash at 0.05% APY",           detail: "$6,200 in Wells Fargo Savings could earn $269/yr at Marcus.",                            cta: "Move funds",   icon: PiggyBank },
+];

@@ -128,7 +128,7 @@ const Detail = ({ label, body, accent }: { label: string; body: string; accent?:
   </div>
 );
 
-export const InsightsSection = () => {
+export const InsightsSection = ({ compact = false }: { compact?: boolean } = {}) => {
   const [openId, setOpenId] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
@@ -137,30 +137,39 @@ export const InsightsSection = () => {
   const open = visible.find((i) => i.id === openId) ?? null;
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">02 — Intelligence</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">
-            Insights & opportunities
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1.5">Tap a card to see the analysis and apply.</p>
-        </div>
-
-        <div className="surface-card px-4 py-2.5 flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-positive/15 grid place-items-center">
-            <Lightbulb className="h-4 w-4 text-positive" />
-          </div>
+    <section className="space-y-3">
+      {!compact && (
+        <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Annualized opportunity</div>
-            <div className="font-display text-lg tabular text-positive">+${totalImpact.toLocaleString()} / yr</div>
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Intelligence</div>
+            <h2 className="font-display text-2xl md:text-3xl mt-1 text-primary">
+              Insights & opportunities
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1.5">Tap a card to see the analysis and apply.</p>
+          </div>
+
+          <div className="surface-card px-4 py-2.5 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-positive/15 grid place-items-center">
+              <Lightbulb className="h-4 w-4 text-positive" />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Annualized opportunity</div>
+              <div className="font-display text-lg tabular text-positive">+${totalImpact.toLocaleString()} / yr</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {compact && (
+        <div className="flex items-center justify-between text-[11px] mb-1">
+          <span className="text-muted-foreground">Annualized opportunity</span>
+          <span className="font-display text-base tabular text-positive">+${totalImpact.toLocaleString()} / yr</span>
+        </div>
+      )}
 
       {visible.length === 0 ? (
-        <div className="surface-card p-12 text-center">
-          <AlertCircle className="h-8 w-8 mx-auto text-muted-foreground" />
+        <div className="surface-card p-8 text-center">
+          <AlertCircle className="h-6 w-6 mx-auto text-muted-foreground" />
           <p className="mt-3 text-sm text-muted-foreground">All caught up — no active suggestions.</p>
           <button
             onClick={() => setDismissed(new Set())}
@@ -170,7 +179,10 @@ export const InsightsSection = () => {
           </button>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className={cn(
+          "grid gap-3",
+          compact ? "grid-cols-1 sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3",
+        )}>
           {visible.map((insight) => (
             <InsightCard
               key={insight.id}
