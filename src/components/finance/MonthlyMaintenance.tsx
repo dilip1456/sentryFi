@@ -199,13 +199,13 @@ export const MonthlyMaintenance = () => {
   const ratio        = Math.min((totalOutflow / Math.max(totalIncome, 1)) * 100, 100);
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">02 — Monthly maintenance</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">What this month actually costs</h2>
-          <p className="text-xs text-muted-foreground mt-1.5 max-w-xl">
-            Only the monthly cash flow — EMIs, this cycle's statements, recurring bills, savings rules, and budgets. No giant loan totals.
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Cash flow this month</div>
+          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Monthly maintenance</h2>
+          <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
+            Only the actual monthly hit — loan payments, this cycle's card statements, recurring bills, and savings rules.
           </p>
         </div>
         <button
