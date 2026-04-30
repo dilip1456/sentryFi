@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Lightbulb, ArrowRight, Check, X, AlertCircle, Sparkles, TrendingUp, Coins, CreditCard, Receipt } from "lucide-react";
+import { ArrowRight, Check, X, AlertCircle, Sparkles, TrendingUp, Coins, CreditCard, Receipt } from "lucide-react";
 import { insights, type Insight } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
