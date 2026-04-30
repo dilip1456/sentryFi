@@ -267,31 +267,16 @@ export const AccountsSection = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const byBucket = (b: Bucket) => accounts.filter((a) => a.bucket === b);
-  const liquid = byBucket("liquid").reduce((s, a) => s + a.balance, 0);
-  const revolving = byBucket("revolving").reduce((s, a) => s + a.balance, 0);
-  const spendableNet = liquid + revolving;
-
   const toggle = (id: string) => setExpandedId((curr) => (curr === id ? null : id));
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Your full balance sheet</div>
-          <h2 className="font-display text-xl md:text-2xl text-primary mt-0.5">Accounts</h2>
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Spendable net</div>
-          <div className={cn(
-            "font-display text-lg md:text-xl tabular",
-            spendableNet >= 0 ? "text-foreground" : "text-negative",
-          )}>
-            {spendableNet < 0 ? "−" : ""}{fmtUSD(Math.abs(spendableNet), { compact: true })}
-          </div>
-        </div>
+    <section className="space-y-2.5">
+      <div className="flex items-baseline justify-between gap-4 px-1">
+        <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
+        <span className="text-[11px] text-muted-foreground">Tap a row for details</span>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <BucketTable bucket="liquid"    items={byBucket("liquid")}    expandedId={expandedId} onToggle={toggle} />
         <BucketTable bucket="revolving" items={byBucket("revolving")} expandedId={expandedId} onToggle={toggle} />
         <BucketTable bucket="term"      items={byBucket("term")}      expandedId={expandedId} onToggle={toggle} />
