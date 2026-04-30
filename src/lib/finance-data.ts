@@ -43,7 +43,7 @@ export interface Account {
 
 export const accounts: Account[] = [
   // CASH — liquid
-  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421" },
+  { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421", isPayingAccount: true },
   { id: "chk-2", name: "Joint Checking", institution: "Bank of America", group: "cash", bucket: "liquid", balance: 3120.10, apr: 0.01, trend30d: 1.1, icon: Wallet, accent: "sky", last4: "8830" },
   { id: "hys-1", name: "High-Yield Savings", institution: "Marcus", group: "cash", bucket: "liquid", balance: 42800.00, apr: 4.40, trend30d: 3.2, icon: PiggyBank, accent: "mint", last4: "1102" },
   { id: "hys-2", name: "Emergency Fund", institution: "Ally", group: "cash", bucket: "liquid", balance: 18500.00, apr: 4.20, trend30d: 0.9, icon: PiggyBank, accent: "mint", last4: "7745" },
@@ -201,10 +201,10 @@ export const groupMeta: Record<AccountGroup, { label: string; description: strin
 };
 
 export const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive" | "negative" | "info" | "warning" }> = {
-  liquid:    { label: "What you have",        sub: "Spendable now — cash & brokerage",  tone: "positive" },
-  longterm:  { label: "Long-term & locked",   sub: "Retirement, HSA — not for spending", tone: "info" },
-  revolving: { label: "Credit cards",         sub: "Paid in full every month",           tone: "warning" },
-  term:      { label: "Loans & liabilities",  sub: "Only the EMI hits monthly",          tone: "negative" },
+  liquid:    { label: "Accounts & Savings",    sub: "Available cash and brokerage",          tone: "positive" },
+  longterm:  { label: "Long-term Investments", sub: "Retirement & HSA — held for the future", tone: "info" },
+  revolving: { label: "Credit Cards",          sub: "Statements paid in full each month",    tone: "warning" },
+  term:      { label: "Loans & Mortgages",     sub: "Only the monthly payment affects cash flow", tone: "negative" },
 };
 
 // Recurring monthly subscriptions / fixed bills (non-loan)
