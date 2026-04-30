@@ -132,12 +132,8 @@ export const SpendingSection = () => {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Behavior</div>
-          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Spending & budgets</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-1">Tap a category to inspect transactions and adjust the budget.</p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-xl md:text-2xl text-primary">Spending</h2>
 
         <div className="inline-flex p-1 rounded-full border border-border bg-surface">
           {(["categories", "trend", "transactions"] as View[]).map((v) => (
@@ -145,7 +141,7 @@ export const SpendingSection = () => {
               key={v}
               onClick={() => setView(v)}
               className={cn(
-                "px-4 py-1.5 text-xs font-medium rounded-full transition-all capitalize",
+                "px-3.5 py-1.5 text-xs font-medium rounded-full transition-all capitalize",
                 view === v
                   ? "bg-foreground text-background"
                   : "text-muted-foreground hover:text-foreground"

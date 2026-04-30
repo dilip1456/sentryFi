@@ -200,14 +200,8 @@ export const MonthlyMaintenance = () => {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Cash flow this month</div>
-          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Monthly maintenance</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
-            Only the actual monthly hit — loan payments, this cycle's card statements, recurring bills, and savings rules.
-          </p>
-        </div>
+      <div className="flex items-end justify-between gap-4">
+        <h2 className="font-display text-xl md:text-2xl text-primary">Monthly cash flow</h2>
         <button
           onClick={() => setShowHelp(true)}
           className="hidden md:inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"

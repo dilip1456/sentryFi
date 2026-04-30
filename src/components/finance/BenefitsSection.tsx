@@ -217,9 +217,8 @@ export const BenefitsSection = () => {
 
       {/* Card benefits */}
       <CollapsibleSection
-        eyebrow="01 — Card perks"
         title="Card benefits & credits"
-        subtitle="Track every recurring credit, lounge access, and reimbursement."
+        subtitle="Recurring credits, lounge access, and reimbursements."
         trailing={
           <div className="hidden md:inline-flex items-center gap-1 text-[11px] text-warning tabular">
             <AlertCircle className="h-3 w-3" />
@@ -250,9 +249,8 @@ export const BenefitsSection = () => {
 
       {/* Refinance opportunities */}
       <CollapsibleSection
-        eyebrow="02 — Loan optimization"
         title="Refinance opportunities"
-        subtitle="We continuously compare current rates against your loans, factoring in closing costs."
+        subtitle="Current market rates compared against your loans, net of closing costs."
         trailing={
           <div className="hidden md:inline-flex items-center gap-1 text-[11px] text-positive tabular">
             <Check className="h-3 w-3" />

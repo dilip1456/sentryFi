@@ -15,11 +15,8 @@ export const ActionableItems = () => {
 
   return (
     <section className="surface-card overflow-hidden h-full flex flex-col">
-      <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">For your attention</div>
-          <h2 className="font-display text-lg md:text-xl text-primary mt-0.5">Actionable items</h2>
-        </div>
+      <div className="px-5 py-3.5 border-b border-border/40 flex items-center justify-between">
+        <h2 className="font-display text-base md:text-lg text-primary">Action items</h2>
         <span className="text-[11px] text-muted-foreground tabular">{visible.length} open</span>
       </div>
 

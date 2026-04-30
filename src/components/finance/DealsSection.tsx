@@ -247,18 +247,16 @@ export const DealsSection = () => {
 
       {/* Best card finder */}
       <CollapsibleSection
-        eyebrow="01 — Smart shopping"
         title="Best card for any purchase"
-        subtitle="Search a merchant or pick a category — we'll tell you the optimal card and active offer."
+        subtitle="Search a merchant or pick a category to see the optimal card."
       >
         <BestCardFinder />
       </CollapsibleSection>
 
       {/* All offers */}
       <CollapsibleSection
-        eyebrow="02 — Active offers"
-        title="All card offers, one place"
-        subtitle="Aggregated from every linked card. Toggle to opt-in instantly."
+        title="Active card offers"
+        subtitle="Aggregated from every linked card. Toggle to opt in."
         trailing={
           <div className="hidden md:inline-flex text-[11px] text-positive tabular">
             +{fmtUSD(totalPotential - totalActive, { compact: true })} unclaimed
