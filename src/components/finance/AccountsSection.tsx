@@ -1,20 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useState, Fragment } from "react";
 import {
-  TrendingUp, TrendingDown, X, ExternalLink, Sparkles, ChevronRight, ChevronDown, Lock,
-  Calendar, AlertCircle,
+  TrendingUp, TrendingDown, ChevronDown, ChevronRight, Lock, Calendar,
+  ExternalLink, Sparkles,
 } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
 import { accounts, type Account, type Bucket, bucketMeta } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-
-const accentDot: Record<Account["accent"], string> = {
-  mint:   "bg-positive",
-  sky:    "bg-info",
-  amber:  "bg-warning",
-  coral:  "bg-negative",
-  violet: "bg-[hsl(280_70%_65%)]",
-};
 
 const accentText: Record<Account["accent"], string> = {
   mint:   "text-positive",
@@ -24,13 +15,6 @@ const accentText: Record<Account["accent"], string> = {
   violet: "text-[hsl(280_70%_75%)]",
 };
 
-const toneRing: Record<"positive" | "negative" | "info" | "warning", string> = {
-  positive: "ring-positive/15 from-positive/10",
-  negative: "ring-negative/15 from-negative/10",
-  info:     "ring-info/15 from-info/10",
-  warning:  "ring-warning/15 from-warning/10",
-};
-
 const toneText: Record<"positive" | "negative" | "info" | "warning", string> = {
   positive: "text-positive",
   negative: "text-negative",
@@ -38,198 +22,239 @@ const toneText: Record<"positive" | "negative" | "info" | "warning", string> = {
   warning:  "text-warning",
 };
 
-/* ---------------------- compact account row ---------------------- */
-const AccountRow = ({ account, onClick }: { account: Account; onClick: () => void }) => {
-  const Icon = account.icon;
-  const isDebt = account.balance < 0;
-  const trendUp = account.trend30d > 0;
-  const trendGood = isDebt ? !trendUp : trendUp;
-  const utilization = account.limit ? Math.abs(account.balance) / account.limit : null;
-
-  return (
-    <button
-      onClick={onClick}
-      className="group w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-hover/60 transition-colors text-left"
-    >
-      <div className={cn("h-7 w-7 rounded-md grid place-items-center bg-secondary/60 border border-border/60", accentText[account.accent])}>
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13px] text-foreground truncate">{account.name}</span>
-          {account.last4 && <span className="text-[10px] text-muted-foreground tabular">··{account.last4}</span>}
-          {account.promo && <span className="chip chip-positive !py-0 !px-1.5 !text-[9px]">0%</span>}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5 text-[10.5px] text-muted-foreground tabular">
-          {account.apr !== undefined && (
-            <span>{account.apr.toFixed(2)}% APR</span>
-          )}
-          {utilization !== null && (
-            <>
-              <span className="opacity-40">·</span>
-              <span className={cn(
-                utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-muted-foreground"
-              )}>
-                {(utilization * 100).toFixed(0)}% used
-              </span>
-            </>
-          )}
-          {account.emi && (
-            <>
-              <span className="opacity-40">·</span>
-              <span className="text-warning">{fmtUSD(account.emi, { compact: true })}/mo EMI</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="text-right">
-        <div className={cn(
-          "text-[13px] font-medium tabular leading-none",
-          isDebt ? "text-negative" : "text-foreground"
-        )}>
-          {isDebt ? "−" : ""}{fmtUSD(Math.abs(account.balance), { compact: true })}
-        </div>
-        <div className={cn(
-          "mt-1 inline-flex items-center gap-0.5 text-[10px] tabular leading-none",
-          trendGood ? "text-positive" : "text-negative"
-        )}>
-          {trendUp ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-          {fmtPct(account.trend30d, 1)}
-        </div>
-      </div>
-
-      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-    </button>
-  );
+const toneDot: Record<"positive" | "negative" | "info" | "warning", string> = {
+  positive: "bg-positive",
+  negative: "bg-negative",
+  info:     "bg-info",
+  warning:  "bg-warning",
 };
 
-/* ---------------------- institution group ---------------------- */
-const InstitutionBlock = ({
-  institution,
-  items,
-  onPick,
-}: {
-  institution: string;
-  items: Account[];
-  onPick: (a: Account) => void;
-}) => {
-  const total = items.reduce((s, a) => s + a.balance, 0);
-  const isDebt = total < 0;
+/* ---------------- expandable detail (inline) ---------------- */
+const DetailRow = ({ a }: { a: Account }) => {
+  const isDebt = a.balance < 0;
+  const utilization = a.limit ? Math.abs(a.balance) / a.limit : null;
+  const yearlyInterest = a.apr !== undefined ? (a.balance * a.apr / 100) : 0;
+  const principalPaid = a.originalBalance ? a.originalBalance - Math.abs(a.balance) : null;
+  const progress = a.originalBalance ? (principalPaid! / a.originalBalance) * 100 : null;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-surface/40 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-surface/60">
-        <div className="flex items-center gap-2">
-          <div className={cn("h-1.5 w-1.5 rounded-full", accentDot[items[0].accent])} />
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{institution}</span>
-          <span className="text-[10px] text-muted-foreground/70">· {items.length}</span>
+    <div className="px-4 md:px-5 py-3.5 bg-surface/40 border-t border-border/40 animate-fade-up">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {a.apr !== undefined && (
+          <Mini
+            label={isDebt ? "Annual interest cost" : "Annual interest earned"}
+            value={`${isDebt ? "−" : "+"}${fmtUSD(Math.abs(yearlyInterest), { compact: true })}`}
+            tone={isDebt ? "negative" : "positive"}
+          />
+        )}
+        {a.statementDue !== undefined && (
+          <Mini label="Statement due" value={fmtUSD(a.statementDue)} tone="warning" />
+        )}
+        {a.dueDay && (
+          <Mini label="Due day" value={`Day ${a.dueDay}`} tone="info" />
+        )}
+        {a.emi !== undefined && (
+          <Mini label="Monthly payment" value={fmtUSD(a.emi)} tone="warning" />
+        )}
+        {a.termMonthsLeft && (
+          <Mini label="Months remaining" value={`${a.termMonthsLeft}`} tone="info" />
+        )}
+        {utilization !== null && (
+          <Mini
+            label="Credit used"
+            value={`${(utilization * 100).toFixed(0)}% of ${fmtUSD(a.limit!, { compact: true })}`}
+            tone={utilization > 0.5 ? "negative" : utilization > 0.3 ? "warning" : "positive"}
+          />
+        )}
+      </div>
+
+      {progress !== null && (
+        <div className="mt-3">
+          <div className="flex justify-between text-[10.5px] text-muted-foreground tabular mb-1">
+            <span>Paid off {progress.toFixed(0)}%</span>
+            <span>{fmtUSD(a.originalBalance!, { compact: true })} original</span>
+          </div>
+          <div className="h-1 rounded-full bg-secondary overflow-hidden">
+            <div className="h-full rounded-full bg-positive transition-all" style={{ width: `${progress}%` }} />
+          </div>
         </div>
-        <span className={cn(
-          "text-[11px] tabular font-medium",
-          isDebt ? "text-negative" : "text-foreground"
-        )}>
-          {isDebt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
-        </span>
-      </div>
-      <div className="divide-y divide-border/30">
-        {items.map((a) => <AccountRow key={a.id} account={a} onClick={() => onPick(a)} />)}
-      </div>
+      )}
+
+      {a.promo && (
+        <div className="mt-3 inline-flex items-center gap-1.5 chip chip-positive">
+          <Sparkles className="h-3 w-3" /> {a.promo}
+        </div>
+      )}
+
+      <button className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+        <ExternalLink className="h-3 w-3" /> Open at {a.institution}
+      </button>
     </div>
   );
 };
 
-/* ---------------------- bucket card ---------------------- */
-const BucketCard = ({
-  bucket,
-  items,
-  onPick,
-  open,
-  onToggle,
+const Mini = ({ label, value, tone }: { label: string; value: string; tone: "positive" | "negative" | "info" | "warning" }) => (
+  <div>
+    <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className={cn("text-[12.5px] tabular font-medium mt-0.5", toneText[tone])}>{value}</div>
+  </div>
+);
+
+/* ---------------- compact row ---------------- */
+const AccountRow = ({
+  a, expanded, onToggle,
+}: { a: Account; expanded: boolean; onToggle: () => void }) => {
+  const Icon = a.icon;
+  const isDebt = a.balance < 0;
+  const trendUp = a.trend30d > 0;
+  const trendGood = isDebt ? !trendUp : trendUp;
+  const utilization = a.limit ? Math.abs(a.balance) / a.limit : null;
+
+  return (
+    <Fragment>
+      <button
+        onClick={onToggle}
+        className={cn(
+          "w-full grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-4 md:px-5 py-2.5 text-left transition-colors",
+          expanded ? "bg-surface-hover/40" : "hover:bg-surface-hover/30",
+        )}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <ChevronRight className={cn("h-3 w-3 text-muted-foreground transition-transform shrink-0", expanded && "rotate-90")} />
+          <div className={cn("h-7 w-7 rounded-md grid place-items-center bg-secondary/50 border border-border/50 shrink-0", accentText[a.accent])}>
+            <Icon className="h-3.5 w-3.5" />
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[13px] text-foreground truncate">{a.name}</span>
+            {a.isPayingAccount && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-info/30 bg-info/10 text-info">
+                Pays bills
+              </span>
+            )}
+            {a.promo && (
+              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive">
+                0% APR
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-[10.5px] text-muted-foreground tabular">
+            <span>{a.institution}{a.last4 && ` ··${a.last4}`}</span>
+            {a.apr !== undefined && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{a.apr.toFixed(2)}% {isDebt ? "APR" : "APY"}</span>
+              </>
+            )}
+            {a.emi && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className="text-warning">{fmtUSD(a.emi, { compact: true })}/mo</span>
+              </>
+            )}
+            {utilization !== null && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className={cn(
+                  utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "",
+                )}>
+                  {(utilization * 100).toFixed(0)}% used
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className={cn(
+          "inline-flex items-center gap-0.5 text-[10.5px] tabular",
+          trendGood ? "text-positive" : "text-negative",
+        )}>
+          {trendUp ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+          {fmtPct(a.trend30d, 1)}
+        </div>
+
+        <div className={cn(
+          "text-right text-[13.5px] font-medium tabular w-24",
+          isDebt ? "text-negative" : "text-foreground",
+        )}>
+          {isDebt ? "−" : ""}{fmtUSD(Math.abs(a.balance), { compact: true })}
+        </div>
+      </button>
+
+      {expanded && <DetailRow a={a} />}
+    </Fragment>
+  );
+};
+
+/* ---------------- bucket table ---------------- */
+const BucketTable = ({
+  bucket, items, expandedId, onToggle, defaultOpen = true,
 }: {
   bucket: Bucket;
   items: Account[];
-  onPick: (a: Account) => void;
-  open: boolean;
-  onToggle: () => void;
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+  defaultOpen?: boolean;
 }) => {
+  const [open, setOpen] = useState(defaultOpen);
   const meta = bucketMeta[bucket];
   if (items.length === 0) return null;
 
-  // Group by institution
-  const byInst = items.reduce<Record<string, Account[]>>((acc, a) => {
-    (acc[a.institution] ??= []).push(a);
-    return acc;
-  }, {});
-
-  // Headline metrics per bucket
   const total = items.reduce((s, a) => s + a.balance, 0);
-  const yearlyInterest = items.reduce((s, a) => s + (a.apr ? (a.balance * a.apr) / 100 : 0), 0);
   const monthlyEmi = items.reduce((s, a) => s + (a.emi ?? 0), 0);
   const monthlyStatement = items.reduce((s, a) => s + (a.statementDue ?? 0), 0);
-
+  const yearlyInterest = items.reduce((s, a) => s + (a.apr ? (a.balance * a.apr) / 100 : 0), 0);
   const isDebt = total < 0;
 
+  let trailing: string | null = null;
+  if (bucket === "liquid" && yearlyInterest > 0) trailing = `Earning +${fmtUSD(yearlyInterest, { compact: true })}/yr`;
+  if (bucket === "revolving") trailing = `${fmtUSD(monthlyStatement, { compact: true })} due this cycle`;
+  if (bucket === "term") trailing = `${fmtUSD(monthlyEmi, { compact: true })}/mo · ${fmtUSD(Math.abs(yearlyInterest), { compact: true })} interest/yr`;
+  if (bucket === "longterm") trailing = "Held for the future";
+
   return (
-    <div className={cn(
-      "surface-card relative overflow-hidden flex flex-col ring-1",
-      toneRing[meta.tone]
-    )}>
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-20 opacity-50 bg-gradient-to-b to-transparent"
-        style={{
-          backgroundImage: `radial-gradient(60% 80% at 50% 0%, hsl(var(--${meta.tone === "info" ? "info" : meta.tone}) / 0.10), transparent 70%)`,
-        }}
-      />
-
+    <div className="surface-card overflow-hidden">
       <button
-        onClick={onToggle}
-        className="relative px-5 pt-5 pb-4 w-full text-left hover:bg-surface-hover/30 transition-colors"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-4 px-4 md:px-5 py-3.5 hover:bg-surface-hover/40 transition-colors text-left border-b border-border/40"
       >
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0", !open && "-rotate-90")} />
+          <div className={cn("h-1.5 w-1.5 rounded-full", toneDot[meta.tone])} />
           <div className="min-w-0">
-            <div className={cn("text-[10px] uppercase tracking-[0.22em] font-medium", toneText[meta.tone])}>
-              {meta.label}
+            <div className="flex items-center gap-2">
+              <h3 className="font-display text-base md:text-lg text-foreground">{meta.label}</h3>
+              {bucket === "longterm" && <Lock className="h-3 w-3 text-muted-foreground" />}
+              <span className="text-[10.5px] text-muted-foreground tabular">· {items.length}</span>
             </div>
-            <div className="font-display text-2xl md:text-3xl tabular text-foreground mt-1">
-              {isDebt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
-            </div>
-            <div className="text-[11px] text-muted-foreground mt-1">{meta.sub}</div>
+            <div className="text-[11px] text-muted-foreground truncate">{meta.sub}</div>
           </div>
+        </div>
 
-          <div className="flex items-start gap-2 shrink-0">
-            <div className="text-right space-y-0.5">
-              {bucket === "liquid" && yearlyInterest > 0 && (
-                <Metric label="earning" value={`+${fmtUSD(yearlyInterest, { compact: true })}/yr`} tone="positive" />
-              )}
-              {bucket === "longterm" && (
-                <Metric label="locked" value={fmtUSD(Math.abs(total), { compact: true })} tone="info" icon={<Lock className="h-2.5 w-2.5" />} />
-              )}
-              {bucket === "revolving" && (
-                <Metric label="due this cycle" value={fmtUSD(monthlyStatement, { compact: true })} tone="warning" />
-              )}
-              {bucket === "term" && (
-                <>
-                  <Metric label="EMI / mo" value={fmtUSD(monthlyEmi, { compact: true })} tone="negative" />
-                  <Metric label="interest / yr" value={fmtUSD(Math.abs(yearlyInterest), { compact: true })} tone="negative" />
-                </>
-              )}
-            </div>
-            <div className={cn(
-              "h-6 w-6 mt-0.5 rounded-md grid place-items-center border border-border/60 text-muted-foreground transition-transform",
-              open && "rotate-180"
-            )}>
-              <ChevronDown className="h-3 w-3" />
-            </div>
+        <div className="text-right shrink-0">
+          <div className={cn(
+            "font-display text-xl md:text-2xl tabular leading-none",
+            isDebt ? "text-negative" : "text-foreground",
+          )}>
+            {isDebt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
           </div>
+          {trailing && (
+            <div className={cn("text-[10.5px] tabular mt-1", toneText[meta.tone])}>{trailing}</div>
+          )}
         </div>
       </button>
 
       {open && (
-        <div className="relative px-3 pb-3 space-y-2 flex-1 border-t border-border/30 pt-3 animate-fade-up">
-          {Object.entries(byInst).map(([inst, list]) => (
-            <InstitutionBlock key={inst} institution={inst} items={list} onPick={onPick} />
+        <div className="divide-y divide-border/30">
+          {items.map((a) => (
+            <AccountRow
+              key={a.id}
+              a={a}
+              expanded={expandedId === a.id}
+              onToggle={() => onToggle(a.id)}
+            />
           ))}
         </div>
       )}
@@ -237,215 +262,41 @@ const BucketCard = ({
   );
 };
 
-const Metric = ({ label, value, tone, icon }: { label: string; value: string; tone: "positive" | "negative" | "info" | "warning"; icon?: ReactNode }) => (
-  <div className="text-right">
-    <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
-    <div className={cn("text-[12px] tabular font-medium inline-flex items-center gap-1", toneText[tone])}>
-      {icon}{value}
-    </div>
-  </div>
-);
-
-/* ---------------------- detail dialog (kept tight) ---------------------- */
-const AccountDetail = ({ account, onClose }: { account: Account | null; onClose: () => void }) => {
-  if (!account) return null;
-  const Icon = account.icon;
-  const isDebt = account.balance < 0;
-  const utilization = account.limit ? Math.abs(account.balance) / account.limit : null;
-  const trendUp = account.trend30d > 0;
-  const trendGood = isDebt ? !trendUp : trendUp;
-  const yearlyInterest = account.apr !== undefined ? (account.balance * account.apr / 100) : 0;
-  const principalPaid = account.originalBalance ? account.originalBalance - Math.abs(account.balance) : null;
-  const progress = account.originalBalance ? (principalPaid! / account.originalBalance) * 100 : null;
-
-  return (
-    <Dialog open={!!account} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md surface-elevated border-border p-0 gap-0 overflow-hidden">
-        <div className="relative p-6">
-          <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
-            <X className="h-4 w-4" />
-          </button>
-
-          <div className={cn("h-11 w-11 rounded-xl grid place-items-center bg-secondary/60 border border-border-strong", accentText[account.accent])}>
-            <Icon className="h-5 w-5" />
-          </div>
-
-          <div className="mt-3 text-[11px] uppercase tracking-wider text-muted-foreground">
-            {account.institution}{account.last4 && ` · ··${account.last4}`}
-          </div>
-          <div className="font-display text-2xl text-foreground mt-0.5">{account.name}</div>
-
-          <div className={cn(
-            "mt-4 font-display text-4xl tabular",
-            isDebt ? "text-negative" : "text-foreground"
-          )}>
-            {isDebt ? "−" : ""}{fmtUSD(Math.abs(account.balance))}
-          </div>
-
-          {account.promo && (
-            <div className="mt-2 chip chip-positive">
-              <Sparkles className="h-3 w-3" /> {account.promo}
-            </div>
-          )}
-        </div>
-
-        <div className="hairline grid grid-cols-2 divide-x divide-border/60">
-          <Stat label="30-day trend" value={fmtPct(account.trend30d, 1)} accent={trendGood ? "positive" : "negative"} />
-          {account.apr !== undefined && (
-            <Stat
-              label={isDebt ? "Interest cost / yr" : "Interest earned / yr"}
-              value={`${isDebt ? "−" : "+"}${fmtUSD(Math.abs(yearlyInterest), { compact: true })}`}
-              accent={isDebt ? "negative" : "positive"}
-            />
-          )}
-        </div>
-
-        {/* Revolving extras */}
-        {account.statementDue !== undefined && (
-          <div className="hairline px-6 py-4 grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Statement due</div>
-              <div className="font-display text-lg tabular text-warning mt-0.5">{fmtUSD(account.statementDue)}</div>
-            </div>
-            {account.dueDay && (
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Due day</div>
-                <div className="font-display text-lg tabular text-foreground mt-0.5 inline-flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                  {account.dueDay}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Term loan extras */}
-        {account.emi !== undefined && (
-          <div className="hairline px-6 py-4 space-y-3">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Monthly EMI</div>
-                <div className="font-display text-lg tabular text-warning mt-0.5">{fmtUSD(account.emi)}</div>
-              </div>
-              {account.termMonthsLeft && (
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Months left</div>
-                  <div className="font-display text-lg tabular text-foreground mt-0.5">{account.termMonthsLeft}</div>
-                </div>
-              )}
-            </div>
-            {progress !== null && (
-              <div>
-                <div className="flex justify-between text-[11px] text-muted-foreground tabular mb-1.5">
-                  <span>Paid off {progress.toFixed(0)}%</span>
-                  <span>{fmtUSD(account.originalBalance!, { compact: true })} original</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full rounded-full bg-positive transition-all" style={{ width: `${progress}%` }} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {utilization !== null && (
-          <div className="hairline p-6">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground uppercase tracking-wider">Credit utilization</span>
-              <span className="tabular text-foreground">{(utilization * 100).toFixed(0)}%</span>
-            </div>
-            <div className="mt-2 h-1.5 rounded-full bg-secondary overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all",
-                  utilization > 0.5 ? "bg-negative" : utilization > 0.3 ? "bg-warning" : "bg-positive"
-                )}
-                style={{ width: `${Math.min(utilization * 100, 100)}%` }}
-              />
-            </div>
-            <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground tabular">
-              <span>{fmtUSD(Math.abs(account.balance))} used</span>
-              <span>{fmtUSD(account.limit!)} limit</span>
-            </div>
-          </div>
-        )}
-
-        <div className="hairline p-4">
-          <button className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground text-background px-3 py-2 text-xs font-medium hover:opacity-90 transition-opacity">
-            <ExternalLink className="h-3.5 w-3.5" /> Open at {account.institution}
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-const Stat = ({ label, value, accent }: { label: string; value: string; accent?: "positive" | "negative" }) => (
-  <div className="p-4">
-    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-    <div className={cn(
-      "mt-1 font-display text-lg tabular",
-      accent === "positive" && "text-positive",
-      accent === "negative" && "text-negative",
-    )}>{value}</div>
-  </div>
-);
-
-/* ---------------------- main section ---------------------- */
+/* ---------------- main ---------------- */
 export const AccountsSection = () => {
-  const [selected, setSelected] = useState<Account | null>(null);
-  const [allBucketsOpen, setAllBucketsOpen] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const byBucket = (b: Bucket) => accounts.filter((a) => a.bucket === b);
-
-  // Net worth excluding long-term locked
   const liquid = byBucket("liquid").reduce((s, a) => s + a.balance, 0);
   const revolving = byBucket("revolving").reduce((s, a) => s + a.balance, 0);
-  const spendableNetWorth = liquid + revolving;
+  const spendableNet = liquid + revolving;
+
+  const toggle = (id: string) => setExpandedId((curr) => (curr === id ? null : id));
 
   return (
-    <section className="space-y-6">
-      <div className="flex items-end justify-between">
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">01 — Overall picture</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">Where your money lives</h2>
-          <p className="text-xs text-muted-foreground mt-1.5 max-w-xl">
-            Compact rows, grouped by bank. Long-term assets are shown separately so they don't inflate what you actually have available.
-          </p>
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Your full balance sheet</div>
+          <h2 className="font-display text-xl md:text-2xl text-primary mt-0.5">Accounts</h2>
         </div>
-        <div className="hidden md:block text-right">
+        <div className="text-right">
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Spendable net</div>
           <div className={cn(
-            "font-display text-2xl tabular",
-            spendableNetWorth >= 0 ? "text-foreground" : "text-negative"
+            "font-display text-lg md:text-xl tabular",
+            spendableNet >= 0 ? "text-foreground" : "text-negative",
           )}>
-            {spendableNetWorth < 0 ? "−" : ""}{fmtUSD(Math.abs(spendableNetWorth), { compact: true })}
+            {spendableNet < 0 ? "−" : ""}{fmtUSD(Math.abs(spendableNet), { compact: true })}
           </div>
         </div>
       </div>
 
-      {/* Top row — Have & Owe (revolving + term) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <BucketCard bucket="liquid"    items={byBucket("liquid")}    onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
-        <BucketCard bucket="revolving" items={byBucket("revolving")} onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
-        <BucketCard bucket="term"      items={byBucket("term")}      onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
+      <div className="space-y-3">
+        <BucketTable bucket="liquid"    items={byBucket("liquid")}    expandedId={expandedId} onToggle={toggle} />
+        <BucketTable bucket="revolving" items={byBucket("revolving")} expandedId={expandedId} onToggle={toggle} />
+        <BucketTable bucket="term"      items={byBucket("term")}      expandedId={expandedId} onToggle={toggle} />
+        <BucketTable bucket="longterm"  items={byBucket("longterm")}  expandedId={expandedId} onToggle={toggle} defaultOpen={false} />
       </div>
-
-      {/* Long-term assets — visually demoted */}
-      <div>
-        <div className="flex items-center gap-2 px-1 mb-2">
-          <Lock className="h-3 w-3 text-muted-foreground" />
-          <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
-            Long-term & locked
-          </span>
-          <span className="text-[10px] text-muted-foreground/70">
-            · not part of "what you have" — counted toward future-you
-          </span>
-        </div>
-        <BucketCard bucket="longterm" items={byBucket("longterm")} onPick={setSelected} open={allBucketsOpen} onToggle={() => setAllBucketsOpen((value) => !value)} />
-      </div>
-
-      <AccountDetail account={selected} onClose={() => setSelected(null)} />
     </section>
   );
 };
