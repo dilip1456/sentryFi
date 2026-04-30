@@ -134,9 +134,9 @@ export const SpendingSection = () => {
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">03 — Behavior</div>
-          <h2 className="font-display text-3xl md:text-4xl mt-1 text-primary">Spending & budgets</h2>
-          <p className="text-xs text-muted-foreground mt-1.5">Tap a category to inspect transactions and edit the budget.</p>
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Behavior</div>
+          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Spending & budgets</h2>
+          <p className="text-[11.5px] text-muted-foreground mt-1">Tap a category to inspect transactions and adjust the budget.</p>
         </div>
 
         <div className="inline-flex p-1 rounded-full border border-border bg-surface">
