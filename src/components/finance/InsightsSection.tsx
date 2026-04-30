@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Lightbulb, ArrowRight, Check, X, AlertCircle, Sparkles, TrendingUp, Coins, CreditCard, Receipt } from "lucide-react";
+import { ArrowRight, Check, X, AlertCircle, Sparkles, TrendingUp, Coins, CreditCard, Receipt } from "lucide-react";
 import { insights, type Insight } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -137,33 +137,16 @@ export const InsightsSection = ({ compact = false }: { compact?: boolean } = {})
   const open = visible.find((i) => i.id === openId) ?? null;
 
   return (
-    <section className="space-y-3">
-      {!compact && (
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Intelligence</div>
-            <h2 className="font-display text-2xl md:text-3xl mt-1 text-primary">
-              Insights & opportunities
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1.5">Tap a card to see the analysis and apply.</p>
-          </div>
-
-          <div className="surface-card px-4 py-2.5 flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-positive/15 grid place-items-center">
-              <Lightbulb className="h-4 w-4 text-positive" />
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Annualized opportunity</div>
-              <div className="font-display text-lg tabular text-positive">+${totalImpact.toLocaleString()} / yr</div>
-            </div>
-          </div>
+    <section className={cn("space-y-3", compact && "surface-card p-4")}>
+      {compact ? (
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-base md:text-lg text-primary">Opportunities</h2>
+          <span className="font-display text-sm tabular text-positive">+${totalImpact.toLocaleString()}/yr</span>
         </div>
-      )}
-
-      {compact && (
-        <div className="flex items-center justify-between text-[11px] mb-1">
-          <span className="text-muted-foreground">Annualized opportunity</span>
-          <span className="font-display text-base tabular text-positive">+${totalImpact.toLocaleString()} / yr</span>
+      ) : (
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <h2 className="font-display text-xl md:text-2xl text-primary">Opportunities</h2>
+          <span className="font-display text-base tabular text-positive">+${totalImpact.toLocaleString()}/yr potential</span>
         </div>
       )}
 

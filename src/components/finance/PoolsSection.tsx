@@ -177,7 +177,7 @@ const PoolDetail = ({
   );
 };
 
-export const PoolsSection = () => {
+export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) => {
   const [pools, setPools] = useState<Pool[]>(initialPools);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [salary, setSalary] = useState(SALARY_DEFAULT);
@@ -196,19 +196,20 @@ export const PoolsSection = () => {
   const deletePool = (id: string) => setPools((prev) => prev.filter((p) => p.id !== id));
 
   return (
-    <section className="space-y-6">
-      <div className="flex items-end justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Allocation rules</div>
-          <h2 className="font-display text-xl md:text-2xl mt-0.5 text-primary">Virtual savings pools</h2>
-          <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
-            Keep one high-yield savings account, but slice it into named pools. Rules move money on payday — what's left is what you actually have to spend.
-          </p>
+    <section className="space-y-5">
+      {!embedded && (
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="font-display text-xl md:text-2xl text-primary">Virtual savings pools</h2>
+            <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
+              Slice one HYSA into named pools. Rules move money on payday — what's left is yours to spend.
+            </p>
+          </div>
+          <button className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <Settings2 className="h-3.5 w-3.5" /> Edit rules
+          </button>
         </div>
-        <button className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-          <Settings2 className="h-3.5 w-3.5" /> Edit rules
-        </button>
-      </div>
+      )}
 
       {/* Top row: salary allocation + truly available */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
