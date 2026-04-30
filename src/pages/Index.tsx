@@ -4,6 +4,8 @@ import { NetWorthHeader } from "@/components/finance/NetWorthHeader";
 import { AccountsSection } from "@/components/finance/AccountsSection";
 import { PoolsSection } from "@/components/finance/PoolsSection";
 import { InsightsSection } from "@/components/finance/InsightsSection";
+import { ActionableItems } from "@/components/finance/ActionableItems";
+import { UpcomingTransactions } from "@/components/finance/UpcomingTransactions";
 import { SpendingSection } from "@/components/finance/SpendingSection";
 import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
 import { BenefitsSection } from "@/components/finance/BenefitsSection";
@@ -19,11 +21,11 @@ import {
 type View = "overall" | "monthly" | "benefits" | "deals" | "spending";
 
 const TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
-  { k: "overall",  label: "Overview",  icon: LayoutDashboard, sub: "Net worth & accounts" },
-  { k: "monthly",  label: "Monthly",   icon: CalendarClock,   sub: "Cash flow & bills" },
-  { k: "benefits", label: "Benefits",  icon: Sparkles,        sub: "Card perks & refi" },
-  { k: "deals",    label: "Deals",     icon: Tag,             sub: "Cashback & offers" },
-  { k: "spending", label: "Spending",  icon: PieChart,        sub: "Budgets & insights" },
+  { k: "overall",  label: "Home",      icon: LayoutDashboard, sub: "What needs attention today" },
+  { k: "monthly",  label: "Monthly",   icon: CalendarClock,   sub: "This month's cash flow" },
+  { k: "benefits", label: "Benefits",  icon: Sparkles,        sub: "Card perks & refinancing" },
+  { k: "deals",    label: "Deals",     icon: Tag,             sub: "Cashback offers across cards" },
+  { k: "spending", label: "Spending",  icon: PieChart,        sub: "Budgets & transactions" },
 ];
 
 const Index = () => {
@@ -39,8 +41,8 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <TopBar active={view} onChange={(v) => setView(v as View)} tabs={TABS.map((t) => ({ k: t.k, label: t.label }))} />
 
-      <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
-        {/* Tab strip — mobile-friendly chip switcher */}
+      <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-6 md:py-8 space-y-5">
+        {/* Mobile chip switcher */}
         <div className="md:hidden -mx-4 px-4 overflow-x-auto">
           <div className="inline-flex p-1 rounded-full border border-border bg-surface/60 min-w-max">
             {TABS.map((t) => {
@@ -75,27 +77,36 @@ const Index = () => {
         </div>
 
         {view === "overall" && (
-          <div className="space-y-4 animate-fade-up">
+          <div className="space-y-5 animate-fade-up">
+            {/* Two-column hero: Actionable on the LEFT, Insights on the right */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ActionableItems />
+              <CollapsibleSection
+                eyebrow="Insights & opportunities"
+                title="Ways to optimize"
+                subtitle="Pattern-based suggestions worth reviewing."
+                defaultOpen
+              >
+                <InsightsSection compact />
+              </CollapsibleSection>
+            </div>
+
+            {/* Net worth — slimmer, below the fold */}
             <NetWorthHeader netWorth={netWorth} assets={assets} liabilities={liabilities} />
+
+            {/* Accounts — the full balance sheet as compact tables */}
             <AccountsSection />
-            <CollapsibleSection
-              eyebrow="Intelligence"
-              title="Insights & opportunities"
-              subtitle="Tap a card to see analysis & apply suggestions."
-              defaultOpen={false}
-            >
-              <InsightsSection />
-            </CollapsibleSection>
           </div>
         )}
 
         {view === "monthly" && (
-          <div className="space-y-4 animate-fade-up">
+          <div className="space-y-5 animate-fade-up">
+            <UpcomingTransactions />
             <MonthlyMaintenance />
             <CollapsibleSection
               eyebrow="Allocation"
-              title="Virtual pools"
-              subtitle="Slice one HYSA into named buckets driven by salary rules."
+              title="Virtual savings pools"
+              subtitle="Slice one high-yield savings account into named buckets driven by salary rules."
               defaultOpen={false}
             >
               <PoolsSection />
@@ -108,16 +119,8 @@ const Index = () => {
         {view === "deals" && <DealsSection />}
 
         {view === "spending" && (
-          <div className="space-y-4 animate-fade-up">
+          <div className="space-y-5 animate-fade-up">
             <SpendingSection />
-            <CollapsibleSection
-              eyebrow="Insights"
-              title="Spending opportunities"
-              subtitle="Pattern-based suggestions from your last 30 days."
-              defaultOpen={false}
-            >
-              <InsightsSection />
-            </CollapsibleSection>
           </div>
         )}
 
