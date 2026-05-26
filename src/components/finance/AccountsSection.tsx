@@ -1,7 +1,7 @@
 import { useState, Fragment } from "react";
 import {
-  TrendingUp, TrendingDown, ChevronDown, ChevronRight, Lock, Calendar,
-  ExternalLink, Sparkles,
+  TrendingUp, TrendingDown, ChevronDown, ChevronRight, Lock,
+  ExternalLink, Sparkles, Plus,
 } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
 import { accounts, type Account, type Bucket, bucketMeta } from "@/lib/finance-data";
