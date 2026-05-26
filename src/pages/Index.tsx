@@ -83,7 +83,7 @@ const Index = () => {
             </div>
 
             {/* Accounts — full balance sheet */}
-            <AccountsSection />
+            <AccountsSection onAddAccount={() => setLinkOpen(true)} />
           </div>
         )}
 
