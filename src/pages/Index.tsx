@@ -31,6 +31,7 @@ const TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 
 const Index = () => {
   const [view, setView] = useState<View>("overall");
+  const [linkOpen, setLinkOpen] = useState(false);
 
   const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
@@ -38,7 +39,13 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar active={view} onChange={(v) => setView(v as View)} tabs={TABS.map((t) => ({ k: t.k, label: t.label }))} />
+      <TopBar
+        active={view}
+        onChange={(v) => setView(v as View)}
+        tabs={TABS.map((t) => ({ k: t.k, label: t.label }))}
+        onAddAccount={() => setLinkOpen(true)}
+      />
+      <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} />
 
       <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-5 md:py-6 space-y-4">
         {/* Mobile chip switcher */}
