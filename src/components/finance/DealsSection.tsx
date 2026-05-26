@@ -207,41 +207,36 @@ export const DealsSection = () => {
   }, {});
 
   return (
-    <div className="space-y-5 animate-fade-up">
-      {/* Headline */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="surface-card p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-positive/10 border border-positive/20 text-positive grid place-items-center">
-            <Tag className="h-4 w-4" />
+    <div className="space-y-4 animate-fade-up">
+      {/* Compact summary strip */}
+      <div className="surface-card px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-5 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-md bg-positive/10 border border-positive/20 text-positive grid place-items-center">
+              <Tag className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground leading-none">Total potential</div>
+              <div className="font-display text-base tabular text-foreground leading-tight mt-0.5">{fmtUSD(totalPotential, { compact: true })}</div>
+            </div>
           </div>
-          <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total reward potential</div>
-            <div className="font-display text-xl tabular text-foreground">{fmtUSD(totalPotential, { compact: true })}</div>
-            <div className="text-[10.5px] text-muted-foreground">If you max all {offers.length} offers</div>
-          </div>
-        </div>
-        <div className="surface-card p-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-info/10 border border-info/20 text-info grid place-items-center">
-            <CheckCheck className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Currently active</div>
-            <div className="font-display text-xl tabular text-foreground">{fmtUSD(totalActive, { compact: true })}</div>
-            <div className="text-[10.5px] text-muted-foreground tabular">{optInPct.toFixed(0)}% of offers opted in</div>
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-md bg-info/10 border border-info/20 text-info grid place-items-center">
+              <CheckCheck className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground leading-none">Active</div>
+              <div className="font-display text-base tabular text-foreground leading-tight mt-0.5">
+                {fmtUSD(totalActive, { compact: true })} <span className="text-[10.5px] text-muted-foreground">· {optInPct.toFixed(0)}%</span>
+              </div>
+            </div>
           </div>
         </div>
         <button
           onClick={optInAll}
-          className="surface-card p-4 flex items-center gap-3 hover:border-border-strong transition-colors text-left group"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-foreground text-background text-[12px] font-medium hover:opacity-90"
         >
-          <div className="h-10 w-10 rounded-lg bg-foreground text-background grid place-items-center group-hover:scale-105 transition-transform">
-            <Zap className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">One-tap action</div>
-            <div className="font-display text-base text-foreground leading-tight">Auto opt-in all offers</div>
-            <div className="text-[10.5px] text-muted-foreground">Across Amex, Chase, Citi & Apple</div>
-          </div>
+          <Zap className="h-3.5 w-3.5" /> Auto opt-in all
         </button>
       </div>
 
