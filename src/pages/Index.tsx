@@ -11,6 +11,7 @@ import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
 import { BenefitsSection } from "@/components/finance/BenefitsSection";
 import { DealsSection } from "@/components/finance/DealsSection";
 import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
+import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { accounts } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
 import {
