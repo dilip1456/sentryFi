@@ -291,10 +291,9 @@ export const MonthlyMaintenance = () => {
         </div>
       </div>
 
-      {/* Detail groups */}
+      {/* Detail groups — only subscriptions, pools, spending.
+          EMIs and card statements live in the Upcoming Transactions panel above. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <FlowGroup kind="emi"          rows={emiRows}       total={totalEmi} />
-        <FlowGroup kind="statement"    rows={statementRows} total={totalStmt} />
         <FlowGroup
           kind="subscription"
           rows={subRows}

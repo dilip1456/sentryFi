@@ -1,7 +1,7 @@
 import { useState, Fragment } from "react";
 import {
-  TrendingUp, TrendingDown, ChevronDown, ChevronRight, Lock, Calendar,
-  ExternalLink, Sparkles,
+  TrendingUp, TrendingDown, ChevronDown, ChevronRight, Lock,
+  ExternalLink, Sparkles, Plus,
 } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
 import { accounts, type Account, type Bucket, bucketMeta } from "@/lib/finance-data";
@@ -263,7 +263,7 @@ const BucketTable = ({
 };
 
 /* ---------------- main ---------------- */
-export const AccountsSection = () => {
+export const AccountsSection = ({ onAddAccount }: { onAddAccount?: () => void } = {}) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const byBucket = (b: Bucket) => accounts.filter((a) => a.bucket === b);
@@ -281,6 +281,15 @@ export const AccountsSection = () => {
         <BucketTable bucket="revolving" items={byBucket("revolving")} expandedId={expandedId} onToggle={toggle} />
         <BucketTable bucket="term"      items={byBucket("term")}      expandedId={expandedId} onToggle={toggle} />
         <BucketTable bucket="longterm"  items={byBucket("longterm")}  expandedId={expandedId} onToggle={toggle} defaultOpen={false} />
+
+        {onAddAccount && (
+          <button
+            onClick={onAddAccount}
+            className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[12px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
+          </button>
+        )}
       </div>
     </section>
   );

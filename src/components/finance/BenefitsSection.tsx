@@ -207,12 +207,15 @@ export const BenefitsSection = () => {
   []);
 
   return (
-    <div className="space-y-5 animate-fade-up">
-      {/* Headline */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Headline label="Benefits annual value" value={fmtUSD(totalAnnual, { compact: true })} sub="Across all your cards" tone="info" icon={<Sparkles className="h-4 w-4" />} />
-        <Headline label="Unused this cycle"     value={fmtUSD(leftOnTable, { compact: true })} sub="Money on the table — claim it" tone="warning" icon={<AlertCircle className="h-4 w-4" />} />
-        <Headline label="Refinance opportunity" value={fmtUSD(refiSavings, { compact: true })} sub="Lifetime savings if you switch"  tone="positive" icon={<TrendingDown className="h-4 w-4" />} />
+    <div className="space-y-4 animate-fade-up">
+      {/* Compact summary strip */}
+      <div className="surface-card px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-5 flex-wrap">
+          <Inline icon={<Sparkles className="h-3.5 w-3.5" />} label="Annual value" value={fmtUSD(totalAnnual, { compact: true })} tone="info" />
+          <Inline icon={<AlertCircle className="h-3.5 w-3.5" />} label="Unused this cycle" value={fmtUSD(leftOnTable, { compact: true })} tone="warning" />
+          <Inline icon={<TrendingDown className="h-3.5 w-3.5" />} label="Refi opportunity" value={fmtUSD(refiSavings, { compact: true })} tone="positive" />
+        </div>
+        <div className="text-[11px] text-muted-foreground">Across {cardBenefits.length} perks · {refinanceOptions.length} loan offers</div>
       </div>
 
       {/* Card benefits */}
@@ -268,19 +271,18 @@ export const BenefitsSection = () => {
   );
 };
 
-const Headline = ({ label, value, sub, tone, icon }: { label: string; value: string; sub: string; tone: "info" | "warning" | "positive"; icon: React.ReactNode }) => {
+const Inline = ({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: "info" | "warning" | "positive" }) => {
   const toneClass = {
     info: "text-info bg-info/10 border-info/20",
     warning: "text-warning bg-warning/10 border-warning/20",
     positive: "text-positive bg-positive/10 border-positive/20",
   }[tone];
   return (
-    <div className="surface-card p-4 flex items-center gap-3">
-      <div className={cn("h-10 w-10 rounded-lg grid place-items-center border", toneClass)}>{icon}</div>
-      <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className="font-display text-xl tabular text-foreground leading-tight">{value}</div>
-        <div className="text-[10.5px] text-muted-foreground truncate">{sub}</div>
+    <div className="flex items-center gap-2">
+      <div className={cn("h-7 w-7 rounded-md grid place-items-center border", toneClass)}>{icon}</div>
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground leading-none">{label}</div>
+        <div className="font-display text-base tabular text-foreground leading-tight mt-0.5">{value}</div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { Bell, Search, Settings } from "lucide-react";
+import { Bell, Search, Settings, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TopBarTab { k: string; label: string }
@@ -6,9 +6,10 @@ interface Props {
   active?: string;
   onChange?: (k: string) => void;
   tabs?: TopBarTab[];
+  onAddAccount?: () => void;
 }
 
-export const TopBar = ({ active, onChange, tabs }: Props) => {
+export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
   const navItems: TopBarTab[] = tabs ?? [
     { k: "overall", label: "Overview" },
     { k: "monthly", label: "Monthly" },
@@ -48,6 +49,14 @@ export const TopBar = ({ active, onChange, tabs }: Props) => {
         </nav>
 
         <div className="flex items-center gap-1 shrink-0">
+          {onAddAccount && (
+            <button
+              onClick={onAddAccount}
+              className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-positive/15 border border-positive/30 text-positive hover:bg-positive/20 transition-colors text-[12px] font-medium"
+            >
+              <Plus className="h-3.5 w-3.5" /> Link account
+            </button>
+          )}
           <button className="h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
             <Search className="h-4 w-4" />
           </button>
