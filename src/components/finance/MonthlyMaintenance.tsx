@@ -6,7 +6,7 @@ import {
 import { fmtUSD } from "@/lib/format";
 import { accounts, subscriptions, spendCategories } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 type RowKind = "income" | "emi" | "statement" | "subscription" | "pool" | "spending";
 
@@ -311,6 +311,8 @@ export const MonthlyMaintenance = () => {
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
         <DialogContent className="max-w-md surface-elevated p-0">
+          <DialogTitle className="sr-only">How this works</DialogTitle>
+          <DialogDescription className="sr-only">Explanation of the monthly view versus the overall view.</DialogDescription>
           <div className="p-6 relative">
             <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover">
               <X className="h-4 w-4" />
