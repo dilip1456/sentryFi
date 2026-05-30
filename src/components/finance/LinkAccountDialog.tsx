@@ -61,6 +61,8 @@ export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : close())}>
       <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Link a new account</DialogTitle>
+        <DialogDescription className="sr-only">Connect a bank, credit card, brokerage, or loan servicer via Plaid.</DialogDescription>
         {/* Header */}
         <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
