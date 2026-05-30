@@ -74,6 +74,8 @@ const BenefitDetail = ({ b, onClose }: { b: CardBenefit | null; onClose: () => v
   return (
     <Dialog open={!!b} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">{b.name}</DialogTitle>
+        <DialogDescription className="sr-only">{b.cardName} benefit details.</DialogDescription>
         <div className="p-6 relative">
           <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover">
             <X className="h-4 w-4" />
