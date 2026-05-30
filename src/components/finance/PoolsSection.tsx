@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 type PoolAccent = "mint" | "sky" | "amber" | "coral" | "violet" | "rose";
 

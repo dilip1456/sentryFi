@@ -3,7 +3,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { spendCategories, monthlySpendSeries, recentTransactions, type SpendCategory } from "@/lib/finance-data";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { X, Pencil, ArrowRight } from "lucide-react";
 
 type View = "categories" | "trend" | "transactions";

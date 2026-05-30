@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowRight, Check, X, AlertCircle, Sparkles, TrendingUp, Coins, CreditCard, Receipt } from "lucide-react";
 import { insights, type Insight } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const severityStyles: Record<Insight["severity"], { dot: string; label: string; chip: string }> = {
   high:   { dot: "bg-negative", label: "High",   chip: "chip-negative" },

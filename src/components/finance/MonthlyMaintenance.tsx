@@ -6,7 +6,7 @@ import {
 import { fmtUSD } from "@/lib/format";
 import { accounts, subscriptions, spendCategories } from "@/lib/finance-data";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 type RowKind = "income" | "emi" | "statement" | "subscription" | "pool" | "spending";
 
