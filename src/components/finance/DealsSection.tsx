@@ -55,6 +55,8 @@ const OfferDetail = ({ o, onClose }: { o: CardOffer | null; onClose: () => void 
   return (
     <Dialog open={!!o} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-sm surface-elevated p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">{o.merchant}</DialogTitle>
+        <DialogDescription className="sr-only">Cashback offer details.</DialogDescription>
         <div className="p-6 relative">
           <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover">
             <X className="h-4 w-4" />
