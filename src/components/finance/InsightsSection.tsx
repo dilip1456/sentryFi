@@ -66,6 +66,8 @@ const InsightDialog = ({ insight, onClose, onDismiss }: {
   return (
     <Dialog open={!!insight} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">{insight.title}</DialogTitle>
+        <DialogDescription className="sr-only">Insight details and recommended action.</DialogDescription>
         <div className="relative p-6 pb-4">
           <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
