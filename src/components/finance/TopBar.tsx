@@ -224,29 +224,35 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
           {/* Profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground">
-                JR
+              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground overflow-hidden">
+                {profile?.avatar_url
+                  ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
+                  : initials}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60 surface-elevated">
               <div className="px-2 py-2">
-                <div className="text-[12.5px] text-foreground font-medium">Jordan Reeves</div>
-                <div className="text-[10.5px] text-muted-foreground">jordan@atlasfinance.app</div>
+                <div className="text-[12.5px] text-foreground font-medium truncate">{displayName}</div>
+                <div className="text-[10.5px] text-muted-foreground truncate">{user?.email}</div>
+                <div className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-foreground">{subscriber?.plan ?? "free"}</span>
+                  {isAdmin && <span className="px-1.5 py-0.5 rounded bg-info/15 text-info">admin</span>}
+                </div>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-[12px]" onClick={() => setProfileOpen(true)}>
-                <User className="h-3.5 w-3.5 mr-2" /> View profile
+                <User className="h-3.5 w-3.5 mr-2" /> Edit profile
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-[12px]" onClick={() => navigate("/pricing")}>
+                <CreditCard className="h-3.5 w-3.5 mr-2" /> Plans & billing
               </DropdownMenuItem>
               <DropdownMenuItem className="text-[12px]" onClick={() => { onAddAccount?.(); }}>
-                <CreditCard className="h-3.5 w-3.5 mr-2" /> Linked accounts
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-[12px]" onClick={() => toast("Security center opened")}>
-                <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Security
+                <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Linked accounts
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-[12px] text-negative focus:text-negative"
-                onClick={() => toast.success("Signed out")}
+                onClick={async () => { await signOut(); toast.success("Signed out"); navigate("/auth"); }}
               >
                 <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
               </DropdownMenuItem>
