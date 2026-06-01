@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -12,6 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { ProfileDialog } from "./ProfileDialog";
 
 interface TopBarTab { k: string; label: string }
 interface Props {
