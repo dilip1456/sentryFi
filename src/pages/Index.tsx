@@ -34,6 +34,11 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 const Index = () => {
   const [view, setView] = useState<View>("overall");
   const [linkOpen, setLinkOpen] = useState(false);
+  const { isAdmin } = useAuth();
+  const TABS = useMemo(
+    () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
+    [isAdmin]
+  );
 
   const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
