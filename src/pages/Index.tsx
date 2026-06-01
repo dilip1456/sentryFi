@@ -111,6 +111,7 @@ const Index = () => {
         {view === "benefits" && <BenefitsSection />}
         {view === "deals" && <DealsSection />}
         {view === "spending" && <SpendingSection />}
+        {view === "admin" && isAdmin && <AdminUsersSection />}
 
         <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
           Atlas · Demo data · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
