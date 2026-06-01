@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -12,6 +13,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
+import { ProfileDialog } from "./ProfileDialog";
 
 interface TopBarTab { k: string; label: string }
 interface Props {
@@ -45,6 +48,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
     { k: "spending", label: "Spending" },
   ];
 
+  const { user, profile, subscriber, isAdmin, signOut } = useAuth();
+  const navigate = useNavigate();
   const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -54,6 +59,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
   const [alertsEmail, setAlertsEmail] = useState(true);
   const [alertsPush, setAlertsPush] = useState(true);
 
+  const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? "You";
+  const initials = displayName.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
   const unread = notifs.filter((n) => n.unread).length;
 
   const markAll = () => setNotifs((n) => n.map((x) => ({ ...x, unread: false })));
@@ -217,29 +224,35 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
           {/* Profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground">
-                JR
+              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground overflow-hidden">
+                {profile?.avatar_url
+                  ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
+                  : initials}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60 surface-elevated">
               <div className="px-2 py-2">
-                <div className="text-[12.5px] text-foreground font-medium">Jordan Reeves</div>
-                <div className="text-[10.5px] text-muted-foreground">jordan@atlasfinance.app</div>
+                <div className="text-[12.5px] text-foreground font-medium truncate">{displayName}</div>
+                <div className="text-[10.5px] text-muted-foreground truncate">{user?.email}</div>
+                <div className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-foreground">{subscriber?.plan ?? "free"}</span>
+                  {isAdmin && <span className="px-1.5 py-0.5 rounded bg-info/15 text-info">admin</span>}
+                </div>
               </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-[12px]" onClick={() => setProfileOpen(true)}>
-                <User className="h-3.5 w-3.5 mr-2" /> View profile
+                <User className="h-3.5 w-3.5 mr-2" /> Edit profile
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-[12px]" onClick={() => navigate("/pricing")}>
+                <CreditCard className="h-3.5 w-3.5 mr-2" /> Plans & billing
               </DropdownMenuItem>
               <DropdownMenuItem className="text-[12px]" onClick={() => { onAddAccount?.(); }}>
-                <CreditCard className="h-3.5 w-3.5 mr-2" /> Linked accounts
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-[12px]" onClick={() => toast("Security center opened")}>
-                <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Security
+                <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Linked accounts
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-[12px] text-negative focus:text-negative"
-                onClick={() => toast.success("Signed out")}
+                onClick={async () => { await signOut(); toast.success("Signed out"); navigate("/auth"); }}
               >
                 <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
               </DropdownMenuItem>
@@ -286,38 +299,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
         </DialogContent>
       </Dialog>
 
-      {/* Profile dialog */}
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-w-sm surface-elevated p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Profile</DialogTitle>
-          <DialogDescription className="sr-only">Account profile information.</DialogDescription>
-          <div className="p-6 text-center">
-            <div className="mx-auto h-14 w-14 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-base font-semibold">JR</div>
-            <div className="mt-3 font-display text-lg text-foreground">Jordan Reeves</div>
-            <div className="text-[11.5px] text-muted-foreground">jordan@atlasfinance.app</div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Plan</div>
-                <div className="text-[12px] text-foreground mt-0.5">Premium</div>
-              </div>
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Accounts</div>
-                <div className="text-[12px] text-foreground mt-0.5">12</div>
-              </div>
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Member</div>
-                <div className="text-[12px] text-foreground mt-0.5">2024</div>
-              </div>
-            </div>
-            <button
-              onClick={() => { setProfileOpen(false); toast.success("Profile saved"); }}
-              className="mt-5 w-full px-3 py-2 rounded-md bg-foreground text-background text-[12px] font-medium hover:opacity-90 inline-flex items-center justify-center gap-1.5"
-            >
-              <Check className="h-3.5 w-3.5" /> Done
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
     </header>
   );
 };

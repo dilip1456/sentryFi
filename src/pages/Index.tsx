@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { TopBar } from "@/components/finance/TopBar";
 import { NetWorthHeader } from "@/components/finance/NetWorthHeader";
 import { AccountsSection } from "@/components/finance/AccountsSection";
@@ -12,16 +12,18 @@ import { BenefitsSection } from "@/components/finance/BenefitsSection";
 import { DealsSection } from "@/components/finance/DealsSection";
 import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
+import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { accounts } from "@/lib/finance-data";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, CalendarClock, Sparkles, Tag, PieChart,
+  LayoutDashboard, CalendarClock, Sparkles, Tag, PieChart, Users,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "deals" | "spending";
+type View = "overall" | "monthly" | "benefits" | "deals" | "spending" | "admin";
 
-const TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
+const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
   { k: "overall",  label: "Home",      icon: LayoutDashboard, sub: "What needs attention today" },
   { k: "monthly",  label: "Monthly",   icon: CalendarClock,   sub: "This month's cash flow" },
   { k: "benefits", label: "Benefits",  icon: Sparkles,        sub: "Card perks & refinancing" },
@@ -32,6 +34,11 @@ const TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 const Index = () => {
   const [view, setView] = useState<View>("overall");
   const [linkOpen, setLinkOpen] = useState(false);
+  const { isAdmin } = useAuth();
+  const TABS = useMemo(
+    () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
+    [isAdmin]
+  );
 
   const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
@@ -104,6 +111,7 @@ const Index = () => {
         {view === "benefits" && <BenefitsSection />}
         {view === "deals" && <DealsSection />}
         {view === "spending" && <SpendingSection />}
+        {view === "admin" && isAdmin && <AdminUsersSection />}
 
         <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
           Atlas · Demo data · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
