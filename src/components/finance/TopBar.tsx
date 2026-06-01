@@ -48,6 +48,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
     { k: "spending", label: "Spending" },
   ];
 
+  const { user, profile, subscriber, isAdmin, signOut } = useAuth();
+  const navigate = useNavigate();
   const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -57,6 +59,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
   const [alertsEmail, setAlertsEmail] = useState(true);
   const [alertsPush, setAlertsPush] = useState(true);
 
+  const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? "You";
+  const initials = displayName.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
   const unread = notifs.filter((n) => n.unread).length;
 
   const markAll = () => setNotifs((n) => n.map((x) => ({ ...x, unread: false })));
