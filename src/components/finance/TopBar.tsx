@@ -299,38 +299,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
         </DialogContent>
       </Dialog>
 
-      {/* Profile dialog */}
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="max-w-sm surface-elevated p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Profile</DialogTitle>
-          <DialogDescription className="sr-only">Account profile information.</DialogDescription>
-          <div className="p-6 text-center">
-            <div className="mx-auto h-14 w-14 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-base font-semibold">JR</div>
-            <div className="mt-3 font-display text-lg text-foreground">Jordan Reeves</div>
-            <div className="text-[11.5px] text-muted-foreground">jordan@atlasfinance.app</div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Plan</div>
-                <div className="text-[12px] text-foreground mt-0.5">Premium</div>
-              </div>
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Accounts</div>
-                <div className="text-[12px] text-foreground mt-0.5">12</div>
-              </div>
-              <div className="rounded-md border border-border/60 bg-surface/40 py-2">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Member</div>
-                <div className="text-[12px] text-foreground mt-0.5">2024</div>
-              </div>
-            </div>
-            <button
-              onClick={() => { setProfileOpen(false); toast.success("Profile saved"); }}
-              className="mt-5 w-full px-3 py-2 rounded-md bg-foreground text-background text-[12px] font-medium hover:opacity-90 inline-flex items-center justify-center gap-1.5"
-            >
-              <Check className="h-3.5 w-3.5" /> Done
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
     </header>
   );
 };
