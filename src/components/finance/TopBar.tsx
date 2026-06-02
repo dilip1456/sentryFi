@@ -189,11 +189,19 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
                 checked={dark}
-                onCheckedChange={(v) => { setDark(!!v); toast(`${v ? "Dark" : "Light"} theme enabled`); }}
+                onCheckedChange={(v) => { setTheme(v ? "dark" : "light"); toast(`${v ? "Dark" : "Light"} theme enabled`); }}
                 className="text-[12px]"
               >
                 {dark ? <Moon className="h-3.5 w-3.5 mr-2" /> : <Sun className="h-3.5 w-3.5 mr-2" />}
                 Dark theme
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={demo}
+                onCheckedChange={(v) => { setDemo(!!v); toast(`Demo mode ${v ? "on — showing sample data" : "off — showing your real accounts"}`); }}
+                className="text-[12px]"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-2" />
+                Demo mode
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={compact}
