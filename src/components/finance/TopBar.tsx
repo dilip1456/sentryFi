@@ -52,11 +52,13 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
 
   const { user, profile, subscriber, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
+  const { demo, setDemo } = useDemo();
+  const dark = theme === "dark";
   const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [dark, setDark] = useState(true);
   const [compact, setCompact] = useState(false);
   const [alertsEmail, setAlertsEmail] = useState(true);
   const [alertsPush, setAlertsPush] = useState(true);
