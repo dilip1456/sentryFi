@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2 } from "lucide-react";
+import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -14,6 +14,8 @@ import {
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
+import { useDemo } from "@/contexts/DemoContext";
 import { ProfileDialog } from "./ProfileDialog";
 
 interface TopBarTab { k: string; label: string }
