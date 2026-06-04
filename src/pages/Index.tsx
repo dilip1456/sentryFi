@@ -76,7 +76,7 @@ const Index = () => {
         tabs={TABS.map((t) => ({ k: t.k, label: t.label }))}
         onAddAccount={() => setLinkOpen(true)}
       />
-      <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} />
+      <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
 
       <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-5 md:py-6 space-y-4">
         {!showEmpty && !showLive && (
