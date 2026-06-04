@@ -1,11 +1,15 @@
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { ShieldCheck, Lock, Building2, Sparkles, ArrowRight, Landmark, CreditCard, TrendingUp, Home } from "lucide-react";
+import { ShieldCheck, Lock, Building2, Sparkles, ArrowRight, Landmark, CreditCard, TrendingUp, Home, Loader2 } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { toast } from "sonner";
+import { useEffect, useState, useCallback } from "react";
+import { usePlaidLink } from "react-plaid-link";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  onLinked?: () => void;
 }
 
 const SUPPORTED = [
@@ -15,14 +19,56 @@ const SUPPORTED = [
   { icon: TrendingUp, label: "Brokerage & Retirement", note: "Fidelity, Vanguard, Schwab, 401(k), HSA" },
 ];
 
-export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
+export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   const { setDemo } = useDemo();
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exchanging, setExchanging] = useState(false);
+
+  useEffect(() => {
+    if (!open || linkToken) return;
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase.functions.invoke("plaid-link-token");
+      if (cancelled) return;
+      setLoading(false);
+      if (error || !data?.link_token) {
+        toast.error("Couldn't initialize Plaid", { description: error?.message ?? data?.error });
+        return;
+      }
+      setLinkToken(data.link_token);
+    })();
+    return () => { cancelled = true; };
+  }, [open, linkToken]);
+
+  const onSuccess = useCallback(async (public_token: string, metadata: any) => {
+    setExchanging(true);
+    const { data, error } = await supabase.functions.invoke("plaid-exchange-token", {
+      body: { public_token, institution: metadata?.institution },
+    });
+    setExchanging(false);
+    if (error || data?.error) {
+      toast.error("Failed to link account", { description: error?.message ?? data?.error });
+      return;
+    }
+    toast.success("Account linked — syncing transactions");
+    setDemo(false);
+    onOpenChange(false);
+    onLinked?.();
+  }, [onOpenChange, onLinked, setDemo]);
+
+  const { open: openPlaid, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess,
+  });
 
   const connect = () => {
-    toast.info("Plaid integration requires API keys", {
-      description: "Ask Lovable to enable real Plaid linking — you'll need a Plaid client_id and secret.",
-      duration: 5000,
-    });
+    if (!ready || !linkToken) {
+      toast.info("Preparing secure connection…");
+      return;
+    }
+    openPlaid();
   };
 
   const tryDemo = () => {
@@ -37,7 +83,6 @@ export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
         <DialogTitle className="sr-only">Link a new account</DialogTitle>
         <DialogDescription className="sr-only">Connect a bank, credit card, brokerage, or loan servicer via Plaid.</DialogDescription>
 
-        {/* Hero */}
         <div className="px-6 pt-6 pb-5 border-b border-border/40 text-center">
           <div className="mx-auto h-12 w-12 rounded-xl bg-gold grid place-items-center shadow-[var(--shadow-glow)]">
             <Building2 className="h-5 w-5" />
@@ -48,7 +93,6 @@ export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
           </div>
         </div>
 
-        {/* Supported categories */}
         <div className="p-4 space-y-1.5">
           {SUPPORTED.map((s) => {
             const Icon = s.icon;
@@ -66,7 +110,6 @@ export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
           })}
         </div>
 
-        {/* Trust strip */}
         <div className="mx-4 mb-4 px-3 py-2 rounded-md bg-surface/40 border border-border/40 flex items-start gap-2">
           <Lock className="h-3 w-3 mt-0.5 shrink-0 text-gold" />
           <span className="text-[10.5px] text-muted-foreground">
@@ -74,13 +117,17 @@ export const LinkAccountDialog = ({ open, onOpenChange }: Props) => {
           </span>
         </div>
 
-        {/* Actions */}
         <div className="p-4 pt-0 space-y-2">
           <button
             onClick={connect}
-            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity"
+            disabled={loading || exchanging || !ready}
+            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
           >
-            <ShieldCheck className="h-4 w-4" /> Connect with Plaid <ArrowRight className="h-3.5 w-3.5" />
+            {loading || exchanging ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> {exchanging ? "Linking…" : "Preparing…"}</>
+            ) : (
+              <><ShieldCheck className="h-4 w-4" /> Connect with Plaid <ArrowRight className="h-3.5 w-3.5" /></>
+            )}
           </button>
           <button
             onClick={tryDemo}
