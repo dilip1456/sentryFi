@@ -38,20 +38,35 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 const Index = () => {
   const [view, setView] = useState<View>("overall");
   const [linkOpen, setLinkOpen] = useState(false);
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const { demo } = useDemo();
   const TABS = useMemo(
     () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
     [isAdmin]
   );
 
+  const [hasItems, setHasItems] = useState<boolean | null>(null);
+  const checkItems = useCallback(async () => {
+    if (!user) { setHasItems(false); return; }
+    const { count } = await supabase
+      .from("plaid_items")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active");
+    setHasItems((count ?? 0) > 0);
+  }, [user]);
+  useEffect(() => { checkItems(); }, [checkItems]);
+
   const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
   const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
   const netWorth = assets + liabilities;
 
-  // New users (or anyone with demo off and no linked accounts) get the empty state.
-  // Admin tab is always available to admins regardless of demo mode.
-  const showEmpty = !demo && view !== "admin";
+  // Routing:
+  //  - demo on → show demo dashboards (existing sections)
+  //  - demo off + hasItems → show live Plaid dashboard
+  //  - demo off + no items → show empty/onboarding state
+  // Admin tab is always available to admins regardless.
+  const showLive = !demo && hasItems === true && view !== "admin";
+  const showEmpty = !demo && hasItems === false && view !== "admin";
 
   return (
     <div className="min-h-screen bg-background">
