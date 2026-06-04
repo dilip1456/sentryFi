@@ -14,6 +14,169 @@ export type Database = {
   }
   public: {
     Tables: {
+      plaid_accounts: {
+        Row: {
+          account_id: string
+          available_balance: number | null
+          created_at: string
+          current_balance: number | null
+          id: string
+          iso_currency_code: string | null
+          item_id: string
+          mask: string | null
+          name: string | null
+          official_name: string | null
+          subtype: string | null
+          type: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          available_balance?: number | null
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          iso_currency_code?: string | null
+          item_id: string
+          mask?: string | null
+          name?: string | null
+          official_name?: string | null
+          subtype?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          available_balance?: number | null
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          iso_currency_code?: string | null
+          item_id?: string
+          mask?: string | null
+          name?: string | null
+          official_name?: string | null
+          subtype?: string | null
+          type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_accounts_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plaid_items: {
+        Row: {
+          access_token: string
+          created_at: string
+          cursor: string | null
+          id: string
+          institution_id: string | null
+          institution_name: string | null
+          item_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          cursor?: string | null
+          id?: string
+          institution_id?: string | null
+          institution_name?: string | null
+          item_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          cursor?: string | null
+          id?: string
+          institution_id?: string | null
+          institution_name?: string | null
+          item_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      plaid_transactions: {
+        Row: {
+          account_id: string
+          amount: number
+          authorized_date: string | null
+          category: string[] | null
+          created_at: string
+          date: string
+          id: string
+          iso_currency_code: string | null
+          item_id: string
+          merchant_name: string | null
+          name: string | null
+          payment_channel: string | null
+          pending: boolean | null
+          transaction_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          authorized_date?: string | null
+          category?: string[] | null
+          created_at?: string
+          date: string
+          id?: string
+          iso_currency_code?: string | null
+          item_id: string
+          merchant_name?: string | null
+          name?: string | null
+          payment_channel?: string | null
+          pending?: boolean | null
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          authorized_date?: string | null
+          category?: string[] | null
+          created_at?: string
+          date?: string
+          id?: string
+          iso_currency_code?: string | null
+          item_id?: string
+          merchant_name?: string | null
+          name?: string | null
+          payment_channel?: string | null
+          pending?: boolean | null
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_transactions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
