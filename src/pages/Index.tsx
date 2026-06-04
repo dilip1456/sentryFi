@@ -79,7 +79,7 @@ const Index = () => {
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} />
 
       <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-5 md:py-6 space-y-4">
-        {!showEmpty && (
+        {!showEmpty && !showLive && (
           /* Mobile chip switcher */
           <div className="md:hidden -mx-4 px-4 overflow-x-auto">
             <div className="inline-flex p-1 rounded-full border border-border bg-surface/60 min-w-max">
@@ -104,9 +104,18 @@ const Index = () => {
           </div>
         )}
 
-        {showEmpty && <EmptyDashboard onLink={() => setLinkOpen(true)} />}
+        {showEmpty && (
+          <EmptyDashboard onLink={() => { setLinkOpen(true); }} />
+        )}
 
-        {!showEmpty && view === "overall" && (
+        {showLive && (
+          <LivePlaidDashboard
+            hasItems={hasItems === true}
+            onAddAccount={() => setLinkOpen(true)}
+          />
+        )}
+
+        {demo && view === "overall" && (
           <div className="space-y-4 animate-fade-up">
             <NetWorthHeader netWorth={netWorth} assets={assets} liabilities={liabilities} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -117,7 +126,7 @@ const Index = () => {
           </div>
         )}
 
-        {!showEmpty && view === "monthly" && (
+        {demo && view === "monthly" && (
           <div className="space-y-4 animate-fade-up">
             <UpcomingTransactions />
             <MonthlyMaintenance />
@@ -131,9 +140,9 @@ const Index = () => {
           </div>
         )}
 
-        {!showEmpty && view === "benefits" && <BenefitsSection />}
-        {!showEmpty && view === "deals" && <DealsSection />}
-        {!showEmpty && view === "spending" && <SpendingSection />}
+        {demo && view === "benefits" && <BenefitsSection />}
+        {demo && view === "deals" && <DealsSection />}
+        {demo && view === "spending" && <SpendingSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
 
         {!showEmpty && (
