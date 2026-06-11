@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 /* ============================================================
-   Atlas — Gold & Black professional finance theme
+   SentriFi — Gold & Black professional finance theme
    ============================================================ */
 
 @layer base {
@@ -63,9 +63,13 @@
     --gradient-surface: linear-gradient(180deg, hsl(0 0% 11%) 0%, hsl(0 0% 6%) 100%);
     --gradient-glow: radial-gradient(80% 60% at 50% 0%, hsl(42 78% 58% / 0.10) 0%, transparent 70%);
 
-    --shadow-card: 0 1px 0 hsl(42 60% 70% / 0.04) inset, 0 8px 24px -12px hsl(0 0% 0% / 0.6);
-    --shadow-elevated: 0 1px 0 hsl(42 60% 70% / 0.06) inset, 0 24px 48px -20px hsl(0 0% 0% / 0.7);
-    --shadow-glow: 0 0 0 1px hsl(42 78% 58% / 0.3), 0 8px 32px -8px hsl(42 78% 58% / 0.25);
+    --shadow-card: 0 1px 0 hsl(42 60% 70% / 0.06) inset, 0 8px 24px -12px hsl(0 0% 0% / 0.6);
+    --shadow-elevated: 0 1px 0 hsl(42 60% 70% / 0.1) inset, 0 24px 48px -20px hsl(0 0% 0% / 0.7);
+    --shadow-glow: 0 0 0 1px hsl(42 78% 58% / 0.4), 0 8px 32px -8px hsl(42 78% 58% / 0.3);
+
+    --gold-border: hsl(42 78% 58% / 0.2);
+    --gold-top-line: linear-gradient(90deg, transparent 0%, hsl(42 78% 58% / 0.55) 50%, transparent 100%);
+    --gold-panel-glow: 0 0 40px -10px hsl(42 78% 58% / 0.12);
 
     --sidebar-background: 0 0% 4%;
     --sidebar-foreground: 45 15% 80%;
@@ -130,6 +134,10 @@
     --shadow-card: 0 1px 0 hsl(0 0% 100%) inset, 0 4px 16px -8px hsl(0 0% 0% / 0.08);
     --shadow-elevated: 0 1px 0 hsl(0 0% 100%) inset, 0 16px 40px -16px hsl(0 0% 0% / 0.14);
 
+    --gold-border: hsl(38 72% 42% / 0.25);
+    --gold-top-line: linear-gradient(90deg, transparent 0%, hsl(38 72% 42% / 0.5) 50%, transparent 100%);
+    --gold-panel-glow: 0 0 40px -10px hsl(38 72% 42% / 0.1);
+
     --sidebar-background: 40 20% 96%;
     --sidebar-foreground: 0 0% 20%;
     --sidebar-primary: 38 72% 42%;
@@ -153,7 +161,7 @@
   }
   body {
     background-image: var(--gradient-glow);
-    background-attachment: fixed;
+    background-attachment: scroll;
     transition: background-color 200ms var(--transition-smooth), color 200ms var(--transition-smooth);
   }
   .font-display {
@@ -172,13 +180,25 @@
 
 @layer components {
   .surface-card {
-    @apply rounded-[var(--radius)] border border-border bg-card;
-    box-shadow: var(--shadow-card);
+    @apply rounded-[var(--radius)] bg-card;
+    border: 1px solid var(--gold-border);
+    box-shadow: var(--shadow-card), var(--gold-panel-glow);
   }
   .surface-elevated {
-    @apply rounded-[var(--radius)] border border-border;
+    @apply rounded-[var(--radius)] relative overflow-hidden;
+    border: 1px solid var(--gold-border);
     background: var(--gradient-surface);
-    box-shadow: var(--shadow-elevated);
+    box-shadow: var(--shadow-elevated), var(--gold-panel-glow);
+  }
+  /* Gold shimmer line at the top of elevated panels */
+  .surface-elevated::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: var(--gold-top-line);
+    pointer-events: none;
+    z-index: 1;
   }
   .hairline {
     @apply border-t border-border;
@@ -196,7 +216,8 @@
     @apply border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))];
   }
   .chip-gold {
-    @apply border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))];
+    @apply border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))];
+    box-shadow: 0 0 10px -2px hsl(var(--primary) / 0.2);
   }
   .text-gold {
     color: hsl(var(--primary));
@@ -204,11 +225,166 @@
   .bg-gold {
     background: var(--gradient-gold);
     color: hsl(var(--primary-foreground));
+    box-shadow: 0 2px 16px -4px hsl(var(--primary) / 0.5);
+  }
+  /* Gold divider line */
+  .gold-line {
+    height: 1px;
+    background: var(--gold-top-line);
+  }
+  /* Gold stat value */
+  .stat-gold {
+    color: hsl(var(--primary));
+    text-shadow: 0 0 24px hsl(var(--primary) / 0.35);
   }
 }
+
+/* ── Compact density mode — makes EVERYTHING smaller ── */
+.compact { font-size: 0.9rem; }
+.compact .font-display.text-4xl  { font-size: 1.75rem !important; line-height: 2rem; }
+.compact .font-display.text-3xl  { font-size: 1.375rem !important; line-height: 1.75rem; }
+.compact .font-display.text-2xl  { font-size: 1.125rem !important; }
+.compact .font-display.text-xl   { font-size: 1rem !important; }
+.compact .font-display.text-lg   { font-size: 0.9rem !important; }
+.compact .font-display.text-base { font-size: 0.85rem !important; }
+.compact .space-y-4 > * + * { margin-top: 0.5rem !important; }
+.compact .space-y-3 > * + * { margin-top: 0.375rem !important; }
+.compact .space-y-2\.5 > * + * { margin-top: 0.25rem !important; }
+.compact .space-y-2 > * + * { margin-top: 0.25rem !important; }
+.compact .gap-4 { gap: 0.5rem !important; }
+.compact .gap-3 { gap: 0.375rem !important; }
+.compact .p-4, .compact .p-5, .compact .p-6 { padding: 0.625rem !important; }
+.compact .px-4 { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+.compact .px-5 { padding-left: 0.875rem !important; padding-right: 0.875rem !important; }
+.compact .py-2    { padding-top: 0.25rem  !important; padding-bottom: 0.25rem  !important; }
+.compact .py-2\.5 { padding-top: 0.25rem  !important; padding-bottom: 0.25rem  !important; }
+.compact .py-3    { padding-top: 0.375rem !important; padding-bottom: 0.375rem !important; }
+.compact .py-3\.5 { padding-top: 0.375rem !important; padding-bottom: 0.375rem !important; }
+.compact .py-4    { padding-top: 0.5rem   !important; padding-bottom: 0.5rem   !important; }
+.compact .py-5    { padding-top: 0.625rem !important; padding-bottom: 0.625rem !important; }
+.compact .h-7  { height: 1.25rem !important; width: 1.25rem !important; }
+.compact .h-8  { height: 1.5rem  !important; width: 1.5rem  !important; }
+.compact .h-9  { height: 1.75rem !important; width: 1.75rem !important; }
+.compact .h-24 { height: 3.5rem !important; }
+.compact .h-28 { height: 4rem   !important; }
+.compact .h-32 { height: 4rem   !important; }
+.compact .h-36 { height: 4.5rem !important; }
+.compact .rounded-xl { border-radius: 0.625rem !important; }
+.compact .text-sm  { font-size: 0.75rem !important; }
+.compact .text-base { font-size: 0.8rem !important; }
+.compact .text-lg  { font-size: 0.875rem !important; }
+.compact .text-xl  { font-size: 1rem !important; }
+.compact .text-2xl { font-size: 1.125rem !important; }
+.compact .text-3xl { font-size: 1.375rem !important; }
+.compact .text-4xl { font-size: 1.75rem !important; }
+
+/* Mobile touch improvements */
+@media (max-width: 768px) {
+  button, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .overflow-y-auto, .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* Safe area insets for notched phones */
+.safe-top    { padding-top:    env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: hsl(var(--border-strong)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
 ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+
+/* ── Micro-interactions ──────────────────────────────────────── */
+
+/* Cards smoothly lift on hover */
+.surface-card {
+  transition: box-shadow 220ms var(--transition-smooth),
+              transform  220ms var(--transition-smooth),
+              border-color 220ms var(--transition-smooth);
+}
+.surface-card.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated), var(--gold-panel-glow), 0 0 0 1px hsl(var(--primary) / 0.25);
+  border-color: hsl(var(--primary) / 0.35);
+}
+
+/* Elevated panels pulse glow on hover */
+.surface-elevated {
+  transition: box-shadow 220ms var(--transition-smooth);
+}
+
+/* Row hover: gold left-border accent slides in */
+.row-hover {
+  position: relative;
+  transition: background-color 150ms var(--transition-smooth);
+}
+.row-hover::before {
+  content: '';
+  position: absolute;
+  inset-y: 0;
+  left: 0;
+  width: 2px;
+  background: hsl(var(--primary));
+  border-radius: 0 2px 2px 0;
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 180ms var(--transition-smooth);
+}
+.row-hover:hover::before { transform: scaleY(1); }
+.row-hover:hover { background-color: hsl(var(--surface-hover) / 0.35); }
+
+/* Number count-up fade-slide */
+@keyframes count-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-count-in { animation: count-in 500ms var(--transition-smooth) both; }
+
+/* Shimmer skeleton (better than plain pulse) */
+@keyframes shimmer {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--secondary) / 0.4) 25%,
+    hsl(var(--secondary) / 0.7) 50%,
+    hsl(var(--secondary) / 0.4) 75%
+  );
+  background-size: 200% auto;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Stat chip bounce-in */
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.85); }
+  70%  { transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-pop-in { animation: pop-in 380ms var(--transition-smooth) both; }
+
+/* Subtle gold glow on focused interactive elements */
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.6);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* Smooth color transitions on all text/bg */
+* { transition-property: color, background-color, border-color, opacity;
+    transition-duration: 120ms;
+    transition-timing-function: var(--transition-smooth); }
+
+/* But don't let that override explicit animations */
+.animate-fade-up,
+.animate-count-in,
+.animate-pop-in,
+.shimmer { transition: none; }

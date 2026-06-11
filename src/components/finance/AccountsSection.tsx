@@ -115,8 +115,8 @@ const AccountRow = ({
       <button
         onClick={onToggle}
         className={cn(
-          "w-full grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-4 md:px-5 py-2.5 text-left transition-colors",
-          expanded ? "bg-surface-hover/40" : "hover:bg-surface-hover/30",
+          "row-hover w-full grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-4 md:px-5 py-2.5 text-left",
+          expanded && "bg-surface-hover/40",
         )}
       >
         <div className="flex items-center gap-2.5 min-w-0">
@@ -215,7 +215,7 @@ const BucketTable = ({
   if (bucket === "longterm") trailing = "Held for the future";
 
   return (
-    <div className="surface-card overflow-hidden">
+    <div className="surface-card card-hover overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between gap-4 px-4 md:px-5 py-3.5 hover:bg-surface-hover/40 transition-colors text-left border-b border-border/40"

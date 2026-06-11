@@ -4,7 +4,7 @@ import { useAuth } from "./AuthContext";
 interface Ctx { demo: boolean; setDemo: (v: boolean) => void; toggle: () => void }
 const DemoCtx = createContext<Ctx | null>(null);
 
-const keyFor = (uid: string | undefined) => `atlas.demoMode.${uid ?? "anon"}`;
+const keyFor = (uid: string | undefined) => `sentrifi.demoMode.${uid ?? "anon"}`;
 
 export const DemoProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
