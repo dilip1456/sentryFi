@@ -319,18 +319,23 @@ const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRul
 
 type RecurringCharge = {
   merchant: string; avgAmount: number; dayOfMonth: number;
-  lastSeen: string; monthsActive: number; predictedDate: Date; alreadyCharged: boolean;
-  accountId: string; // most-used account for this merchant
+  lastSeen: string; monthsActive: number; predictedDate: Date;
+  accountId: string;
 };
 
-/** Detect recurring charges from the last 6 months and predict upcoming ones for the current month */
+/**
+ * Detect recurring charges and predict next upcoming occurrence.
+ * Shows next 60 days of charges — if already charged this month, rolls to next month.
+ */
 const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
   const now = new Date();
   const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const lookahead = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000); // 60 days out
+
   const expenses = txns.filter(t =>
     Number(t.amount) > 0 &&
     new Date(t.date) >= sixMonthsAgo &&
-    !( t.category?.[0] ?? "").toLowerCase().includes("transfer")
+    !(t.category?.[0] ?? "").toLowerCase().includes("transfer")
   );
 
   const groups: Record<string, PTxn[]> = {};
@@ -356,34 +361,39 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
 
     const days = txnList.map(t => new Date(t.date + "T00:00:00").getDate());
     const dayOfMonth = Math.round(days.reduce((s, d) => s + d, 0) / days.length);
+
     const lastSeen = txnList.reduce((latest, t) => t.date > latest ? t.date : latest, txnList[0].date);
     const lastSeenDate = new Date(lastSeen + "T00:00:00");
+    const monthsAgo = (now.getFullYear() - lastSeenDate.getFullYear()) * 12 + (now.getMonth() - lastSeenDate.getMonth());
+    if (monthsAgo > 2) continue; // inactive merchant
 
-    const predictedDate = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
-    if (predictedDate < new Date(now.getFullYear(), now.getMonth(), 1)) continue;
-
-    const alreadyCharged = txnList.some(t => {
+    // Already charged this month?
+    const chargedThisMonth = txnList.some(t => {
       const d = new Date(t.date + "T00:00:00");
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
 
-    const monthsAgo = (now.getFullYear() - lastSeenDate.getFullYear()) * 12 + (now.getMonth() - lastSeenDate.getMonth());
-    if (monthsAgo > 2 && !alreadyCharged) continue;
+    // Next occurrence: this month if not yet charged, otherwise next month
+    const baseMonth = chargedThisMonth ? now.getMonth() + 1 : now.getMonth();
+    const baseYear = chargedThisMonth
+      ? (now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear())
+      : now.getFullYear();
+    const predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
+
+    // Only include if within 60-day lookahead window and in the future
+    if (predictedDate <= now || predictedDate > lookahead) continue;
 
     const displayName = txnList.find(t => t.merchant_name)?.merchant_name ??
                         txnList[0].name ?? "Unknown";
 
-    // Most-used account for this merchant (by frequency)
     const accCounts: Record<string, number> = {};
     for (const t of txnList) { accCounts[t.account_id] = (accCounts[t.account_id] ?? 0) + 1; }
     const accountId = Object.entries(accCounts).sort((a, b) => b[1] - a[1])[0][0];
 
-    results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, alreadyCharged, accountId });
+    results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, accountId });
   }
 
-  return results
-    .filter(r => !r.alreadyCharged)
-    .sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
+  return results.sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
 };
 
 /** Period helpers for month/year/week navigation */
@@ -2054,7 +2064,7 @@ export const LivePlaidDashboard = ({
               <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
                 <div>
                   <h3 className="font-display text-[13px] text-primary">Upcoming Charges</h3>
-                  <div className="text-[10px] text-muted-foreground">Predicted recurring bills this month</div>
+                  <div className="text-[10px] text-muted-foreground">Next 60 days · based on recurring history</div>
                 </div>
                 <button onClick={refreshTxns} disabled={refreshingTxns}
                   className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
@@ -2063,31 +2073,27 @@ export const LivePlaidDashboard = ({
               </div>
               <div className="divide-y divide-border/20">
                 {recurringCharges.map((r, i) => {
-                  const isPast = r.predictedDate < new Date();
+                  const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
+                  const isThisWeek = daysAway <= 7;
                   const sourceAcc = accounts.find(a => a.account_id === r.accountId);
                   const isDebtAcc = sourceAcc ? isDebt(sourceAcc.type) : false;
                   const availBal = sourceAcc ? (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0) : null;
-                  // Only warn for checking/savings — credit cards handle their own limit
-                  const showBalCheck = !r.alreadyCharged && !isDebtAcc && availBal !== null;
+                  const showBalCheck = !isDebtAcc && availBal !== null;
                   const hasSufficient = availBal !== null && availBal >= r.avgAmount;
-                  const isTight = availBal !== null && availBal >= r.avgAmount && availBal < r.avgAmount * 2;
+                  const isTight = hasSufficient && availBal < r.avgAmount * 2;
 
                   return (
                     <div key={i} className="flex items-center gap-3 px-4 py-3">
                       {/* Date badge */}
                       <div className={cn(
                         "shrink-0 w-10 text-center rounded-lg py-1 border",
-                        r.alreadyCharged
-                          ? "bg-positive/10 border-positive/20"
-                          : isPast
-                          ? "bg-negative/10 border-negative/20"
-                          : "bg-secondary/50 border-border/40"
+                        isThisWeek ? "bg-warning/10 border-warning/20" : "bg-secondary/50 border-border/40"
                       )}>
                         <div className="text-[8.5px] uppercase tracking-wide text-muted-foreground leading-none">
                           {r.predictedDate.toLocaleDateString("en-US", { month: "short" })}
                         </div>
                         <div className={cn("text-[15px] font-semibold tabular leading-tight",
-                          r.alreadyCharged ? "text-positive" : isPast ? "text-negative" : "text-foreground")}>
+                          isThisWeek ? "text-warning" : "text-foreground")}>
                           {r.predictedDate.getDate()}
                         </div>
                       </div>
@@ -2096,11 +2102,10 @@ export const LivePlaidDashboard = ({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[12.5px] text-foreground font-medium truncate">{r.merchant}</span>
-                          {r.alreadyCharged && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive shrink-0">Paid</span>
-                          )}
-                          {!r.alreadyCharged && isPast && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending?</span>
+                          {isThisWeek && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">
+                              {daysAway === 0 ? "Today" : daysAway === 1 ? "Tomorrow" : `${daysAway}d`}
+                            </span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -2115,7 +2120,7 @@ export const LivePlaidDashboard = ({
                               <span className={cn("text-[10px] font-medium flex items-center gap-0.5",
                                 !hasSufficient ? "text-negative" : isTight ? "text-warning" : "text-positive")}>
                                 {!hasSufficient
-                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Low balance ({fmtUSD(availBal!, { compact: true })} avail)</>
+                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Low — only {fmtUSD(availBal!, { compact: true })} avail</>
                                   : isTight
                                   ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Tight ({fmtUSD(availBal!, { compact: true })} avail)</>
                                   : <><Check className="h-2.5 w-2.5 shrink-0" /> {fmtUSD(availBal!, { compact: true })} avail</>
@@ -2130,8 +2135,7 @@ export const LivePlaidDashboard = ({
                       </div>
 
                       {/* Amount */}
-                      <div className={cn("text-[13px] tabular font-medium shrink-0",
-                        r.alreadyCharged ? "text-muted-foreground line-through" : "text-foreground")}>
+                      <div className="text-[13px] tabular font-medium shrink-0 text-foreground">
                         {fmtUSD(r.avgAmount)}
                       </div>
                     </div>
