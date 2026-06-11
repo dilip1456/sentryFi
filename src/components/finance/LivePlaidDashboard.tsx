@@ -365,7 +365,7 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
     const lastSeen = txnList.reduce((latest, t) => t.date > latest ? t.date : latest, txnList[0].date);
     const lastSeenDate = new Date(lastSeen + "T00:00:00");
     const monthsAgo = (now.getFullYear() - lastSeenDate.getFullYear()) * 12 + (now.getMonth() - lastSeenDate.getMonth());
-    if (monthsAgo > 2) continue; // inactive merchant
+    if (monthsAgo > 3) continue; // inactive merchant
 
     // Already charged this month?
     const chargedThisMonth = txnList.some(t => {
@@ -373,15 +373,23 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
 
-    // Next occurrence: this month if not yet charged, otherwise next month
-    const baseMonth = chargedThisMonth ? now.getMonth() + 1 : now.getMonth();
-    const baseYear = chargedThisMonth
-      ? (now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear())
-      : now.getFullYear();
-    const predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
+    // Next occurrence: this month if not yet charged, otherwise next month.
+    // If this-month prediction has already passed (day < today), also roll to next month.
+    let baseMonth = chargedThisMonth ? now.getMonth() + 1 : now.getMonth();
+    let baseYear = (baseMonth === now.getMonth())
+      ? now.getFullYear()
+      : (now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear());
+    let predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
 
-    // Only include if within 60-day lookahead window and in the future
-    if (predictedDate <= now || predictedDate > lookahead) continue;
+    // If predicted date is in the past (day already passed, charge not recorded), roll forward
+    if (predictedDate <= now) {
+      baseMonth = baseMonth + 1;
+      baseYear = baseMonth > 11 ? baseYear + 1 : baseYear;
+      predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
+    }
+
+    // Only include if within 60-day lookahead window
+    if (predictedDate > lookahead) continue;
 
     const displayName = txnList.find(t => t.merchant_name)?.merchant_name ??
                         txnList[0].name ?? "Unknown";
@@ -1706,7 +1714,7 @@ export const LivePlaidDashboard = ({
     setLoading(true);
     const [{ data:accs },{ data:t },{ data:its },{ data:cd }] = await Promise.all([
       supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
-      supabase.from("plaid_transactions").select("*").eq("user_id",user.id).order("date",{ascending:false}).limit(200),
+      supabase.from("plaid_transactions").select("*").eq("user_id",user.id).order("date",{ascending:false}).limit(500),
       supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
       supabase.from("plaid_credit_details").select("*").eq("user_id",user.id).maybeSingle().then(r => ({ data: r.data ? [r.data] : null })),
     ]);
@@ -1743,9 +1751,40 @@ export const LivePlaidDashboard = ({
     const { data,error } = await supabase.functions.invoke("plaid-sync-transactions");
     setSyncing(false); onSyncingChange?.(false);
     if (error||data?.error) { toast.error("Sync failed",{description:error?.message??data?.error}); return; }
-    toast.success(`Synced ${data?.synced??0} transactions`);
-    load();
-  },[user,load,onSyncingChange]);
+    const synced = data?.synced ?? 0;
+    toast.success(`Synced ${synced} transaction${synced !== 1 ? "s" : ""}`);
+    await load();
+    // Auto-categorize newly synced transactions that have no user override
+    if (synced > 0) {
+      try {
+        const { data: freshTxns } = await supabase
+          .from("plaid_transactions")
+          .select("id,name,merchant_name,amount,category")
+          .eq("user_id", user.id)
+          .order("date", { ascending: false })
+          .limit(synced + 20);
+        if (freshTxns?.length) {
+          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentrifi_cat_overrides") ?? "{}");
+          const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
+            .filter(t => !currentOverrides[t.id]);
+          if (toCateg.length > 0) {
+            const { data: catResult } = await supabase.functions.invoke("ai-categorize", {
+              body: { transactions: toCateg, rules: [], userExamples: [] },
+            });
+            if (catResult?.results?.length) {
+              const newOverrides = { ...currentOverrides };
+              for (const r of catResult.results as { id:string; category:string }[]) {
+                if (r.id && r.category) newOverrides[r.id] = r.category;
+              }
+              localStorage.setItem("sentrifi_cat_overrides", JSON.stringify(newOverrides));
+            }
+          }
+        }
+      } catch (e) { console.warn("[auto-categorize]", e); }
+      // Also refresh insights in background after sync
+      loadInsights(true).catch(console.warn);
+    }
+  },[user,load,loadInsights,onSyncingChange]);
 
   const doRemoveAccount = useCallback(async (account: PAccount) => {
     if (!user) return;
