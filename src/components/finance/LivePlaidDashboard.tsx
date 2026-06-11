@@ -1509,7 +1509,6 @@ export const LivePlaidDashboard = ({
   const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [openInsight, setOpenInsight] = useState<AIInsight|null>(null);
-  const [expandedAccId, setExpandedAccId] = useState<string|null>(null);
   const [period, setPeriod]         = useState<Period>("1M");
   const [budgetCategory, setBudgetCategory] = useState<string|null>(null);
   const [showCatManager, setShowCatManager] = useState(false);
@@ -1842,10 +1841,7 @@ export const LivePlaidDashboard = ({
                 accountMeta={accountMeta}
                 creditDetails={creditDetails}
                 items={items}
-                expandedId={expandedAccId}
-                onToggle={id => setExpandedAccId(v => v === id ? null : id)}
-                onEdit={a => setEditingAccount(a)}
-                onRemove={a => setRemovingAccount(a)}
+                onSelect={a => setDetailAccount(a)}
                 defaultOpen={false}
               />
             ))}
@@ -1858,6 +1854,24 @@ export const LivePlaidDashboard = ({
           </div>
         )}
       </section>
+
+      {/* Account detail right panel */}
+      {detailAccount && (
+        <AccountDetailPanel
+          a={detailAccount}
+          txns={txns.filter(t => t.account_id === detailAccount.account_id)}
+          meta={accountMeta[detailAccount.id] ?? {}}
+          credit={creditDetails.find(c => c.account_id === detailAccount.account_id)}
+          instName={items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? ""}
+          instUrl={getInstitutionUrl(
+            items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
+            accountMeta[detailAccount.id]?.customUrl
+          )}
+          onEdit={() => { setEditingAccount(detailAccount); setDetailAccount(null); }}
+          onRemove={() => { setRemovingAccount(detailAccount); setDetailAccount(null); }}
+          onClose={() => setDetailAccount(null)}
+        />
+      )}
 
       {/* Account edit dialog */}
       {editingAccount && (
