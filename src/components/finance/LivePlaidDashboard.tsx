@@ -1818,43 +1818,6 @@ export const LivePlaidDashboard = ({
         </div>
       </section>
 
-      {/* Accounts — bucketed, all collapsed by default */}
-      <section className="space-y-2.5">
-        <div className="flex items-baseline justify-between gap-4 px-1">
-          <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
-          <button onClick={onAddAccount} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-            <Plus className="h-3 w-3" />Add account
-          </button>
-        </div>
-        {accounts.length === 0 ? (
-          <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">
-            No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {(["liquid","revolving","term","longterm"] as Bucket[]).map(bucket => (
-              <BucketGroup
-                key={bucket}
-                bucket={bucket}
-                accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
-                txns={txns}
-                accountMeta={accountMeta}
-                creditDetails={creditDetails}
-                items={items}
-                onSelect={a => setDetailAccount(a)}
-                defaultOpen={false}
-              />
-            ))}
-            <button
-              onClick={onAddAccount}
-              className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[12px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
-            </button>
-          </div>
-        )}
-      </section>
-
       {/* Account detail right panel */}
       {detailAccount && (
         <AccountDetailPanel
@@ -2160,6 +2123,43 @@ export const LivePlaidDashboard = ({
           )}
         </section>
       )}
+
+      {/* Accounts — bucketed, all collapsed by default */}
+      <section className="space-y-2.5">
+        <div className="flex items-baseline justify-between gap-4 px-1">
+          <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
+          <button onClick={onAddAccount} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+            <Plus className="h-3 w-3" />Add account
+          </button>
+        </div>
+        {accounts.length === 0 ? (
+          <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">
+            No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {(["liquid","revolving","term","longterm"] as Bucket[]).map(bucket => (
+              <BucketGroup
+                key={bucket}
+                bucket={bucket}
+                accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
+                txns={txns}
+                accountMeta={accountMeta}
+                creditDetails={creditDetails}
+                items={items}
+                onSelect={a => setDetailAccount(a)}
+                defaultOpen={false}
+              />
+            ))}
+            <button
+              onClick={onAddAccount}
+              className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[12px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
