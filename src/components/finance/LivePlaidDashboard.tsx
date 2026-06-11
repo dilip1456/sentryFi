@@ -1284,192 +1284,358 @@ const BucketGroup = ({
   );
 };
 
-// ── Account detail right panel ─────────────────────────────────
+// ── Card info lookup ───────────────────────────────────────────
+type CardInfo = { purpose: string; rewards: string; bestFor: string; notes?: string };
+const CARD_INFO: { match: RegExp; info: CardInfo }[] = [
+  { match: /sapphire reserve/i,     info: { purpose: "Premium travel card", rewards: "3x dining & travel, 10x hotels/car via Chase portal", bestFor: "Frequent travelers", notes: "$300 annual travel credit, Priority Pass lounge access" } },
+  { match: /sapphire preferred/i,   info: { purpose: "Travel & dining card", rewards: "3x dining, 2x travel, 5x Chase travel portal", bestFor: "Travel & restaurants", notes: "$50 annual hotel credit, Trip delay protection" } },
+  { match: /freedom flex/i,         info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories, 3% dining & drugstores, 1% all else", bestFor: "Maximizing rotating categories" } },
+  { match: /freedom unlimited/i,    info: { purpose: "Flat-rate cashback", rewards: "1.5% on everything, 3% dining & drugstores, 5% Chase travel", bestFor: "Everyday purchases" } },
+  { match: /freedom/i,              info: { purpose: "Rotating cashback", rewards: "5% quarterly rotating categories, 1% all else", bestFor: "Category maximizers" } },
+  { match: /amex.*(platinum|plat)/i,info: { purpose: "Premium travel & perks", rewards: "5x flights (direct/Amex Travel), 5x hotels (Amex Travel)", bestFor: "Frequent flyers", notes: "$200 airline fee credit, $200 hotel credit, Centurion & Priority Pass lounges" } },
+  { match: /amex.*gold|gold.*amex/i,info: { purpose: "Dining & groceries", rewards: "4x dining worldwide, 4x U.S. groceries (up to $25k/yr), 3x flights", bestFor: "Foodies & grocery shoppers", notes: "$120 dining credit, $120 Uber Cash annually" } },
+  { match: /blue cash preferred/i,  info: { purpose: "Grocery & streaming cashback", rewards: "6% U.S. supermarkets (up to $6k/yr), 6% streaming, 3% gas & transit, 1% all else", bestFor: "Families & grocery shoppers" } },
+  { match: /blue cash everyday/i,   info: { purpose: "No-fee cashback", rewards: "3% U.S. supermarkets, 3% U.S. online retail, 3% gas, 1% all else", bestFor: "No-fee everyday use" } },
+  { match: /venture x/i,            info: { purpose: "Premium travel miles", rewards: "10x hotels & cars (Capital One Travel), 5x flights, 2x everything", bestFor: "Capital One ecosystem travelers", notes: "$300 travel credit, 10k anniversary bonus miles" } },
+  { match: /venture/i,              info: { purpose: "Flat travel miles", rewards: "2x miles on every purchase", bestFor: "Simple travel rewards" } },
+  { match: /quicksilver/i,          info: { purpose: "Flat cashback", rewards: "1.5% cashback on everything", bestFor: "Simple no-fuss rewards" } },
+  { match: /double cash/i,          info: { purpose: "2% cashback everywhere", rewards: "1% when you buy + 1% when you pay", bestFor: "Everyday spending" } },
+  { match: /citi custom cash/i,     info: { purpose: "Auto-category cashback", rewards: "5% on your top eligible spend category each month (up to $500), 1% all else", bestFor: "Flexible category maximizers" } },
+  { match: /active cash/i,          info: { purpose: "Flat 2% cashback", rewards: "2% cashback on all purchases", bestFor: "Simple everyday use" } },
+  { match: /autograph/i,            info: { purpose: "Travel & dining", rewards: "3x restaurants, gas, travel, transit, streaming, phone, 1x all else", bestFor: "Diverse everyday categories" } },
+  { match: /discover.*(it|chrome)/i,info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories (up to $1,500/quarter), 1% all else", bestFor: "Category maximizers", notes: "Cashback Match first year" } },
+  { match: /apple card/i,           info: { purpose: "Apple ecosystem card", rewards: "3% Apple purchases, 2% Apple Pay, 1% all else (physical card)", bestFor: "Heavy Apple Pay users" } },
+  { match: /prime visa|amazon prime/i, info: { purpose: "Amazon & Whole Foods", rewards: "5% Amazon & Whole Foods, 2% dining, gas & drugstores, 1% all else", bestFor: "Amazon Prime members" } },
+  { match: /marriott|bonvoy/i,      info: { purpose: "Hotel loyalty", rewards: "6x Marriott Bonvoy, 3x dining & gas, 2x all else", bestFor: "Marriott hotel loyalists" } },
+  { match: /hilton honors/i,        info: { purpose: "Hotel loyalty", rewards: "7x Hilton, 5x dining, 5x groceries, 3x gas, 3x all else", bestFor: "Hilton hotel loyalists" } },
+];
+
+const getCardInfo = (name: string | null, officialName: string | null): CardInfo | null => {
+  const haystack = `${name ?? ""} ${officialName ?? ""}`;
+  for (const { match, info } of CARD_INFO) {
+    if (match.test(haystack)) return info;
+  }
+  return null;
+};
+
+// ── HYSA detection ─────────────────────────────────────────────
+const HYSA_INSTITUTIONS = ["marcus", "ally", "sofi", "discover", "american express", "amex", "barclays", "synchrony", "capital one 360", "citizens", "bask", "bread", "sallie mae", "varo", "axos", "laurel road", "ufb", "lending club", "cit bank", "live oak", "western alliance", "primis"];
+const isHYSA = (a: PAccount, instName: string): boolean => {
+  if (a.type !== "depository" || a.subtype !== "savings") return false;
+  const haystack = `${a.name ?? ""} ${a.official_name ?? ""} ${instName}`.toLowerCase();
+  if (/high.?yield|hysa|hys\b/.test(haystack)) return true;
+  return HYSA_INSTITUTIONS.some(inst => haystack.includes(inst));
+};
+
+// ── Account detail dialog ──────────────────────────────────────
 const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, onEdit, onRemove, onClose }: {
   a: PAccount; txns: PTxn[]; meta: AccountMeta; credit?: CreditDetail;
   instName: string; instUrl: string | null;
   onEdit: () => void; onRemove: () => void; onClose: () => void;
 }) => {
   const debt = isDebt(a.type);
+  const isCredit = a.type === "credit";
+  const isSavings = a.type === "depository" && a.subtype === "savings";
+  const isChecking = a.type === "depository" && a.subtype === "checking";
+  const isInvestment = a.type === "investment" || a.type === "brokerage";
   const bal = Number(a.current_balance) || 0;
   const avail = Number(a.available_balance) || 0;
-  const utilization = a.type === "credit" && avail !== 0 ? Math.abs(bal) / (Math.abs(bal) + avail) : null;
+  const creditLimit = isCredit && avail >= 0 ? Math.abs(bal) + avail : 0;
+  const utilization = isCredit && creditLimit > 0 ? Math.abs(bal) / creditLimit : null;
   const displayName = meta.nickname || a.name || a.official_name || "Account";
-  const recentTxns = txns.filter(t => t.account_id === a.account_id).slice(0, 12);
+  const cardInfo = isCredit ? getCardInfo(a.name, a.official_name) : null;
+  const hysa = isHYSA(a, instName);
   const isPromo = meta.promoApr != null;
   const promoExpired = meta.promoEndDate ? new Date(meta.promoEndDate) < new Date() : false;
   const daysUntilPromoEnd = meta.promoEndDate
     ? Math.ceil((new Date(meta.promoEndDate).getTime() - Date.now()) / 86400000) : null;
-  const yearlyInterest = meta.apr != null ? Math.abs(bal) * meta.apr / 100 : 0;
   const Icon = mapIcon(a.type, a.subtype);
   const accentColor = debt ? "hsl(var(--negative))" : "hsl(var(--positive))";
 
   // 30-day net flow
   const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
-  const accTxns = txns.filter(t => t.account_id === a.account_id && new Date(t.date) >= thirtyAgo);
-  const netFlow = accTxns.reduce((s, t) => s - Number(t.amount), 0);
-  const trendUp = netFlow > 0;
-  const trendGood = debt ? !trendUp : trendUp;
+  const recentAll = txns.slice(0, 5);
+  const accTxns30 = txns.filter(t => new Date(t.date) >= thirtyAgo);
+  const netFlow30 = accTxns30.reduce((s, t) => s - Number(t.amount), 0);
+  const trendGood = debt ? netFlow30 < 0 : netFlow30 > 0;
+
+  // Annual interest / earnings
+  const aprRate = meta.apr ?? null;
+  const yearlyAmount = aprRate != null ? Math.abs(bal) * aprRate / 100 : 0;
+
+  const dueDate = credit?.next_payment_due_date
+    ? new Date(credit.next_payment_due_date + "T00:00:00") : null;
+  const dueSoon = dueDate ? (dueDate.getTime() - Date.now()) / 86400000 <= 7 : false;
 
   return (
-    <RightPanel open onClose={onClose} footer={
-      <div className="flex items-center gap-2 w-full">
-        {instUrl && (
-          <a href={instUrl} target="_blank" rel="noopener noreferrer"
-            className="flex-1 inline-flex items-center justify-center gap-2 h-9 rounded-lg bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity">
-            <ExternalLink className="h-3.5 w-3.5" /> Open banking
-          </a>
-        )}
-        <button onClick={onEdit} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
-          <Pencil className="h-3.5 w-3.5" /> Edit
-        </button>
-        <button onClick={() => { onClose(); onRemove(); }} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-negative/30 text-[12px] text-negative hover:bg-negative/10 transition-colors">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    }>
-      {/* Panel header */}
-      <PanelHeader
-        icon={<Icon className="h-5 w-5" />}
-        iconColor={accentColor}
-        title={displayName}
-        subtitle={`${smartSubtypeLabel(a)} · ${instName}${a.mask ? ` ··${a.mask}` : ""}`}
-        onClose={onClose}
-      />
+    <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90vh] flex flex-col">
+        <DialogTitle className="sr-only">{displayName}</DialogTitle>
+        <DialogDescription className="sr-only">Account details for {displayName}</DialogDescription>
 
-      {/* Balance hero */}
-      <div className="px-5 py-5 border-b" style={{ borderColor: "var(--gold-border)" }}>
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Current balance</div>
-        <div className={cn("font-display text-4xl tabular leading-none", debt ? "text-negative" : "text-foreground")}>
-          {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
+        {/* Header */}
+        <div className="flex items-start gap-3 px-5 pt-5 pb-4 border-b shrink-0" style={{ borderColor: "var(--gold-border)" }}>
+          <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor:`${accentColor}1a`, color:accentColor }}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-display text-[17px] text-foreground leading-snug">{displayName}</span>
+              {hysa && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 text-positive bg-positive/10">High Yield</span>}
+              {isCredit && credit?.is_overdue && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-negative/30 text-negative bg-negative/10">Overdue</span>}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {smartSubtypeLabel(a)} · {instName}{a.mask ? ` ··${a.mask}` : ""}
+            </div>
+          </div>
+          <button onClick={onClose} className="shrink-0 h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <div className="flex items-center gap-4 mt-2.5 flex-wrap">
-          {avail > 0 && !debt && avail !== bal && (
-            <div>
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Available</div>
-              <div className="text-[13px] text-positive tabular font-medium mt-0.5">{fmtUSD(avail)}</div>
-            </div>
-          )}
-          {accTxns.length > 0 && Math.abs(netFlow) > 1 && (
-            <div>
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground">30-day flow</div>
-              <div className={cn("text-[13px] tabular font-medium mt-0.5 flex items-center gap-0.5", trendGood ? "text-positive" : "text-negative")}>
-                {trendUp ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                {netFlow > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow), { compact: true })}
-              </div>
-            </div>
-          )}
-          {meta.apr != null && (
-            <div>
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{debt ? "APR" : "APY"}</div>
-              <div className="text-[13px] tabular font-medium mt-0.5">{meta.apr.toFixed(2)}%</div>
-            </div>
-          )}
-        </div>
-      </div>
 
-      <div className="px-5 py-4 space-y-4">
-        {/* Key metrics grid */}
-        {(meta.apr != null || credit?.last_statement_balance != null || credit?.next_payment_due_date || credit?.minimum_payment_amount != null || utilization !== null) && (
-          <div className="grid grid-cols-2 gap-2.5">
-            {meta.apr != null && (
-              <div className="surface-card p-3">
-                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">{debt ? "Annual interest cost" : "Annual interest earned"}</div>
-                <div className={cn("font-display text-base mt-1 tabular", debt ? "text-negative" : "text-positive")}>
-                  {debt ? "−" : "+"}{fmtUSD(Math.abs(yearlyInterest), { compact: true })}
-                </div>
-              </div>
-            )}
-            {credit?.last_statement_balance != null && (
-              <div className="surface-card p-3">
-                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Statement balance</div>
-                <div className="font-display text-base mt-1 tabular text-warning">{fmtUSD(credit.last_statement_balance)}</div>
-              </div>
-            )}
-            {credit?.next_payment_due_date && (
-              <div className="surface-card p-3">
-                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Due date</div>
-                <div className={cn("font-display text-base mt-1", credit.is_overdue ? "text-negative" : "text-info")}>
-                  {new Date(credit.next_payment_due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  {credit.is_overdue && <span className="ml-1.5 text-[10px] text-negative font-normal">OVERDUE</span>}
-                </div>
-              </div>
-            )}
-            {credit?.minimum_payment_amount != null && (
-              <div className="surface-card p-3">
-                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Min payment</div>
-                <div className="font-display text-base mt-1 tabular text-warning">{fmtUSD(credit.minimum_payment_amount)}</div>
-              </div>
-            )}
-            {utilization !== null && (
-              <div className="surface-card p-3 col-span-2">
-                <div className="flex justify-between text-[10.5px] mb-1.5">
-                  <span className="text-muted-foreground">Credit utilization</span>
-                  <span className={cn("font-medium tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
-                    {(utilization * 100).toFixed(0)}% of {fmtUSD(Math.abs(bal) + avail, { compact: true })} limit
-                  </span>
-                </div>
-                <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{
-                    width: `${Math.min(utilization * 100, 100)}%`,
-                    backgroundColor: utilization > 0.5 ? "hsl(var(--negative))" : utilization > 0.3 ? "hsl(var(--warning))" : "hsl(var(--positive))"
-                  }} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="px-5 py-4 space-y-4">
 
-        {/* Promo banner */}
-        {isPromo && !promoExpired && (
-          <div className="inline-flex items-center gap-1.5 chip chip-positive">
-            <Sparkles className="h-3 w-3" />
-            {daysUntilPromoEnd != null && daysUntilPromoEnd > 0
-              ? `0% APR · ${daysUntilPromoEnd}d remaining${meta.promoEndDate ? ` (${new Date(meta.promoEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}`
-              : "0% APR active"}
-          </div>
-        )}
-        {isPromo && promoExpired && (
-          <div className="inline-flex items-center gap-1.5 chip chip-negative text-[11px]">
-            0% APR promo expired — interest now applies
-          </div>
-        )}
+            {/* Balance row */}
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                  {isCredit ? "Current balance" : isSavings ? "Savings balance" : isChecking ? "Checking balance" : "Balance"}
+                </div>
+                <div className={cn("font-display text-[2rem] tabular leading-none", debt ? "text-negative" : "text-foreground")}>
+                  {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
+                </div>
+              </div>
+              {avail > 0 && avail !== bal && (
+                <div className="text-right">
+                  <div className="text-[10px] text-muted-foreground">{isCredit ? "Available credit" : "Available"}</div>
+                  <div className={cn("text-[14px] tabular font-medium", isCredit ? "text-positive" : "text-foreground")}>
+                    {fmtUSD(avail)}
+                  </div>
+                </div>
+              )}
+            </div>
 
-        {/* Recent transactions */}
-        {recentTxns.length > 0 && (
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Recent activity</div>
-            <div className="surface-card overflow-hidden divide-y divide-border/20">
-              {recentTxns.map(t => {
-                const isInc = Number(t.amount) < 0;
-                return (
-                  <div key={t.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                    <div className={cn("h-6 w-6 rounded grid place-items-center shrink-0",
-                      isInc ? "bg-positive/10 text-positive" : "bg-secondary/50 text-muted-foreground")}>
-                      {isInc ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+            {/* Credit card specifics */}
+            {isCredit && (
+              <>
+                {/* Utilization bar */}
+                {utilization !== null && creditLimit > 0 && (
+                  <div className="surface-card p-3 space-y-2">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-muted-foreground">Credit utilization</span>
+                      <span className={cn("font-medium tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
+                        {(utilization * 100).toFixed(0)}% of {fmtUSD(creditLimit, { compact: true })} limit
+                      </span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12px] text-foreground truncate">{t.merchant_name ?? t.name ?? "Transaction"}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        {t.pending && " · Pending"}
+                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{
+                        width: `${Math.min(utilization * 100, 100)}%`,
+                        backgroundColor: utilization > 0.5 ? "hsl(var(--negative))" : utilization > 0.3 ? "hsl(var(--warning))" : "hsl(var(--positive))"
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Statement / due date grid */}
+                {(credit?.last_statement_balance != null || dueDate || credit?.minimum_payment_amount != null || credit?.last_payment_amount != null) && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {credit?.last_statement_balance != null && (
+                      <div className="surface-card p-3">
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Statement balance</div>
+                        <div className="font-display text-[15px] mt-1 tabular text-warning">{fmtUSD(credit.last_statement_balance)}</div>
+                      </div>
+                    )}
+                    {dueDate && (
+                      <div className={cn("surface-card p-3", credit?.is_overdue && "border border-negative/30")}>
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Payment due</div>
+                        <div className={cn("font-display text-[15px] mt-1", credit.is_overdue ? "text-negative" : dueSoon ? "text-warning" : "text-foreground")}>
+                          {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {dueSoon && !credit?.is_overdue && <span className="ml-1 text-[9px] text-warning font-normal">soon</span>}
+                        </div>
+                      </div>
+                    )}
+                    {credit?.minimum_payment_amount != null && (
+                      <div className="surface-card p-3">
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Min payment</div>
+                        <div className="font-display text-[15px] mt-1 tabular">{fmtUSD(credit.minimum_payment_amount)}</div>
+                      </div>
+                    )}
+                    {credit?.last_payment_amount != null && (
+                      <div className="surface-card p-3">
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Last payment</div>
+                        <div className="font-display text-[15px] mt-1 tabular text-positive">{fmtUSD(credit.last_payment_amount)}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Promo APR banner */}
+                {isPromo && !promoExpired && (
+                  <div className="inline-flex items-center gap-1.5 chip chip-positive text-[11px]">
+                    <Sparkles className="h-3 w-3" />
+                    {daysUntilPromoEnd != null && daysUntilPromoEnd > 0
+                      ? `0% promo APR · ${daysUntilPromoEnd}d left${meta.promoEndDate ? ` (ends ${new Date(meta.promoEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}`
+                      : "0% APR active"}
+                  </div>
+                )}
+                {isPromo && promoExpired && (
+                  <div className="inline-flex items-center gap-1.5 chip chip-negative text-[11px]">
+                    0% promo APR expired — regular APR now applies
+                  </div>
+                )}
+                {!isPromo && aprRate != null && (
+                  <div className="flex items-center justify-between surface-card px-3 py-2.5">
+                    <span className="text-[12px] text-muted-foreground">APR</span>
+                    <span className="text-[12px] font-medium text-negative tabular">{aprRate.toFixed(2)}%</span>
+                  </div>
+                )}
+
+                {/* Card purpose & rewards */}
+                {cardInfo && (
+                  <div className="space-y-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</div>
+                    <div className="surface-card p-3 space-y-2.5">
+                      <div>
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Best used for</div>
+                        <div className="text-[12.5px] text-foreground">{cardInfo.bestFor}</div>
+                      </div>
+                      <div>
+                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Rewards</div>
+                        <div className="text-[12.5px] text-foreground leading-relaxed">{cardInfo.rewards}</div>
+                      </div>
+                      {cardInfo.notes && (
+                        <div>
+                          <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Special perks</div>
+                          <div className="text-[12.5px] text-foreground leading-relaxed">{cardInfo.notes}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Savings / checking specifics */}
+            {(isSavings || isChecking) && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {Math.abs(netFlow30) > 1 && (
+                    <div className="surface-card p-3">
+                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">30-day flow</div>
+                      <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
+                        {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
+                        {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
                       </div>
                     </div>
-                    <span className={cn("text-[12px] tabular font-medium shrink-0", isInc ? "text-positive" : "text-foreground")}>
-                      {isInc ? "+" : "−"}{fmtUSD(Math.abs(Number(t.amount)), { cents: true })}
-                    </span>
+                  )}
+                  {aprRate != null && (
+                    <div className="surface-card p-3">
+                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">APY</div>
+                      <div className="font-display text-[15px] mt-1 tabular text-positive">{aprRate.toFixed(2)}%</div>
+                    </div>
+                  )}
+                  {aprRate != null && (
+                    <div className="surface-card p-3">
+                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Est. annual yield</div>
+                      <div className="font-display text-[15px] mt-1 tabular text-positive">+{fmtUSD(yearlyAmount, { compact: true })}</div>
+                    </div>
+                  )}
+                </div>
+                {hysa && (
+                  <div className="surface-card px-3 py-2.5 flex items-start gap-2.5">
+                    <PiggyBank className="h-4 w-4 text-positive shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-[12px] text-foreground font-medium">High-Yield Savings Account</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                        Earns significantly more than a standard savings account.
+                        {aprRate != null ? ` At ${aprRate.toFixed(2)}% APY, your balance earns ${fmtUSD(yearlyAmount, { compact: true })}/yr.` : " Set your APY in Edit to see estimated earnings."}
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                )}
+                {isSavings && !hysa && (
+                  <div className="surface-card px-3 py-2.5 flex items-start gap-2.5">
+                    <Coins className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="text-[11px] text-muted-foreground leading-relaxed">
+                      Standard savings account. Consider moving idle cash to a High-Yield Savings Account (HYSA) to earn more interest.
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
-        {recentTxns.length === 0 && (
-          <div className="text-center py-6 text-[12px] text-muted-foreground">No recent transactions for this account.</div>
-        )}
-      </div>
-    </RightPanel>
+            {/* Investment specifics */}
+            {isInvestment && Math.abs(netFlow30) > 1 && (
+              <div className="surface-card p-3">
+                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">30-day change</div>
+                <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
+                  {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
+                  {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
+                </div>
+              </div>
+            )}
+
+            {/* Recent transactions */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Recent charges</div>
+                {txns.length > 5 && (
+                  <button onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+                    View all {txns.length} <ChevronRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              {recentAll.length > 0 ? (
+                <div className="surface-card overflow-hidden divide-y divide-border/20">
+                  {recentAll.map(t => {
+                    const isInc = Number(t.amount) < 0;
+                    return (
+                      <div key={t.id} className="flex items-center gap-2.5 px-3 py-2.5">
+                        <div className={cn("h-6 w-6 rounded grid place-items-center shrink-0",
+                          isInc ? "bg-positive/10 text-positive" : "bg-secondary/50 text-muted-foreground")}>
+                          {isInc ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12px] text-foreground truncate">{t.merchant_name ?? t.name ?? "Transaction"}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            {t.pending && " · Pending"}
+                          </div>
+                        </div>
+                        <span className={cn("text-[12px] tabular font-medium shrink-0", isInc ? "text-positive" : "text-foreground")}>
+                          {isInc ? "+" : "−"}{fmtUSD(Math.abs(Number(t.amount)), { cents: true })}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-[12px] text-muted-foreground">No recent transactions.</div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="shrink-0 px-5 py-3 border-t flex gap-2" style={{ borderColor: "var(--gold-border)" }}>
+          {instUrl && (
+            <a href={instUrl} target="_blank" rel="noopener noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-2 h-9 rounded-lg bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity">
+              <ExternalLink className="h-3.5 w-3.5" /> Open bank
+            </a>
+          )}
+          <button onClick={onEdit} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+          <button onClick={() => { onClose(); onRemove(); }} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-negative/30 text-[12px] text-negative hover:bg-negative/10 transition-colors">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

@@ -61,8 +61,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
-      setSession(sess);
-      setUser(sess?.user ?? null);
+      setSession(prev => prev?.access_token === sess?.access_token ? prev : sess);
+      setUser(prev => {
+        const next = sess?.user ?? null;
+        if (prev?.id === next?.id) return prev;
+        return next;
+      });
       if (sess?.user) {
         setTimeout(() => { loadExtras(sess.user.id).catch(console.error); }, 0);
       } else {
