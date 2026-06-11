@@ -381,7 +381,9 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
     results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, alreadyCharged, accountId });
   }
 
-  return results.sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
+  return results
+    .filter(r => !r.alreadyCharged)
+    .sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
 };
 
 /** Period helpers for month/year/week navigation */
