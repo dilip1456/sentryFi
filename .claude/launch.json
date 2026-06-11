@@ -4,15 +4,8 @@
     {
       "name": "SentriFi Dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "5174"],
-      "port": 5174,
-      "autoPort": true
-    },
-    {
-      "name": "SentriFi Preview",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "preview"],
-      "port": 4173
+      "runtimeArgs": ["run", "dev"],
+      "port": 8080
     }
   ]
 }
