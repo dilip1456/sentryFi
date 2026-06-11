@@ -320,6 +320,7 @@ const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRul
 type RecurringCharge = {
   merchant: string; avgAmount: number; dayOfMonth: number;
   lastSeen: string; monthsActive: number; predictedDate: Date; alreadyCharged: boolean;
+  accountId: string; // most-used account for this merchant
 };
 
 /** Detect recurring charges from the last 6 months and predict upcoming ones for the current month */
@@ -350,7 +351,6 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
 
     const amounts = txnList.map(t => Number(t.amount));
     const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
-    // Only keep charges with consistent amounts (within 30% variance)
     const maxAmt = Math.max(...amounts); const minAmt = Math.min(...amounts);
     if (maxAmt > 0 && (maxAmt - minAmt) / maxAmt > 0.3) continue;
 
@@ -359,24 +359,26 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
     const lastSeen = txnList.reduce((latest, t) => t.date > latest ? t.date : latest, txnList[0].date);
     const lastSeenDate = new Date(lastSeen + "T00:00:00");
 
-    // Predict if it should appear this month
     const predictedDate = new Date(now.getFullYear(), now.getMonth(), dayOfMonth);
     if (predictedDate < new Date(now.getFullYear(), now.getMonth(), 1)) continue;
 
-    // Check if already charged this month
     const alreadyCharged = txnList.some(t => {
       const d = new Date(t.date + "T00:00:00");
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
 
-    // Only show if last seen within 2 months (still active)
     const monthsAgo = (now.getFullYear() - lastSeenDate.getFullYear()) * 12 + (now.getMonth() - lastSeenDate.getMonth());
     if (monthsAgo > 2 && !alreadyCharged) continue;
 
     const displayName = txnList.find(t => t.merchant_name)?.merchant_name ??
                         txnList[0].name ?? "Unknown";
 
-    results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, alreadyCharged });
+    // Most-used account for this merchant (by frequency)
+    const accCounts: Record<string, number> = {};
+    for (const t of txnList) { accCounts[t.account_id] = (accCounts[t.account_id] ?? 0) + 1; }
+    const accountId = Object.entries(accCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+    results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, alreadyCharged, accountId });
   }
 
   return results.sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
@@ -2060,23 +2062,74 @@ export const LivePlaidDashboard = ({
               <div className="divide-y divide-border/20">
                 {recurringCharges.map((r, i) => {
                   const isPast = r.predictedDate < new Date();
+                  const sourceAcc = accounts.find(a => a.account_id === r.accountId);
+                  const isDebtAcc = sourceAcc ? isDebt(sourceAcc.type) : false;
+                  const availBal = sourceAcc ? (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0) : null;
+                  // Only warn for checking/savings — credit cards handle their own limit
+                  const showBalCheck = !r.alreadyCharged && !isDebtAcc && availBal !== null;
+                  const hasSufficient = availBal !== null && availBal >= r.avgAmount;
+                  const isTight = availBal !== null && availBal >= r.avgAmount && availBal < r.avgAmount * 2;
+
                   return (
-                    <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                      <div className={cn("h-7 w-7 rounded-lg grid place-items-center shrink-0",
-                        r.alreadyCharged ? "bg-positive/10 text-positive" : isPast ? "bg-negative/10 text-negative" : "bg-secondary/50 text-muted-foreground")}>
-                        {r.alreadyCharged ? <Check className="h-3.5 w-3.5"/> : <RepeatIcon className="h-3.5 w-3.5"/>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[12px] text-foreground truncate">{r.merchant}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {r.alreadyCharged ? "Charged this month" :
-                           isPast ? `Expected around ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})} — may be pending` :
-                           `Expected ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`}
-                          {" · "}{r.monthsActive} months recurring
+                    <div key={i} className="flex items-center gap-3 px-4 py-3">
+                      {/* Date badge */}
+                      <div className={cn(
+                        "shrink-0 w-10 text-center rounded-lg py-1 border",
+                        r.alreadyCharged
+                          ? "bg-positive/10 border-positive/20"
+                          : isPast
+                          ? "bg-negative/10 border-negative/20"
+                          : "bg-secondary/50 border-border/40"
+                      )}>
+                        <div className="text-[8.5px] uppercase tracking-wide text-muted-foreground leading-none">
+                          {r.predictedDate.toLocaleDateString("en-US", { month: "short" })}
+                        </div>
+                        <div className={cn("text-[15px] font-semibold tabular leading-tight",
+                          r.alreadyCharged ? "text-positive" : isPast ? "text-negative" : "text-foreground")}>
+                          {r.predictedDate.getDate()}
                         </div>
                       </div>
-                      <div className={cn("text-[12px] tabular font-medium shrink-0",
-                        r.alreadyCharged ? "text-muted-foreground" : "text-foreground")}>
+
+                      {/* Merchant + account/balance info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[12.5px] text-foreground font-medium truncate">{r.merchant}</span>
+                          {r.alreadyCharged && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive shrink-0">Paid</span>
+                          )}
+                          {!r.alreadyCharged && isPast && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending?</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          {sourceAcc && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {sourceAcc.name ?? "Account"}{sourceAcc.mask ? ` ··${sourceAcc.mask}` : ""}
+                            </span>
+                          )}
+                          {showBalCheck && (
+                            <>
+                              <span className="text-muted-foreground/30 text-[10px]">·</span>
+                              <span className={cn("text-[10px] font-medium flex items-center gap-0.5",
+                                !hasSufficient ? "text-negative" : isTight ? "text-warning" : "text-positive")}>
+                                {!hasSufficient
+                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Low balance ({fmtUSD(availBal!, { compact: true })} avail)</>
+                                  : isTight
+                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Tight ({fmtUSD(availBal!, { compact: true })} avail)</>
+                                  : <><Check className="h-2.5 w-2.5 shrink-0" /> {fmtUSD(availBal!, { compact: true })} avail</>
+                                }
+                              </span>
+                            </>
+                          )}
+                          {!sourceAcc && (
+                            <span className="text-[10px] text-muted-foreground">{r.monthsActive} months recurring</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Amount */}
+                      <div className={cn("text-[13px] tabular font-medium shrink-0",
+                        r.alreadyCharged ? "text-muted-foreground line-through" : "text-foreground")}>
                         {fmtUSD(r.avgAmount)}
                       </div>
                     </div>
