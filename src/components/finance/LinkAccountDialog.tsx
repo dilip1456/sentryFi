@@ -3,7 +3,7 @@ import { ShieldCheck, Lock, Building2, Sparkles, ArrowRight, Landmark, CreditCar
 import { useDemo } from "@/contexts/DemoContext";
 import { toast } from "sonner";
 import { useEffect, useState, useCallback } from "react";
-import { usePlaidLink } from "react-plaid-link";
+import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
@@ -24,13 +24,25 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exchanging, setExchanging] = useState(false);
+  // Hide our dialog (and its overlay) while Plaid's own UI is active,
+  // but keep this component mounted so usePlaidLink stays alive.
+  const [plaidOpen, setPlaidOpen] = useState(false);
+
+  // Reset token whenever dialog closes so next open always gets a fresh one.
+  // Plaid link tokens are single-use — reusing a consumed token does nothing.
+  useEffect(() => {
+    if (!open) {
+      setLinkToken(null);
+      setPlaidOpen(false);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open || linkToken) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const { data, error } = await supabase.functions.invoke("plaid-link-token");
+      const { data, error } = await supabase.functions.invoke("plaid-create-link-token");
       if (cancelled) return;
       setLoading(false);
       if (error || !data?.link_token) {
@@ -42,10 +54,14 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
     return () => { cancelled = true; };
   }, [open, linkToken]);
 
-  const onSuccess = useCallback(async (public_token: string, metadata: any) => {
+  const onSuccess = useCallback(async (public_token: string, metadata: PlaidLinkOnSuccessMetadata) => {
     setExchanging(true);
     const { data, error } = await supabase.functions.invoke("plaid-exchange-token", {
-      body: { public_token, institution: metadata?.institution },
+      body: {
+        public_token,
+        institution_id: metadata?.institution?.institution_id,
+        institution_name: metadata?.institution?.name,
+      },
     });
     setExchanging(false);
     if (error || data?.error) {
@@ -61,6 +77,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   const { open: openPlaid, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
+    onExit: () => setPlaidOpen(false),
   });
 
   const connect = () => {
@@ -68,6 +85,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
       toast.info("Preparing secure connection…");
       return;
     }
+    setPlaidOpen(true);
     openPlaid();
   };
 
@@ -78,7 +96,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open && !plaidOpen} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Link a new account</DialogTitle>
         <DialogDescription className="sr-only">Connect a bank, credit card, brokerage, or loan servicer via Plaid.</DialogDescription>
@@ -113,7 +131,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
         <div className="mx-4 mb-4 px-3 py-2 rounded-md bg-surface/40 border border-border/40 flex items-start gap-2">
           <Lock className="h-3 w-3 mt-0.5 shrink-0 text-gold" />
           <span className="text-[10.5px] text-muted-foreground">
-            Plaid encrypts your credentials end-to-end. Atlas only receives read-only balances and transactions — never your password.
+            Plaid encrypts your credentials end-to-end. SentriFi only receives read-only balances and transactions — never your password.
           </span>
         </div>
 

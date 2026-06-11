@@ -2,6 +2,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { ArrowUpRight } from "lucide-react";
 import { fmtUSD, fmtPct } from "@/lib/format";
 import { netWorthSeries } from "@/lib/finance-data";
+import { useCountUp } from "@/hooks/useCountUp";
 
 interface Props {
   netWorth: number;
@@ -11,9 +12,13 @@ interface Props {
 
 export const NetWorthHeader = ({ netWorth, assets, liabilities }: Props) => {
   const first = netWorthSeries[0].v;
-  const last = netWorthSeries[netWorthSeries.length - 1].v;
-  const change = last - first;
+  const last  = netWorthSeries[netWorthSeries.length - 1].v;
+  const change    = last - first;
   const changePct = (change / first) * 100;
+
+  const animatedNW   = useCountUp(netWorth, 1200);
+  const animatedAss  = useCountUp(assets, 1000);
+  const animatedLiab = useCountUp(Math.abs(liabilities), 1000);
 
   return (
     <section className="surface-elevated relative overflow-hidden p-4 md:p-5 animate-fade-up">
@@ -24,23 +29,27 @@ export const NetWorthHeader = ({ netWorth, assets, liabilities }: Props) => {
           <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Net worth</div>
 
           <div className="mt-1 flex items-baseline gap-3 flex-wrap">
-            <h2 className="font-display text-3xl md:text-4xl font-medium leading-none tabular text-primary">
-              {fmtUSD(netWorth)}
+            <h2 className="font-display text-3xl md:text-4xl font-medium leading-none tabular text-primary animate-count-in">
+              {fmtUSD(animatedNW)}
             </h2>
-            <span className="chip chip-positive !py-0.5 !px-2 !text-[11px]">
+            <span className="chip chip-positive !py-0.5 !px-2 !text-[11px] animate-pop-in">
               <ArrowUpRight className="h-3 w-3" />
-              {fmtUSD(change, { signed: true, compact: true })} ({fmtPct(changePct, 1)}) · 12 mo
+              {fmtUSD(change, { signed: true, compact: true })} ({fmtPct(changePct)}) · 12 mo
             </span>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-5 max-w-md">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Assets</div>
-              <div className="font-display text-base mt-0.5 tabular text-positive">{fmtUSD(assets, { compact: true })}</div>
+              <div className="font-display text-base mt-0.5 tabular text-positive animate-count-in">
+                {fmtUSD(animatedAss, { compact: true })}
+              </div>
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
-              <div className="font-display text-base mt-0.5 tabular text-negative">−{fmtUSD(Math.abs(liabilities), { compact: true })}</div>
+              <div className="font-display text-base mt-0.5 tabular text-negative animate-count-in">
+                −{fmtUSD(animatedLiab, { compact: true })}
+              </div>
             </div>
           </div>
         </div>
@@ -78,6 +87,7 @@ export const NetWorthHeader = ({ netWorth, assets, liabilities }: Props) => {
                 stroke="hsl(var(--positive))"
                 strokeWidth={2}
                 fill="url(#nw)"
+                animationDuration={1200}
               />
             </AreaChart>
           </ResponsiveContainer>

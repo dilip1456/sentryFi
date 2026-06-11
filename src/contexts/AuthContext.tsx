@@ -38,14 +38,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const loadExtras = async (uid: string) => {
-    const [{ data: p }, { data: s }, { data: r }] = await Promise.all([
-      supabase.from("profiles").select("display_name,avatar_url,phone,timezone").eq("user_id", uid).maybeSingle(),
-      supabase.from("subscribers").select("plan,status,current_period_end").eq("user_id", uid).maybeSingle(),
-      supabase.from("user_roles").select("role").eq("user_id", uid),
-    ]);
-    setProfile(p as Profile | null);
-    setSubscriber(s as Subscriber | null);
-    setRoles((r ?? []).map((x: { role: string }) => x.role));
+    try {
+      const [
+        { data: p, error: pe },
+        { data: s, error: se },
+        { data: r, error: re },
+      ] = await Promise.all([
+        supabase.from("profiles").select("display_name,avatar_url,phone,timezone").eq("user_id", uid).maybeSingle(),
+        supabase.from("subscribers").select("plan,status,current_period_end").eq("user_id", uid).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", uid),
+      ]);
+      if (pe) console.error("[auth] profiles fetch failed:", pe.message);
+      if (se) console.error("[auth] subscribers fetch failed:", se.message);
+      if (re) console.error("[auth] user_roles fetch failed:", re.message);
+      setProfile(p as Profile | null);
+      setSubscriber(s as Subscriber | null);
+      setRoles((r ?? []).map((x: { role: string }) => x.role));
+    } catch (err) {
+      console.error("[auth] loadExtras threw:", err);
+    }
   };
 
   useEffect(() => {
@@ -53,7 +64,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(sess);
       setUser(sess?.user ?? null);
       if (sess?.user) {
-        setTimeout(() => loadExtras(sess.user.id), 0);
+        setTimeout(() => { loadExtras(sess.user.id).catch(console.error); }, 0);
       } else {
         setProfile(null); setSubscriber(null); setRoles([]);
       }

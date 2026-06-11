@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2, Sparkles } from "lucide-react";
+import { Bell, Search, Settings, Plus, Check, User, LogOut, CreditCard, ShieldCheck, Moon, Sun, HelpCircle, Trash2, Sparkles, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -24,6 +24,8 @@ interface Props {
   onChange?: (k: string) => void;
   tabs?: TopBarTab[];
   onAddAccount?: () => void;
+  onSync?: () => void;
+  syncing?: boolean;
 }
 
 interface Notif { id: string; title: string; body: string; time: string; unread: boolean; tone: "positive" | "warning" | "info" }
@@ -41,7 +43,7 @@ const toneClass: Record<Notif["tone"], string> = {
   info:     "bg-info",
 };
 
-export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
+export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }: Props) => {
   const navItems: TopBarTab[] = tabs ?? [
     { k: "overall", label: "Overview" },
     { k: "monthly", label: "Monthly" },
@@ -52,16 +54,30 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
 
   const { user, profile, subscriber, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, compact, setCompact } = useTheme();
   const { demo, setDemo } = useDemo();
   const dark = theme === "dark";
-  const [notifs, setNotifs] = useState<Notif[]>(initialNotifs);
+  // Only show hardcoded notifs in demo mode; live mode starts empty
+  const [notifs, setNotifs] = useState<Notif[]>(demo ? initialNotifs : []);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [compact, setCompact] = useState(false);
-  const [alertsEmail, setAlertsEmail] = useState(true);
-  const [alertsPush, setAlertsPush] = useState(true);
+  const [alertsEmail, setAlertsEmail] = useState(() => localStorage.getItem("sentrifi.alertsEmail") !== "false");
+  const [alertsPush, setAlertsPush] = useState(() => localStorage.getItem("sentrifi.alertsPush") !== "false");
+
+  // Sync notifs when demo mode toggles
+  useEffect(() => {
+    setNotifs(demo ? initialNotifs : []);
+  }, [demo]);
+
+  const handleAlertsEmail = (v: boolean) => {
+    setAlertsEmail(v);
+    localStorage.setItem("sentrifi.alertsEmail", String(v));
+  };
+  const handleAlertsPush = (v: boolean) => {
+    setAlertsPush(v);
+    localStorage.setItem("sentrifi.alertsPush", String(v));
+  };
 
   const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? "You";
   const initials = displayName.split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
@@ -81,10 +97,10 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
       <div className="max-w-[1280px] mx-auto px-4 md:px-8 h-14 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 shrink-0">
           <div className="h-8 w-8 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">
-            A
+            S
           </div>
           <div className="font-display text-base tracking-tight text-foreground hidden sm:block">
-            Atlas <span className="text-muted-foreground font-normal">/ Finance</span>
+            SentriFi <span className="text-muted-foreground font-normal">/ Finance</span>
           </div>
         </div>
 
@@ -107,10 +123,20 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
         </nav>
 
         <div className="flex items-center gap-1 shrink-0">
+          {onSync && (
+            <button
+              onClick={onSync}
+              disabled={syncing}
+              className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border-strong text-muted-foreground hover:text-foreground hover:border-[hsl(var(--primary)/0.4)] transition-colors text-[12px] disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+              {syncing ? "Syncing…" : "Sync"}
+            </button>
+          )}
           {onAddAccount && (
             <button
               onClick={onAddAccount}
-              className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-positive/15 border border-positive/30 text-positive hover:bg-positive/20 transition-colors text-[12px] font-medium"
+              className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity"
             >
               <Plus className="h-3.5 w-3.5" /> Link account
             </button>
@@ -136,7 +162,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
                 )}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 surface-elevated">
+            <DropdownMenuContent align="end" className="w-80 max-w-[calc(100vw-1rem)] surface-elevated">
               <div className="flex items-center justify-between px-2 py-1.5">
                 <DropdownMenuLabel className="p-0 text-[12px]">Notifications</DropdownMenuLabel>
                 <button
@@ -184,7 +210,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
                 <Settings className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64 surface-elevated">
+            <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)] surface-elevated">
               <DropdownMenuLabel className="text-[12px]">Preferences</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuCheckboxItem
@@ -210,18 +236,19 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
               >
                 Compact density
               </DropdownMenuCheckboxItem>
+
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-[11px] text-muted-foreground font-normal">Alerts</DropdownMenuLabel>
               <DropdownMenuCheckboxItem
                 checked={alertsEmail}
-                onCheckedChange={(v) => setAlertsEmail(!!v)}
+                onCheckedChange={(v) => handleAlertsEmail(!!v)}
                 className="text-[12px]"
               >
                 Email alerts
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={alertsPush}
-                onCheckedChange={(v) => setAlertsPush(!!v)}
+                onCheckedChange={(v) => handleAlertsPush(!!v)}
                 className="text-[12px]"
               >
                 Push notifications
@@ -242,7 +269,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
                   : initials}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60 surface-elevated">
+            <DropdownMenuContent align="end" className="w-60 max-w-[calc(100vw-1rem)] surface-elevated">
               <div className="px-2 py-2">
                 <div className="text-[12.5px] text-foreground font-medium truncate">{displayName}</div>
                 <div className="text-[10.5px] text-muted-foreground truncate">{user?.email}</div>
@@ -276,7 +303,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount }: Props) => {
       {/* Search dialog */}
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
         <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Search Atlas</DialogTitle>
+          <DialogTitle className="sr-only">Search SentriFi</DialogTitle>
           <DialogDescription className="sr-only">Jump to a tab or action.</DialogDescription>
           <div className="p-3 border-b border-border/40 flex items-center gap-2">
             <Search className="h-4 w-4 text-muted-foreground" />

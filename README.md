@@ -1,3 +1,3 @@
-# Welcome to your Lovable project
+# SentriFi
 
-TODO: Document your project here
+Personal finance intelligence — built with React, TypeScript, Supabase, and Plaid.

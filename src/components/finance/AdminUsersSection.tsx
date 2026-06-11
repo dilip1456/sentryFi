@@ -99,7 +99,7 @@ export const AdminUsersSection = () => {
       </div>
 
       <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
-        <div className="grid grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-surface/40">
+        <div className="hidden md:grid grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-surface/40">
           <div>User</div>
           <div>Plan</div>
           <div>Role</div>
@@ -115,7 +115,7 @@ export const AdminUsersSection = () => {
           const initials = (r.display_name ?? "U").split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
           return (
             <div key={r.user_id} className={cn(
-              "grid grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-2.5 items-center border-b border-border/30 last:border-b-0 hover:bg-surface-hover/30 transition-colors text-[12.5px]",
+              "flex flex-wrap md:grid md:grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-3 gap-2 items-center border-b border-border/30 last:border-b-0 hover:bg-surface-hover/30 transition-colors text-[12.5px]",
               r.disabled && "opacity-50"
             )}>
               <div className="flex items-center gap-2.5 min-w-0">

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -61,17 +60,20 @@ const Auth = () => {
 
   const google = async () => {
     setBusy(true);
-    const res = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (res.error) { toast.error(res.error.message ?? "Google sign-in failed"); setBusy(false); }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) { toast.error(error.message ?? "Google sign-in failed"); setBusy(false); }
   };
 
   return (
     <div className="min-h-screen grid place-items-center bg-background px-4">
       <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60">
         <div className="flex items-center gap-2 mb-5">
-          <div className="h-9 w-9 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">A</div>
+          <div className="h-9 w-9 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">S</div>
           <div>
-            <div className="font-display text-base text-foreground">Atlas</div>
+            <div className="font-display text-base text-foreground">SentriFi</div>
             <div className="text-[11px] text-muted-foreground">Personal finance intelligence</div>
           </div>
         </div>
