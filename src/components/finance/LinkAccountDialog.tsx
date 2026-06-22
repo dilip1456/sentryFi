@@ -131,7 +131,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
         <div className="mx-4 mb-4 px-3 py-2 rounded-md bg-surface/40 border border-border/40 flex items-start gap-2">
           <Lock className="h-3 w-3 mt-0.5 shrink-0 text-gold" />
           <span className="text-[10.5px] text-muted-foreground">
-            Plaid encrypts your credentials end-to-end. SentriFi only receives read-only balances and transactions — never your password.
+            Plaid encrypts your credentials end-to-end. SentryFi only receives read-only balances and transactions — never your password.
           </span>
         </div>
 

@@ -62,8 +62,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [alertsEmail, setAlertsEmail] = useState(() => localStorage.getItem("sentrifi.alertsEmail") !== "false");
-  const [alertsPush, setAlertsPush] = useState(() => localStorage.getItem("sentrifi.alertsPush") !== "false");
+  const [alertsEmail, setAlertsEmail] = useState(() => localStorage.getItem("sentryfi.alertsEmail") !== "false");
+  const [alertsPush, setAlertsPush] = useState(() => localStorage.getItem("sentryfi.alertsPush") !== "false");
 
   // Sync notifs when demo mode toggles
   useEffect(() => {
@@ -72,11 +72,11 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
 
   const handleAlertsEmail = (v: boolean) => {
     setAlertsEmail(v);
-    localStorage.setItem("sentrifi.alertsEmail", String(v));
+    localStorage.setItem("sentryfi.alertsEmail", String(v));
   };
   const handleAlertsPush = (v: boolean) => {
     setAlertsPush(v);
-    localStorage.setItem("sentrifi.alertsPush", String(v));
+    localStorage.setItem("sentryfi.alertsPush", String(v));
   };
 
   const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? "You";
@@ -100,7 +100,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             S
           </div>
           <div className="font-display text-base tracking-tight text-foreground hidden sm:block">
-            SentriFi <span className="text-muted-foreground font-normal">/ Finance</span>
+            SentryFi <span className="text-muted-foreground font-normal">/ Finance</span>
           </div>
         </div>
 
@@ -303,7 +303,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
       {/* Search dialog */}
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
         <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Search SentriFi</DialogTitle>
+          <DialogTitle className="sr-only">Search SentryFi</DialogTitle>
           <DialogDescription className="sr-only">Jump to a tab or action.</DialogDescription>
           <div className="p-3 border-b border-border/40 flex items-center gap-2">
             <Search className="h-4 w-4 text-muted-foreground" />

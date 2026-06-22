@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const KEY = "sentrifi_cat_overrides";
+const KEY = "sentryfi_cat_overrides";
 
 export const UNASSIGNED = "Unassigned";
 
