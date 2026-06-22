@@ -190,7 +190,7 @@ const Index = () => {
 
         {!showEmpty && (
           <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
-            SentriFi · {demo ? "Demo data" : "Live data"} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            SentryFi · {demo ? "Demo data" : "Live data"} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
           </footer>
         )}
       </main>

@@ -1700,14 +1700,14 @@ export const LivePlaidDashboard = ({
   const [pickerPos, setPickerPos]         = useState<{x:number;y:number}>({x:0,y:0});
 
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_insights")??"[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_insights")??"[]")); } catch { return new Set(); }
   });
   const [dismissedActions, setDismissedActions] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_actions")??"[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_actions")??"[]")); } catch { return new Set(); }
   });
 
-  const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentrifi_dismissed_insights",JSON.stringify([...n])); };
-  const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentrifi_dismissed_actions",JSON.stringify([...n])); };
+  const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentryfi_dismissed_insights",JSON.stringify([...n])); };
+  const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentryfi_dismissed_actions",JSON.stringify([...n])); };
 
   const load = useCallback(async()=>{
     if (!user) return;
@@ -1764,7 +1764,7 @@ export const LivePlaidDashboard = ({
           .order("date", { ascending: false })
           .limit(synced + 20);
         if (freshTxns?.length) {
-          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentrifi_cat_overrides") ?? "{}");
+          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentryfi_cat_overrides") ?? "{}");
           const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
             .filter(t => !currentOverrides[t.id]);
           if (toCateg.length > 0) {
@@ -1776,7 +1776,7 @@ export const LivePlaidDashboard = ({
               for (const r of catResult.results as { id:string; category:string }[]) {
                 if (r.id && r.category) newOverrides[r.id] = r.category;
               }
-              localStorage.setItem("sentrifi_cat_overrides", JSON.stringify(newOverrides));
+              localStorage.setItem("sentryfi_cat_overrides", JSON.stringify(newOverrides));
             }
           }
         }
@@ -2068,7 +2068,7 @@ export const LivePlaidDashboard = ({
                 </div>
                 <h3 className="font-display text-lg text-foreground">Remove {removingAccount.name ?? "account"}?</h3>
                 <p className="mt-2 text-[12px] text-muted-foreground leading-relaxed">
-                  This will delete the account and all its synced transactions from SentriFi.
+                  This will delete the account and all its synced transactions from SentryFi.
                   Your actual bank account is not affected.
                 </p>
                 {removingAccount.mask && (

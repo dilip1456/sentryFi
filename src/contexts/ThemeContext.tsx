@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
 type Theme = "dark" | "light";
-const KEY = "sentrifi.theme";
-const COMPACT_KEY = "sentrifi.compact";
+const KEY = "sentryfi.theme";
+const COMPACT_KEY = "sentryfi.compact";
 
 interface Ctx {
   theme: Theme;

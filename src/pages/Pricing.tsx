@@ -33,7 +33,7 @@ const Pricing = () => {
           <Link to="/" className="inline-flex items-center gap-2 text-[12px] text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-3.5 w-3.5" /> Back to dashboard
           </Link>
-          <div className="font-display text-sm text-foreground">SentriFi / Plans</div>
+          <div className="font-display text-sm text-foreground">SentryFi / Plans</div>
         </div>
       </header>
 
