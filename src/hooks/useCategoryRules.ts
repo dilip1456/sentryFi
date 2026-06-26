@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const KEY = "sentrifi_cat_rules";
+const KEY = "sentryfi_cat_rules";
 
 export type CategoryRule = {
   merchantPattern: string;

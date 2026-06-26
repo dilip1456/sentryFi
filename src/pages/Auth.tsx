@@ -73,7 +73,7 @@ const Auth = () => {
         <div className="flex items-center gap-2 mb-5">
           <div className="h-9 w-9 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">S</div>
           <div>
-            <div className="font-display text-base text-foreground">SentriFi</div>
+            <div className="font-display text-base text-foreground">SentryFi</div>
             <div className="text-[11px] text-muted-foreground">Personal finance intelligence</div>
           </div>
         </div>

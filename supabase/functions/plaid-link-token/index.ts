@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         client_id: Deno.env.get('PLAID_CLIENT_ID'),
         secret: Deno.env.get('PLAID_SECRET'),
-        client_name: 'SentriFi',
+        client_name: 'SentryFi',
         language: 'en',
         country_codes: ['US'],
         user: { client_user_id: user.id },

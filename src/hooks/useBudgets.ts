@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const KEY = "sentrifi_budgets";
+const KEY = "sentryfi_budgets";
 
 export type Budgets = Record<string, number>; // category → monthly limit in $
 

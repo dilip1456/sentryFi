@@ -1,5 +1,5 @@
 -- ============================================================
--- SentriFi — Full Database Schema
+-- SentryFi — Full Database Schema
 -- Run this in Supabase SQL Editor on your new project
 -- ============================================================
 
