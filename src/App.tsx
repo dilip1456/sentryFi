@@ -12,6 +12,7 @@ import Index from "./pages/Index.tsx";
 import Auth from "./pages/Auth.tsx";
 import Pricing from "./pages/Pricing.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ const App = () => (
             </DemoProvider>
           </AuthProvider>
         </BrowserRouter>
+        <SpeedInsights />
       </TooltipProvider>
     </ThemeProvider>
     <Analytics />
