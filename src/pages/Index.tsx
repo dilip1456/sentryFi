@@ -89,7 +89,7 @@ const Index = () => {
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
 
-      <main className="max-w-[1280px] mx-auto px-4 md:px-8 py-5 md:py-6 space-y-4">
+      <main className="w-full px-4 md:px-8 py-5 md:py-6 space-y-4">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">

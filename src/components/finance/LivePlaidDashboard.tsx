@@ -1,5 +1,15 @@
-import { useEffect, useState, useCallback, useRef, Fragment } from "react";
+import { useEffect, useState, useCallback, useRef, Fragment, useMemo } from "react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, useSortable, rectSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { TouchSensor } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { supabase } from "@/integrations/supabase/client";
+import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
 import { useBudgets } from "@/hooks/useBudgets";
@@ -15,12 +25,12 @@ import {
   ArrowDownLeft, ArrowUpRight, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
   Pencil, Search, Trash2, ExternalLink, Tag, Calendar, Unlink,
-  ChevronLeft, RefreshCw, RepeatIcon, Receipt,
+  ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────
 type PAccount = {
@@ -33,7 +43,7 @@ type PTxn = {
   name: string | null; merchant_name: string | null; category: string[] | null;
   pending: boolean | null; payment_channel: string | null;
 };
-type ActionItem = { id: string; priority: "urgent"|"soon"|"info"; title: string; detail: string; cta: string; icon: typeof Wallet };
+type ActionItem = { id: string; priority: "urgent"|"soon"|"info"; title: string; detail: string; cta: string; icon: typeof Wallet; reviewCategory?: string; };
 type AIInsight  = { id: string; severity: "high"|"medium"|"low"; category: string; title: string; what: string; why: string; action: string; impact: string; impactValue: number };
 type Bucket     = "liquid" | "longterm" | "revolving" | "term";
 type Period     = "1W" | "1M" | "3M" | "1Y" | "ALL";
@@ -108,7 +118,7 @@ const getInstitutionUrl = (name: string | null, customUrl?: string): string | nu
 };
 
 // ── Account metadata localStorage helpers ─────────────────────
-const META_KEY = "sentrfi_account_meta";
+const META_KEY = "sentrifi_account_meta";
 const loadAllMeta = (): Record<string, AccountMeta> => {
   try { return JSON.parse(localStorage.getItem(META_KEY) ?? "{}"); } catch { return {}; }
 };
@@ -290,15 +300,59 @@ const buildMonthlyFlow = (txns: PTxn[]) => {
   });
 };
 
-/** Month-over-month spend change per category: { category, thisMonth, lastMonth, delta, pct } */
-const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null) => {
+/**
+ * Detect internal transfers between the user's own accounts.
+ * Returns a Set of transaction IDs that are internal transfers.
+ * Criteria: Plaid category contains "transfer" OR name matches transfer patterns,
+ * AND a matching opposite-amount transaction exists in another own account within 3 days.
+ * Credit card payments (transfer from checking → credit) are also internal.
+ */
+const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
+  const ids = new Set<string>();
+  const TRANSFER_NAME = /\btransfer\b|zelle|venmo|cashapp|pay yourself|from checking|to savings|to checking|from savings|online payment|autopay|bill pay/i;
+
+  const isTransfer = (t: PTxn) =>
+    (t.category?.[0] ?? "").toLowerCase().includes("transfer") ||
+    TRANSFER_NAME.test(t.merchant_name ?? t.name ?? "");
+
+  const candidates = txns.filter(isTransfer);
+
+  for (const t of candidates) {
+    if (ids.has(t.id)) continue;
+    const amt = Number(t.amount);
+    const tDate = new Date(t.date + "T00:00:00");
+
+    // Look for a matching opposite transaction (same amount, different account, within 3 days)
+    const match = candidates.find(o => {
+      if (o.id === t.id || ids.has(o.id)) return false;
+      if (o.account_id === t.account_id) return false;
+      const oAmt = Number(o.amount);
+      if (Math.abs(Math.abs(oAmt) - Math.abs(amt)) > 0.01) return false;
+      if (Math.sign(oAmt) === Math.sign(amt)) return false; // must be opposite signs
+      const oDate = new Date(o.date + "T00:00:00");
+      return Math.abs(tDate.getTime() - oDate.getTime()) <= 3 * 86400000;
+    });
+
+    if (match) {
+      ids.add(t.id);
+      ids.add(match.id);
+    } else if ((t.category?.[0] ?? "").toLowerCase().includes("transfer")) {
+      // Even without a pair, Plaid-confirmed transfers are internal
+      ids.add(t.id);
+    }
+  }
+  return ids;
+};
+
+/** Month-over-month spend change per category, excluding internal transfers */
+const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null, internalIds: Set<string>) => {
   const now = new Date();
   const thisM = now.getMonth(); const thisY = now.getFullYear();
   const lastM = thisM === 0 ? 11 : thisM - 1;
   const lastY = thisM === 0 ? thisY - 1 : thisY;
   const catMap: Record<string,{this:number;last:number}> = {};
   for (const t of txns) {
-    if (Number(t.amount) <= 0) continue;
+    if (Number(t.amount) <= 0 || internalIds.has(t.id)) continue;
     const d = new Date(t.date+"T00:00:00");
     const isThis = d.getMonth()===thisM && d.getFullYear()===thisY;
     const isLast = d.getMonth()===lastM && d.getFullYear()===lastY;
@@ -320,96 +374,156 @@ const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRul
 type RecurringCharge = {
   merchant: string; avgAmount: number; dayOfMonth: number;
   lastSeen: string; monthsActive: number; predictedDate: Date;
-  accountId: string;
+  accountId: string; intervalDays: number; intervalLabel: string;
 };
 
 /**
- * Detect recurring charges and predict next upcoming occurrence.
- * Shows next 60 days of charges — if already charged this month, rolls to next month.
+ * Detect truly recurring charges by identifying consistent intervals.
+ * Supports weekly (~7d), bi-weekly (~14d), monthly (~30d), quarterly (~90d).
+ * Shows next 30 days of upcoming charges only.
  */
 const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
-  const now = new Date();
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  const lookahead = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000); // 60 days out
+  const now = new Date(); now.setHours(0,0,0,0);
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const lookahead = new Date(now.getTime() + 60 * 86400000);
 
-  const expenses = txns.filter(t =>
-    Number(t.amount) > 0 &&
-    new Date(t.date) >= sixMonthsAgo &&
-    !(t.category?.[0] ?? "").toLowerCase().includes("transfer")
-  );
+  const INTERVAL_BUCKETS = [
+    { label: "Weekly",     days: 7,  tolerance: 2 },
+    { label: "Bi-weekly",  days: 14, tolerance: 3 },
+    { label: "Monthly",    days: 30, tolerance: 5 },
+    { label: "Quarterly",  days: 91, tolerance: 10 },
+  ];
 
+  // Categories that are never truly recurring (variable spend)
+  const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal/i;
+  // Merchant name patterns that indicate one-off or variable spend
+  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway/i;
+
+  const expenses = txns.filter(t => {
+    if (Number(t.amount) <= 0 || t.pending) return false;
+    if (new Date(t.date) < sixMonthsAgo) return false;
+    const cat0 = (t.category?.[0] ?? "").toLowerCase();
+    const cat1 = (t.category?.[1] ?? "").toLowerCase();
+    if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
+    const merchant = (t.merchant_name ?? t.name ?? "").toLowerCase();
+    if (NON_RECURRING_MERCHANT.test(merchant)) return false;
+    if (cat0.includes("transfer")) return false;
+    return true;
+  });
+
+  // Group by normalized merchant name
   const groups: Record<string, PTxn[]> = {};
   for (const t of expenses) {
-    const key = (t.merchant_name ?? t.name ?? "").trim().toLowerCase().slice(0, 40);
+    const key = (t.merchant_name ?? t.name ?? "").trim().toLowerCase()
+      .replace(/\s+(and|&|llc|inc|co\.?|corp\.?)[\s,]*$/i, "").slice(0, 40);
     if (!key) continue;
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
   }
 
   const results: RecurringCharge[] = [];
-  for (const [, txnList] of Object.entries(groups)) {
-    const months = new Set(txnList.map(t => {
-      const d = new Date(t.date + "T00:00:00");
-      return `${d.getFullYear()}-${d.getMonth()}`;
-    }));
-    if (months.size < 2) continue;
 
-    const amounts = txnList.map(t => Number(t.amount));
+  for (const [, txnList] of Object.entries(groups)) {
+    // Sort by date ascending
+    const sorted = [...txnList].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Deduplicate same-day charges
+    const deduped = sorted.filter((t, i) => i === 0 || t.date !== sorted[i-1].date);
+    if (deduped.length < 2) continue;
+
+    // Amount consistency check
+    const amounts = deduped.map(t => Number(t.amount));
     const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
     const maxAmt = Math.max(...amounts); const minAmt = Math.min(...amounts);
-    if (maxAmt > 0 && (maxAmt - minAmt) / maxAmt > 0.3) continue;
+    if (maxAmt > 0 && (maxAmt - minAmt) / maxAmt > 0.35) continue;
 
-    const days = txnList.map(t => new Date(t.date + "T00:00:00").getDate());
-    const dayOfMonth = Math.round(days.reduce((s, d) => s + d, 0) / days.length);
-
-    const lastSeen = txnList.reduce((latest, t) => t.date > latest ? t.date : latest, txnList[0].date);
-    const lastSeenDate = new Date(lastSeen + "T00:00:00");
-    const monthsAgo = (now.getFullYear() - lastSeenDate.getFullYear()) * 12 + (now.getMonth() - lastSeenDate.getMonth());
-    if (monthsAgo > 3) continue; // inactive merchant
-
-    // Already charged this month?
-    const chargedThisMonth = txnList.some(t => {
-      const d = new Date(t.date + "T00:00:00");
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    });
-
-    // Next occurrence: this month if not yet charged, otherwise next month.
-    // If this-month prediction has already passed (day < today), also roll to next month.
-    let baseMonth = chargedThisMonth ? now.getMonth() + 1 : now.getMonth();
-    let baseYear = (baseMonth === now.getMonth())
-      ? now.getFullYear()
-      : (now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear());
-    let predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
-
-    // If predicted date is in the past (day already passed, charge not recorded), roll forward
-    if (predictedDate <= now) {
-      baseMonth = baseMonth + 1;
-      baseYear = baseMonth > 11 ? baseYear + 1 : baseYear;
-      predictedDate = new Date(baseYear, baseMonth % 12, dayOfMonth);
+    // Compute gaps between consecutive occurrences
+    const gaps: number[] = [];
+    for (let i = 1; i < deduped.length; i++) {
+      const a = new Date(deduped[i-1].date + "T00:00:00");
+      const b = new Date(deduped[i].date + "T00:00:00");
+      gaps.push(Math.round((b.getTime() - a.getTime()) / 86400000));
     }
 
-    // Only include if within 60-day lookahead window
+    // Find the best-matching interval bucket
+    let matchedInterval: typeof INTERVAL_BUCKETS[0] | null = null;
+    for (const bucket of INTERVAL_BUCKETS) {
+      const matching = gaps.filter(g => Math.abs(g - bucket.days) <= bucket.tolerance);
+      if (matching.length >= Math.max(1, Math.floor(gaps.length * 0.55))) { // ≥55% of gaps match
+        matchedInterval = bucket;
+        break;
+      }
+    }
+    if (!matchedInterval) continue;
+
+    // Must have been seen recently
+    const lastSeen = deduped[deduped.length - 1].date;
+    const lastSeenDate = new Date(lastSeen + "T00:00:00");
+    const daysSinceLast = Math.round((now.getTime() - lastSeenDate.getTime()) / 86400000);
+    if (daysSinceLast > matchedInterval.days * 2.5) continue; // inactive
+
+    // Predict next occurrence
+    let predictedDate = new Date(lastSeenDate.getTime() + matchedInterval.days * 86400000);
+    // If prediction is in the past (already overdue), advance by one interval
+    while (predictedDate <= now) {
+      predictedDate = new Date(predictedDate.getTime() + matchedInterval.days * 86400000);
+    }
     if (predictedDate > lookahead) continue;
 
-    const displayName = txnList.find(t => t.merchant_name)?.merchant_name ??
-                        txnList[0].name ?? "Unknown";
+    const displayName = deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "Unknown";
+    const dayOfMonth = predictedDate.getDate();
 
     const accCounts: Record<string, number> = {};
-    for (const t of txnList) { accCounts[t.account_id] = (accCounts[t.account_id] ?? 0) + 1; }
+    for (const t of deduped) { accCounts[t.account_id] = (accCounts[t.account_id] ?? 0) + 1; }
     const accountId = Object.entries(accCounts).sort((a, b) => b[1] - a[1])[0][0];
 
-    results.push({ merchant: displayName, avgAmount, dayOfMonth, lastSeen, monthsActive: months.size, predictedDate, accountId });
+    results.push({
+      merchant: displayName, avgAmount, dayOfMonth,
+      lastSeen, monthsActive: deduped.length,
+      predictedDate, accountId,
+      intervalDays: matchedInterval.days,
+      intervalLabel: matchedInterval.label,
+    });
   }
 
   return results.sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
 };
 
-/** Period helpers for month/year/week navigation */
-type PeriodGranularity = "week" | "month" | "year";
+/** Period helpers for day/week/month/year navigation */
+type PeriodGranularity = "day" | "week" | "month" | "year";
 type PeriodState = { granularity: PeriodGranularity; offset: number }; // offset: 0 = current, -1 = previous, etc.
+
+/** Inclusive [start, end] date range for a period */
+const getPeriodRange = (p: PeriodState): { start: Date; end: Date } => {
+  const now = new Date();
+  if (p.granularity === "day") {
+    const d = new Date(now); d.setDate(now.getDate() + p.offset); d.setHours(0,0,0,0);
+    const end = new Date(d); end.setHours(23,59,59,999);
+    return { start: d, end };
+  }
+  if (p.granularity === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth() + p.offset, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + p.offset + 1, 0, 23, 59, 59, 999);
+    return { start, end };
+  }
+  if (p.granularity === "year") {
+    const yr = now.getFullYear() + p.offset;
+    return { start: new Date(yr, 0, 1), end: new Date(yr, 11, 31, 23, 59, 59, 999) };
+  }
+  // week
+  const start = new Date(now); start.setDate(now.getDate() - now.getDay() + p.offset * 7); start.setHours(0,0,0,0);
+  const end = new Date(start); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999);
+  return { start, end };
+};
 
 const getPeriodLabel = (p: PeriodState): string => {
   const now = new Date();
+  if (p.granularity === "day") {
+    if (p.offset === 0) return "Today";
+    if (p.offset === -1) return "Yesterday";
+    const d = new Date(now); d.setDate(now.getDate() + p.offset);
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  }
   if (p.granularity === "month") {
     const d = new Date(now.getFullYear(), now.getMonth() + p.offset, 1);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -418,26 +532,13 @@ const getPeriodLabel = (p: PeriodState): string => {
     return String(now.getFullYear() + p.offset);
   }
   // week
-  const start = new Date(now); start.setDate(now.getDate() - now.getDay() + p.offset * 7);
-  const end = new Date(start); end.setDate(start.getDate() + 6);
+  const { start, end } = getPeriodRange(p);
   return `${start.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${end.toLocaleDateString("en-US",{month:"short",day:"numeric"})}`;
 };
 
 const filterByPeriod = (txns: PTxn[], p: PeriodState): PTxn[] => {
-  const now = new Date();
-  if (p.granularity === "month") {
-    const d = new Date(now.getFullYear(), now.getMonth() + p.offset, 1);
-    const mo = d.getMonth(); const yr = d.getFullYear();
-    return txns.filter(t => { const td = new Date(t.date+"T00:00:00"); return td.getMonth()===mo && td.getFullYear()===yr; });
-  }
-  if (p.granularity === "year") {
-    const yr = now.getFullYear() + p.offset;
-    return txns.filter(t => new Date(t.date+"T00:00:00").getFullYear() === yr);
-  }
-  // week
-  const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate() - now.getDay() + p.offset * 7); startOfWeek.setHours(0,0,0,0);
-  const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6); endOfWeek.setHours(23,59,59,999);
-  return txns.filter(t => { const td = new Date(t.date+"T00:00:00"); return td >= startOfWeek && td <= endOfWeek; });
+  const { start, end } = getPeriodRange(p);
+  return txns.filter(t => { const td = new Date(t.date+"T00:00:00"); return td >= start && td <= end; });
 };
 
 // Keywords that suggest an account is already a savings/HYSA — exclude from low-balance alerts
@@ -447,10 +548,19 @@ const looksLikeSavings = (a: PAccount) => {
   return SAVINGS_KEYWORDS.some(k => name.includes(k)) || a.subtype === "savings" || a.subtype === "money market";
 };
 
-const generateActions = (accounts: PAccount[], txns: PTxn[]): ActionItem[] => {
+const generateActions = (
+  accounts: PAccount[],
+  txns: PTxn[],
+  internalIds: Set<string>,
+  overrides: Record<string,string>,
+  getRuleCategory: (m:string|null)=>string|null,
+  budgets: Record<string,number>,
+  creditDetails: CreditDetail[],
+): ActionItem[] => {
   const items: ActionItem[] = [];
+  const realTxns = txns.filter(t => !internalIds.has(t.id));
 
-  // Only flag genuine checking accounts (not savings/HYSA) with low balance
+  // Low checking balance
   const lowCheck = accounts.filter(a =>
     a.subtype === "checking" &&
     !looksLikeSavings(a) &&
@@ -463,23 +573,133 @@ const generateActions = (accounts: PAccount[], txns: PTxn[]): ActionItem[] => {
     cta: "Transfer funds", icon: AlertTriangle,
   });
 
-  // Credit card balances
+  // Budget overages — this month
+  if (Object.keys(budgets).length > 0) {
+    const now = new Date();
+    const thisM = now.getMonth(); const thisY = now.getFullYear();
+    const thisMonthSpend: Record<string,number> = {};
+    for (const t of realTxns) {
+      if (Number(t.amount) <= 0) continue;
+      const d = new Date(t.date+"T00:00:00");
+      if (d.getMonth() !== thisM || d.getFullYear() !== thisY) continue;
+      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      thisMonthSpend[cat] = (thisMonthSpend[cat] ?? 0) + Number(t.amount);
+    }
+    const overages = Object.entries(budgets)
+      .filter(([cat, limit]) => (thisMonthSpend[cat] ?? 0) > limit && limit > 0)
+      .map(([cat, limit]) => ({ cat, spent: thisMonthSpend[cat], over: thisMonthSpend[cat] - limit }))
+      .sort((a, b) => b.over - a.over);
+    if (overages.length > 0) {
+      const top = overages[0];
+      items.push({
+        id: "budget-overage", priority: "urgent",
+        title: `Budget exceeded: ${formatCat(top.cat)}`,
+        detail: `${fmtUSD(top.spent)} spent vs ${fmtUSD(budgets[top.cat])} budget — ${fmtUSD(top.over)} over.${overages.length > 1 ? ` +${overages.length - 1} more categor${overages.length > 2 ? "ies" : "y"}.` : ""}`,
+        cta: "Review spending", icon: AlertTriangle, reviewCategory: top.cat,
+      });
+    }
+  }
+
+  // Spending spike detection — this month vs 3-month avg (>25% over)
+  (() => {
+    const now = new Date();
+    const thisM = now.getMonth(); const thisY = now.getFullYear();
+    const catThis: Record<string,number> = {};
+    const catHist: Record<string,number[]> = {};
+    for (const t of realTxns) {
+      if (Number(t.amount) <= 0) continue;
+      const d = new Date(t.date+"T00:00:00");
+      const mDiff = (thisY - d.getFullYear()) * 12 + (thisM - d.getMonth());
+      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      if (mDiff === 0) { catThis[cat] = (catThis[cat] ?? 0) + Number(t.amount); }
+      else if (mDiff >= 1 && mDiff <= 3) {
+        if (!catHist[cat]) catHist[cat] = [];
+        catHist[cat].push(Number(t.amount));
+      }
+    }
+    const spikes = Object.entries(catThis)
+      .filter(([cat, thisAmt]) => {
+        const hist = catHist[cat];
+        if (!hist || hist.length < 3) return false;
+        const avg = hist.reduce((s, v) => s + v, 0) / 3;
+        return thisAmt > avg * 1.25 && thisAmt - avg > 50;
+      })
+      .map(([cat, thisAmt]) => {
+        const avg = catHist[cat].reduce((s, v) => s + v, 0) / 3;
+        return { cat, thisAmt, avg, pct: Math.round(((thisAmt - avg) / avg) * 100) };
+      })
+      .sort((a, b) => (b.thisAmt - b.avg) - (a.thisAmt - a.avg));
+    if (spikes.length > 0) {
+      const s = spikes[0];
+      items.push({
+        id: "spend-spike", priority: "soon",
+        title: `${formatCat(s.cat)} spending up ${s.pct}%`,
+        detail: `${fmtUSD(s.thisAmt)} this month vs ${fmtUSD(Math.round(s.avg))} avg — ${fmtUSD(Math.round(s.thisAmt - s.avg))} above normal.`,
+        cta: "Review", icon: TrendingUp, reviewCategory: s.cat,
+      });
+    }
+  })();
+
+  // Credit card due dates — use Plaid credit details when available
   accounts.filter(a => a.type === "credit").forEach(cc => {
     const bal = Math.abs(Number(cc.current_balance) || 0);
     const shortName = (cc.name ?? "Card").split(" ").slice(0, 2).join(" ");
-    if (bal > 1000) items.push({
-      id: `cc-${cc.id}`, priority: "soon",
-      title: `${shortName} balance due`,
-      detail: `${fmtUSD(bal)} balance — schedule payment before due date.`,
-      cta: "Schedule payment", icon: CreditCard,
-    });
+    const detail = creditDetails.find(d => d.account_id === cc.account_id);
+    const dueDate = detail?.next_payment_due_date;
+    const minPay = detail?.minimum_payment_amount;
+    const isOverdue = detail?.is_overdue;
+
+    if (isOverdue) {
+      items.push({
+        id: `cc-overdue-${cc.id}`, priority: "urgent",
+        title: `${shortName} payment overdue`,
+        detail: `Minimum payment of ${minPay ? fmtUSD(minPay) : "unknown"} is past due — pay immediately to avoid fees.`,
+        cta: "Pay now", icon: CreditCard,
+      });
+    } else if (dueDate) {
+      const due = new Date(dueDate + "T00:00:00");
+      const daysUntil = Math.round((due.getTime() - Date.now()) / 86400000);
+      if (daysUntil <= 7 && daysUntil >= 0) {
+        items.push({
+          id: `cc-due-${cc.id}`, priority: daysUntil <= 3 ? "urgent" : "soon",
+          title: `${shortName} due in ${daysUntil === 0 ? "today" : `${daysUntil}d`}`,
+          detail: `${fmtUSD(bal)} balance${minPay ? ` · min payment ${fmtUSD(minPay)}` : ""} due ${due.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`,
+          cta: "Schedule payment", icon: CreditCard,
+        });
+      }
+    } else if (bal > 1000) {
+      items.push({
+        id: `cc-${cc.id}`, priority: "soon",
+        title: `${shortName} balance due`,
+        detail: `${fmtUSD(bal)} balance — schedule payment before due date.`,
+        cta: "Schedule payment", icon: CreditCard,
+      });
+    }
   });
 
-  // Only suggest HYSA for plain savings accounts that don't already look like HYSA
+  // Large unusual transaction (single expense >$500 in last 7 days, not recurring merchant)
+  (() => {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
+    const big = realTxns.filter(t =>
+      Number(t.amount) > 500 &&
+      !t.pending &&
+      new Date(t.date + "T00:00:00") >= cutoff
+    ).sort((a, b) => Number(b.amount) - Number(a.amount));
+    if (big.length > 0) {
+      const t = big[0];
+      items.push({
+        id: `large-txn-${t.id}`, priority: "info",
+        title: `Large charge: ${fmtUSD(Number(t.amount))}`,
+        detail: `${t.merchant_name ?? t.name ?? "Unknown merchant"} on ${new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}${big.length > 1 ? ` (+${big.length-1} more)` : ""}.`,
+        cta: "Review", icon: AlertTriangle, reviewCategory: getEffectiveCategory(t, overrides, getRuleCategory) ?? undefined,
+      });
+    }
+  })();
+
+  // HYSA suggestion
   const lowYieldSavings = accounts.filter(a => {
     if (a.subtype !== "savings") return false;
     const name = (a.name ?? "").toLowerCase();
-    // Skip if it already looks like a HYSA
     if (["hysa", "hys", "high yield", "high-yield", "marcus", "ally", "synchrony", "discover"].some(k => name.includes(k))) return false;
     return (Number(a.current_balance) || 0) > 2000;
   });
@@ -490,8 +710,8 @@ const generateActions = (accounts: PAccount[], txns: PTxn[]): ActionItem[] => {
     cta: "Explore HYSA", icon: Coins,
   });
 
-  // Pending transactions
-  const pending = txns.filter(t => t.pending);
+  // Pending transactions (excluding internal transfers)
+  const pending = realTxns.filter(t => t.pending);
   if (pending.length > 0) items.push({
     id: "pending", priority: "info",
     title: `${pending.length} pending transaction${pending.length > 1 ? "s" : ""}`,
@@ -499,7 +719,7 @@ const generateActions = (accounts: PAccount[], txns: PTxn[]): ActionItem[] => {
     cta: "View all", icon: Sparkles,
   });
 
-  return items.slice(0, 5);
+  return items.slice(0, 6);
 };
 
 const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") return false; const o=x as Record<string,unknown>; return typeof o.id==="string"&&typeof o.title==="string"&&typeof o.impact==="string"; };
@@ -563,7 +783,7 @@ const BudgetPanel = ({ category, current, onSave, onRemove, onClose }: {
   const [val, setVal] = useState(String(current ?? ""));
   const color = catColor(category);
   const Icon  = categoryIcon(category);
-  const save  = () => { const n=parseFloat(val); if(n>0){onSave(n);onClose();} };
+  const save  = () => { const n=parseFloat(val); if(!isNaN(n)&&n>=0){onSave(n);onClose();} };
   return (
     <Dialog open onOpenChange={(o)=>{ if(!o) onClose(); }}>
       <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
@@ -738,7 +958,7 @@ const InlineCategoryPicker = ({
 };
 
 // ── Transaction row ────────────────────────────────────────────
-const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPickerId, onOpenPicker, onClosePicker, onSelect, onAddCategory, onAddRule, onRemoveCustom }: {
+const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPickerId, onOpenPicker, onClosePicker, onSelect, onAddCategory, onAddRule, onRemoveCustom, isInternal, nameOverride, onSetName, isManualInternal, onToggleInternal }: {
   t: PTxn; i: number;
   overrides: Record<string,string>;
   getRuleCategory: (m:string|null)=>string|null;
@@ -750,6 +970,11 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
   onAddCategory: (name:string, type:"income"|"expense") => void;
   onAddRule: (merchant:string, cat:string) => void;
   onRemoveCustom: (name:string) => void;
+  isInternal?: boolean;
+  nameOverride?: string;
+  onSetName?: (id: string, name: string) => void;
+  isManualInternal?: boolean;
+  onToggleInternal?: (id: string) => void;
 }) => {
   const rawCat     = getEffectiveCategory(t, overrides, getRuleCategory);
   const displayCat = humanizeCategory(rawCat, Number(t.amount));
@@ -757,49 +982,107 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
   const Icon       = isIncome ? ArrowDownLeft : categoryIcon(rawCat);
   const isEdited   = !!overrides[t.id] || !!getRuleCategory(t.merchant_name ?? t.name ?? null);
   const isOpen     = openPickerId === t.id;
+  const displayName = nameOverride ?? t.merchant_name ?? t.name ?? "Transaction";
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const handleCatClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isOpen) { onClosePicker(); return; }
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    // Position: left-align with element, below it; clamp to viewport
     const x = Math.min(rect.left, window.innerWidth - 270);
     const y = rect.bottom + 6;
     onOpenPicker(t, { x, y });
   };
 
+  const startNameEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNameDraft(displayName);
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.select(), 0);
+  };
+
+  const commitName = () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed && trimmed !== (t.merchant_name ?? t.name ?? "")) {
+      onSetName?.(t.id, trimmed);
+    } else if (!trimmed) {
+      onSetName?.(t.id, ""); // clear override
+    }
+    setEditingName(false);
+  };
+
   return (
-    <div className={cn("row-hover group grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 md:px-5 py-2", i>0 && "border-t border-border/30")}>
-      <div className={cn("h-6 w-6 rounded grid place-items-center border shrink-0",
-        isIncome?"bg-positive/10 border-positive/20 text-positive":"bg-secondary/50 border-border/50 text-muted-foreground")}>
-        <Icon className="h-3 w-3" />
+    <div className={cn(
+      "group grid items-center gap-2 px-4 md:px-5 py-2.5 transition-colors hover:bg-surface-hover/30",
+      i > 0 && "border-t border-border/20",
+      isInternal && "opacity-60",
+    )} style={{gridTemplateColumns:"auto 1fr auto auto"}}>
+      {/* Category icon */}
+      <div className={cn("h-7 w-7 rounded-lg grid place-items-center border shrink-0 transition-colors",
+        isInternal ? "bg-secondary/40 border-border/30 text-muted-foreground/50"
+        : isIncome ? "bg-positive/10 border-positive/20 text-positive"
+        : "bg-secondary/50 border-border/40 text-muted-foreground")}>
+        <Icon className="h-3.5 w-3.5" />
       </div>
+
+      {/* Name + meta */}
       <div className="min-w-0">
-        <div className="text-[12.5px] text-foreground truncate">
-          {t.merchant_name ?? t.name ?? "Transaction"}
-          {t.pending && <span className="ml-2 text-[9px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning">Pending</span>}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {editingName ? (
+            <input ref={nameInputRef} autoFocus value={nameDraft}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={e => { if (e.key==="Enter"){e.preventDefault();commitName();} if(e.key==="Escape")setEditingName(false); }}
+              className="flex-1 min-w-0 bg-card border border-[hsl(var(--primary)/0.4)] rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary))]" />
+          ) : (
+            <span className={cn("text-[12.5px] font-medium truncate cursor-text select-none", isInternal?"line-through text-muted-foreground":"text-foreground")}
+              onDoubleClick={startNameEdit}
+              onTouchEnd={e=>{e.preventDefault();startNameEdit(e as unknown as React.MouseEvent);}}
+              title="Double-click to edit name">
+              {displayName}
+            </span>
+          )}
+          {nameOverride && !editingName && <span className="text-[8px] text-[hsl(var(--primary)/0.5)] shrink-0">edited</span>}
+          {isManualInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Transfer</span>}
+          {!isManualInternal && isInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Internal</span>}
+          {t.pending && <span className="text-[8px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
         </div>
         <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
           <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
-          {displayCat && (
-            <>
-              <span>·</span>
-              <button onClick={handleCatClick}
-                className={cn("inline-flex items-center gap-0.5 rounded px-1 -mx-1 transition-colors",
-                  isOpen?"bg-secondary/60 text-foreground":"hover:bg-secondary/40 hover:text-foreground",
-                  isEdited&&"text-info")}
-                title="Click to change">
-                {displayCat}
-                <Pencil className="h-2 w-2 opacity-0 group-hover:opacity-50 ml-0.5 shrink-0 transition-opacity" />
-              </button>
-            </>
-          )}
+          {displayCat && !isInternal && <>
+            <span className="text-muted-foreground/30">·</span>
+            <button onClick={handleCatClick}
+              className={cn("inline-flex items-center gap-0.5 rounded px-1 -mx-1 transition-colors",
+                isOpen?"bg-secondary/60 text-foreground":"hover:bg-secondary/40 hover:text-foreground",
+                isEdited&&"text-info")}
+              title="Click to change category">
+              {displayCat}
+              <Pencil className="h-2 w-2 opacity-0 group-hover:opacity-40 ml-0.5 shrink-0 transition-opacity" />
+            </button>
+          </>}
         </div>
       </div>
-      <div className={cn("text-right text-[12.5px] tabular font-medium shrink-0", isIncome?"text-positive":"text-foreground")}>
+
+      {/* Amount */}
+      <div className={cn("text-right text-[12.5px] tabular font-semibold shrink-0",
+        isInternal?"text-muted-foreground/50":isIncome?"text-positive":"text-foreground")}>
         {isIncome?"+":"−"}{fmtUSD(Math.abs(Number(t.amount)),{cents:true})}
       </div>
 
+      {/* Mark-as-internal toggle — hover on desktop, always visible when active */}
+      <button
+        onClick={e=>{e.stopPropagation();onToggleInternal?.(t.id);}}
+        title={isManualInternal?"Remove internal transfer mark":"Mark as internal transfer"}
+        className={cn(
+          "h-6 w-6 grid place-items-center rounded transition-all shrink-0",
+          isManualInternal
+            ? "text-info bg-info/10"
+            : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+        )}>
+        <RepeatIcon className="h-3 w-3" />
+      </button>
     </div>
   );
 };
@@ -813,15 +1096,27 @@ const PositionedPicker = ({ txn, pos, overrides, getRuleCategory, customCategori
   onAddRule:(m:string,c:string)=>void; onRemoveCustom:(n:string)=>void; onClose:()=>void;
 }) => {
   const rawCat = getEffectiveCategory(txn, overrides, getRuleCategory);
-  const y = pos.y + 280 > window.innerHeight ? Math.max(pos.y - 290, 8) : pos.y;
-  const x = Math.min(Math.max(pos.x, 8), window.innerWidth - 274);
+  const isMobile = window.innerWidth < 640;
+  const y = isMobile ? undefined : (pos.y + 280 > window.innerHeight ? Math.max(pos.y - 290, 8) : pos.y);
+  const x = isMobile ? undefined : Math.min(Math.max(pos.x, 8), window.innerWidth - 274);
+  const mobileStyle = isMobile ? {position:"fixed" as const,inset:"auto 8px 8px 8px",zIndex:9999} : {position:"fixed" as const,left:x,top:y,zIndex:9999};
   return (
-    <div style={{position:"fixed",left:x,top:y,zIndex:9999}}>
+    <div style={mobileStyle}>
       <InlineCategoryPicker txn={txn} current={rawCat??"Other"}
         existingRule={getRuleCategory(txn.merchant_name??txn.name??null)??undefined}
         customCategories={customCategories}
         onSelect={cat=>onSelect(txn.id,cat)}
         onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom} onClose={onClose} />
+    </div>
+  );
+};
+
+// ── Sortable panel card ──────────────────────────────────────────
+const SortableCard = ({ id, children }: { id: string; children: (handleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 50 : undefined }}>
+      {children({ ...attributes, ...listeners })}
     </div>
   );
 };
@@ -855,16 +1150,16 @@ const SpendTile = ({ category, total, count, budget, delta, deltaPct, onSetBudge
               {up?"+":""}{deltaPct}%
             </span>
           )}
-          {budget && (
+          {!!budget && (
             <span className={cn("text-[9px] tabular px-1.5 py-0.5 rounded-full",
               overBudget?"bg-negative/15 text-negative":nearBudget?"bg-warning/15 text-warning":"bg-secondary text-muted-foreground")}>
               {pct.toFixed(0)}%
             </span>
           )}
-          <button onClick={e=>{e.stopPropagation();onSetBudget();}}
-            className="h-5 w-5 rounded grid place-items-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+          <div role="button" onClick={e=>{e.stopPropagation();onSetBudget();}}
+            className="h-5 w-5 rounded grid place-items-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity cursor-pointer">
             <Pencil className="h-3 w-3" />
-          </button>
+          </div>
         </div>
       </div>
       <div className="mt-2 text-[11px] text-muted-foreground">{formatCat(category)}</div>
@@ -874,7 +1169,7 @@ const SpendTile = ({ category, total, count, budget, delta, deltaPct, onSetBudge
       ) : (
         <div className="text-[10px] text-muted-foreground tabular">{count} txn{count!==1?"s":""}</div>
       )}
-      {budget && (
+      {!!budget && (
         <div className="mt-2 h-1 rounded-full bg-secondary overflow-hidden">
           <div className="h-full rounded-full transition-all"
             style={{ width:`${pct}%`, backgroundColor: overBudget?"hsl(var(--negative))":nearBudget?"hsl(var(--warning))":color }} />
@@ -1122,14 +1417,22 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
   const trendUp = netFlow > 0;
   const trendGood = debt ? !trendUp : trendUp;
 
+  const iconBg = debt
+    ? "bg-negative/10 border-negative/20 text-negative"
+    : a.type === "investment" || a.type === "brokerage"
+    ? "bg-info/10 border-info/20 text-info"
+    : a.subtype === "savings"
+    ? "bg-positive/10 border-positive/20 text-positive"
+    : "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.2)] text-gold";
+
   return (
     <button
       onClick={onSelect}
-      className="row-hover w-full flex items-center gap-3 px-4 md:px-5 py-3 text-left group"
+      className="row-hover w-full flex items-center gap-3 px-4 md:px-5 py-3.5 text-left group transition-colors"
     >
       {/* Icon */}
-      <div className="h-8 w-8 rounded-lg grid place-items-center bg-secondary/50 border border-border/50 shrink-0 text-gold">
-        <Icon className="h-3.5 w-3.5" />
+      <div className={cn("h-9 w-9 rounded-xl grid place-items-center border shrink-0 transition-transform group-hover:scale-105", iconBg)}>
+        <Icon className="h-4 w-4" />
       </div>
 
       {/* Name + meta */}
@@ -1137,33 +1440,30 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[13px] text-foreground font-medium truncate">{displayName}</span>
           {isPromo && (
-            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
           )}
           {dueDaysAway != null && dueDaysAway <= 7 && (
-            <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0",
+            <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",
               dueDaysAway <= 0 ? "border-negative/30 bg-negative/10 text-negative" : "border-warning/30 bg-warning/10 text-warning")}>
               {dueDaysAway <= 0 ? "overdue" : `due ${dueDaysAway}d`}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-0.5 text-[10.5px] text-muted-foreground flex-wrap">
-          <span className="font-medium text-foreground/60">{smartSubtypeLabel(a)}</span>
-          <span className="opacity-30">·</span>
           <span>{instName}{a.mask ? ` ··${a.mask}` : ""}</span>
           {meta.apr != null && (
             <><span className="opacity-30">·</span><span className="tabular">{meta.apr.toFixed(2)}% {debt ? "APR" : "APY"}</span></>
           )}
           {utilization !== null && (
             <><span className="opacity-30">·</span>
-            <span className={cn("tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "")}>
+            <span className={cn("tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
               {(utilization * 100).toFixed(0)}% used
             </span></>
           )}
         </div>
-        {/* Inline credit utilization bar */}
         {utilization !== null && (
-          <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden max-w-[100px]">
-            <div className="h-full rounded-full" style={{
+          <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden max-w-[120px]">
+            <div className="h-full rounded-full transition-all" style={{
               width: `${Math.min(utilization * 100, 100)}%`,
               backgroundColor: utilization > 0.5 ? "hsl(var(--negative))" : utilization > 0.3 ? "hsl(var(--warning))" : "hsl(var(--positive))"
             }} />
@@ -1179,7 +1479,7 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
             {netFlow > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow), { compact: true })}
           </div>
         )}
-        <div className={cn("text-[13.5px] font-medium tabular", debt ? "text-negative" : "text-foreground")}>
+        <div className={cn("text-[14px] font-semibold tabular", debt ? "text-negative" : "text-foreground")}>
           {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
         </div>
         {avail != null && !debt && avail !== bal && (
@@ -1187,7 +1487,7 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
         )}
       </div>
 
-      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
     </button>
   );
 };
@@ -1238,84 +1538,139 @@ const BucketGroup = ({
     return getInstitutionUrl(instName, accountMeta[a.id]?.customUrl);
   };
 
+  const accentColor = bucket === "liquid" ? "hsl(var(--positive))" : bucket === "revolving" ? "hsl(var(--warning))" : bucket === "term" ? "hsl(var(--negative))" : "hsl(var(--info))";
+  const trailingColor = bucket === "liquid" ? "text-positive" : bucket === "revolving" ? "text-warning" : bucket === "term" ? "text-negative" : "text-info";
+
   return (
-    <div className="surface-card card-hover overflow-hidden">
+    <div className="surface-card overflow-hidden" style={{borderLeft:`3px solid ${accentColor}30`}}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between gap-4 px-4 md:px-5 py-3.5 hover:bg-surface-hover/40 transition-colors text-left border-b border-border/40"
+        className="w-full flex items-center justify-between gap-4 px-4 md:px-5 py-4 hover:bg-surface-hover/30 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
-          <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0", !open && "-rotate-90")} />
-          <div className={cn("h-1.5 w-1.5 rounded-full", toneDot[meta.tone])} />
+          <div className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0 transition-all", open ? "bg-secondary/60" : "bg-secondary/30")}
+            style={{color: accentColor}}>
+            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", !open && "-rotate-90")} />
+          </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-display text-base md:text-lg text-foreground">{meta.label}</h3>
+              <h3 className="font-display text-[15px] md:text-base text-foreground">{meta.label}</h3>
               {bucket === "longterm" && <Lock className="h-3 w-3 text-muted-foreground" />}
-              <span className="text-[10.5px] text-muted-foreground tabular">· {accounts.length}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/60 text-muted-foreground tabular">{accounts.length}</span>
             </div>
-            <div className="text-[11px] text-muted-foreground truncate">{meta.sub}</div>
+            <div className="text-[10.5px] text-muted-foreground truncate mt-0.5">{meta.sub}</div>
           </div>
         </div>
 
         <div className="text-right shrink-0">
-          <div className={cn("font-display text-xl md:text-2xl tabular leading-none",
+          <div className={cn("font-display text-xl md:text-2xl tabular leading-none font-semibold",
             isNeg ? "text-negative" : "text-foreground")}>
             {isNeg ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
           </div>
           {trailing && (
-            <div className={cn("text-[10.5px] tabular mt-1",
-              bucket === "liquid" ? "text-positive" :
-              bucket === "revolving" ? "text-warning" :
-              bucket === "term" ? "text-negative" : "text-info")}>
+            <div className={cn("text-[10.5px] tabular mt-1 font-medium", trailingColor)}>
               {trailing}
             </div>
           )}
         </div>
       </button>
 
-      {open && (
-        <div className="divide-y divide-border/30">
-          {accounts.map(a => (
-            <AccountRow
-              key={a.id}
-              a={a}
-              txns={txns}
-              meta={accountMeta[a.id] ?? {}}
-              credit={creditDetails.find(c => c.account_id === a.account_id)}
-              instName={getInstName(a)}
-              onSelect={() => onSelect(a)}
-            />
-          ))}
-        </div>
-      )}
+      {open && (()=>{
+        // Group by institution
+        const byBank: Record<string, PAccount[]> = {};
+        for (const a of accounts) {
+          const bank = getInstName(a);
+          if (!byBank[bank]) byBank[bank] = [];
+          byBank[bank].push(a);
+        }
+        const banks = Object.keys(byBank);
+        const multiBank = banks.length > 1;
+        return (
+          <div className="border-t border-border/20">
+            {banks.map(bank => (
+              <div key={bank}>
+                {multiBank && (
+                  <div className="px-4 pt-2 pb-0.5 flex items-center gap-2">
+                    <div className="h-4 w-4 rounded grid place-items-center bg-secondary/50 shrink-0">
+                      <Landmark className="h-2.5 w-2.5 text-muted-foreground" />
+                    </div>
+                    <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-medium">{bank}</span>
+                  </div>
+                )}
+                <div className={cn("divide-y divide-border/20", multiBank && "ml-2 border-l border-border/20")}>
+                  {byBank[bank].map(a => (
+                    <AccountRow
+                      key={a.id}
+                      a={a}
+                      txns={txns}
+                      meta={accountMeta[a.id] ?? {}}
+                      credit={creditDetails.find(c => c.account_id === a.account_id)}
+                      instName={bank}
+                      onSelect={() => onSelect(a)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 };
 
 // ── Card info lookup ───────────────────────────────────────────
-type CardInfo = { purpose: string; rewards: string; bestFor: string; notes?: string };
+type AnnualCredit = { label: string; amount: number; howTo: string };
+type CardInfo = { purpose: string; rewards: string; bestFor: string; notes?: string; annualFee?: number; annualCredits?: AnnualCredit[] };
 const CARD_INFO: { match: RegExp; info: CardInfo }[] = [
-  { match: /sapphire reserve/i,     info: { purpose: "Premium travel card", rewards: "3x dining & travel, 10x hotels/car via Chase portal", bestFor: "Frequent travelers", notes: "$300 annual travel credit, Priority Pass lounge access" } },
-  { match: /sapphire preferred/i,   info: { purpose: "Travel & dining card", rewards: "3x dining, 2x travel, 5x Chase travel portal", bestFor: "Travel & restaurants", notes: "$50 annual hotel credit, Trip delay protection" } },
-  { match: /freedom flex/i,         info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories, 3% dining & drugstores, 1% all else", bestFor: "Maximizing rotating categories" } },
-  { match: /freedom unlimited/i,    info: { purpose: "Flat-rate cashback", rewards: "1.5% on everything, 3% dining & drugstores, 5% Chase travel", bestFor: "Everyday purchases" } },
-  { match: /freedom/i,              info: { purpose: "Rotating cashback", rewards: "5% quarterly rotating categories, 1% all else", bestFor: "Category maximizers" } },
-  { match: /amex.*(platinum|plat)/i,info: { purpose: "Premium travel & perks", rewards: "5x flights (direct/Amex Travel), 5x hotels (Amex Travel)", bestFor: "Frequent flyers", notes: "$200 airline fee credit, $200 hotel credit, Centurion & Priority Pass lounges" } },
-  { match: /amex.*gold|gold.*amex/i,info: { purpose: "Dining & groceries", rewards: "4x dining worldwide, 4x U.S. groceries (up to $25k/yr), 3x flights", bestFor: "Foodies & grocery shoppers", notes: "$120 dining credit, $120 Uber Cash annually" } },
-  { match: /blue cash preferred/i,  info: { purpose: "Grocery & streaming cashback", rewards: "6% U.S. supermarkets (up to $6k/yr), 6% streaming, 3% gas & transit, 1% all else", bestFor: "Families & grocery shoppers" } },
-  { match: /blue cash everyday/i,   info: { purpose: "No-fee cashback", rewards: "3% U.S. supermarkets, 3% U.S. online retail, 3% gas, 1% all else", bestFor: "No-fee everyday use" } },
-  { match: /venture x/i,            info: { purpose: "Premium travel miles", rewards: "10x hotels & cars (Capital One Travel), 5x flights, 2x everything", bestFor: "Capital One ecosystem travelers", notes: "$300 travel credit, 10k anniversary bonus miles" } },
-  { match: /venture/i,              info: { purpose: "Flat travel miles", rewards: "2x miles on every purchase", bestFor: "Simple travel rewards" } },
-  { match: /quicksilver/i,          info: { purpose: "Flat cashback", rewards: "1.5% cashback on everything", bestFor: "Simple no-fuss rewards" } },
-  { match: /double cash/i,          info: { purpose: "2% cashback everywhere", rewards: "1% when you buy + 1% when you pay", bestFor: "Everyday spending" } },
-  { match: /citi custom cash/i,     info: { purpose: "Auto-category cashback", rewards: "5% on your top eligible spend category each month (up to $500), 1% all else", bestFor: "Flexible category maximizers" } },
-  { match: /active cash/i,          info: { purpose: "Flat 2% cashback", rewards: "2% cashback on all purchases", bestFor: "Simple everyday use" } },
-  { match: /autograph/i,            info: { purpose: "Travel & dining", rewards: "3x restaurants, gas, travel, transit, streaming, phone, 1x all else", bestFor: "Diverse everyday categories" } },
-  { match: /discover.*(it|chrome)/i,info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories (up to $1,500/quarter), 1% all else", bestFor: "Category maximizers", notes: "Cashback Match first year" } },
-  { match: /apple card/i,           info: { purpose: "Apple ecosystem card", rewards: "3% Apple purchases, 2% Apple Pay, 1% all else (physical card)", bestFor: "Heavy Apple Pay users" } },
-  { match: /prime visa|amazon prime/i, info: { purpose: "Amazon & Whole Foods", rewards: "5% Amazon & Whole Foods, 2% dining, gas & drugstores, 1% all else", bestFor: "Amazon Prime members" } },
-  { match: /marriott|bonvoy/i,      info: { purpose: "Hotel loyalty", rewards: "6x Marriott Bonvoy, 3x dining & gas, 2x all else", bestFor: "Marriott hotel loyalists" } },
-  { match: /hilton honors/i,        info: { purpose: "Hotel loyalty", rewards: "7x Hilton, 5x dining, 5x groceries, 3x gas, 3x all else", bestFor: "Hilton hotel loyalists" } },
+  { match: /sapphire reserve/i,     info: { purpose: "Premium travel card", rewards: "3x dining & travel, 10x hotels/car via Chase portal", bestFor: "Frequent travelers", annualFee: 550,
+    annualCredits: [
+      { label: "$300 travel credit", amount: 300, howTo: "Automatically applied to any travel purchase" },
+      { label: "Priority Pass lounge", amount: 0, howTo: "Activate membership via Chase benefits portal" },
+      { label: "$5/mo DoorDash DashPass", amount: 60, howTo: "Activate via Chase offers — $5/mo DashPass credit" },
+    ]} },
+  { match: /sapphire preferred/i,   info: { purpose: "Travel & dining card", rewards: "3x dining, 2x travel, 5x Chase travel portal", bestFor: "Travel & restaurants", annualFee: 95,
+    annualCredits: [
+      { label: "$50 hotel credit", amount: 50, howTo: "Book through Chase Ultimate Rewards hotel portal" },
+      { label: "$10/mo dining bonus", amount: 120, howTo: "10% bonus on all dining spend each anniversary year" },
+    ]} },
+  { match: /freedom flex/i,         info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories, 3% dining & drugstores, 1% all else", bestFor: "Maximizing rotating categories", annualFee: 0 } },
+  { match: /freedom unlimited/i,    info: { purpose: "Flat-rate cashback", rewards: "1.5% on everything, 3% dining & drugstores, 5% Chase travel", bestFor: "Everyday purchases", annualFee: 0 } },
+  { match: /freedom/i,              info: { purpose: "Rotating cashback", rewards: "5% quarterly rotating categories, 1% all else", bestFor: "Category maximizers", annualFee: 0 } },
+  { match: /amex.*(platinum|plat)/i,info: { purpose: "Premium travel & perks", rewards: "5x flights (direct/Amex Travel), 5x hotels (Amex Travel)", bestFor: "Frequent flyers", annualFee: 695,
+    annualCredits: [
+      { label: "$200 airline fee credit", amount: 200, howTo: "Select one airline — applies to incidental fees" },
+      { label: "$200 hotel credit", amount: 200, howTo: "Prepaid Fine Hotels + Resorts or Hotel Collection (2-night min)" },
+      { label: "$240 digital entertainment", amount: 240, howTo: "$20/mo: Disney+, Hulu, ESPN+, Peacock, NYT, WSJ" },
+      { label: "$155 Walmart+ credit", amount: 155, howTo: "$12.95/mo credit on Walmart+ membership" },
+      { label: "$200 Uber Cash", amount: 200, howTo: "$15/mo Uber Cash + $35 in December (US rides/Eats)" },
+      { label: "$300 Equinox credit", amount: 300, howTo: "$25/mo Equinox+ or eligible gym memberships" },
+      { label: "Priority Pass + Centurion lounges", amount: 0, howTo: "Enroll via Amex benefits portal" },
+    ]} },
+  { match: /amex.*gold|gold.*amex/i,info: { purpose: "Dining & groceries", rewards: "4x dining worldwide, 4x U.S. groceries (up to $25k/yr), 3x flights", bestFor: "Foodies & grocery shoppers", annualFee: 250,
+    annualCredits: [
+      { label: "$120 dining credit", amount: 120, howTo: "$10/mo at Grubhub, The Cheesecake Factory, Goldbelly, Wine.com, Five Guys" },
+      { label: "$120 Uber Cash", amount: 120, howTo: "$10/mo Uber Cash for Uber Eats or rides (U.S.)" },
+    ]} },
+  { match: /blue cash preferred/i,  info: { purpose: "Grocery & streaming cashback", rewards: "6% U.S. supermarkets (up to $6k/yr), 6% streaming, 3% gas & transit, 1% all else", bestFor: "Families & grocery shoppers", annualFee: 95 } },
+  { match: /blue cash everyday/i,   info: { purpose: "No-fee cashback", rewards: "3% U.S. supermarkets, 3% U.S. online retail, 3% gas, 1% all else", bestFor: "No-fee everyday use", annualFee: 0 } },
+  { match: /venture x/i,            info: { purpose: "Premium travel miles", rewards: "10x hotels & cars (Capital One Travel), 5x flights, 2x everything", bestFor: "Capital One ecosystem travelers", annualFee: 395,
+    annualCredits: [
+      { label: "$300 Capital One Travel credit", amount: 300, howTo: "Book flights, hotels, or rental cars via Capital One Travel" },
+      { label: "10,000 anniversary miles", amount: 100, howTo: "Automatically credited each account anniversary (~$100 value)" },
+      { label: "Priority Pass + Plaza lounges", amount: 0, howTo: "Enroll via Capital One benefits portal" },
+    ]} },
+  { match: /venture/i,              info: { purpose: "Flat travel miles", rewards: "2x miles on every purchase", bestFor: "Simple travel rewards", annualFee: 95 } },
+  { match: /quicksilver/i,          info: { purpose: "Flat cashback", rewards: "1.5% cashback on everything", bestFor: "Simple no-fuss rewards", annualFee: 0 } },
+  { match: /double cash/i,          info: { purpose: "2% cashback everywhere", rewards: "1% when you buy + 1% when you pay", bestFor: "Everyday spending", annualFee: 0 } },
+  { match: /citi custom cash/i,     info: { purpose: "Auto-category cashback", rewards: "5% on your top eligible spend category each month (up to $500), 1% all else", bestFor: "Flexible category maximizers", annualFee: 0 } },
+  { match: /active cash/i,          info: { purpose: "Flat 2% cashback", rewards: "2% cashback on all purchases", bestFor: "Simple everyday use", annualFee: 0 } },
+  { match: /autograph/i,            info: { purpose: "Travel & dining", rewards: "3x restaurants, gas, travel, transit, streaming, phone, 1x all else", bestFor: "Diverse everyday categories", annualFee: 0 } },
+  { match: /discover.*(it|chrome)/i,info: { purpose: "Rotating cashback", rewards: "5% rotating quarterly categories (up to $1,500/quarter), 1% all else", bestFor: "Category maximizers", annualFee: 0, notes: "Cashback Match first year" } },
+  { match: /apple card/i,           info: { purpose: "Apple ecosystem card", rewards: "3% Apple purchases, 2% Apple Pay, 1% all else (physical card)", bestFor: "Heavy Apple Pay users", annualFee: 0 } },
+  { match: /prime visa|amazon prime/i, info: { purpose: "Amazon & Whole Foods", rewards: "5% Amazon & Whole Foods, 2% dining, gas & drugstores, 1% all else", bestFor: "Amazon Prime members", annualFee: 0 } },
+  { match: /marriott|bonvoy/i,      info: { purpose: "Hotel loyalty", rewards: "6x Marriott Bonvoy, 3x dining & gas, 2x all else", bestFor: "Marriott hotel loyalists", annualFee: 95 } },
+  { match: /hilton honors/i,        info: { purpose: "Hotel loyalty", rewards: "7x Hilton, 5x dining, 5x groceries, 3x gas, 3x all else", bestFor: "Hilton hotel loyalists", annualFee: 95 } },
 ];
 
 const getCardInfo = (name: string | null, officialName: string | null): CardInfo | null => {
@@ -1335,11 +1690,57 @@ const isHYSA = (a: PAccount, instName: string): boolean => {
   return HYSA_INSTITUTIONS.some(inst => haystack.includes(inst));
 };
 
+// ── Grant additional consent (e.g. cards linked before Liabilities existed) ────
+const GrantConsentButton = ({ itemId, onGranted }: { itemId: string; onGranted: () => void }) => {
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+
+  const onSuccess = useCallback(async (public_token: string) => {
+    setFinishing(true);
+    const { data, error } = await supabase.functions.invoke("plaid-grant-consent", {
+      body: { public_token, itemId },
+    });
+    setFinishing(false);
+    if (error || data?.error) {
+      toast.error("Couldn't finish granting access", { description: error?.message ?? data?.error });
+      return;
+    }
+    toast.success("Card details unlocked");
+    onGranted();
+  }, [itemId, onGranted]);
+
+  const { open: openPlaid, ready } = usePlaidLink({ token: linkToken, onSuccess });
+
+  const start = async () => {
+    if (linkToken && ready) { openPlaid(); return; }
+    setLoading(true);
+    const { data, error } = await supabase.functions.invoke("plaid-create-link-token", { body: { itemId } });
+    setLoading(false);
+    if (error || !data?.link_token) {
+      toast.error("Couldn't start access request", { description: error?.message ?? data?.error });
+      return;
+    }
+    setLinkToken(data.link_token);
+  };
+
+  // Open Plaid as soon as the token from a fresh request is ready
+  useEffect(() => { if (linkToken && ready) openPlaid(); }, [linkToken, ready, openPlaid]);
+
+  return (
+    <button onClick={start} disabled={loading || finishing}
+      className="w-full inline-flex items-center justify-center gap-1.5 h-8 rounded-md border border-[hsl(var(--primary)/0.35)] text-[11px] font-medium text-gold hover:bg-[hsl(var(--primary)/0.08)] transition-colors disabled:opacity-50">
+      {loading || finishing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Lock className="h-3 w-3" />}
+      {finishing ? "Finishing…" : loading ? "Preparing…" : "Grant card details access"}
+    </button>
+  );
+};
+
 // ── Account detail dialog ──────────────────────────────────────
-const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, onEdit, onRemove, onClose }: {
+const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, onEdit, onRemove, onClose, onGranted }: {
   a: PAccount; txns: PTxn[]; meta: AccountMeta; credit?: CreditDetail;
-  instName: string; instUrl: string | null;
-  onEdit: () => void; onRemove: () => void; onClose: () => void;
+  instName: string; instUrl: string | null; itemId: string | null;
+  onEdit: () => void; onRemove: () => void; onClose: () => void; onGranted: () => void;
 }) => {
   const debt = isDebt(a.type);
   const isCredit = a.type === "credit";
@@ -1476,6 +1877,14 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, onEdit, 
                         <div className="font-display text-[15px] mt-1 tabular text-positive">{fmtUSD(credit.last_payment_amount)}</div>
                       </div>
                     )}
+                  </div>
+                )}
+                {!credit && itemId && (
+                  <div className="surface-card p-3">
+                    <div className="text-[11px] text-muted-foreground mb-2">
+                      This card was linked before statement balance, due date, and APR tracking existed — grant a bit of extra access to unlock it.
+                    </div>
+                    <GrantConsentButton itemId={itemId} onGranted={onGranted} />
                   </div>
                 )}
 
@@ -1671,6 +2080,7 @@ export const LivePlaidDashboard = ({
 
   const [loading, setLoading]       = useState(true);
   const [syncing, setSyncing]       = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date|null>(null);
   const [accounts, setAccounts]     = useState<PAccount[]>([]);
   const [items, setItems]           = useState<PItem[]>([]);
   const [creditDetails, setCreditDetails] = useState<CreditDetail[]>([]);
@@ -1684,7 +2094,8 @@ export const LivePlaidDashboard = ({
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [openInsight, setOpenInsight] = useState<AIInsight|null>(null);
   const [period, setPeriod]         = useState<Period>("1M");
-  const [budgetCategory, setBudgetCategory] = useState<string|null>(null);
+  const [editingBudgetCat, setEditingBudgetCat] = useState<string|null>(null);
+  const [budgetDraft, setBudgetDraft] = useState("");
   const [showCatManager, setShowCatManager] = useState(false);
   const [openActionItem, setOpenActionItem] = useState<ActionItem|null>(null);
   const [spendingPopup, setSpendingPopup] = useState<string|null>(null);
@@ -1692,6 +2103,27 @@ export const LivePlaidDashboard = ({
   // Period state for monthly + spending tabs
   const [monthlyPeriod, setMonthlyPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
+  // Transaction explorer (spending tab) — search / filter / sort
+  const [txnSearch, setTxnSearch] = useState("");
+  const [txnAccountFilter, setTxnAccountFilter] = useState<string>("all");       // account_id or "all"
+  const [txnAcctTypeFilter, setTxnAcctTypeFilter] = useState<string>("all");     // all | depository | credit | investment | loan
+  const [txnFlowFilter, setTxnFlowFilter] = useState<"all"|"expense"|"income">("all");
+  const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc">("date-desc");
+  const [hideInternal, setHideInternal] = useState(false);
+  const [txnLimit, setTxnLimit] = useState(150);
+  // Drill-down: clicking a bar in the spend-trend chart narrows the txn list to that exact day/month
+  const [chartDrillDate, setChartDrillDate] = useState<string|null>(null);   // exact "YYYY-MM-DD" (day/week/month granularity)
+  const [chartDrillMonth, setChartDrillMonth] = useState<number|null>(null); // 0-11 (year granularity)
+  // Ad-hoc filter builder — user-added rules on top of the standard filters
+  const [customFilters, setCustomFilters] = useState<{id:string;field:"amount"|"category"|"merchant"|"account";op:"gt"|"lt"|"eq"|"contains";value:string}[]>([]);
+  const [filterDraft, setFilterDraft] = useState<{field:"amount"|"category"|"merchant"|"account";op:"gt"|"lt"|"eq"|"contains";value:string}>({field:"amount",op:"gt",value:""});
+  const [showFilterBuilder, setShowFilterBuilder] = useState(false);
+  const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
+  const [incomeExpanded, setIncomeExpanded] = useState(false);
+  const BENEFITS_KEY = "sentrifi_benefits_used";
+  const [benefitsUsed, setBenefitsUsed] = useState<Record<string,boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(BENEFITS_KEY) ?? "{}"); } catch { return {}; }
+  });
   // Per-section loading states for selective refresh
   const [refreshingAccounts, setRefreshingAccounts] = useState(false);
   const [refreshingTxns, setRefreshingTxns] = useState(false);
@@ -1706,15 +2138,52 @@ export const LivePlaidDashboard = ({
     try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_actions")??"[]")); } catch { return new Set(); }
   });
 
+  const [dismissedRecurring, setDismissedRecurring] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_recurring")??"[]")); } catch { return new Set(); }
+  });
+
   const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentrifi_dismissed_insights",JSON.stringify([...n])); };
   const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentrifi_dismissed_actions",JSON.stringify([...n])); };
+  const dismissRecurring = (merchant: string) => { const n=new Set([...dismissedRecurring,merchant.toLowerCase()]); setDismissedRecurring(n); localStorage.setItem("sentrifi_dismissed_recurring",JSON.stringify([...n])); };
+  const restoreAllRecurring = () => { setDismissedRecurring(new Set()); localStorage.removeItem("sentrifi_dismissed_recurring"); };
+
+  // Transaction name overrides (fix Plaid merchant name mangling)
+  const [nameOverrides, setNameOverrides] = useState<Record<string,string>>(() => {
+    try { return JSON.parse(localStorage.getItem("sentrifi_name_overrides") ?? "{}"); } catch { return {}; }
+  });
+  const setNameOverride = (id: string, name: string) => {
+    const next = name ? { ...nameOverrides, [id]: name } : (() => { const n={...nameOverrides}; delete n[id]; return n; })();
+    setNameOverrides(next);
+    localStorage.setItem("sentrifi_name_overrides", JSON.stringify(next));
+  };
+
+  // Panel order for overall dashboard (drag-and-drop)
+  const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "top-spending", "upcoming-charges"];
+  const [panelOrder, setPanelOrder] = useState<string[]>(() => {
+    try { const s=JSON.parse(localStorage.getItem("sentrifi_panel_order")??"null"); return Array.isArray(s)&&s.length===4&&DEFAULT_PANEL_ORDER.every(id=>s.includes(id))?s:DEFAULT_PANEL_ORDER; }
+    catch { return DEFAULT_PANEL_ORDER; }
+  });
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  );
+  const handlePanelDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIdx = panelOrder.indexOf(String(active.id));
+      const newIdx = panelOrder.indexOf(String(over.id));
+      const next = arrayMove(panelOrder, oldIdx, newIdx);
+      setPanelOrder(next);
+      localStorage.setItem("sentrifi_panel_order", JSON.stringify(next));
+    }
+  };
 
   const load = useCallback(async()=>{
     if (!user) return;
     setLoading(true);
     const [{ data:accs },{ data:t },{ data:its },{ data:cd }] = await Promise.all([
       supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
-      supabase.from("plaid_transactions").select("*").eq("user_id",user.id).order("date",{ascending:false}).limit(500),
+      supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })()).order("date",{ascending:false}),
       supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
       supabase.from("plaid_credit_details").select("*").eq("user_id",user.id).maybeSingle().then(r => ({ data: r.data ? [r.data] : null })),
     ]);
@@ -1723,6 +2192,7 @@ export const LivePlaidDashboard = ({
     setItems((its??[]) as PItem[]);
     setCreditDetails((cd??[]) as CreditDetail[]);
     setAccountMeta(loadAllMeta());
+    setLastSyncedAt(new Date());
     setLoading(false);
   },[user]);
 
@@ -1845,14 +2315,16 @@ export const LivePlaidDashboard = ({
   const refreshTxns = useCallback(async () => {
     if (!user) return;
     setRefreshingTxns(true);
-    const { data } = await supabase.from("plaid_transactions").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(200);
-    if (data) setTxns(data as PTxn[]);
+    const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })();
+    const { data } = await supabase.from("plaid_transactions").select("*").eq("user_id", user.id).gte("date", threeMonthsAgo).order("date", { ascending: false });
+    if (data) { setTxns(data as PTxn[]); setLastSyncedAt(new Date()); }
     setRefreshingTxns(false);
   }, [user]);
 
   useEffect(()=>{ load(); },[load]);
   useEffect(()=>{ loadInsights(); },[loadInsights]);
   useEffect(()=>{ if (syncTrigger>0) doSync(); },[syncTrigger]); // eslint-disable-line
+  useEffect(()=>{ setOpenPickerTxn(null); setEditingBudgetCat(null); },[view]);
 
   // ── Computed (before any early return) ────────────────────
   const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0);
@@ -1868,11 +2340,28 @@ export const LivePlaidDashboard = ({
 
   const byBucket = (b:Bucket) => accounts.filter(a=>mapBucket(a.type,a.subtype)===b);
 
+  // Detect internal transfers once — used to exclude them from all analysis
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const autoInternalIds = useMemo(() => detectInternalTransfers(txns), [txns]);
+
+  // User-marked internal transfers (persisted)
+  const [manualInternalIds, setManualInternalIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_manual_internal") ?? "[]")); } catch { return new Set(); }
+  });
+  const toggleManualInternal = (id: string) => {
+    const n = new Set(manualInternalIds);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    setManualInternalIds(n);
+    localStorage.setItem("sentrifi_manual_internal", JSON.stringify([...n]));
+  };
+  const internalTxnIds = useMemo(() => new Set([...autoInternalIds, ...manualInternalIds]), [autoInternalIds, manualInternalIds]);
+
   // Current-month spending aggregation (homepage + spending tab default)
   const now = new Date();
   const curMo = now.getMonth(); const curYr = now.getFullYear();
   const curMonthTxns = txns.filter(t=>{ const d=new Date(t.date+"T00:00:00"); return d.getMonth()===curMo&&d.getFullYear()===curYr; });
   const curMonthExpenses = curMonthTxns.filter(t=>
+    !internalTxnIds.has(t.id) &&
     Number(t.amount)>0 &&
     !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
   );
@@ -1890,15 +2379,17 @@ export const LivePlaidDashboard = ({
     .map(([category,{total,count,txns:catTxns}])=>({category,total,count,txns:catTxns}))
     .sort((a,b)=>b.total-a.total);
   const totalSpend = spendByCategory.reduce((s,c)=>s+c.total,0);
+  const curMonthIncome = curMonthTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
 
   // Period-filtered data for monthly/spending tabs
   const monthlyPeriodTxns = filterByPeriod(txns, monthlyPeriod);
-  const monthlyIncome = monthlyPeriodTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-  const monthlySpend  = monthlyPeriodTxns.filter(t=>Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0);
+  const monthlyIncome = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+  const monthlySpend  = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0);
 
   // Spending-tab period filtered
   const spendingPeriodTxns = filterByPeriod(txns, spendingPeriod);
   const spendingPeriodExpenses = spendingPeriodTxns.filter(t=>
+    !internalTxnIds.has(t.id) &&
     Number(t.amount)>0 &&
     !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
   );
@@ -1913,18 +2404,91 @@ export const LivePlaidDashboard = ({
     .map(([category,v])=>({category,...v}))
     .sort((a,b)=>b.total-a.total);
   const spendingPeriodTotal = spendingPeriodByCategory.reduce((s,c)=>s+c.total,0);
+  const spendingPeriodIncome = spendingPeriodTxns
+    .filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0)
+    .reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+  // Prior period spend for delta comparison
+  const prevSpendingPeriodSpent = filterByPeriod(txns, {...spendingPeriod, offset: spendingPeriod.offset-1})
+    .filter(t=>
+      !internalTxnIds.has(t.id) && Number(t.amount)>0 &&
+      !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer"))
+    .reduce((s,t)=>s+Number(t.amount),0);
+  const spendDeltaPct = prevSpendingPeriodSpent > 0
+    ? Math.round(((spendingPeriodTotal - prevSpendingPeriodSpent) / prevSpendingPeriodSpent) * 100)
+    : null;
+  // Average spend per elapsed day in the period
+  const spendingDailyAvg = (() => {
+    const { start, end } = getPeriodRange(spendingPeriod);
+    const now = new Date();
+    const effectiveEnd = end < now ? end : now;
+    const days = Math.max(1, Math.round((effectiveEnd.getTime() - start.getTime()) / 86400000) + 1);
+    return spendingPeriodTotal / days;
+  })();
 
-  const allActions       = generateActions(accounts,txns);
+  const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
-  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory);
-  const recurringCharges = detectRecurring(txns);
+  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds);
+  const recurringCharges = detectRecurring(txns).filter(r => !dismissedRecurring.has(r.merchant.toLowerCase()));
 
-  // Filtered txns for spending view
+  // Filtered + sorted txns for the spending-tab explorer
+  const acctById = useMemo(() => {
+    const m: Record<string, PAccount> = {};
+    for (const a of accounts) m[a.account_id] = a;
+    return m;
+  }, [accounts]);
+
   const filteredSpendingTxns = (() => {
     let base = spendingPeriodTxns;
     if (selectedCategory) base = base.filter(t=>(getEffectiveCategory(t,overrides,getRuleCategory)??"Other")===selectedCategory);
-    return base;
+    if (txnAccountFilter !== "all") base = base.filter(t => t.account_id === txnAccountFilter);
+    if (txnAcctTypeFilter !== "all") base = base.filter(t => acctById[t.account_id]?.type === txnAcctTypeFilter);
+    if (txnFlowFilter === "expense") base = base.filter(t => Number(t.amount) > 0);
+    if (txnFlowFilter === "income")  base = base.filter(t => Number(t.amount) < 0);
+    if (hideInternal) base = base.filter(t => !internalTxnIds.has(t.id));
+    if (chartDrillDate) base = base.filter(t => t.date === chartDrillDate);
+    if (chartDrillMonth !== null) base = base.filter(t => new Date(t.date+"T00:00:00").getMonth() === chartDrillMonth);
+    if (txnSearch.trim()) {
+      const q = txnSearch.trim().toLowerCase();
+      base = base.filter(t =>
+        (nameOverrides[t.id] ?? t.merchant_name ?? "").toLowerCase().includes(q) ||
+        (t.name ?? "").toLowerCase().includes(q) ||
+        (getEffectiveCategory(t,overrides,getRuleCategory) ?? "").toLowerCase().includes(q)
+      );
+    }
+    for (const f of customFilters) {
+      const v = f.value.trim().toLowerCase();
+      if (!v) continue;
+      base = base.filter(t => {
+        if (f.field === "amount") {
+          const amt = Math.abs(Number(t.amount));
+          const n = parseFloat(f.value);
+          if (isNaN(n)) return true;
+          if (f.op === "gt") return amt > n;
+          if (f.op === "lt") return amt < n;
+          return Math.abs(amt - n) < 0.01;
+        }
+        if (f.field === "category") {
+          const cat = formatCat(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other").toLowerCase();
+          return f.op === "eq" ? cat === v : cat.includes(v);
+        }
+        if (f.field === "merchant") {
+          const m = (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").toLowerCase();
+          return f.op === "eq" ? m === v : m.includes(v);
+        }
+        if (f.field === "account") {
+          const accName = (acctById[t.account_id]?.name ?? "").toLowerCase();
+          return f.op === "eq" ? accName === v : accName.includes(v);
+        }
+        return true;
+      });
+    }
+    const sorted = [...base];
+    if (txnSort === "date-desc")  sorted.sort((a,b)=>b.date.localeCompare(a.date));
+    if (txnSort === "date-asc")   sorted.sort((a,b)=>a.date.localeCompare(b.date));
+    if (txnSort === "amount-desc") sorted.sort((a,b)=>Math.abs(Number(b.amount))-Math.abs(Number(a.amount)));
+    if (txnSort === "amount-asc")  sorted.sort((a,b)=>Math.abs(Number(a.amount))-Math.abs(Number(b.amount)));
+    return sorted;
   })();
 
   // ── Tick thinning for dense charts ────────────────────────
@@ -1933,10 +2497,10 @@ export const LivePlaidDashboard = ({
   if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
-  const PeriodNav = ({ state, onChange }: { state: PeriodState; onChange: (s: PeriodState) => void }) => (
+  const PeriodNav = ({ state, onChange, granularities = ["week","month","year"] }: { state: PeriodState; onChange: (s: PeriodState) => void; granularities?: PeriodGranularity[] }) => (
     <div className="flex items-center gap-2 flex-wrap">
       <div className="flex rounded-full border border-border p-0.5 bg-surface/60">
-        {(["week","month","year"] as PeriodGranularity[]).map(g=>(
+        {granularities.map(g=>(
           <button key={g} onClick={()=>onChange({granularity:g,offset:0})}
             className={cn("px-3 py-1 rounded-full text-[11px] font-medium transition-all capitalize",
               state.granularity===g?"bg-foreground text-background":"text-muted-foreground hover:text-foreground")}>
@@ -1961,67 +2525,116 @@ export const LivePlaidDashboard = ({
 
   // ── OVERALL ───────────────────────────────────────────────
   if (view==="overall") return (
-    <div className="space-y-4 animate-fade-up">
+    <div className="space-y-3 animate-fade-up">
 
-      {/* Net worth hero with period selector */}
-      <section className="surface-elevated relative overflow-hidden p-4 md:p-5">
-        <div className="pointer-events-none absolute -top-20 -right-20 h-44 w-44 rounded-full bg-positive/10 blur-3xl" />
-        <div className="relative">
-          <div className="flex items-baseline gap-3 flex-wrap mb-4">
-            <h2 className="font-display text-3xl md:text-4xl font-medium leading-none tabular stat-gold animate-count-in">
-              {fmtUSD(animatedNW)}
-            </h2>
-            {nwChange!==0 && (
-              <span className={cn("chip !py-0.5 !px-2 !text-[11px] animate-pop-in", nwChange>=0?"chip-positive":"chip-negative")}>
-                <ArrowUpRight className={cn("h-3 w-3",nwChange<0&&"rotate-180")} />
-                {fmtUSD(Math.abs(nwChange),{compact:true})} · {period}
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 gap-5 max-w-sm mb-4">
+      {/* Net worth hero — left: numbers, right: chart */}
+      <section className="surface-elevated relative overflow-hidden px-4 py-3 md:px-5 md:py-4">
+        <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-positive/8 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-12 -left-12 h-32 w-32 rounded-full bg-[hsl(var(--primary)/0.06)] blur-3xl" />
+        <div className="relative flex gap-4 items-stretch min-h-[100px] flex-col sm:flex-row">
+          {/* Left — NW stats */}
+          <div className="flex-1 min-w-0 flex flex-col justify-between">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Assets</div>
-              <div className="font-display text-base mt-0.5 tabular text-positive animate-count-in">{fmtUSD(animatedAss,{compact:true})}</div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Net Worth</div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h2 className="font-display text-2xl md:text-3xl font-semibold leading-none tabular stat-gold animate-count-in">
+                  {fmtUSD(animatedNW)}
+                </h2>
+                {nwChange!==0 && (
+                  <span className={cn("chip !py-0.5 !px-1.5 !text-[10px] animate-pop-in", nwChange>=0?"chip-positive":"chip-negative")}>
+                    <ArrowUpRight className={cn("h-2.5 w-2.5",nwChange<0&&"rotate-180")} />
+                    {fmtUSD(Math.abs(nwChange),{compact:true})}
+                  </span>
+                )}
+              </div>
             </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
-              <div className="font-display text-base mt-0.5 tabular text-negative animate-count-in">−{fmtUSD(animatedLiab,{compact:true})}</div>
+            <div className="flex gap-4 mt-2">
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Assets</div>
+                <div className="font-display text-sm tabular text-positive">{fmtUSD(animatedAss,{compact:true})}</div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
+                <div className="font-display text-sm tabular text-negative">−{fmtUSD(animatedLiab,{compact:true})}</div>
+              </div>
+            </div>
+            {/* Period selector */}
+            <div className="flex items-center gap-0.5 mt-2.5 flex-wrap">
+              {PERIODS.map(p=>(
+                <button key={p} onClick={()=>setPeriod(p)}
+                  className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium transition-all",
+                    period===p?"bg-gold text-foreground":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
+                  {p}
+                </button>
+              ))}
             </div>
           </div>
-
-          {/* Period selector */}
-          <div className="flex items-center gap-1 mb-3">
-            {PERIODS.map(p=>(
-              <button key={p} onClick={()=>setPeriod(p)}
-                className={cn("px-3 py-1 rounded-full text-[12px] font-medium transition-all",
-                  period===p?"bg-gold text-foreground shadow-sm":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
-                {p}
-              </button>
-            ))}
-          </div>
-
-          <div className="h-28 -mx-1">
+          {/* Right — compact chart (hidden on small screens) */}
+          <div className="hidden sm:block w-[45%] shrink-0 -mr-1 -my-1">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={nwData} margin={{top:4,right:4,bottom:0,left:4}}>
+              <AreaChart data={nwData} margin={{top:4,right:4,bottom:4,left:4}}>
                 <defs>
                   <linearGradient id="nw-live" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="m" axisLine={false} tickLine={false}
-                  tick={{fill:"hsl(var(--muted-foreground))",fontSize:9}}
-                  interval={nwTickEvery-1} />
+                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:8}} interval={nwTickEvery-1} />
                 <YAxis hide domain={["dataMin - 1000","dataMax + 1000"]} />
-                <Tooltip contentStyle={{background:"hsl(var(--popover))",border:"1px solid var(--gold-border)",borderRadius:"10px",fontSize:"12px"}}
-                  labelStyle={{color:"hsl(var(--muted-foreground))"}}
+                <Tooltip contentStyle={{background:"hsl(var(--card))",border:"1px solid var(--gold-border)",borderRadius:8,fontSize:11,padding:"6px 10px",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}
+                  labelStyle={{color:"hsl(var(--muted-foreground))",fontSize:9}}
                   formatter={(v:number)=>[fmtUSD(v),"Net worth"]} />
-                <Area type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#nw-live)" animationDuration={800} />
+                <Area type="monotone" dataKey="v" stroke="hsl(var(--primary))" strokeWidth={1.5} fill="url(#nw-live)" dot={false} animationDuration={600} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
       </section>
+
+      {/* This month cash-flow strip */}
+      {(totalSpend > 0 || curMonthIncome > 0) && (() => {
+        const net = curMonthIncome - totalSpend;
+        const savingsRate = curMonthIncome > 0 ? Math.round((net / curMonthIncome) * 100) : null;
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="surface-card p-3 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
+              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
+              <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalSpend)}</div>
+              {spendTrends.length > 0 && (() => {
+                const delta = spendTrends.reduce((s,c)=>s+c.delta,0);
+                return delta !== 0 ? (
+                  <div className={cn("text-[9px] tabular mt-0.5", delta > 0 ? "text-negative" : "text-positive")}>
+                    {delta > 0 ? "+" : ""}{fmtUSD(Math.abs(delta))} vs last mo
+                  </div>
+                ) : null;
+              })()}
+            </div>
+            <div className="surface-card p-3 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
+              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Income this month</div>
+              <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
+              <div className="text-[9px] text-muted-foreground mt-0.5">excl. transfers</div>
+            </div>
+            <div className="surface-card p-3 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
+              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
+              <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
+                {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
+              </div>
+              <div className="text-[9px] text-muted-foreground mt-0.5">income − spend</div>
+            </div>
+            <div className="surface-card p-3 relative overflow-hidden">
+              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
+              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
+              <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
+                {savingsRate != null ? `${savingsRate}%` : "—"}
+              </div>
+              <div className="text-[9px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Account detail right panel */}
       {detailAccount && (
@@ -2035,9 +2648,11 @@ export const LivePlaidDashboard = ({
             items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
             accountMeta[detailAccount.id]?.customUrl
           )}
+          itemId={(detailAccount as unknown as Record<string,unknown>).item_id as string ?? null}
           onEdit={() => { setEditingAccount(detailAccount); setDetailAccount(null); }}
           onRemove={() => { setRemovingAccount(detailAccount); setDetailAccount(null); }}
           onClose={() => setDetailAccount(null)}
+          onGranted={() => { load(); }}
         />
       )}
 
@@ -2112,227 +2727,291 @@ export const LivePlaidDashboard = ({
             </button>
           </div>
 
-          {/* Row 1: Action Items + Saving Opportunities */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {/* Action Items */}
-            <div className="surface-card overflow-hidden flex flex-col">
-              <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
-                <h3 className="font-display text-[13px] text-primary">Action items</h3>
-                {visibleActions.length>0 && <span className="text-[10px] text-muted-foreground tabular">{visibleActions.length} open</span>}
-              </div>
-              {visibleActions.length===0 ? (
-                <div className="px-4 py-4 flex items-center gap-2 text-[12px] text-muted-foreground">
-                  <Check className="h-4 w-4 text-positive shrink-0" />All caught up.
+          {/* Sortable 2-col panel grid — drag the ⠿ handle to reorder */}
+          {(() => {
+            const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
+              <div className="surface-card overflow-hidden flex flex-col h-full">
+                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                  <h3 className="font-display text-[13px] text-primary flex-1">Action items</h3>
+                  {visibleActions.length>0 && <span className="text-[10px] text-muted-foreground tabular">{visibleActions.length} open</span>}
                 </div>
-              ) : (
-                <div className="divide-y divide-border/20">
-                  {visibleActions.map(item=>{
-                    const Icon=item.icon; const m=priorityMeta[item.priority];
-                    return (
-                      <button key={item.id} onClick={()=>setOpenActionItem(item)}
-                        className="row-hover w-full px-4 py-2.5 text-left flex items-center gap-2.5">
-                        <div className={cn("h-6 w-6 rounded grid place-items-center bg-secondary/50 border border-border/40 shrink-0",m.text)}>
-                          <Icon className="h-3 w-3" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className={cn("text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0",m.chip)}>{m.label}</span>
-                            <span className="text-[12px] text-foreground font-medium truncate">{item.title}</span>
+                {visibleActions.length===0 ? (
+                  <div className="px-4 py-4 flex items-center gap-2 text-[12px] text-muted-foreground">
+                    <Check className="h-4 w-4 text-positive shrink-0" />All caught up.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border/20">
+                    {visibleActions.map(item=>{
+                      const Icon=item.icon; const m=priorityMeta[item.priority];
+                      const borderColor = item.priority==="urgent" ? "hsl(var(--negative))" : item.priority==="soon" ? "hsl(var(--warning))" : "hsl(var(--info))";
+                      return (
+                        <button key={item.id} onClick={()=>setOpenActionItem(item)}
+                          className="group w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-surface-hover/40 transition-colors"
+                          style={{borderLeft:`3px solid ${borderColor}`}}>
+                          <div className={cn("h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105",m.text)}
+                            style={{background:`${borderColor}18`, border:`1px solid ${borderColor}30`}}>
+                            <Icon className="h-3.5 w-3.5" />
                           </div>
-                          <p className="text-[10.5px] text-muted-foreground leading-snug truncate mt-0.5">{item.detail}</p>
-                        </div>
-                        <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Saving Opportunities (AI Insights — compact list) */}
-            <div className="surface-card overflow-hidden flex flex-col">
-              <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
-                <h3 className="font-display text-[13px] text-primary">Saving opportunities</h3>
-                {!insightsLoading && visibleInsights.length>0 && (
-                  <span className="text-[10px] text-positive tabular">
-                    +${visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0).toLocaleString()}/yr
-                  </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[13px] text-foreground font-medium truncate">{item.title}</span>
+                              <span className={cn("text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",m.chip)}>{m.label}</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 truncate">{item.detail}</p>
+                          </div>
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-              {insightsLoading ? (
-                <div className="divide-y divide-border/20">
-                  {[1,2].map(i=><div key={i} className="flex items-center gap-3 px-4 py-3 shimmer"><div className="h-7 w-7 rounded-lg bg-secondary/60 shrink-0"/><div className="flex-1 space-y-1"><div className="h-3 bg-secondary/60 rounded w-3/4"/><div className="h-2 bg-secondary/40 rounded w-1/2"/></div></div>)}
-                </div>
-              ) : visibleInsights.length===0 ? (
-                <div className="px-4 py-4 text-[12px] text-muted-foreground">No opportunities found yet.</div>
-              ) : (
-                <div className="divide-y divide-border/20">
-                  {visibleInsights.slice(0,4).map(insight=>{
-                    const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="0% APR"?CreditCard:insight.category==="Idle Cash"?Coins:TrendingUp;
-                    return (
-                      <button key={insight.id} onClick={()=>setOpenInsight(insight)}
-                        className="row-hover w-full flex items-center gap-3 px-4 py-2.5 text-left">
-                        <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center text-foreground/70 shrink-0"><CatIcon className="h-3.5 w-3.5"/></div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[12px] text-foreground truncate">{insight.title}</div>
-                          <div className="text-[10.5px] text-positive tabular">{insight.impact}</div>
-                        </div>
-                        <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0"/>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+            );
 
-          {/* Row 2: High Spending Categories (Current Month) */}
-          {spendByCategory.length > 0 && (
-            <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
-                <div>
-                  <h3 className="font-display text-[13px] text-primary">High Spending Categories</h3>
-                  <div className="text-[10px] text-muted-foreground">{new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})} · {fmtUSD(totalSpend)} total</div>
+            const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
+              <div className="surface-card overflow-hidden flex flex-col h-full">
+                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                  <h3 className="font-display text-[13px] text-primary flex-1">Saving opportunities</h3>
+                  {!insightsLoading && visibleInsights.length>0 && (
+                    <span className="text-[10px] font-semibold text-positive tabular bg-positive/10 px-2 py-0.5 rounded-full">
+                      +${visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0).toLocaleString()}/yr
+                    </span>
+                  )}
                 </div>
-                <button onClick={()=>onCategorySelect?.("")}
-                  className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                  Spending & Budget <ArrowRight className="h-3 w-3" />
-                </button>
-              </div>
-              <div className="divide-y divide-border/20">
-                {spendByCategory.slice(0,5).map(c=>{
-                  const Icon=categoryIcon(c.category); const color=catColor(c.category);
-                  const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
-                  const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
-                  const trend=spendTrends.find(t=>t.category===c.category);
-                  const topTxns=[...c.txns].sort((a,b)=>Number(b.amount)-Number(a.amount));
-                  return (
-                    <button key={c.category} onClick={()=>{setSpendingPopup(c.category);setSpendPopupLimit(5);}}
-                      className="row-hover w-full flex items-center gap-3 px-4 py-2.5 text-left">
-                      <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
-                        <Icon className="h-3.5 w-3.5" />
+                {insightsLoading ? (
+                  <div className="p-3 grid grid-cols-2 gap-2">
+                    {[1,2,3,4].map(i=>(
+                      <div key={i} className="shimmer rounded-xl p-3 space-y-2 border border-border/20">
+                        <div className="h-7 w-7 rounded-lg bg-secondary/60"/>
+                        <div className="h-3 bg-secondary/60 rounded w-4/5"/>
+                        <div className="h-2 bg-secondary/40 rounded w-3/5"/>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[12px] text-foreground font-medium truncate">{formatCat(c.category)}</span>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {trend?.pct!=null&&trend.pct!==0&&(
-                              <span className={cn("text-[9px] tabular",trend.delta>0?"text-negative":"text-positive")}>
-                                {trend.delta>0?"+":""}{trend.pct}%
-                              </span>
+                    ))}
+                  </div>
+                ) : visibleInsights.length===0 ? (
+                  <div className="px-4 py-5 text-[12px] text-muted-foreground flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 shrink-0 opacity-40" />Click "Refresh AI" to generate insights.
+                  </div>
+                ) : (
+                  <div className="p-3 grid grid-cols-2 gap-2">
+                    {visibleInsights.slice(0,4).map(insight=>{
+                      const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
+                      const sevColor = insight.severity==="high" ? "hsl(var(--negative))" : insight.severity==="medium" ? "hsl(var(--warning))" : "hsl(var(--positive))";
+                      return (
+                        <button key={insight.id} onClick={()=>setOpenInsight(insight)}
+                          className="group relative text-left rounded-xl p-3 border hover:scale-[1.02] transition-all overflow-hidden"
+                          style={{borderColor:`${sevColor}30`, background:`${sevColor}08`}}>
+                          <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-xl" style={{background:sevColor}}/>
+                          <div className="h-7 w-7 rounded-lg grid place-items-center mb-2.5 transition-transform group-hover:scale-110"
+                            style={{background:`${sevColor}20`, border:`1px solid ${sevColor}30`, color:sevColor}}>
+                            <CatIcon className="h-3.5 w-3.5"/>
+                          </div>
+                          <div className="text-[11.5px] text-foreground font-medium leading-snug line-clamp-2">{insight.title}</div>
+                          <div className="mt-1.5 text-[10px] font-semibold tabular" style={{color:sevColor}}>{insight.impact}</div>
+                          <div className="mt-1 text-[9px] uppercase tracking-wide text-muted-foreground/60">{insight.category}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+
+            const panelTopSpending = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
+              <div className="surface-card overflow-hidden h-full">
+                <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display text-[13px] text-primary">Top Spending</h3>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})} · {fmtUSD(totalSpend)}</div>
+                  </div>
+                  <button onClick={()=>onCategorySelect?.("")}
+                    className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-lg border border-border/50 hover:border-border transition-colors shrink-0">
+                    View all <ArrowRight className="h-3 w-3" />
+                  </button>
+                </div>
+                {spendByCategory.length === 0 ? (
+                  <div className="px-4 py-6 text-[12px] text-muted-foreground text-center">No spending data.</div>
+                ) : (
+                  <div className="divide-y divide-border/20">
+                    {spendByCategory.slice(0,5).map(c=>{
+                      const Icon=categoryIcon(c.category); const color=catColor(c.category);
+                      const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
+                      const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
+                      const trend=spendTrends.find(t=>t.category===c.category);
+                      const topTxns=[...c.txns].sort((a,b)=>Number(b.amount)-Number(a.amount));
+                      const sharePct = totalSpend > 0 ? (c.total / totalSpend) * 100 : 0;
+                      return (
+                        <button key={c.category} onClick={()=>{setSpendingPopup(c.category);setSpendPopupLimit(5);}}
+                          className="group relative w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/40 transition-colors overflow-hidden">
+                          <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`, background:`${color}09`}} />
+                          <div className="relative h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105"
+                            style={{backgroundColor:`${color}1f`,color}}>
+                            <Icon className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="relative flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[12.5px] text-foreground font-medium truncate">{formatCat(c.category)}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {trend?.pct!=null&&trend.pct!==0&&(
+                                  <span className={cn("text-[9px] tabular px-1.5 py-0.5 rounded-full font-medium",
+                                    trend.delta>0?"bg-negative/10 text-negative":"bg-positive/10 text-positive")}>
+                                    {trend.delta>0?"+":""}{trend.pct}%
+                                  </span>
+                                )}
+                                <span className="text-[13px] tabular font-semibold">{fmtUSD(c.total)}</span>
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                              {topTxns[0] ? `${nameOverrides[topTxns[0].id]??topTxns[0].merchant_name??topTxns[0].name??"—"} · ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
+                            </div>
+                            {!!budget && (
+                              <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden">
+                                <div className="h-full rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?"hsl(var(--negative))":near?"hsl(var(--warning))":color}}/>
+                              </div>
                             )}
-                            <span className="text-[12px] tabular font-medium">{fmtUSD(c.total)}</span>
                           </div>
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                          {topTxns[0] ? `Top: ${topTxns[0].merchant_name??topTxns[0].name??"—"} ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
-                        </div>
-                        {budget && (
-                          <div className="mt-1 h-0.5 rounded-full bg-border/40 overflow-hidden">
-                            <div className="h-full rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?"hsl(var(--negative))":near?"hsl(var(--warning))":color}}/>
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                          <ChevronRight className="relative h-3.5 w-3.5 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
 
-          {/* Row 3: Upcoming Charges / Recurring Bills */}
-          {recurringCharges.length > 0 && (
-            <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/30 flex items-center justify-between">
-                <div>
-                  <h3 className="font-display text-[13px] text-primary">Upcoming Charges</h3>
-                  <div className="text-[10px] text-muted-foreground">Next 60 days · based on recurring history</div>
-                </div>
-                <button onClick={refreshTxns} disabled={refreshingTxns}
-                  className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-                  <RefreshCw className={cn("h-3 w-3", refreshingTxns && "animate-spin")} />
-                </button>
-              </div>
-              <div className="divide-y divide-border/20">
-                {recurringCharges.map((r, i) => {
-                  const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
-                  const isThisWeek = daysAway <= 7;
-                  const sourceAcc = accounts.find(a => a.account_id === r.accountId);
-                  const isDebtAcc = sourceAcc ? isDebt(sourceAcc.type) : false;
-                  const availBal = sourceAcc ? (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0) : null;
-                  const showBalCheck = !isDebtAcc && availBal !== null;
-                  const hasSufficient = availBal !== null && availBal >= r.avgAmount;
-                  const isTight = hasSufficient && availBal < r.avgAmount * 2;
-
-                  return (
-                    <div key={i} className="flex items-center gap-3 px-4 py-3">
-                      {/* Date badge */}
-                      <div className={cn(
-                        "shrink-0 w-10 text-center rounded-lg py-1 border",
-                        isThisWeek ? "bg-warning/10 border-warning/20" : "bg-secondary/50 border-border/40"
-                      )}>
-                        <div className="text-[8.5px] uppercase tracking-wide text-muted-foreground leading-none">
-                          {r.predictedDate.toLocaleDateString("en-US", { month: "short" })}
-                        </div>
-                        <div className={cn("text-[15px] font-semibold tabular leading-tight",
-                          isThisWeek ? "text-warning" : "text-foreground")}>
-                          {r.predictedDate.getDate()}
-                        </div>
+            const panelUpcomingCharges = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
+              <div className="surface-card overflow-hidden h-full">
+                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display text-[13px] text-primary">Upcoming Charges</h3>
+                    <div className="flex items-center gap-2">
+                      <div className="text-[10px] text-muted-foreground">
+                        Next 60 days · {recurringCharges.length} recurring
+                        {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
-
-                      {/* Merchant + account/balance info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[12.5px] text-foreground font-medium truncate">{r.merchant}</span>
-                          {isThisWeek && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">
-                              {daysAway === 0 ? "Today" : daysAway === 1 ? "Tomorrow" : `${daysAway}d`}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          {sourceAcc && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {sourceAcc.name ?? "Account"}{sourceAcc.mask ? ` ··${sourceAcc.mask}` : ""}
-                            </span>
-                          )}
-                          {showBalCheck && (
-                            <>
-                              <span className="text-muted-foreground/30 text-[10px]">·</span>
-                              <span className={cn("text-[10px] font-medium flex items-center gap-0.5",
-                                !hasSufficient ? "text-negative" : isTight ? "text-warning" : "text-positive")}>
-                                {!hasSufficient
-                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Low — only {fmtUSD(availBal!, { compact: true })} avail</>
-                                  : isTight
-                                  ? <><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Tight ({fmtUSD(availBal!, { compact: true })} avail)</>
-                                  : <><Check className="h-2.5 w-2.5 shrink-0" /> {fmtUSD(availBal!, { compact: true })} avail</>
-                                }
-                              </span>
-                            </>
-                          )}
-                          {!sourceAcc && (
-                            <span className="text-[10px] text-muted-foreground">{r.monthsActive} months recurring</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Amount */}
-                      <div className="text-[13px] tabular font-medium shrink-0 text-foreground">
-                        {fmtUSD(r.avgAmount)}
-                      </div>
+                      {dismissedRecurring.size > 0 && (
+                        <button onClick={restoreAllRecurring} className="text-[10px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors">
+                          {dismissedRecurring.size} hidden · restore
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                  <button onClick={refreshTxns} disabled={refreshingTxns}
+                    className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
+                    <RefreshCw className={cn("h-3 w-3", refreshingTxns && "animate-spin")} />
+                  </button>
+                </div>
+                {recurringCharges.length === 0 ? (
+                  <div className="px-4 py-6 text-[12px] text-muted-foreground text-center">No upcoming charges detected.</div>
+                ) : (
+                  <div className="divide-y divide-border/20">
+                    {recurringCharges.map((r, idx) => {
+                      const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
+                      const isThisWeek = daysAway <= 7;
+                      const sourceAcc = accounts.find(a => a.account_id === r.accountId);
+                      const isDebtAcc = sourceAcc ? isDebt(sourceAcc.type) : false;
+                      const availBal = sourceAcc ? (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0) : null;
+                      const showBalCheck = !isDebtAcc && availBal !== null;
+                      const hasSufficient = availBal !== null && availBal >= r.avgAmount;
+                      return (
+                        <div key={idx} className="group flex items-center gap-3 px-4 py-2.5">
+                          <div className={cn("shrink-0 w-9 text-center rounded-lg py-1 border",
+                            daysAway<=3?"bg-negative/10 border-negative/20":isThisWeek?"bg-warning/10 border-warning/20":"bg-secondary/50 border-border/40")}>
+                            <div className="text-[8px] uppercase tracking-wide text-muted-foreground leading-none">
+                              {r.predictedDate.toLocaleDateString("en-US",{month:"short"})}
+                            </div>
+                            <div className={cn("text-[14px] font-bold tabular leading-tight",
+                              daysAway<=3?"text-negative":isThisWeek?"text-warning":"text-foreground")}>
+                              {r.predictedDate.getDate()}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[12px] text-foreground font-medium truncate">{r.merchant}</span>
+                              {daysAway<=1 && (
+                                <span className="text-[8px] px-1.5 py-0.5 rounded-full border border-negative/30 bg-negative/10 text-negative shrink-0 font-medium">
+                                  {daysAway===0?"Today":"Tomorrow"}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              <span className="text-[9.5px] text-muted-foreground/60">{r.intervalLabel}</span>
+                              {sourceAcc && <><span className="text-muted-foreground/30">·</span>
+                                <span className="text-[9.5px] text-muted-foreground truncate">
+                                  {sourceAcc.name??""}{sourceAcc.mask?` ··${sourceAcc.mask}`:""}
+                                </span></>}
+                              {showBalCheck && !hasSufficient && (
+                                <><span className="text-muted-foreground/30">·</span>
+                                <span className="text-[9.5px] text-negative flex items-center gap-0.5">
+                                  <AlertTriangle className="h-2.5 w-2.5" />Low funds
+                                </span></>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-[13px] tabular font-semibold text-foreground">{fmtUSD(r.avgAmount)}</div>
+                            {daysAway>1 && <div className="text-[9px] text-muted-foreground tabular">{daysAway}d</div>}
+                          </div>
+                          <button onClick={()=>dismissRecurring(r.merchant)} title="Remove from recurring list"
+                            className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all shrink-0">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+
+            const renderPanel = (id: string, dragHandle: React.HTMLAttributes<HTMLElement>) => {
+              if (id === "action-items") return panelActionItems(dragHandle);
+              if (id === "saving-opps") return panelSavingOpps(dragHandle);
+              if (id === "top-spending") return panelTopSpending(dragHandle);
+              if (id === "upcoming-charges") return panelUpcomingCharges(dragHandle);
+              return null;
+            };
+
+            return (
+              <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
+                <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
+                    {panelOrder.map(id => (
+                      <SortableCard key={id} id={id}>
+                        {(handleProps) => renderPanel(id, handleProps)}
+                      </SortableCard>
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            );
+          })()}
         </section>
       )}
 
       {/* Accounts — bucketed, all collapsed by default */}
-      <section className="space-y-2.5">
-        <div className="flex items-baseline justify-between gap-4 px-1">
-          <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-4 px-1">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
+            {lastSyncedAt && (
+              <span className="text-[10px] text-muted-foreground/50">
+                synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
+              </span>
+            )}
+          </div>
           <button onClick={onAddAccount} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
             <Plus className="h-3 w-3" />Add account
           </button>
@@ -2342,7 +3021,7 @@ export const LivePlaidDashboard = ({
             No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {(["liquid","revolving","term","longterm"] as Bucket[]).map(bucket => (
               <BucketGroup
                 key={bucket}
@@ -2371,7 +3050,20 @@ export const LivePlaidDashboard = ({
         <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
           <DialogTitle className="sr-only">{openInsight?.title ?? "Insight"}</DialogTitle>
           <DialogDescription className="sr-only">Financial insight details and recommended action.</DialogDescription>
-          {openInsight && (
+          {openInsight && (()=>{
+            const haystack = `${openInsight.title} ${openInsight.what} ${openInsight.action}`.toLowerCase();
+            // Try to find a matching spending category for richer context
+            const relatedCat = spendByCategory.find(c => haystack.includes(formatCat(c.category).toLowerCase()));
+            const relatedCatColor = relatedCat ? catColor(relatedCat.category) : null;
+            const RelatedCatIcon = relatedCat ? categoryIcon(relatedCat.category) : null;
+            const relatedTopTxns = relatedCat ? [...relatedCat.txns].sort((a,b)=>Number(b.amount)-Number(a.amount)).slice(0,3) : [];
+            // Try to find a matching account (cards, savings, checking) mentioned in the text
+            const relatedAcc = accounts.find(a => {
+              const n = (a.name ?? "").trim();
+              return n.length > 3 && haystack.includes(n.toLowerCase());
+            });
+            const monthlyEquivalent = openInsight.impactValue > 0 ? openInsight.impactValue / 12 : 0;
+            return (
             <>
               <div className="relative p-6 pb-4">
                 <button onClick={() => setOpenInsight(null)}
@@ -2396,9 +3088,17 @@ export const LivePlaidDashboard = ({
                   </div>
                 </div>
                 <h3 className="font-display text-xl md:text-2xl mt-4 text-foreground leading-snug">{openInsight.title}</h3>
-                <div className="mt-4 inline-flex items-baseline gap-2 rounded-lg bg-positive/10 border border-positive/20 px-3 py-2">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Estimated</span>
-                  <span className="font-display text-lg tabular text-positive">{openInsight.impact}</span>
+                <div className="mt-4 flex items-center gap-2 flex-wrap">
+                  <div className="inline-flex items-baseline gap-2 rounded-lg bg-positive/10 border border-positive/20 px-3 py-2">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Estimated yearly</span>
+                    <span className="font-display text-lg tabular text-positive">{openInsight.impact}</span>
+                  </div>
+                  {monthlyEquivalent > 0 && (
+                    <div className="inline-flex items-baseline gap-1.5 rounded-lg bg-secondary/40 border border-border/40 px-3 py-2">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">≈ per month</span>
+                      <span className="font-display text-[13px] tabular text-foreground">{fmtUSD(monthlyEquivalent)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="hairline p-6 space-y-4">
@@ -2408,6 +3108,62 @@ export const LivePlaidDashboard = ({
                     <p className={cn("text-sm leading-relaxed", accent?"text-foreground":"text-muted-foreground")}>{body}</p>
                   </div>
                 ))}
+
+                {/* Related category breakdown — grounds the insight in real numbers */}
+                {relatedCat && RelatedCatIcon && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">Related spending this month</div>
+                    <button onClick={()=>{setOpenInsight(null);setSpendingPopup(relatedCat.category);setSpendPopupLimit(5);}}
+                      className="w-full surface-card p-3 flex items-center gap-3 hover:bg-surface-hover/40 transition-colors text-left">
+                      <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{backgroundColor:`${relatedCatColor}1f`,color:relatedCatColor as string}}>
+                        <RelatedCatIcon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] text-foreground font-medium">{formatCat(relatedCat.category)}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{relatedCat.count} transaction{relatedCat.count!==1?"s":""} this month</div>
+                      </div>
+                      <span className="text-[14px] tabular font-semibold text-foreground shrink-0">{fmtUSD(relatedCat.total)}</span>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                    </button>
+                    {relatedTopTxns.length > 0 && (
+                      <div className="mt-2 surface-card overflow-hidden divide-y divide-border/20">
+                        {relatedTopTxns.map(t=>(
+                          <div key={t.id} className="flex items-center gap-2.5 px-3 py-2">
+                            <Receipt className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11.5px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
+                              <div className="text-[9.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                            </div>
+                            <span className="text-[11.5px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Related account — grounds card/savings insights in the actual account */}
+                {relatedAcc && (
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-2">Related account</div>
+                    <button onClick={()=>{setOpenInsight(null);setDetailAccount(relatedAcc);}}
+                      className="w-full surface-card p-3 flex items-center gap-3 hover:bg-surface-hover/40 transition-colors text-left">
+                      {(()=>{ const AccIcon=mapIcon(relatedAcc.type,relatedAcc.subtype); return (
+                        <div className="h-8 w-8 rounded-lg grid place-items-center bg-secondary/50 border border-border/50 text-gold shrink-0">
+                          <AccIcon className="h-4 w-4" />
+                        </div>
+                      ); })()}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] text-foreground font-medium truncate">{relatedAcc.name}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{relatedAcc.mask?`··${relatedAcc.mask}`:smartSubtypeLabel(relatedAcc)}</div>
+                      </div>
+                      <span className={cn("text-[14px] tabular font-semibold shrink-0",isDebt(relatedAcc.type)?"text-negative":"text-foreground")}>
+                        {isDebt(relatedAcc.type)?"−":""}{fmtUSD(Math.abs(Number(relatedAcc.current_balance)||0))}
+                      </span>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="hairline p-4 flex flex-wrap gap-2">
                 <button onClick={() => setOpenInsight(null)}
@@ -2420,7 +3176,8 @@ export const LivePlaidDashboard = ({
                 </button>
               </div>
             </>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -2488,10 +3245,10 @@ export const LivePlaidDashboard = ({
                         return (
                           <div key={t.id} className="flex items-center gap-2.5 px-3 py-2">
                             <div className={cn("h-5 w-5 rounded grid place-items-center shrink-0",isInc?"bg-positive/10 text-positive":"bg-secondary/50 text-muted-foreground")}>
-                              {isInc?<ArrowDownLeft className="h-3 w-3"/>:<ArrowRight className="h-3 w-3"/>}
+                              {isInc?<ArrowDownLeft className="h-3 w-3"/>:<ArrowUpRight className="h-3 w-3"/>}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-[12px] text-foreground truncate">{t.merchant_name??t.name??"Transaction"}</div>
+                              <div className="text-[12px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
                               <div className="text-[10px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                             </div>
                             <span className={cn("text-[12px] tabular font-medium shrink-0",isInc?"text-positive":"text-foreground")}>
@@ -2504,18 +3261,32 @@ export const LivePlaidDashboard = ({
                   </div>
                 )}
                 <div className="hairline p-4 flex flex-wrap gap-2">
-                  {/* Bank website link for transfer/payment actions */}
-                  {actionInstUrl && (isTransferAction || isPaymentAction) && (
+                  {/* Primary CTA — context-aware */}
+                  {openActionItem.reviewCategory ? (
+                    // "Review" / "Review spending" → open spending popup for that category
+                    <button onClick={()=>{setOpenActionItem(null);setSpendingPopup(openActionItem.reviewCategory!);setSpendPopupLimit(5);}}
+                      className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-positive px-4 py-2 text-xs font-medium text-positive-foreground hover:opacity-90 transition-opacity">
+                      <ArrowRight className="h-3.5 w-3.5" /> {openActionItem.cta}
+                    </button>
+                  ) : (isTransferAction || isPaymentAction) && actionInstUrl ? (
+                    // Transfer/Payment → open bank website
                     <a href={actionInstUrl} target="_blank" rel="noopener noreferrer"
                       className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-gold px-4 py-2 text-xs font-medium hover:opacity-90 transition-opacity">
                       <ExternalLink className="h-3.5 w-3.5" />
                       {isTransferAction ? "Transfer at bank" : "Pay at bank"}
                     </a>
+                  ) : openActionItem.id === "pending" ? (
+                    // "View all" → close popup (user can navigate to transactions tab)
+                    <button onClick={()=>{setOpenActionItem(null);onCategorySelect?.("");}}
+                      className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-positive px-4 py-2 text-xs font-medium text-positive-foreground hover:opacity-90 transition-opacity">
+                      <ArrowRight className="h-3.5 w-3.5" /> {openActionItem.cta}
+                    </button>
+                  ) : (
+                    <button onClick={()=>setOpenActionItem(null)}
+                      className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-positive px-4 py-2 text-xs font-medium text-positive-foreground hover:opacity-90 transition-opacity">
+                      <ArrowRight className="h-3.5 w-3.5" /> {openActionItem.cta}
+                    </button>
                   )}
-                  <button onClick={()=>setOpenActionItem(null)}
-                    className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-positive px-4 py-2 text-xs font-medium text-positive-foreground hover:opacity-90 transition-opacity">
-                    <ArrowRight className="h-3.5 w-3.5" /> {openActionItem.cta}
-                  </button>
                   <button onClick={()=>{dismissAction(openActionItem.id);setOpenActionItem(null);}}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-border-strong px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
                     <X className="h-3.5 w-3.5" /> Dismiss
@@ -2571,7 +3342,7 @@ export const LivePlaidDashboard = ({
                     </div>
                   ))}
                 </div>
-                {budget && (
+                {!!budget && (
                   <div className="surface-card p-3 space-y-1.5">
                     <div className="flex justify-between text-[11px]">
                       <span className="text-muted-foreground">Monthly budget</span>
@@ -2592,7 +3363,7 @@ export const LivePlaidDashboard = ({
                         <div key={t.id} className="flex items-center gap-2.5 px-3 py-2">
                           <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <div className="text-[12px] text-foreground truncate">{t.merchant_name??t.name??"Transaction"}</div>
+                            <div className="text-[12px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
                             <div className="text-[10px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                           </div>
                           <span className="text-[12px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
@@ -2640,14 +3411,45 @@ export const LivePlaidDashboard = ({
         <h2 className="font-display text-xl text-primary">Monthly</h2>
         <PeriodNav state={monthlyPeriod} onChange={setMonthlyPeriod} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="surface-card p-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="surface-card p-4 relative overflow-hidden">
+          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-positive/8 blur-2xl" />
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Income</div>
-          <div className="font-display text-2xl text-positive mt-1">{fmtUSD(monthlyIncome)}</div>
+          <div className="font-display text-2xl text-positive mt-1 tabular">{fmtUSD(monthlyIncome)}</div>
+          {monthlyIncome > 0 && monthlySpend > 0 && (
+            <div className="text-[10px] text-muted-foreground mt-1">
+              {Math.round(((monthlyIncome - monthlySpend) / monthlyIncome) * 100)}% saved
+            </div>
+          )}
         </div>
-        <div className="surface-card p-4">
+        <div className="surface-card p-4 relative overflow-hidden">
+          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-negative/8 blur-2xl" />
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Spent</div>
-          <div className="font-display text-2xl text-foreground mt-1">{fmtUSD(monthlySpend)}</div>
+          <div className="font-display text-2xl text-foreground mt-1 tabular">{fmtUSD(monthlySpend)}</div>
+          {monthlyIncome > 0 && (
+            <div className="mt-2 h-1 rounded-full bg-border/40 overflow-hidden">
+              <div className="h-full rounded-full transition-all"
+                style={{width:`${Math.min((monthlySpend/monthlyIncome)*100,100)}%`,
+                  background: monthlySpend > monthlyIncome ? "hsl(var(--negative))" : monthlySpend/monthlyIncome > 0.8 ? "hsl(var(--warning))" : "hsl(var(--positive))"}} />
+            </div>
+          )}
+        </div>
+        <div className="col-span-2 sm:col-span-1 surface-card p-4 relative overflow-hidden">
+          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-[hsl(var(--primary)/0.08)] blur-2xl" />
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Net</div>
+          {(() => {
+            const net = monthlyIncome - monthlySpend;
+            return (
+              <>
+                <div className={cn("font-display text-2xl mt-1 tabular", net >= 0 ? "text-positive" : "text-negative")}>
+                  {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  {monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)).length} transactions
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
       {monthlyPeriod.granularity === "month" && monthlyPeriod.offset === 0 && (
@@ -2656,18 +3458,55 @@ export const LivePlaidDashboard = ({
           <div className="h-36">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyFlow} margin={{top:0,right:0,bottom:0,left:0}} barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.4)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.4} vertical={false} />
                 <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:9}} />
                 <YAxis hide />
                 <Tooltip contentStyle={{background:"hsl(var(--popover))",border:"1px solid var(--gold-border)",borderRadius:"10px",fontSize:"12px"}}
                   formatter={(v:number,n:string)=>[fmtUSD(v),n==="income"?"Income":"Spend"]} />
-                <Bar dataKey="income" fill="hsl(var(--positive)/0.7)" radius={[3,3,0,0]} animationDuration={1000} />
-                <Bar dataKey="spend"  fill="hsl(var(--negative)/0.5)" radius={[3,3,0,0]} animationDuration={1200} />
+                <Bar dataKey="income" fill="hsl(var(--positive))" fillOpacity={0.7} radius={[3,3,0,0]} animationDuration={1000} />
+                <Bar dataKey="spend"  fill="hsl(var(--negative))" fillOpacity={0.5} radius={[3,3,0,0]} animationDuration={1200} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
+      {/* Category breakdown for the period */}
+      {monthlyPeriodTxns.length > 0 && (() => {
+        const periodExpenses = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)>0);
+        const catMap: Record<string,number> = {};
+        for (const t of periodExpenses) {
+          const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+          catMap[cat] = (catMap[cat]??0) + Number(t.amount);
+        }
+        const cats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
+        const total = cats.reduce((s,[,v])=>s+v,0);
+        if (cats.length === 0) return null;
+        return (
+          <div className="surface-card overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Spending by category
+            </div>
+            <div className="divide-y divide-border/15">
+              {cats.map(([cat, amt])=>{
+                const Icon = categoryIcon(cat); const color = catColor(cat);
+                const pct = total > 0 ? (amt/total)*100 : 0;
+                return (
+                  <div key={cat} className="flex items-center gap-3 px-4 py-2.5 relative overflow-hidden">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 opacity-60" style={{width:`${pct}%`,background:`${color}10`}}/>
+                    <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
+                      <Icon className="h-3 w-3"/>
+                    </div>
+                    <span className="text-[12px] text-foreground flex-1 truncate">{formatCat(cat)}</span>
+                    <span className="text-[10px] text-muted-foreground tabular shrink-0">{Math.round(pct)}%</span>
+                    <span className="text-[12px] tabular font-semibold text-foreground shrink-0">{fmtUSD(amt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       <section className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
           <h2 className="font-display text-base md:text-lg text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
@@ -2682,7 +3521,11 @@ export const LivePlaidDashboard = ({
               onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
               onClosePicker={()=>setOpenPickerTxn(null)}
               onSelect={(id,cat)=>setOverride(id,cat)}
-              onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} />)}
+              onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory}
+              isInternal={internalTxnIds.has(t.id)}
+              isManualInternal={manualInternalIds.has(t.id)}
+              onToggleInternal={toggleManualInternal}
+              nameOverride={nameOverrides[t.id]} onSetName={setNameOverride} />)}
           </div></div>
         )}
       </section>
@@ -2692,20 +3535,37 @@ export const LivePlaidDashboard = ({
 
   // ── SPENDING & BUDGET ─────────────────────────────────────
   if (view==="spending") return (
-    <div className="space-y-4 animate-fade-up">
+    <div className="space-y-3 animate-fade-up">
       {/* Header + period nav + manage */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h2 className="font-display text-xl text-primary">Spending & Budget</h2>
-          {selectedCategory && (
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              Filtered: {formatCat(selectedCategory)} ·{" "}
-              <button onClick={()=>onCategorySelect?.("")} className="text-gold hover:underline">Clear</button>
-            </div>
-          )}
+          <div className="text-[11px] text-muted-foreground mt-0.5">{getPeriodLabel(spendingPeriod)}</div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <PeriodNav state={spendingPeriod} onChange={p=>{setSpendingPeriod(p);onCategorySelect?.("");}} />
+          <PeriodNav state={spendingPeriod} granularities={["day","week","month","year"]}
+            onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);}} />
+          <button onClick={()=>{
+            const rows = [["Date","Name","Category","Amount","Account","Pending"]];
+            for (const t of filteredSpendingTxns) {
+              const acc = accounts.find(a=>a.account_id===t.account_id);
+              rows.push([
+                t.date,
+                nameOverrides[t.id]??t.merchant_name??t.name??"",
+                getEffectiveCategory(t,overrides,getRuleCategory)??"",
+                String(Number(t.amount).toFixed(2)),
+                `${acc?.name??""} ${acc?.mask?`··${acc.mask}`:""}`.trim(),
+                t.pending?"yes":"no",
+              ]);
+            }
+            const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+            a.download = `sentrifi-transactions-${getPeriodLabel(spendingPeriod).replace(/\s+/g,"-")}.csv`;
+            a.click();
+          }} className="h-7 px-2.5 rounded-md border text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" style={{borderColor:"var(--gold-border)"}}>
+            Export CSV
+          </button>
           <button onClick={()=>setShowCatManager(true)}
             className="h-7 px-2.5 rounded-md border text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
             style={{borderColor:"var(--gold-border)"}}>
@@ -2714,138 +3574,625 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="surface-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total Spent</div>
-          <div className="font-display text-xl text-foreground mt-0.5">{fmtUSD(spendingPeriodTotal)}</div>
-        </div>
-        <div className="surface-card p-3">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Categories</div>
-          <div className="font-display text-xl text-foreground mt-0.5">{spendingPeriodByCategory.length}</div>
+      {/* ── Two-column page: left = spending insights + transactions, right = budget ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-3 items-start">
+
+      {/* ══ LEFT COLUMN (xl:3) ══ */}
+      <div className="xl:col-span-3 space-y-3">
+
+      {/* Compact insights strip — one row, no padding-heavy cards */}
+      <div className="surface-card overflow-hidden">
+        <div className="flex items-stretch divide-x divide-border/20 overflow-x-auto">
+          <div className="flex-1 min-w-[110px] px-3.5 py-2.5">
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Spent</div>
+            <div className="font-display text-[15px] text-foreground mt-0.5 tabular leading-tight">{fmtUSD(spendingPeriodTotal)}</div>
+            {spendDeltaPct !== null && (
+              <div className={cn("text-[9.5px] tabular mt-0.5 font-medium", spendDeltaPct > 0 ? "text-negative" : "text-positive")}>
+                {spendDeltaPct > 0 ? "+" : ""}{spendDeltaPct}% vs prior
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-[110px] px-3.5 py-2.5">
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Income</div>
+            <div className="font-display text-[15px] text-positive mt-0.5 tabular leading-tight">{fmtUSD(spendingPeriodIncome)}</div>
+            <div className="text-[9.5px] text-muted-foreground mt-0.5">excl. transfers</div>
+          </div>
+          <div className="flex-1 min-w-[110px] px-3.5 py-2.5">
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Net</div>
+            <div className={cn("font-display text-[15px] mt-0.5 tabular leading-tight", spendingPeriodIncome - spendingPeriodTotal >= 0 ? "text-positive" : "text-negative")}>
+              {spendingPeriodIncome - spendingPeriodTotal >= 0 ? "+" : "−"}{fmtUSD(Math.abs(spendingPeriodIncome - spendingPeriodTotal))}
+            </div>
+            <div className="text-[9.5px] text-muted-foreground mt-0.5">income − spend</div>
+          </div>
+          <div className="flex-1 min-w-[110px] px-3.5 py-2.5">
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Daily avg</div>
+            <div className="font-display text-[15px] text-foreground mt-0.5 tabular leading-tight">{fmtUSD(spendingDailyAvg)}</div>
+            <div className="text-[9.5px] text-muted-foreground mt-0.5">{spendingPeriodByCategory.length} cat · {Object.keys(budgets).length} budgeted</div>
+          </div>
         </div>
       </div>
 
-      {/* 6-month stacked bar chart — only in month view, no category filter */}
-      {!selectedCategory && spendingPeriod.granularity==="month" && spendingPeriodByCategory.length>0 && (() => {
-        const top5 = spendingPeriodByCategory.slice(0,5).map(c=>c.category);
-        const chartData = Array.from({length:6},(_,i)=>{
-          const d=new Date(now.getFullYear(),now.getMonth()-(5-i),1);
-          const mo=d.getMonth(); const yr=d.getFullYear();
-          const row: Record<string,string|number> = { m: d.toLocaleDateString("en-US",{month:"short"}) };
-          for (const cat of top5) {
-            row[cat] = Math.round(txns.filter(t=>{
-              const td=new Date(t.date+"T00:00:00");
-              return Number(t.amount)>0 && td.getMonth()===mo && td.getFullYear()===yr && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other")===cat;
-            }).reduce((s,t)=>s+Number(t.amount),0));
+      {/* ── Spend trend + pie: side-by-side panel ── */}
+      {spendingPeriodExpenses.length > 0 && (() => {
+        // Build trend buckets
+        const { start, end } = getPeriodRange(spendingPeriod);
+        const todayMs = new Date().setHours(0,0,0,0);
+        type Bkt = { label: string; total: number; isCurrent: boolean; dateKey?: string; monthIdx?: number };
+        const bkts: Bkt[] = [];
+        if (spendingPeriod.granularity === "day") {
+          // For a single day just show a single bar
+          bkts.push({ label: "Today", total: Math.round(spendingPeriodTotal), isCurrent: true });
+        } else if (spendingPeriod.granularity === "year") {
+          const byMonth: Record<number,number> = {};
+          for (const t of spendingPeriodExpenses) {
+            const m = new Date(t.date+"T00:00:00").getMonth();
+            byMonth[m] = (byMonth[m]??0) + Number(t.amount);
           }
-          return row;
-        });
-        return (
-          <div className="surface-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Spending by category · 6 months</div>
-              <div className="flex items-center gap-3 flex-wrap justify-end">
-                {top5.map(cat=>(<div key={cat} className="flex items-center gap-1"><div className="h-2 w-2 rounded-full" style={{backgroundColor:catColor(cat)}} /><span className="text-[10px] text-muted-foreground">{formatCat(cat)}</span></div>))}
-              </div>
+          for (let m=0;m<12;m++) bkts.push({
+            label: new Date(2000,m,1).toLocaleDateString("en-US",{month:"short"}),
+            total: Math.round(byMonth[m]??0),
+            isCurrent: spendingPeriod.offset===0 && m===new Date().getMonth(),
+            monthIdx: m,
+          });
+        } else {
+          const byDate: Record<string,number> = {};
+          for (const t of spendingPeriodExpenses) byDate[t.date]=(byDate[t.date]??0)+Number(t.amount);
+          for (const d=new Date(start); d<=end; d.setDate(d.getDate()+1)) {
+            const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            bkts.push({
+              label: spendingPeriod.granularity==="week" ? d.toLocaleDateString("en-US",{weekday:"short"}) : String(d.getDate()),
+              total: Math.round(byDate[key]??0),
+              isCurrent: d.getTime()===todayMs,
+              dateKey: key,
+            });
+          }
+        }
+
+        // Build pie slices (top 6 + "Other")
+        const TOP_N = 6;
+        const pieSlices = spendingPeriodByCategory.slice(0, TOP_N).map(c=>({
+          name: formatCat(c.category), value: c.total, color: catColor(c.category),
+        }));
+        if (spendingPeriodByCategory.length > TOP_N) {
+          const rest = spendingPeriodByCategory.slice(TOP_N).reduce((s,c)=>s+c.total,0);
+          pieSlices.push({ name:"Other", value: rest, color:"hsl(var(--muted-foreground))" });
+        }
+
+        const TrendTip = ({ active, payload, label }: any) => {
+          if (!active || !payload?.length) return null;
+          return (
+            <div className="surface-elevated border border-border/60 rounded-lg px-3 py-2 shadow-xl text-[11px]">
+              <div className="text-muted-foreground mb-0.5">{label}</div>
+              <div className="text-foreground font-semibold tabular">{fmtUSD(payload[0].value)}</div>
             </div>
-            <div className="h-32">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{top:0,right:0,bottom:0,left:0}} barSize={18} barGap={1}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.4)" vertical={false} />
-                  <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:9}} />
-                  <YAxis hide />
-                  <Tooltip contentStyle={{background:"hsl(var(--popover))",border:"1px solid var(--gold-border)",borderRadius:"10px",fontSize:"11px"}} formatter={(v:number,n:string)=>[fmtUSD(v),formatCat(n)]} />
-                  {top5.map(cat=><Bar key={cat} dataKey={cat} stackId="a" fill={catColor(cat)} radius={cat===top5[top5.length-1]?[3,3,0,0]:undefined} animationDuration={1000} />)}
-                </BarChart>
-              </ResponsiveContainer>
+          );
+        };
+        const PieTip = ({ active, payload }: any) => {
+          if (!active || !payload?.length) return null;
+          const p = payload[0];
+          return (
+            <div className="surface-elevated border border-border/60 rounded-lg px-3 py-2 shadow-xl text-[11px]">
+              <div className="text-muted-foreground mb-0.5">{p.name}</div>
+              <div className="text-foreground font-semibold tabular">{fmtUSD(p.value)}</div>
+              <div className="text-muted-foreground">{spendingPeriodTotal>0?Math.round((p.value/spendingPeriodTotal)*100):0}%</div>
+            </div>
+          );
+        };
+
+        return (
+          <div className="surface-card p-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Spend trend bar chart */}
+              <div className={cn("pr-0 sm:pr-3", "sm:border-r sm:border-border/20")}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-[10.5px] font-semibold text-foreground">
+                    {spendingPeriod.granularity==="year"?"Monthly breakdown":"Daily breakdown"}
+                    <span className="ml-1 font-normal text-muted-foreground/60">· click a bar</span>
+                  </div>
+                  {spendDeltaPct!==null && (
+                    <div className={cn("text-[9.5px] tabular font-medium", spendDeltaPct>0?"text-negative":"text-positive")}>
+                      {spendDeltaPct>0?"+":""}{spendDeltaPct}% vs prior
+                    </div>
+                  )}
+                </div>
+                <div className="h-20">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={bkts} margin={{top:2,right:0,bottom:0,left:0}} barCategoryGap="30%"
+                      style={{cursor:"pointer"}}
+                      onClick={(state:any)=>{
+                        const idx = state?.activeTooltipIndex;
+                        if (idx==null) return;
+                        const b: Bkt|undefined = bkts[idx];
+                        if (!b) return;
+                        if (b.dateKey) setChartDrillDate(prev=>prev===b.dateKey?null:b.dateKey!);
+                        else if (b.monthIdx!=null) setChartDrillMonth(prev=>prev===b.monthIdx?null:b.monthIdx!);
+                      }}>
+                      <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.25} vertical={false} />
+                      <XAxis dataKey="label" axisLine={false} tickLine={false}
+                        interval={spendingPeriod.granularity==="month" ? Math.floor(bkts.length/8) : 0}
+                        tick={{ fontSize:8.5, fill:"hsl(var(--muted-foreground))", fontFamily:"inherit" }} />
+                      <YAxis hide domain={[0,"dataMax+50"]} />
+                      <Tooltip content={<TrendTip />} cursor={{ fill:"hsl(var(--foreground))", fillOpacity:0.06 }} />
+                      <Bar dataKey="total" radius={[2,2,0,0]} animationDuration={500}>
+                        {bkts.map((b,idx)=>{
+                          const isDrilled = (!!b.dateKey && b.dateKey===chartDrillDate) || (b.monthIdx!=null && b.monthIdx===chartDrillMonth);
+                          return (
+                            <Cell key={idx}
+                              fill={isDrilled ? "hsl(var(--negative))" : "hsl(var(--primary))"}
+                              fillOpacity={isDrilled || b.isCurrent ? 1 : 0.45} />
+                          );
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {(chartDrillDate || chartDrillMonth!=null) && (
+                  <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
+                    className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium border border-negative/30 bg-negative/10 text-negative">
+                    {chartDrillDate ? new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
+                    <X className="h-2.5 w-2.5"/>
+                  </button>
+                )}
+              </div>
+
+              {/* Spending donut pie */}
+              <div>
+                <div className="text-[10.5px] font-semibold text-foreground mb-2">By Category · {spendingPeriodByCategory.length}</div>
+                <div className="flex items-center gap-2.5">
+                  <div className="shrink-0" style={{width:84,height:84}}>
+                    <PieChart width={84} height={84}>
+                      <Pie data={pieSlices} cx={40} cy={40} innerRadius={22} outerRadius={38}
+                        dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
+                        {pieSlices.map((s,idx)=>(
+                          <Cell key={idx} fill={s.color}
+                            opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTip />} />
+                    </PieChart>
+                  </div>
+                  <div className="flex-1 min-w-0 space-y-0.5 max-h-[78px] overflow-y-auto">
+                    {pieSlices.map(s=>(
+                      <div key={s.name} className="flex items-center gap-1.5 text-[9.5px]">
+                        <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{background:s.color}}/>
+                        <span className="truncate text-muted-foreground">{s.name}</span>
+                        <span className="tabular text-foreground font-medium ml-auto shrink-0">{spendingPeriodTotal>0?Math.round((s.value/spendingPeriodTotal)*100):0}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         );
       })()}
 
-      {/* Category tiles */}
-      {!selectedCategory && spendingPeriodByCategory.length>0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {spendingPeriodByCategory.map(c=>{
-            const trend = spendTrends.find(t=>t.category===c.category);
-            return (
-              <SpendTile key={c.category}
-                category={c.category} total={c.total} count={c.count}
-                budget={budgets[c.category]}
-                delta={trend?.delta} deltaPct={trend?.pct}
-                onSetBudget={()=>setBudgetCategory(c.category)}
-                onSelect={()=>onCategorySelect?.(c.category)}
-              />
-            );
-          })}
-          <button onClick={()=>setBudgetCategory("__new")}
-            className="surface-card card-hover p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground border-dashed">
-            <Plus className="h-5 w-5" />
-            <span className="text-[12px]">Set budget</span>
-          </button>
-        </div>
-      )}
-
-      {/* Transaction list */}
-      <section className="space-y-2">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 className="font-display text-base md:text-lg text-primary">
-            {selectedCategory ? `${formatCat(selectedCategory)} transactions` : "All transactions"}
-          </h2>
-          <span className="text-[11px] text-muted-foreground">{filteredSpendingTxns.length}</span>
-        </div>
-        {filteredSpendingTxns.length===0 ? (
-          <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">No transactions{selectedCategory?` in ${formatCat(selectedCategory)}`:""} for this period.</div>
-        ) : (
-          <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px]">
-            {filteredSpendingTxns.map((t,i)=><TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories}
-              openPickerId={openPickerTxn?.id??null}
-              onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
-              onClosePicker={()=>setOpenPickerTxn(null)}
-              onSelect={(id,cat)=>setOverride(id,cat)}
-              onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} />)}
-          </div></div>
-        )}
-      </section>
-
-      {budgetCategory && budgetCategory!=="__new" && (
-        <BudgetPanel category={budgetCategory} current={budgets[budgetCategory]}
-          onSave={v=>setBudget(budgetCategory,v)}
-          onRemove={()=>removeBudget(budgetCategory)}
-          onClose={()=>setBudgetCategory(null)} />
-      )}
-      <Dialog open={budgetCategory==="__new"} onOpenChange={(o)=>{ if(!o) setBudgetCategory(null); }}>
-        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Set a budget</DialogTitle>
-          <DialogDescription className="sr-only">Choose a category to set a monthly budget.</DialogDescription>
-          <div className="relative p-6 pb-4">
-            <button onClick={()=>setBudgetCategory(null)} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"><X className="h-4 w-4" /></button>
-            <h3 className="font-display text-xl text-foreground">Set a budget</h3>
-            <p className="mt-1 text-[12px] text-muted-foreground">Choose a category to set a monthly limit.</p>
-          </div>
-          <div className="hairline divide-y divide-border/30 max-h-80 overflow-y-auto">
-            {spendByCategory.filter(c=>!budgets[c.category]).length === 0 ? (
-              <div className="px-5 py-8 text-center text-[12px] text-muted-foreground">
-                <Check className="h-5 w-5 mx-auto mb-2 text-positive" />All spending categories have budgets set.
+        {/* ── Transaction explorer ── */}
+        <div className="surface-card overflow-hidden">
+          {/* Toolbar */}
+          <div className="px-3.5 py-2.5 border-b border-border/20 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40" />
+                <input value={txnSearch} onChange={e=>{setTxnSearch(e.target.value);setTxnLimit(150);}}
+                  placeholder="Search transactions…"
+                  className="w-full h-8 pl-7 pr-7 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors" />
+                {txnSearch && <button onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"><X className="h-3 w-3" /></button>}
               </div>
-            ) : spendByCategory.filter(c=>!budgets[c.category]).map(c=>{
-              const Icon=categoryIcon(c.category); const color=catColor(c.category);
-              return (
-                <button key={c.category} onClick={()=>setBudgetCategory(c.category)}
-                  className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-surface/60 transition-colors">
-                  <div className="h-7 w-7 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}><Icon className="h-3.5 w-3.5" /></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] text-foreground">{formatCat(c.category)}</div>
-                    <div className="text-[10.5px] text-muted-foreground tabular">{fmtUSD(c.total)} this month</div>
-                  </div>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
+                className="h-8 rounded-lg bg-card border border-border/50 text-[11px] text-muted-foreground px-2 focus:outline-none focus:border-[hsl(var(--primary)/0.4)] cursor-pointer appearance-none">
+                <option value="date-desc">Newest</option>
+                <option value="date-asc">Oldest</option>
+                <option value="amount-desc">Largest</option>
+                <option value="amount-asc">Smallest</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              {(["all","expense","income"] as const).map(f=>(
+                <button key={f} onClick={()=>{setTxnFlowFilter(f);setTxnLimit(150);}}
+                  className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors",
+                    txnFlowFilter===f?"bg-foreground text-background border-foreground":"border-border/40 text-muted-foreground hover:text-foreground")}>
+                  {f==="all"?"All":f==="expense"?"Expenses":"Income"}
                 </button>
-              );
-            })}
+              ))}
+              <span className="w-px h-3 bg-border/40"/>
+              {[...new Set(accounts.map(a=>a.type).filter(Boolean))].map(ty=>{
+                const LABEL:Record<string,string>={depository:"Cash",credit:"Credit",investment:"Invest.",loan:"Loans",brokerage:"Invest."};
+                return (
+                  <button key={ty} onClick={()=>{setTxnAcctTypeFilter(txnAcctTypeFilter===ty?"all":ty);setTxnAccountFilter("all");setTxnLimit(150);}}
+                    className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors",
+                      txnAcctTypeFilter===ty?"bg-[hsl(var(--primary)/0.15)] text-gold border-[hsl(var(--primary)/0.3)]":"border-border/40 text-muted-foreground hover:text-foreground")}>
+                    {LABEL[ty]??ty}
+                  </button>
+                );
+              })}
+              <span className="w-px h-3 bg-border/40"/>
+              <select value={txnAccountFilter} onChange={e=>{setTxnAccountFilter(e.target.value);setTxnLimit(150);}}
+                className="h-6 rounded-full bg-card border border-border/40 text-[10px] text-muted-foreground px-2 focus:outline-none cursor-pointer appearance-none max-w-[140px]">
+                <option value="all">All accounts</option>
+                {accounts.map(a=>(<option key={a.account_id} value={a.account_id}>{(a.name??"Acct").slice(0,20)}{a.mask?` ··${a.mask}`:""}</option>))}
+              </select>
+              <button onClick={()=>setHideInternal(!hideInternal)}
+                className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors",
+                  hideInternal?"bg-secondary text-foreground border-border":"border-border/40 text-muted-foreground hover:text-foreground")}>
+                {hideInternal?<EyeOff className="h-2.5 w-2.5"/>:<Eye className="h-2.5 w-2.5"/>} Internal
+              </button>
+              {selectedCategory && (
+                <button onClick={()=>onCategorySelect?.("")}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                  style={{background:`${catColor(selectedCategory)}12`,borderColor:`${catColor(selectedCategory)}35`,color:catColor(selectedCategory)}}>
+                  {formatCat(selectedCategory)} <X className="h-2.5 w-2.5"/>
+                </button>
+              )}
+              <span className="w-px h-3 bg-border/40"/>
+              {customFilters.map(f=>(
+                <button key={f.id} onClick={()=>setCustomFilters(cs=>cs.filter(x=>x.id!==f.id))}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.3)] text-gold">
+                  {f.field} {f.op==="gt"?">":f.op==="lt"?"<":f.op==="eq"?"=":"~"} {f.field==="amount"?fmtUSD(parseFloat(f.value)||0):f.value}
+                  <X className="h-2.5 w-2.5"/>
+                </button>
+              ))}
+              <button onClick={()=>setShowFilterBuilder(v=>!v)}
+                className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors",
+                  showFilterBuilder?"bg-secondary text-foreground border-border":"border-border/40 text-muted-foreground hover:text-foreground")}>
+                <Plus className="h-2.5 w-2.5"/> Filter
+              </button>
+            </div>
+
+            {showFilterBuilder && (
+              <form onSubmit={e=>{
+                e.preventDefault();
+                if (!filterDraft.value.trim()) return;
+                setCustomFilters(cs=>[...cs, { ...filterDraft, id: `${Date.now()}` }]);
+                setFilterDraft({field:"amount",op:"gt",value:""});
+                setTxnLimit(150);
+              }} className="flex items-center gap-1.5 p-2 rounded-lg bg-secondary/30 border border-border/30">
+                <select value={filterDraft.field} onChange={e=>setFilterDraft(d=>({...d,field:e.target.value as typeof d.field}))}
+                  className="h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-1.5 focus:outline-none cursor-pointer">
+                  <option value="amount">Amount</option>
+                  <option value="category">Category</option>
+                  <option value="merchant">Merchant</option>
+                  <option value="account">Account</option>
+                </select>
+                <select value={filterDraft.op} onChange={e=>setFilterDraft(d=>({...d,op:e.target.value as typeof d.op}))}
+                  className="h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-1.5 focus:outline-none cursor-pointer">
+                  {filterDraft.field==="amount" ? (
+                    <><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="eq">=</option></>
+                  ) : (
+                    <><option value="contains">contains</option><option value="eq">is exactly</option></>
+                  )}
+                </select>
+                <input value={filterDraft.value} onChange={e=>setFilterDraft(d=>({...d,value:e.target.value}))}
+                  type={filterDraft.field==="amount"?"number":"text"}
+                  placeholder={filterDraft.field==="amount"?"e.g. 50":"e.g. coffee"}
+                  className="flex-1 h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-2 focus:outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[10.5px] font-medium hover:opacity-90 shrink-0">Add</button>
+              </form>
+            )}
+
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>{filteredSpendingTxns.length} transaction{filteredSpendingTxns.length!==1?"s":""}</span>
+              <span className="tabular">{(()=>{
+                const out=filteredSpendingTxns.filter(t=>Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0);
+                const inn=filteredSpendingTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+                return <>{inn>0&&<span className="text-positive">+{fmtUSD(inn)}</span>}{inn>0&&out>0&&<span className="mx-1 text-border">·</span>}{out>0&&<span>−{fmtUSD(out)}</span>}</>;
+              })()}</span>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+
+          {/* Transaction list grouped by day */}
+          {filteredSpendingTxns.length===0 ? (
+            <div className="p-8 text-center text-[12px] text-muted-foreground">No transactions match these filters.</div>
+          ) : (()=>{
+            const shown=filteredSpendingTxns.slice(0,txnLimit);
+            const isDateSort=txnSort.startsWith("date");
+            const dayLabel=(ds:string)=>{
+              const d=new Date(ds+"T00:00:00"),t=new Date();t.setHours(0,0,0,0);
+              const diff=Math.round((t.getTime()-d.getTime())/86400000);
+              if(diff===0)return"Today";if(diff===1)return"Yesterday";
+              return d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+            };
+            const renderRow=(t:PTxn,i:number)=>(
+              <TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories}
+                openPickerId={openPickerTxn?.id??null}
+                onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
+                onClosePicker={()=>setOpenPickerTxn(null)}
+                onSelect={(id,cat)=>setOverride(id,cat)}
+                onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory}
+                isInternal={internalTxnIds.has(t.id)}
+                isManualInternal={manualInternalIds.has(t.id)}
+                onToggleInternal={toggleManualInternal}
+                nameOverride={nameOverrides[t.id]} onSetName={setNameOverride} />
+            );
+            let content:React.ReactNode;
+            if(isDateSort){
+              const groups:{date:string;txns:PTxn[]}[]=[];
+              for(const t of shown){const last=groups[groups.length-1];if(last&&last.date===t.date)last.txns.push(t);else groups.push({date:t.date,txns:[t]});}
+              content=groups.map(g=>{
+                const daySpend=g.txns.filter(t=>Number(t.amount)>0&&!internalTxnIds.has(t.id)).reduce((s,t)=>s+Number(t.amount),0);
+                return(
+                  <Fragment key={g.date}>
+                    <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-1 bg-card/96 backdrop-blur-sm border-b border-border/20">
+                      <span className="text-[9.5px] uppercase tracking-widest text-muted-foreground font-semibold">{dayLabel(g.date)}</span>
+                      {daySpend>0&&<span className="text-[9.5px] tabular text-muted-foreground">−{fmtUSD(daySpend)}</span>}
+                    </div>
+                    {g.txns.map((t,i)=>renderRow(t,i))}
+                  </Fragment>
+                );
+              });
+            }else{content=shown.map((t,i)=>renderRow(t,i));}
+            return(
+              <div className="overflow-y-auto max-h-[680px]">
+                {content}
+                {filteredSpendingTxns.length>txnLimit&&(
+                  <button onClick={()=>setTxnLimit(l=>l+150)} className="w-full py-2.5 text-[11px] text-muted-foreground hover:text-foreground border-t border-border/20 transition-colors">
+                    Show {Math.min(150,filteredSpendingTxns.length-txnLimit)} more ({filteredSpendingTxns.length-txnLimit} remaining)
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+      </div>
+      {/* ══ END LEFT COLUMN ══ */}
+
+      {/* ══ RIGHT COLUMN (xl:2) — Income + Spending Budget + Summary ══ */}
+      <div className="xl:col-span-2 space-y-3">
+      {(() => {
+        const periodIncomeTxns = spendingPeriodTxns.filter(t => !internalTxnIds.has(t.id) && Number(t.amount) < 0);
+        const totalIncome = periodIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+        const incomeByCat: Record<string,{total:number;count:number}> = {};
+        for (const t of periodIncomeTxns) {
+          const cat = getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other income";
+          if (!incomeByCat[cat]) incomeByCat[cat] = {total:0,count:0};
+          incomeByCat[cat].total += Math.abs(Number(t.amount));
+          incomeByCat[cat].count += 1;
+        }
+        const incomeSources = Object.entries(incomeByCat).map(([category,v])=>({category,...v})).sort((a,b)=>b.total-a.total);
+
+        const budgetedCats = spendingPeriodByCategory.filter(c=>!!budgets[c.category]);
+        const otherCats = spendingPeriodByCategory.filter(c=>!budgets[c.category]);
+        const totalBudgetAllocated = budgetedCats.reduce((s,c)=>s+(budgets[c.category]??0),0);
+        const totalBudgetedSpend = budgetedCats.reduce((s,c)=>s+c.total,0);
+        const totalOtherSpend = otherCats.reduce((s,c)=>s+c.total,0);
+        const overCount = budgetedCats.filter(c=>c.total>budgets[c.category]).length;
+        const remainingToBudget = totalIncome - totalBudgetAllocated;
+        const actualRemaining = totalIncome - spendingPeriodTotal;
+
+        return (
+        <>
+          {/* ── Income ── */}
+          <div className="surface-card overflow-hidden">
+            <button onClick={()=>setIncomeExpanded(v=>!v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/30 transition-colors">
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-[13px] text-primary">Income</h3>
+                <span className="text-[10px] text-muted-foreground">{incomeSources.length} source{incomeSources.length!==1?"s":""}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] tabular font-semibold text-positive">+{fmtUSD(totalIncome)}</span>
+                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", incomeExpanded && "rotate-180")} />
+              </div>
+            </button>
+            {incomeExpanded && (
+              incomeSources.length === 0 ? (
+                <div className="px-4 py-4 text-center text-[11.5px] text-muted-foreground border-t border-border/20">No income detected this period.</div>
+              ) : (
+                <div className="divide-y divide-border/20 border-t border-border/20 max-h-[220px] overflow-y-auto">
+                  {incomeSources.map(s=>{
+                    const Icon=categoryIcon(s.category); const color=catColor(s.category);
+                    return (
+                      <div key={s.category} className="flex items-center gap-2.5 px-3.5 py-2">
+                        <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
+                          <Icon className="h-3 w-3" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[11.5px] text-foreground font-medium truncate">{formatCat(s.category)}</div>
+                          <div className="text-[9.5px] text-muted-foreground">{s.count} txn{s.count!==1?"s":""}</div>
+                        </div>
+                        <span className="text-[12px] tabular font-semibold text-positive shrink-0">+{fmtUSD(s.total)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
+          </div>
+
+          {/* ── Spending Budget ── */}
+          <div className="surface-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/30">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-display text-[13px] text-primary">Spending Budget</h3>
+                <span className="text-[10px] text-muted-foreground">{budgetedCats.length}/{spendingPeriodByCategory.length} categories</span>
+              </div>
+              {totalBudgetAllocated > 0 && (
+                <div>
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="text-muted-foreground">Monthly budget used</span>
+                    <span className={cn("tabular font-medium", totalBudgetedSpend > totalBudgetAllocated ? "text-negative" : "text-foreground")}>
+                      {fmtUSD(totalBudgetedSpend)} <span className="text-muted-foreground font-normal">/ {fmtUSD(totalBudgetAllocated)}</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-border/40 overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{
+                      width:`${Math.min((totalBudgetedSpend/totalBudgetAllocated)*100,100)}%`,
+                      backgroundColor: totalBudgetedSpend > totalBudgetAllocated ? "hsl(var(--negative))" : totalBudgetedSpend/totalBudgetAllocated > 0.8 ? "hsl(var(--warning))" : "hsl(var(--positive))"
+                    }}/>
+                  </div>
+                  {overCount > 0 && (
+                    <div className="mt-1.5 text-[10px] text-negative font-medium">{overCount} categor{overCount===1?"y":"ies"} over budget</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {spendingPeriodByCategory.length === 0 ? (
+              <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">No spending this period.</div>
+            ) : (
+              <div className="max-h-[440px] overflow-y-auto">
+                {/* Budgeted categories — specific, editable */}
+                {budgetedCats.length > 0 && (
+                  <div className="divide-y divide-border/20">
+                    {budgetedCats.map(c=>{
+                      const Icon=categoryIcon(c.category); const color=catColor(c.category);
+                      const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
+                      const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
+                      const isSelected = selectedCategory === c.category;
+                      const sharePct = spendingPeriodTotal>0 ? (c.total/spendingPeriodTotal)*100 : 0;
+                      const isEditing = editingBudgetCat === c.category;
+                      return (
+                        <div key={c.category} className={cn("group relative overflow-hidden", isSelected ? "bg-surface-hover/60" : "")}>
+                          <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`,background:`${color}0a`}} />
+                          {isSelected && <div className="absolute inset-y-0 left-0 w-0.5" style={{background:color}} />}
+                          <button
+                            onClick={()=>onCategorySelect?.(isSelected ? "" : c.category)}
+                            className="relative w-full flex items-center gap-2.5 px-3.5 pt-2.5 pb-1.5 text-left transition-colors hover:bg-surface-hover/30">
+                            <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
+                              <Icon className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={cn("text-[12px] truncate", isSelected ? "text-foreground font-semibold" : "text-foreground font-medium")}>{formatCat(c.category)}</span>
+                                <span className="text-[12px] tabular font-semibold shrink-0">{fmtUSD(c.total)}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 mt-0.5">
+                                <span className="text-[9.5px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""} · {Math.round(sharePct)}%</span>
+                                {!!budget && !isEditing && (
+                                  <span className={cn("text-[9.5px] tabular", over?"text-negative font-medium":near?"text-warning":"text-muted-foreground")}>
+                                    {over ? `${fmtUSD(c.total-budget)} over` : `${fmtUSD(budget-c.total)} left`}
+                                  </span>
+                                )}
+                              </div>
+                              {!!budget && !isEditing && (
+                                <div className="mt-1 h-0.5 rounded-full bg-border/40 overflow-hidden">
+                                  <div className="h-full rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?"hsl(var(--negative))":near?"hsl(var(--warning))":color}}/>
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                          {/* Budget row — always visible */}
+                          <div className="relative px-3.5 pb-2.5 flex items-center gap-2">
+                            {isEditing ? (
+                              <form className="flex items-center gap-1.5 w-full" onSubmit={e=>{
+                                e.preventDefault();
+                                const n=parseFloat(budgetDraft);
+                                if(!isNaN(n)&&n>=0){setBudget(c.category,n);}
+                                setEditingBudgetCat(null);setBudgetDraft("");
+                              }}>
+                                <span className="text-[11px] text-muted-foreground shrink-0">Budget/mo</span>
+                                <div className="relative flex-1">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[11px]">$</span>
+                                  <input
+                                    autoFocus
+                                    type="number" min={0} step={10}
+                                    value={budgetDraft}
+                                    onChange={e=>setBudgetDraft(e.target.value)}
+                                    onKeyDown={e=>{ if(e.key==="Escape"){setEditingBudgetCat(null);setBudgetDraft("");} }}
+                                    placeholder={budget?String(budget):"e.g. 200"}
+                                    className="w-full h-7 pl-5 pr-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none focus:border-[hsl(var(--primary))] transition-colors"
+                                  />
+                                </div>
+                                <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[11px] font-medium hover:opacity-90 shrink-0">Save</button>
+                                {!!budget && (
+                                  <button type="button" onClick={()=>{removeBudget(c.category);setEditingBudgetCat(null);setBudgetDraft("");}}
+                                    className="h-7 px-2 rounded-md border border-negative/30 text-negative text-[10px] hover:bg-negative/10 shrink-0">×</button>
+                                )}
+                                <button type="button" onClick={()=>{setEditingBudgetCat(null);setBudgetDraft("");}}
+                                  className="h-7 px-2 rounded-md border border-border/50 text-muted-foreground text-[10px] hover:text-foreground shrink-0">Cancel</button>
+                              </form>
+                            ) : (
+                              <button
+                                onClick={e=>{e.stopPropagation();setEditingBudgetCat(c.category);setBudgetDraft(budget?String(budget):"");}}
+                                className="ml-9 text-[10px] tabular flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+                                <span className="text-muted-foreground/50">Budget</span> {fmtUSD(budget)}/mo <span className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-60 text-[9px] ml-0.5">edit</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Other categories — auto-detected, unbudgeted, rolled up */}
+                {otherCats.length > 0 && (
+                  <div className="border-t border-border/20">
+                    <button onClick={()=>setOtherCatsExpanded(v=>!v)}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-surface-hover/30 transition-colors">
+                      <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0 bg-secondary/50 text-muted-foreground">
+                        <Coins className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[12px] text-foreground font-medium">Other Categories</span>
+                        <div className="text-[9.5px] text-muted-foreground mt-0.5">{otherCats.length} unbudgeted categor{otherCats.length!==1?"ies":"y"}</div>
+                      </div>
+                      <span className="text-[12px] tabular font-semibold text-muted-foreground shrink-0">{fmtUSD(totalOtherSpend)}</span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/60 transition-transform shrink-0", otherCatsExpanded && "rotate-180")} />
+                    </button>
+                    {otherCatsExpanded && (
+                      <div className="divide-y divide-border/10 bg-secondary/10">
+                        {otherCats.map(c=>{
+                          const Icon=categoryIcon(c.category); const color=catColor(c.category);
+                          const isSelected = selectedCategory === c.category;
+                          return (
+                            <button key={c.category} onClick={()=>onCategorySelect?.(isSelected ? "" : c.category)}
+                              className={cn("w-full flex items-center gap-2.5 pl-9 pr-3.5 py-1.5 text-left hover:bg-surface-hover/30 transition-colors", isSelected && "bg-surface-hover/50")}>
+                              <div className="h-5 w-5 rounded grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
+                                <Icon className="h-2.5 w-2.5" />
+                              </div>
+                              <span className="text-[11px] text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                              <span className="text-[9.5px] text-muted-foreground shrink-0">{c.count}×</span>
+                              <span className="text-[11px] tabular font-medium text-foreground shrink-0">{fmtUSD(c.total)}</span>
+                              <button onClick={e=>{e.stopPropagation();setEditingBudgetCat(c.category);setBudgetDraft("");}}
+                                className="text-[9px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] shrink-0">+ budget</button>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Summary ── */}
+          <div className="surface-card overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Summary · {getPeriodLabel(spendingPeriod)}
+            </div>
+            <div className="divide-y divide-border/15">
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-[11.5px] text-muted-foreground">Total Income</span>
+                <span className="text-[12.5px] tabular font-semibold text-positive">+{fmtUSD(totalIncome)}</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-[11.5px] text-muted-foreground">Total Budgeted Expenses</span>
+                <span className="text-[12.5px] tabular font-semibold text-foreground">{fmtUSD(totalBudgetAllocated)}</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-[11.5px] text-muted-foreground">Total Remaining Income</span>
+                <span className={cn("text-[12.5px] tabular font-semibold", remainingToBudget>=0?"text-foreground":"text-negative")}>
+                  {remainingToBudget>=0?"":"−"}{fmtUSD(Math.abs(remainingToBudget))}
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 bg-secondary/20">
+                <span className="text-[12px] font-medium text-foreground">{actualRemaining>=0?"Remaining this month":"Overflow this month"}</span>
+                <span className={cn("text-[15px] tabular font-bold", actualRemaining>=0?"text-positive":"text-negative")}>
+                  {actualRemaining>=0?"+":"−"}{fmtUSD(Math.abs(actualRemaining))}
+                </span>
+              </div>
+            </div>
+          </div>
+        </>
+        );
+      })()}
+      </div>
+
+      </div>
+      {/* ══ END two-column page ══ */}
+
       {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
@@ -2862,13 +4209,160 @@ export const LivePlaidDashboard = ({
   );
 
   // ── BENEFITS / DEALS ──────────────────────────────────────
+  const toggleBenefit = (key: string) => {
+    setBenefitsUsed(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(BENEFITS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const creditCards = accounts.filter(a => a.type === "credit");
+  const cardsWithInfo = creditCards.map(a => ({
+    account: a,
+    info: getCardInfo(a.name, a.official_name),
+  })).filter(c => c.info !== null);
+
+  if (view === "benefits") {
+    const totalAnnualFees = cardsWithInfo.reduce((s,c) => s + (c.info!.annualFee ?? 0), 0);
+    const totalCredits = cardsWithInfo.reduce((s,c) => s + (c.info!.annualCredits?.reduce((cs,cr) => cs + cr.amount, 0) ?? 0), 0);
+    const usedCredits = cardsWithInfo.reduce((s,c) => {
+      return s + (c.info!.annualCredits?.reduce((cs,cr) => {
+        const key = `${c.account.account_id}:${cr.label}`;
+        return cs + (benefitsUsed[key] ? cr.amount : 0);
+      }, 0) ?? 0);
+    }, 0);
+    return (
+      <div className="space-y-4 animate-fade-up">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="font-display text-xl text-primary">Card Benefits</h2>
+          {totalCredits > 0 && (
+            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+              <span className="tabular"><span className="text-positive font-semibold">{fmtUSD(usedCredits)}</span> / {fmtUSD(totalCredits)} redeemed</span>
+              {totalAnnualFees > 0 && <span>· {fmtUSD(totalAnnualFees)} annual fees</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Summary bar */}
+        {totalCredits > 0 && (
+          <div className="surface-card p-4">
+            <div className="flex items-center justify-between text-[11px] mb-2">
+              <span className="text-muted-foreground">Annual credits redeemed</span>
+              <span className="tabular font-medium">{totalCredits > 0 ? Math.round((usedCredits/totalCredits)*100) : 0}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-border/40 overflow-hidden">
+              <div className="h-full rounded-full bg-positive transition-all" style={{width:`${totalCredits > 0 ? Math.min((usedCredits/totalCredits)*100,100) : 0}%`}} />
+            </div>
+            <div className="mt-2 text-[10px] text-muted-foreground">
+              {fmtUSD(totalCredits - usedCredits)} in unclaimed credits this year
+              {totalAnnualFees > 0 && <> · Net cost after credits: <span className={cn("font-medium", totalAnnualFees - totalCredits < 0 ? "text-positive" : "text-foreground")}>{fmtUSD(Math.max(0, totalAnnualFees - totalCredits))}</span></>}
+            </div>
+          </div>
+        )}
+
+        {cardsWithInfo.length === 0 && (
+          <div className="surface-card p-10 text-center space-y-2">
+            <CreditCard className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
+            <div className="font-display text-base text-foreground">No credit cards linked</div>
+            <div className="text-[12px] text-muted-foreground">Link a credit card to see your rewards and benefits.</div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {cardsWithInfo.map(({ account: a, info }) => {
+            if (!info) return null;
+            const cardCredits = info.annualCredits ?? [];
+            const cardTotalCredits = cardCredits.reduce((s,c) => s + c.amount, 0);
+            const cardUsed = cardCredits.reduce((s,c) => benefitsUsed[`${a.account_id}:${c.label}`] ? s + c.amount : s, 0);
+            const mask = a.mask ? `··${a.mask}` : "";
+            return (
+              <div key={a.account_id} className="surface-card overflow-hidden">
+                {/* Card header */}
+                <div className="px-4 py-3 border-b border-border/20 flex items-start gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-[hsl(var(--primary)/0.1)] grid place-items-center shrink-0">
+                    <CreditCard className="h-4 w-4 text-gold" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-[13px] text-foreground truncate">{a.name ?? a.official_name ?? "Card"} {mask}</span>
+                      {info.annualFee != null && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border/60 text-muted-foreground shrink-0">
+                          {info.annualFee === 0 ? "No annual fee" : `$${info.annualFee}/yr fee`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{info.purpose}</div>
+                  </div>
+                  {cardTotalCredits > 0 && (
+                    <div className="text-right shrink-0">
+                      <div className="text-[12px] font-semibold text-positive tabular">{fmtUSD(cardUsed)}</div>
+                      <div className="text-[9.5px] text-muted-foreground">/ {fmtUSD(cardTotalCredits)}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Rewards summary */}
+                <div className="px-4 py-2.5 border-b border-border/15 bg-surface/30">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Rewards</div>
+                  <div className="text-[11.5px] text-foreground">{info.rewards}</div>
+                  <div className="text-[10.5px] text-muted-foreground mt-0.5">Best for: {info.bestFor}</div>
+                </div>
+
+                {/* Annual credits checklist */}
+                {cardCredits.length > 0 && (
+                  <div className="divide-y divide-border/15">
+                    {cardCredits.map(credit => {
+                      const key = `${a.account_id}:${credit.label}`;
+                      const used = !!benefitsUsed[key];
+                      return (
+                        <button key={key} onClick={() => toggleBenefit(key)}
+                          className={cn("w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover/30",
+                            used && "opacity-60")}>
+                          <div className={cn("mt-0.5 h-4 w-4 rounded border-2 shrink-0 grid place-items-center transition-colors",
+                            used ? "bg-positive border-positive" : "border-border/60")}>
+                            {used && <Check className="h-2.5 w-2.5 text-background" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className={cn("text-[12px] font-medium", used ? "line-through text-muted-foreground" : "text-foreground")}>
+                              {credit.label}{credit.amount > 0 && <span className="ml-1 text-positive">+{fmtUSD(credit.amount)}</span>}
+                            </div>
+                            <div className="text-[10.5px] text-muted-foreground mt-0.5">{credit.howTo}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Cards without matched info — show raw list */}
+        {creditCards.filter(a => !getCardInfo(a.name, a.official_name)).length > 0 && (
+          <div className="surface-card p-4 space-y-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Other credit cards (no benefits data)</div>
+            {creditCards.filter(a => !getCardInfo(a.name, a.official_name)).map(a => (
+              <div key={a.account_id} className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                <CreditCard className="h-3.5 w-3.5 shrink-0" />
+                {a.name ?? a.official_name ?? "Card"}{a.mask ? ` ··${a.mask}` : ""}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── DEALS ──────────────────────────────────────────────────
   return (
     <div className="space-y-4 animate-fade-up">
-      <h2 className="font-display text-xl text-primary capitalize">{view}</h2>
+      <h2 className="font-display text-xl text-primary">Deals & Offers</h2>
       <div className="surface-card p-10 text-center space-y-2">
         <Sparkles className="h-8 w-8 mx-auto text-gold mb-3" />
         <div className="font-display text-lg text-foreground">Coming soon</div>
-        <div className="text-[12px] text-muted-foreground max-w-xs mx-auto">AI-powered {view} analysis is being built.</div>
+        <div className="text-[12px] text-muted-foreground max-w-xs mx-auto">Card-specific deals and limited-time offers will appear here.</div>
       </div>
     </div>
   );

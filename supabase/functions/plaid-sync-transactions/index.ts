@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
     let total = 0;
     for (const item of items ?? []) {
       total += await syncOne(admin, item.id, user.id, item.access_token, item.cursor);
+      await syncLiabilities(admin, user.id, item.access_token);
     }
     return json({ ok: true, items: items?.length ?? 0, synced: total });
   } catch (e) {
@@ -89,6 +90,46 @@ async function syncOne(admin: any, itemRowId: string, userId: string, accessToke
   }
   await admin.from('plaid_items').update({ cursor: nextCursor }).eq('id', itemRowId);
   return count;
+}
+
+async function syncLiabilities(admin: any, userId: string, accessToken: string) {
+  try {
+    const res = await fetch(`${PLAID_BASE}/liabilities/get`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: Deno.env.get('PLAID_CLIENT_ID'),
+        secret: Deno.env.get('PLAID_SECRET'),
+        access_token: accessToken,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      // ADDITIONAL_CONSENT_REQUIRED means this item was linked before liabilities was
+      // requested in Link — needs re-auth via update mode to grant that consent.
+      if (data.error_code !== 'ADDITIONAL_CONSENT_REQUIRED') console.warn('liabilities/get error:', data);
+      return;
+    }
+
+    const creditCards = data.liabilities?.credit ?? [];
+    if (!creditCards.length) return;
+
+    const rows = creditCards.map((c: any) => ({
+      user_id: userId,
+      account_id: c.account_id,
+      last_statement_balance: c.last_statement_balance,
+      last_payment_amount: c.last_payment_amount,
+      last_payment_date: c.last_payment_date,
+      minimum_payment_amount: c.minimum_payment_amount,
+      next_payment_due_date: c.next_payment_due_date,
+      is_overdue: c.is_overdue ?? false,
+      apr: c.aprs?.find((a: any) => a.apr_type === 'purchase_apr')?.apr_percentage ?? c.aprs?.[0]?.apr_percentage ?? null,
+      updated_at: new Date().toISOString(),
+    }));
+    await admin.from('plaid_credit_details').upsert(rows, { onConflict: 'user_id,account_id' });
+  } catch (e) {
+    console.warn('syncLiabilities failed:', e);
+  }
 }
 
 function json(body: unknown, status = 200) {
