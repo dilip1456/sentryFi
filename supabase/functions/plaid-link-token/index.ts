@@ -30,6 +30,7 @@ Deno.serve(async (req) => {
         country_codes: ['US'],
         user: { client_user_id: user.id },
         products: ['transactions'],
+        optional_products: ['investments', 'liabilities'],
       }),
     });
     const data = await res.json();

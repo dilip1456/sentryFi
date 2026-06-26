@@ -24,12 +24,14 @@ export const fmtUSD = (
       minimumFractionDigits: 0,
     }).format(abs);
   } else {
-    // Standard: never show ".00" for whole-dollar amounts unless cents forced
+    // Standard: never show ".00" for whole-dollar amounts unless cents forced.
+    // Show either 0 or 2 decimals — never 1 (e.g. "$12,832.2" looks like a typo).
+    const hasCents = Math.round(abs * 100) % 100 !== 0;
     formatted = new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
       maximumFractionDigits: 2,
-      minimumFractionDigits: opts?.cents ? 2 : 0,
+      minimumFractionDigits: opts?.cents || hasCents ? 2 : 0,
     }).format(abs);
   }
 
