@@ -15,7 +15,7 @@ export const EmptyDashboard = ({ onLink }: Props) => {
         </div>
 
         <h1 className="mt-6 font-display text-3xl md:text-4xl text-foreground">
-          Welcome to <span className="text-gold">SentriFi</span>
+          Welcome to <span className="text-gold">SentryFi</span>
         </h1>
         <p className="mt-3 text-sm md:text-[15px] text-muted-foreground max-w-md mx-auto">
           Your accounts, loans, cards, and investments — in one intelligent dashboard.
@@ -48,7 +48,7 @@ export const EmptyDashboard = ({ onLink }: Props) => {
             </div>
             <div className="mt-4 text-[14px] font-medium text-foreground">Try demo mode</div>
             <div className="mt-1 text-[12px] text-muted-foreground">
-              Explore SentriFi with a realistic sample portfolio — no accounts needed.
+              Explore SentryFi with a realistic sample portfolio — no accounts needed.
             </div>
             <div className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground group-hover:text-foreground group-hover:gap-2 transition-all">
               Load demo data →

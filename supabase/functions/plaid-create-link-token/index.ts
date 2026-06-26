@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     const params: Record<string, unknown> = {
       client_id: PLAID_CLIENT_ID,
       secret: PLAID_SECRET,
-      client_name: "SentriFi",
+      client_name: "SentryFi",
       user: { client_user_id: user.id },
       country_codes: ["US"],
       language: "en",

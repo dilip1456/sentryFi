@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const KEY = "sentrifi_custom_categories";
+const KEY = "sentryfi_custom_categories";
 
 export type CustomCategory = {
   name: string;

@@ -118,7 +118,7 @@ const getInstitutionUrl = (name: string | null, customUrl?: string): string | nu
 };
 
 // ── Account metadata localStorage helpers ─────────────────────
-const META_KEY = "sentrifi_account_meta";
+const META_KEY = "sentryfi_account_meta";
 const loadAllMeta = (): Record<string, AccountMeta> => {
   try { return JSON.parse(localStorage.getItem(META_KEY) ?? "{}"); } catch { return {}; }
 };
@@ -2120,7 +2120,7 @@ export const LivePlaidDashboard = ({
   const [showFilterBuilder, setShowFilterBuilder] = useState(false);
   const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
   const [incomeExpanded, setIncomeExpanded] = useState(false);
-  const BENEFITS_KEY = "sentrifi_benefits_used";
+  const BENEFITS_KEY = "sentryfi_benefits_used";
   const [benefitsUsed, setBenefitsUsed] = useState<Record<string,boolean>>(() => {
     try { return JSON.parse(localStorage.getItem(BENEFITS_KEY) ?? "{}"); } catch { return {}; }
   });
@@ -2132,35 +2132,35 @@ export const LivePlaidDashboard = ({
   const [pickerPos, setPickerPos]         = useState<{x:number;y:number}>({x:0,y:0});
 
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_insights")??"[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_insights")??"[]")); } catch { return new Set(); }
   });
   const [dismissedActions, setDismissedActions] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_actions")??"[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_actions")??"[]")); } catch { return new Set(); }
   });
 
   const [dismissedRecurring, setDismissedRecurring] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_dismissed_recurring")??"[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_recurring")??"[]")); } catch { return new Set(); }
   });
 
-  const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentrifi_dismissed_insights",JSON.stringify([...n])); };
-  const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentrifi_dismissed_actions",JSON.stringify([...n])); };
-  const dismissRecurring = (merchant: string) => { const n=new Set([...dismissedRecurring,merchant.toLowerCase()]); setDismissedRecurring(n); localStorage.setItem("sentrifi_dismissed_recurring",JSON.stringify([...n])); };
-  const restoreAllRecurring = () => { setDismissedRecurring(new Set()); localStorage.removeItem("sentrifi_dismissed_recurring"); };
+  const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentryfi_dismissed_insights",JSON.stringify([...n])); };
+  const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentryfi_dismissed_actions",JSON.stringify([...n])); };
+  const dismissRecurring = (merchant: string) => { const n=new Set([...dismissedRecurring,merchant.toLowerCase()]); setDismissedRecurring(n); localStorage.setItem("sentryfi_dismissed_recurring",JSON.stringify([...n])); };
+  const restoreAllRecurring = () => { setDismissedRecurring(new Set()); localStorage.removeItem("sentryfi_dismissed_recurring"); };
 
   // Transaction name overrides (fix Plaid merchant name mangling)
   const [nameOverrides, setNameOverrides] = useState<Record<string,string>>(() => {
-    try { return JSON.parse(localStorage.getItem("sentrifi_name_overrides") ?? "{}"); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem("sentryfi_name_overrides") ?? "{}"); } catch { return {}; }
   });
   const setNameOverride = (id: string, name: string) => {
     const next = name ? { ...nameOverrides, [id]: name } : (() => { const n={...nameOverrides}; delete n[id]; return n; })();
     setNameOverrides(next);
-    localStorage.setItem("sentrifi_name_overrides", JSON.stringify(next));
+    localStorage.setItem("sentryfi_name_overrides", JSON.stringify(next));
   };
 
   // Panel order for overall dashboard (drag-and-drop)
   const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "top-spending", "upcoming-charges"];
   const [panelOrder, setPanelOrder] = useState<string[]>(() => {
-    try { const s=JSON.parse(localStorage.getItem("sentrifi_panel_order")??"null"); return Array.isArray(s)&&s.length===4&&DEFAULT_PANEL_ORDER.every(id=>s.includes(id))?s:DEFAULT_PANEL_ORDER; }
+    try { const s=JSON.parse(localStorage.getItem("sentryfi_panel_order")??"null"); return Array.isArray(s)&&s.length===4&&DEFAULT_PANEL_ORDER.every(id=>s.includes(id))?s:DEFAULT_PANEL_ORDER; }
     catch { return DEFAULT_PANEL_ORDER; }
   });
   const dndSensors = useSensors(
@@ -2174,7 +2174,7 @@ export const LivePlaidDashboard = ({
       const newIdx = panelOrder.indexOf(String(over.id));
       const next = arrayMove(panelOrder, oldIdx, newIdx);
       setPanelOrder(next);
-      localStorage.setItem("sentrifi_panel_order", JSON.stringify(next));
+      localStorage.setItem("sentryfi_panel_order", JSON.stringify(next));
     }
   };
 
@@ -2234,7 +2234,7 @@ export const LivePlaidDashboard = ({
           .order("date", { ascending: false })
           .limit(synced + 20);
         if (freshTxns?.length) {
-          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentrifi_cat_overrides") ?? "{}");
+          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentryfi_cat_overrides") ?? "{}");
           const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
             .filter(t => !currentOverrides[t.id]);
           if (toCateg.length > 0) {
@@ -2246,7 +2246,7 @@ export const LivePlaidDashboard = ({
               for (const r of catResult.results as { id:string; category:string }[]) {
                 if (r.id && r.category) newOverrides[r.id] = r.category;
               }
-              localStorage.setItem("sentrifi_cat_overrides", JSON.stringify(newOverrides));
+              localStorage.setItem("sentryfi_cat_overrides", JSON.stringify(newOverrides));
             }
           }
         }
@@ -2346,13 +2346,13 @@ export const LivePlaidDashboard = ({
 
   // User-marked internal transfers (persisted)
   const [manualInternalIds, setManualInternalIds] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentrifi_manual_internal") ?? "[]")); } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_manual_internal") ?? "[]")); } catch { return new Set(); }
   });
   const toggleManualInternal = (id: string) => {
     const n = new Set(manualInternalIds);
     if (n.has(id)) n.delete(id); else n.add(id);
     setManualInternalIds(n);
-    localStorage.setItem("sentrifi_manual_internal", JSON.stringify([...n]));
+    localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
   };
   const internalTxnIds = useMemo(() => new Set([...autoInternalIds, ...manualInternalIds]), [autoInternalIds, manualInternalIds]);
 
@@ -2683,7 +2683,7 @@ export const LivePlaidDashboard = ({
                 </div>
                 <h3 className="font-display text-lg text-foreground">Remove {removingAccount.name ?? "account"}?</h3>
                 <p className="mt-2 text-[12px] text-muted-foreground leading-relaxed">
-                  This will delete the account and all its synced transactions from SentriFi.
+                  This will delete the account and all its synced transactions from SentryFi.
                   Your actual bank account is not affected.
                 </p>
                 {removingAccount.mask && (
@@ -3561,7 +3561,7 @@ export const LivePlaidDashboard = ({
             const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
             const a = document.createElement("a");
             a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-            a.download = `sentrifi-transactions-${getPeriodLabel(spendingPeriod).replace(/\s+/g,"-")}.csv`;
+            a.download = `sentryfi-transactions-${getPeriodLabel(spendingPeriod).replace(/\s+/g,"-")}.csv`;
             a.click();
           }} className="h-7 px-2.5 rounded-md border text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" style={{borderColor:"var(--gold-border)"}}>
             Export CSV
