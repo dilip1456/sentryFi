@@ -94,7 +94,7 @@ const Index = () => {
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
 
-      <main className="w-full px-4 md:px-8 py-5 md:py-6 space-y-4">
+      <main className="w-full px-4 md:px-8 pt-5 md:pt-6 pb-24 md:pb-6 space-y-4">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">
@@ -113,31 +113,6 @@ const Index = () => {
               <Plus className="h-3 w-3" />
               Link account
             </button>
-          </div>
-        )}
-
-        {/* Mobile chip switcher — always visible on small screens when there's content to navigate */}
-        {hasItems !== null && (
-          <div className="md:hidden -mx-4 px-4 overflow-x-auto">
-            <div className="inline-flex p-1 rounded-full border border-border bg-surface/60 min-w-max">
-              {TABS.map((t) => {
-                const Icon = t.icon;
-                const active = view === t.k;
-                return (
-                  <button
-                    key={t.k}
-                    onClick={() => { setView(t.k); setSelectedCategory(null); }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 transition-all whitespace-nowrap",
-                      active ? "bg-foreground text-background" : "text-muted-foreground"
-                    )}
-                  >
-                    <Icon className="h-3 w-3" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
 
@@ -200,6 +175,34 @@ const Index = () => {
           </footer>
         )}
       </main>
+
+      {/* Mobile bottom tab bar — replaces top chip switcher on small screens */}
+      {hasItems !== null && (
+        <nav
+          className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <div className="flex items-stretch overflow-x-auto">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const active = view === t.k;
+              return (
+                <button
+                  key={t.k}
+                  onClick={() => { setView(t.k); setSelectedCategory(null); }}
+                  className={cn(
+                    "flex-1 min-w-[64px] flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[10px] font-medium transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  <Icon className={cn("h-5 w-5", active && "text-gold")} />
+                  <span className="truncate max-w-[72px]">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 };
