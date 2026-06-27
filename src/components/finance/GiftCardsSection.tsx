@@ -38,9 +38,14 @@ const expiryStatus = (expiry?: string | null): "expired" | "soon" | null => {
 };
 
 const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | null; logoUrl?: string | null; name: string; size?: number }) => {
-  const [failed, setFailed] = useState(false);
-  const src = logoUrl ?? (domain ? logoUrlForDomain(domain) : null);
-  if (!src || failed) {
+  const [attempt, setAttempt] = useState(0);
+  const sources = [
+    logoUrl,
+    domain ? logoUrlForDomain(domain) : null,
+    domain ? `https://logo.clearbit.com/${domain}` : null,
+  ].filter(Boolean) as string[];
+  const src = sources[attempt];
+  if (!src) {
     return (
       <div
         className="rounded-lg bg-secondary/60 border border-border/50 grid place-items-center text-gold font-display shrink-0"
@@ -54,7 +59,7 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
     <img
       src={src}
       alt={`${name} logo`}
-      onError={() => setFailed(true)}
+      onError={() => setAttempt(a => a + 1)}
       className="rounded-lg border border-border/50 object-contain bg-white shrink-0"
       style={{ height: size, width: size }}
     />
@@ -212,6 +217,28 @@ export const GiftCardsSection = () => {
         </div>
       ) : (
         <>
+          {/* Compact table — full list at a glance, now shown first */}
+          <div className="surface-card overflow-hidden">
+            <div className="divide-y divide-border/20">
+              {cards.map((card, i) => {
+                const status = expiryStatus(card.expiry_date);
+                return (
+                  <button key={card.id} onClick={() => goTo(i)}
+                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
+                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
+                    <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
+                    {status && (
+                      <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
+                        {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
+                      </span>
+                    )}
+                    <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Swipeable card stack */}
           <div
             className="relative h-44 sm:h-48 select-none touch-pan-y"
@@ -308,28 +335,6 @@ export const GiftCardsSection = () => {
               )}
             </div>
           )}
-
-          {/* Compact table — full list at a glance */}
-          <div className="surface-card overflow-hidden">
-            <div className="divide-y divide-border/20">
-              {cards.map((card, i) => {
-                const status = expiryStatus(card.expiry_date);
-                return (
-                  <button key={card.id} onClick={() => goTo(i)}
-                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
-                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
-                    <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
-                    {status && (
-                      <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
-                        {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
-                      </span>
-                    )}
-                    <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </>
       )}
 

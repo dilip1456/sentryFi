@@ -9,7 +9,6 @@ import { UpcomingTransactions } from "@/components/finance/UpcomingTransactions"
 import { SpendingSection } from "@/components/finance/SpendingSection";
 import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
 import { BenefitsSection } from "@/components/finance/BenefitsSection";
-import { DealsSection } from "@/components/finance/DealsSection";
 import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
@@ -27,11 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "deals" | "spending" | "giftcards" | "admin";
-
-// "deals" is intentionally left out of BASE_TABS — it has no live-data implementation
-// yet (LivePlaidDashboard only handles "overall" | "monthly" | "spending" | "benefits"),
-// so it's hidden until that's built rather than shown broken.
+type View = "overall" | "monthly" | "benefits" | "spending" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
   { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
   { k: "spending",  label: "Spending & Budget",   icon: PieChart,        sub: "Budgets & transactions" },
@@ -164,7 +159,6 @@ const Index = () => {
         )}
 
         {demo && view === "benefits" && <BenefitsSection />}
-        {demo && view === "deals" && <DealsSection />}
         {demo && view === "spending" && <SpendingSection />}
         {view === "giftcards" && <GiftCardsSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
