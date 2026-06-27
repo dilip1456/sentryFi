@@ -4420,15 +4420,7 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  // ── DEALS ──────────────────────────────────────────────────
-  return (
-    <div className="space-y-4 animate-fade-up">
-      <h2 className="font-display text-xl text-primary">Deals & Offers</h2>
-      <div className="surface-card p-10 text-center space-y-2">
-        <Sparkles className="h-8 w-8 mx-auto text-gold mb-3" />
-        <div className="font-display text-lg text-foreground">Coming soon</div>
-        <div className="text-[12px] text-muted-foreground max-w-xs mx-auto">Card-specific deals and limited-time offers will appear here.</div>
-      </div>
-    </div>
-  );
+  // Should be unreachable now — view is constrained to overall/monthly/spending/benefits
+  // by the time it reaches here (admin and giftcards are excluded upstream in Index.tsx).
+  return null;
 };

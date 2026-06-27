@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { GIFT_CARD_BRANDS, logoUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
+import { GIFT_CARD_BRANDS, logoUrlForDomain, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
 import {
   Gift, Plus, X, ExternalLink, ShoppingBag, Pencil, Trash2, Search,
@@ -42,7 +42,7 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
   const sources = [
     logoUrl,
     domain ? logoUrlForDomain(domain) : null,
-    domain ? `https://logo.clearbit.com/${domain}` : null,
+    domain ? faviconUrlForDomain(domain) : null,
   ].filter(Boolean) as string[];
   const src = sources[attempt];
   if (!src) {
@@ -103,6 +103,122 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   );
 };
 
+/** Click-to-view popup for a card — read-only quick view with shortcuts into edit/spend/remove. */
+const CardDetailDialog = ({
+  card, onClose, onEdit, onLogSpend, onRemove, removing,
+}: {
+  card: GiftCardRow; onClose: () => void; onEdit: () => void; onLogSpend: () => void; onRemove: () => void; removing: boolean;
+}) => {
+  const [reveal, setReveal] = useState(false);
+  const status = expiryStatus(card.expiry_date);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
+        <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
+
+        <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
+          <X className="h-4 w-4" />
+        </button>
+
+        {/* Mini card visual at top, matches the carousel tile */}
+        <div className="p-4">
+          <GiftCardTile card={card} />
+        </div>
+
+        <div className="px-5 pb-5 space-y-4">
+          {status && (
+            <div className={cn("flex items-center gap-1.5 text-[12px]", status === "expired" ? "text-negative" : "text-warning")}>
+              <Clock className="h-3.5 w-3.5" /> {status === "expired" ? "This card has expired" : `Expires in ${daysUntil(card.expiry_date!)} days`}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-[12px]">
+            {card.balance_verified ? (
+              <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            )}
+          </div>
+
+          {(card.card_number || card.card_number_last4 || card.pin) && (
+            <div className="surface-card p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</span>
+                <button onClick={() => setReveal(v => !v)} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                  {reveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
+                </button>
+              </div>
+              {(card.card_number || card.card_number_last4) && (
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">Number</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono tracking-wider text-foreground">
+                      {reveal ? (card.card_number ?? `•••• ${card.card_number_last4}`) : `•••• ${card.card_number_last4 ?? "????"}`}
+                    </span>
+                    {card.card_number && (
+                      <button onClick={() => copyToClipboard(card.card_number!, "Card number")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {card.pin && (
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">PIN</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
+                    <button onClick={() => copyToClipboard(card.pin!, "PIN")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {card.notes && (
+            <div className="text-[12px] text-muted-foreground">
+              <span className="text-[10px] uppercase tracking-wider block mb-1">Notes</span>
+              {card.notes}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <button onClick={onLogSpend} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              <MinusCircle className="h-3.5 w-3.5" /> Log spend
+            </button>
+            <button onClick={onEdit} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </button>
+            {card.balance_check_url && (
+              <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                <ExternalLink className="h-3.5 w-3.5" /> Check balance
+              </a>
+            )}
+            {card.buy_url && (
+              <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                <ShoppingBag className="h-3.5 w-3.5" /> Buy more
+              </a>
+            )}
+          </div>
+
+          <button onClick={onRemove} disabled={removing}
+            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[12px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+            {removing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export const GiftCardsSection = () => {
   const { user } = useAuth();
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
@@ -110,6 +226,7 @@ export const GiftCardsSection = () => {
   const [spendCard, setSpendCard] = useState<GiftCardRow | null>(null);
   const [editCard, setEditCard] = useState<GiftCardRow | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [detailCard, setDetailCard] = useState<GiftCardRow | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragX, setDragX] = useState(0);
   const draggingRef = useRef(false);
@@ -223,7 +340,7 @@ export const GiftCardsSection = () => {
               {cards.map((card, i) => {
                 const status = expiryStatus(card.expiry_date);
                 return (
-                  <button key={card.id} onClick={() => goTo(i)}
+                  <button key={card.id} onClick={() => { goTo(i); setDetailCard(card); }}
                     className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
                     <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
                     <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
@@ -266,7 +383,7 @@ export const GiftCardsSection = () => {
                     transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
                     pointerEvents: isActive ? "auto" : "none",
                   }}
-                  onClick={() => !isActive && goTo(i)}
+                  onClick={() => { if (isActive) setDetailCard(card); else goTo(i); }}
                 >
                   <GiftCardTile card={card}>
                     <div className="relative flex items-center gap-1">
@@ -341,6 +458,16 @@ export const GiftCardsSection = () => {
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
       {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} />}
       {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} />}
+      {detailCard && (
+        <CardDetailDialog
+          card={detailCard}
+          onClose={() => setDetailCard(null)}
+          onEdit={() => { setEditCard(detailCard); setDetailCard(null); }}
+          onLogSpend={() => { setSpendCard(detailCard); setDetailCard(null); }}
+          onRemove={() => { removeCard(detailCard.id); setDetailCard(null); }}
+          removing={removingId === detailCard.id}
+        />
+      )}
     </section>
   );
 };

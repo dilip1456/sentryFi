@@ -48,7 +48,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
     { k: "overall", label: "Overview" },
     { k: "monthly", label: "Monthly" },
     { k: "benefits", label: "Benefits" },
-    { k: "deals", label: "Deals" },
+    { k: "giftcards", label: "Gift Cards" },
     { k: "spending", label: "Spending" },
   ];
 
