@@ -1509,7 +1509,7 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
 // ── Bucket group (matches demo BucketTable exactly) ────────────
 const BucketGroup = ({
   bucket, accounts, txns=[], accountMeta, creditDetails, items,
-  onSelect, defaultOpen=true,
+  onSelect, defaultOpen=false,
 }: {
   bucket: Bucket; accounts: PAccount[]; txns?: PTxn[];
   accountMeta: Record<string,AccountMeta>; creditDetails: CreditDetail[]; items: PItem[];
@@ -3094,7 +3094,7 @@ export const LivePlaidDashboard = ({
                   creditDetails={creditDetails}
                   items={items}
                   onSelect={a => setDetailAccount(a)}
-                  defaultOpen={true}
+                  defaultOpen={false}
                 />
               ))}
             </div>
