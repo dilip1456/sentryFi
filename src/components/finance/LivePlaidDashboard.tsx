@@ -45,7 +45,7 @@ type PTxn = {
 };
 type ActionItem = { id: string; priority: "urgent"|"soon"|"info"; title: string; detail: string; cta: string; icon: typeof Wallet; reviewCategory?: string; };
 type AIInsight  = { id: string; severity: "high"|"medium"|"low"; category: string; title: string; what: string; why: string; action: string; impact: string; impactValue: number };
-type Bucket     = "liquid" | "longterm" | "revolving" | "term";
+type Bucket     = "cash" | "credit" | "loan" | "investment" | "other";
 type Period     = "1W" | "1M" | "3M" | "1Y" | "ALL";
 
 // Institution from plaid_items
@@ -149,21 +149,30 @@ const priorityMeta = {
 };
 
 const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive"|"negative"|"info"|"warning" }> = {
-  liquid:    { label: "Accounts & Savings",    sub: "Available cash and investments",         tone: "positive" },
-  longterm:  { label: "Long-term Investments", sub: "Retirement & locked accounts",           tone: "info" },
-  revolving: { label: "Credit Cards",          sub: "Statements due this cycle",              tone: "warning" },
-  term:      { label: "Loans & Mortgages",     sub: "Only monthly payment affects cash flow", tone: "negative" },
+  cash:       { label: "Checking & Savings", sub: "Everyday spending and savings",            tone: "positive" },
+  credit:     { label: "Credit Cards",       sub: "Statements due this cycle",                tone: "warning" },
+  loan:       { label: "Loans & Mortgages",  sub: "Only monthly payment affects cash flow",   tone: "negative" },
+  investment: { label: "Investments",        sub: "Brokerage & retirement accounts",          tone: "info" },
+  other:      { label: "Other",              sub: "Uncategorized accounts",                   tone: "info" },
+};
+
+const bucketOrder: Bucket[] = ["cash", "credit", "loan", "investment", "other"];
+
+const getInstNameFor = (a: PAccount, items: PItem[]): string => {
+  const raw = a as unknown as Record<string, unknown>;
+  const itemId = raw.item_id as string | undefined;
+  const item = itemId ? items.find(it => it.id === itemId) : undefined;
+  return item?.institution_name ?? "Bank";
 };
 
 // ── Helpers ────────────────────────────────────────────────────
 const mapBucket = (type: string|null, subtype: string|null): Bucket => {
-  if (type === "credit") return "revolving";
-  if (type === "loan") return "term";
-  if (type === "investment") {
-    const sub = (subtype ?? "").toLowerCase();
-    return (sub.includes("brokerage") || sub.includes("cash management")) ? "liquid" : "longterm";
-  }
-  return "liquid";
+  if (type === "credit") return "credit";
+  if (type === "loan") return "loan";
+  if (type === "investment") return "investment";
+  const sub = (subtype ?? "").toLowerCase();
+  if (sub === "checking" || sub === "savings" || sub.includes("money market") || sub === "hsa") return "cash";
+  return "other";
 };
 
 const mapIcon = (type: string|null, subtype: string|null) => {
@@ -179,16 +188,13 @@ const mapIcon = (type: string|null, subtype: string|null) => {
   return Landmark;
 };
 
-/** Smart human-readable subtype label — detects HYSA/money market from account name */
-const smartSubtypeLabel = (a: PAccount): string => {
-  const name = (a.name ?? a.official_name ?? "").toLowerCase();
+/** Smart human-readable subtype label — detects HYSA/money market from account + bank name or APR */
+const smartSubtypeLabel = (a: PAccount, instName = "", apr?: number | null): string => {
   const sub  = (a.subtype ?? "").toLowerCase();
   const type = (a.type ?? "").toLowerCase();
 
   if (sub === "savings" || sub === "money market") {
-    const HYSA_HINTS = ["high yield", "high-yield", "hysa", "hys", "marcus", "ally", "synchrony",
-                        "discover savings", "sofi savings", "capital one 360", "american express savings"];
-    if (HYSA_HINTS.some(h => name.includes(h))) return "High Yield Savings";
+    if (isHYSA(a, instName, apr)) return "High Yield Savings";
     if (sub === "money market") return "Money Market";
     return "Savings";
   }
@@ -253,8 +259,8 @@ const catColor = (cat: string): string => {
   return "hsl(var(--primary))";
 };
 
-/** Reconstruct historical net worth from current value + transactions */
-const buildNWByPeriod = (netWorth: number, txns: PTxn[], period: Period) => {
+/** Reconstruct historical net worth from current value + transactions (excludes internal transfers) */
+const buildNWByPeriod = (netWorth: number, txns: PTxn[], period: Period, internalIds?: Set<string>) => {
   const today = new Date(); today.setHours(0,0,0,0);
 
   const makePoints = (count: number, stepDays: number, labelFmt: Intl.DateTimeFormatOptions) =>
@@ -280,8 +286,10 @@ const buildNWByPeriod = (netWorth: number, txns: PTxn[], period: Period) => {
   }
 
   // NW at date d = currentNW + sum(txns after d), since txn.amount > 0 = expense (reduces NW)
+  // Exclude internal transfers to avoid double-counting
+  const realTxns = internalIds ? txns.filter(t => !internalIds.has(t.id)) : txns;
   return points.map(({ label, date }) => {
-    const adj = txns.filter(t => t.date > date).reduce((s, t) => s + Number(t.amount), 0);
+    const adj = realTxns.filter(t => t.date > date).reduce((s, t) => s + Number(t.amount), 0);
     return { m: label, v: Math.round(netWorth + adj) };
   });
 };
@@ -384,8 +392,8 @@ type RecurringCharge = {
  */
 const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
   const now = new Date(); now.setHours(0,0,0,0);
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-  const lookahead = new Date(now.getTime() + 60 * 86400000);
+  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const lookahead = new Date(now.getTime() + 30 * 86400000);
 
   const INTERVAL_BUCKETS = [
     { label: "Weekly",     days: 7,  tolerance: 2 },
@@ -394,14 +402,17 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
     { label: "Quarterly",  days: 91, tolerance: 10 },
   ];
 
-  // Categories that are never truly recurring (variable spend)
+  // Categories that are never truly recurring (variable spend) — checked first since
+  // category data from Plaid is reliable when present.
   const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal/i;
-  // Merchant name patterns that indicate one-off or variable spend
-  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway/i;
+  // Merchant name patterns that indicate one-off or variable spend even when category data
+  // is missing/generic — covers delivery apps, grocery/gas chains, and restaurant-style keywords
+  // (category alone missed real restaurants too often, which is the bug this guards against).
+  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b/i;
 
   const expenses = txns.filter(t => {
     if (Number(t.amount) <= 0 || t.pending) return false;
-    if (new Date(t.date) < sixMonthsAgo) return false;
+    if (new Date(t.date) < threeMonthsAgo) return false;
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
     if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
@@ -767,7 +778,7 @@ const PanelHeader = ({ icon, iconColor, title, subtitle, badge, badgeClass, onCl
     </div>
     <div className="flex-1 min-w-0">
       {badge && <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border mb-1 inline-block", badgeClass)}>{badge}</span>}
-      <div className="font-display text-[17px] text-foreground leading-snug">{title}</div>
+      <div className="font-display text-lg text-foreground leading-snug">{title}</div>
       {subtitle && <div className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</div>}
     </div>
     <button onClick={onClose} className="shrink-0 h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
@@ -1208,18 +1219,18 @@ const AccountEditDialog = ({ account, meta, instUrl, onSave, onClose }: {
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
         <DialogTitle className="sr-only">Edit account</DialogTitle>
         <DialogDescription className="sr-only">Rename or add details to this account.</DialogDescription>
-        <div className="relative p-5 pb-4 border-b border-border/40">
+        <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
           <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Edit account</div>
-          <div className="font-display text-base text-foreground">{account.name ?? "Account"}</div>
+          <div className="font-display text-lg text-foreground">{account.name ?? "Account"}</div>
           {account.mask && <div className="text-[11px] text-muted-foreground">··{account.mask}</div>}
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 flex-1 overflow-y-auto min-h-0">
           {/* Nickname */}
           <div>
             <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Nickname (optional)</label>
@@ -1261,7 +1272,7 @@ const AccountEditDialog = ({ account, meta, instUrl, onSave, onClose }: {
             )}
           </div>
         </div>
-        <div className="p-4 pt-0 flex gap-2">
+        <div className="p-4 pt-0 flex gap-2 shrink-0">
           <button onClick={save}
             className="flex-1 h-10 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 active:opacity-70">
             Save
@@ -1442,6 +1453,9 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
           {isPromo && (
             <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
           )}
+          {a.subtype === "savings" && isHYSA(a, instName, meta.apr) && (
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">High Yield</span>
+          )}
           {dueDaysAway != null && dueDaysAway <= 7 && (
             <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",
               dueDaysAway <= 0 ? "border-negative/30 bg-negative/10 text-negative" : "border-warning/30 bg-warning/10 text-warning")}>
@@ -1522,24 +1536,19 @@ const BucketGroup = ({
   }, 0);
 
   let trailing: string | null = null;
-  if (bucket === "liquid" && yearlyInterest > 0) trailing = `Earning +${fmtUSD(yearlyInterest, { compact: true })}/yr`;
-  if (bucket === "revolving" && monthlyStatement > 0) trailing = `${fmtUSD(monthlyStatement, { compact: true })} due this cycle`;
-  if (bucket === "term") trailing = `${fmtUSD(Math.abs(yearlyInterest), { compact: true })} interest/yr`;
-  if (bucket === "longterm") trailing = "Held for the future";
+  if (bucket === "cash" && yearlyInterest > 0) trailing = `Earning +${fmtUSD(yearlyInterest, { compact: true })}/yr`;
+  if (bucket === "credit" && monthlyStatement > 0) trailing = `${fmtUSD(monthlyStatement, { compact: true })} due this cycle`;
+  if (bucket === "loan") trailing = `${fmtUSD(Math.abs(yearlyInterest), { compact: true })} interest/yr`;
+  if (bucket === "investment") trailing = "Held for the future";
 
-  const getInstName = (a: PAccount) => {
-    const raw = a as unknown as Record<string,unknown>;
-    const itemId = raw.item_id as string | undefined;
-    const item = itemId ? items.find(it => it.id === itemId) : undefined;
-    return item?.institution_name ?? "Bank";
-  };
+  const getInstName = (a: PAccount) => getInstNameFor(a, items);
   const getInstUrl = (a: PAccount) => {
     const instName = getInstName(a);
     return getInstitutionUrl(instName, accountMeta[a.id]?.customUrl);
   };
 
-  const accentColor = bucket === "liquid" ? "hsl(var(--positive))" : bucket === "revolving" ? "hsl(var(--warning))" : bucket === "term" ? "hsl(var(--negative))" : "hsl(var(--info))";
-  const trailingColor = bucket === "liquid" ? "text-positive" : bucket === "revolving" ? "text-warning" : bucket === "term" ? "text-negative" : "text-info";
+  const accentColor = bucket === "cash" ? "hsl(var(--positive))" : bucket === "credit" ? "hsl(var(--warning))" : bucket === "loan" ? "hsl(var(--negative))" : "hsl(var(--info))";
+  const trailingColor = bucket === "cash" ? "text-positive" : bucket === "credit" ? "text-warning" : bucket === "loan" ? "text-negative" : "text-info";
 
   return (
     <div className="surface-card overflow-hidden" style={{borderLeft:`3px solid ${accentColor}30`}}>
@@ -1554,8 +1563,8 @@ const BucketGroup = ({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-display text-[15px] md:text-base text-foreground">{meta.label}</h3>
-              {bucket === "longterm" && <Lock className="h-3 w-3 text-muted-foreground" />}
+              <h3 className="font-display text-[13px] text-foreground">{meta.label}</h3>
+              {bucket === "investment" && <Lock className="h-3 w-3 text-muted-foreground" />}
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/60 text-muted-foreground tabular">{accounts.length}</span>
             </div>
             <div className="text-[10.5px] text-muted-foreground truncate mt-0.5">{meta.sub}</div>
@@ -1563,7 +1572,7 @@ const BucketGroup = ({
         </div>
 
         <div className="text-right shrink-0">
-          <div className={cn("font-display text-xl md:text-2xl tabular leading-none font-semibold",
+          <div className={cn("font-display text-[15px] tabular leading-none font-semibold",
             isNeg ? "text-negative" : "text-foreground")}>
             {isNeg ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
           </div>
@@ -1575,46 +1584,57 @@ const BucketGroup = ({
         </div>
       </button>
 
-      {open && (()=>{
-        // Group by institution
-        const byBank: Record<string, PAccount[]> = {};
-        for (const a of accounts) {
-          const bank = getInstName(a);
-          if (!byBank[bank]) byBank[bank] = [];
-          byBank[bank].push(a);
-        }
-        const banks = Object.keys(byBank);
-        const multiBank = banks.length > 1;
-        return (
-          <div className="border-t border-border/20">
-            {banks.map(bank => (
-              <div key={bank}>
-                {multiBank && (
-                  <div className="px-4 pt-2 pb-0.5 flex items-center gap-2">
-                    <div className="h-4 w-4 rounded grid place-items-center bg-secondary/50 shrink-0">
-                      <Landmark className="h-2.5 w-2.5 text-muted-foreground" />
+      {open && (
+        bucket === "cash" ? (()=>{
+          const checkingAccs = accounts.filter(a => (a.subtype ?? "").toLowerCase() === "checking");
+          const savingsAccs  = accounts.filter(a => (a.subtype ?? "").toLowerCase() !== "checking");
+          const groups: { label: string; accs: PAccount[] }[] = [
+            ...(checkingAccs.length ? [{ label: "Checking", accs: checkingAccs }] : []),
+            ...(savingsAccs.length ? [{ label: "Savings", accs: savingsAccs }] : []),
+          ];
+          const multi = groups.length > 1;
+          return (
+            <div className="border-t border-border/20 max-h-[480px] overflow-y-auto">
+              {groups.map(g => (
+                <div key={g.label}>
+                  {multi && (
+                    <div className="px-4 pt-2 pb-0.5 flex items-center gap-2">
+                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-medium">{g.label}</span>
                     </div>
-                    <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-medium">{bank}</span>
+                  )}
+                  <div className={cn("divide-y divide-border/20", multi && "ml-2 border-l border-border/20")}>
+                    {g.accs.map(a => (
+                      <AccountRow
+                        key={a.id}
+                        a={a}
+                        txns={txns}
+                        meta={accountMeta[a.id] ?? {}}
+                        credit={creditDetails.find(c => c.account_id === a.account_id)}
+                        instName={getInstName(a)}
+                        onSelect={() => onSelect(a)}
+                      />
+                    ))}
                   </div>
-                )}
-                <div className={cn("divide-y divide-border/20", multiBank && "ml-2 border-l border-border/20")}>
-                  {byBank[bank].map(a => (
-                    <AccountRow
-                      key={a.id}
-                      a={a}
-                      txns={txns}
-                      meta={accountMeta[a.id] ?? {}}
-                      credit={creditDetails.find(c => c.account_id === a.account_id)}
-                      instName={bank}
-                      onSelect={() => onSelect(a)}
-                    />
-                  ))}
                 </div>
-              </div>
+              ))}
+            </div>
+          );
+        })() : (
+          <div className="border-t border-border/20 divide-y divide-border/20 max-h-[480px] overflow-y-auto">
+            {accounts.map(a => (
+              <AccountRow
+                key={a.id}
+                a={a}
+                txns={txns}
+                meta={accountMeta[a.id] ?? {}}
+                credit={creditDetails.find(c => c.account_id === a.account_id)}
+                instName={getInstName(a)}
+                onSelect={() => onSelect(a)}
+              />
             ))}
           </div>
-        );
-      })()}
+        )
+      )}
     </div>
   );
 };
@@ -1682,12 +1702,19 @@ const getCardInfo = (name: string | null, officialName: string | null): CardInfo
 };
 
 // ── HYSA detection ─────────────────────────────────────────────
-const HYSA_INSTITUTIONS = ["marcus", "ally", "sofi", "discover", "american express", "amex", "barclays", "synchrony", "capital one 360", "citizens", "bask", "bread", "sallie mae", "varo", "axos", "laurel road", "ufb", "lending club", "cit bank", "live oak", "western alliance", "primis"];
-const isHYSA = (a: PAccount, instName: string): boolean => {
+const HYSA_INSTITUTIONS = ["marcus", "ally", "sofi", "discover", "american express", "amex", "barclays", "synchrony",
+  "capital one 360", "citizens", "bask", "bread", "sallie mae", "varo", "axos", "laurel road", "ufb", "lending club",
+  "cit bank", "live oak", "western alliance", "primis", "wealthfront", "betterment", "current", "robinhood", "vio",
+  "quontic", "customers bank", "salem five", "everbank", "comenity", "popular direct", "tab bank", "first foundation",
+  "north american savings", "dollar savings direct", "my banking direct", "evergreen", "patriot bank", "lendingclub"];
+// HYSA threshold — most checking/standard savings pay well under 1%, online HYSAs are typically 4%+
+const HYSA_APR_THRESHOLD = 3.0;
+const isHYSA = (a: PAccount, instName: string, apr?: number | null): boolean => {
   if (a.type !== "depository" || a.subtype !== "savings") return false;
   const haystack = `${a.name ?? ""} ${a.official_name ?? ""} ${instName}`.toLowerCase();
   if (/high.?yield|hysa|hys\b/.test(haystack)) return true;
-  return HYSA_INSTITUTIONS.some(inst => haystack.includes(inst));
+  if (HYSA_INSTITUTIONS.some(inst => haystack.includes(inst))) return true;
+  return apr != null && apr >= HYSA_APR_THRESHOLD;
 };
 
 // ── Grant additional consent (e.g. cards linked before Liabilities existed) ────
@@ -1753,7 +1780,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
   const utilization = isCredit && creditLimit > 0 ? Math.abs(bal) / creditLimit : null;
   const displayName = meta.nickname || a.name || a.official_name || "Account";
   const cardInfo = isCredit ? getCardInfo(a.name, a.official_name) : null;
-  const hysa = isHYSA(a, instName);
+  const hysa = isHYSA(a, instName, meta.apr);
   const isPromo = meta.promoApr != null;
   const promoExpired = meta.promoEndDate ? new Date(meta.promoEndDate) < new Date() : false;
   const daysUntilPromoEnd = meta.promoEndDate
@@ -1789,12 +1816,12 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-display text-[17px] text-foreground leading-snug">{displayName}</span>
+              <span className="font-display text-lg text-foreground leading-snug">{displayName}</span>
               {hysa && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 text-positive bg-positive/10">High Yield</span>}
               {isCredit && credit?.is_overdue && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-negative/30 text-negative bg-negative/10">Overdue</span>}
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              {smartSubtypeLabel(a)} · {instName}{a.mask ? ` ··${a.mask}` : ""}
+              {smartSubtypeLabel(a, instName, meta.apr)} · {instName}{a.mask ? ` ··${a.mask}` : ""}
             </div>
           </div>
           <button onClick={onClose} className="shrink-0 h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
@@ -1812,7 +1839,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">
                   {isCredit ? "Current balance" : isSavings ? "Savings balance" : isChecking ? "Checking balance" : "Balance"}
                 </div>
-                <div className={cn("font-display text-[2rem] tabular leading-none", debt ? "text-negative" : "text-foreground")}>
+                <div className={cn("font-display text-3xl tabular leading-none", debt ? "text-negative" : "text-foreground")}>
                   {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
                 </div>
               </div>
@@ -2181,19 +2208,35 @@ export const LivePlaidDashboard = ({
   const load = useCallback(async()=>{
     if (!user) return;
     setLoading(true);
-    const [{ data:accs },{ data:t },{ data:its },{ data:cd }] = await Promise.all([
-      supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
-      supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })()).order("date",{ascending:false}),
-      supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
-      supabase.from("plaid_credit_details").select("*").eq("user_id",user.id).maybeSingle().then(r => ({ data: r.data ? [r.data] : null })),
-    ]);
-    setAccounts((accs??[]) as PAccount[]);
-    setTxns((t??[]) as PTxn[]);
-    setItems((its??[]) as PItem[]);
-    setCreditDetails((cd??[]) as CreditDetail[]);
-    setAccountMeta(loadAllMeta());
-    setLastSyncedAt(new Date());
-    setLoading(false);
+    try {
+      const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })();
+      const [accsRes, txnsRes, itsRes, cdRes] = await Promise.all([
+        supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
+        supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", threeMonthsAgo).order("date",{ascending:false}),
+        supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
+        supabase.from("plaid_credit_details").select("*").eq("user_id",user.id),
+      ]);
+      if (accsRes.error) console.error("[load] accounts:", accsRes.error.message);
+      if (txnsRes.error) console.error("[load] transactions:", txnsRes.error.message);
+      if (itsRes.error)  console.error("[load] items:", itsRes.error.message);
+      if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
+      console.log("[load] accounts:", accsRes.data?.length ?? 0, "txns:", txnsRes.data?.length ?? 0, "items:", itsRes.data?.length ?? 0);
+      // Apply whatever succeeded — one failing table shouldn't blank the rest
+      setAccounts((accsRes.data ?? []) as PAccount[]);
+      setTxns((txnsRes.data ?? []) as PTxn[]);
+      setItems((itsRes.data ?? []) as PItem[]);
+      setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
+      setAccountMeta(loadAllMeta());
+      setLastSyncedAt(new Date());
+      if (accsRes.error && txnsRes.error) {
+        toast.error("Failed to load financial data", { description: accsRes.error.message });
+      }
+    } catch (e) {
+      console.error("[load] unexpected error:", e);
+      toast.error("Failed to load data", { description: (e as Error)?.message });
+    } finally {
+      setLoading(false);
+    }
   },[user]);
 
   const loadInsights = useCallback(async (force=false)=>{
@@ -2323,15 +2366,13 @@ export const LivePlaidDashboard = ({
 
   useEffect(()=>{ load(); },[load]);
   useEffect(()=>{ loadInsights(); },[loadInsights]);
-  useEffect(()=>{ if (syncTrigger>0) doSync(); },[syncTrigger]); // eslint-disable-line
+  useEffect(()=>{ if (syncTrigger>0) doSync(); },[syncTrigger, doSync]);
   useEffect(()=>{ setOpenPickerTxn(null); setEditingBudgetCat(null); },[view]);
 
   // ── Computed (before any early return) ────────────────────
   const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0);
   const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0);
   const netWorth    = assets-liabilities;
-  const nwData      = buildNWByPeriod(netWorth, txns, period);
-  const nwChange    = nwData.length>1 ? nwData[nwData.length-1].v - nwData[0].v : 0;
   const monthlyFlow = buildMonthlyFlow(txns);
 
   const animatedNW   = useCountUp(netWorth, 1200);
@@ -2355,6 +2396,10 @@ export const LivePlaidDashboard = ({
     localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
   };
   const internalTxnIds = useMemo(() => new Set([...autoInternalIds, ...manualInternalIds]), [autoInternalIds, manualInternalIds]);
+
+  // nwData must be computed after internalTxnIds so internal transfers are excluded from the chart
+  const nwData   = buildNWByPeriod(netWorth, txns, period, internalTxnIds);
+  const nwChange = nwData.length>1 ? nwData[nwData.length-1].v - nwData[0].v : 0;
 
   // Current-month spending aggregation (homepage + spending tab default)
   const now = new Date();
@@ -2537,7 +2582,7 @@ export const LivePlaidDashboard = ({
             <div>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Net Worth</div>
               <div className="flex items-baseline gap-2 flex-wrap">
-                <h2 className="font-display text-2xl md:text-3xl font-semibold leading-none tabular stat-gold animate-count-in">
+                <h2 className="font-display text-3xl md:text-4xl font-semibold leading-none tabular stat-gold animate-count-in">
                   {fmtUSD(animatedNW)}
                 </h2>
                 {nwChange!==0 && (
@@ -2551,11 +2596,11 @@ export const LivePlaidDashboard = ({
             <div className="flex gap-4 mt-2">
               <div>
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Assets</div>
-                <div className="font-display text-sm tabular text-positive">{fmtUSD(animatedAss,{compact:true})}</div>
+                <div className="font-display text-base tabular text-positive">{fmtUSD(animatedAss,{compact:true})}</div>
               </div>
               <div>
                 <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
-                <div className="font-display text-sm tabular text-negative">−{fmtUSD(animatedLiab,{compact:true})}</div>
+                <div className="font-display text-base tabular text-negative">−{fmtUSD(animatedLiab,{compact:true})}</div>
               </div>
             </div>
             {/* Period selector */}
@@ -2719,7 +2764,7 @@ export const LivePlaidDashboard = ({
       {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h2 className="font-display text-base md:text-lg text-primary">Insights into your spending</h2>
+            <h2 className="font-display text-lg md:text-xl text-primary">Insights into your spending</h2>
             <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
               className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">
               <Sparkles className={cn("h-3 w-3", insightsLoading && "animate-pulse")} />
@@ -2743,7 +2788,7 @@ export const LivePlaidDashboard = ({
                     <Check className="h-4 w-4 text-positive shrink-0" />All caught up.
                   </div>
                 ) : (
-                  <div className="divide-y divide-border/20">
+                  <div className="divide-y divide-border/20 max-h-[360px] overflow-y-auto">
                     {visibleActions.map(item=>{
                       const Icon=item.icon; const m=priorityMeta[item.priority];
                       const borderColor = item.priority==="urgent" ? "hsl(var(--negative))" : item.priority==="soon" ? "hsl(var(--warning))" : "hsl(var(--info))";
@@ -2799,22 +2844,38 @@ export const LivePlaidDashboard = ({
                     <Sparkles className="h-4 w-4 shrink-0 opacity-40" />Click "Refresh AI" to generate insights.
                   </div>
                 ) : (
-                  <div className="p-3 grid grid-cols-2 gap-2">
+                  <div className="p-3 grid grid-cols-1 gap-3">
                     {visibleInsights.slice(0,4).map(insight=>{
                       const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
-                      const sevColor = insight.severity==="high" ? "hsl(var(--negative))" : insight.severity==="medium" ? "hsl(var(--warning))" : "hsl(var(--positive))";
+                      const sevDot = insight.severity==="high" ? "bg-negative" : insight.severity==="medium" ? "bg-warning" : "bg-info";
                       return (
                         <button key={insight.id} onClick={()=>setOpenInsight(insight)}
-                          className="group relative text-left rounded-xl p-3 border hover:scale-[1.02] transition-all overflow-hidden"
-                          style={{borderColor:`${sevColor}30`, background:`${sevColor}08`}}>
-                          <div className="absolute inset-x-0 top-0 h-0.5 rounded-t-xl" style={{background:sevColor}}/>
-                          <div className="h-7 w-7 rounded-lg grid place-items-center mb-2.5 transition-transform group-hover:scale-110"
-                            style={{background:`${sevColor}20`, border:`1px solid ${sevColor}30`, color:sevColor}}>
-                            <CatIcon className="h-3.5 w-3.5"/>
+                          className="group surface-card relative overflow-hidden p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--shadow-elevated)]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center text-foreground/80">
+                              <CatIcon className="h-4 w-4" />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className={cn("h-1.5 w-1.5 rounded-full", sevDot)}>
+                                <div className={cn("absolute h-1.5 w-1.5 rounded-full animate-pulse-glow", sevDot, "opacity-50 blur-sm")} />
+                              </div>
+                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
+                            </div>
                           </div>
-                          <div className="text-[11.5px] text-foreground font-medium leading-snug line-clamp-2">{insight.title}</div>
-                          <div className="mt-1.5 text-[10px] font-semibold tabular" style={{color:sevColor}}>{insight.impact}</div>
-                          <div className="mt-1 text-[9px] uppercase tracking-wide text-muted-foreground/60">{insight.category}</div>
+
+                          <h3 className="font-display text-[13px] font-medium mt-3 text-foreground leading-snug line-clamp-2">
+                            {insight.title}
+                          </h3>
+
+                          <div className="mt-3 pt-3 border-t border-border/60 flex items-end justify-between">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Opportunity</div>
+                              <div className="font-display text-[12px] tabular text-positive leading-tight">{insight.impact}</div>
+                            </div>
+                            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">
+                              Details <ArrowRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
+                            </span>
+                          </div>
                         </button>
                       );
                     })}
@@ -2916,7 +2977,7 @@ export const LivePlaidDashboard = ({
                 {recurringCharges.length === 0 ? (
                   <div className="px-4 py-6 text-[12px] text-muted-foreground text-center">No upcoming charges detected.</div>
                 ) : (
-                  <div className="divide-y divide-border/20">
+                  <div className="divide-y divide-border/20 max-h-[360px] overflow-y-auto">
                     {recurringCharges.map((r, idx) => {
                       const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
                       const isThisWeek = daysAway <= 7;
@@ -2987,7 +3048,7 @@ export const LivePlaidDashboard = ({
             return (
               <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
                 <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 items-stretch">
                     {panelOrder.map(id => (
                       <SortableCard key={id} id={id}>
                         {(handleProps) => renderPanel(id, handleProps)}
@@ -3001,18 +3062,18 @@ export const LivePlaidDashboard = ({
         </section>
       )}
 
-      {/* Accounts — bucketed, all collapsed by default */}
+      {/* Accounts — grouped by type, banks shown within each type, all collapsed by default */}
       <section className="space-y-2">
-        <div className="flex items-center justify-between gap-4 px-1">
+        <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
+            <h2 className="font-display text-lg md:text-xl text-primary">Accounts</h2>
             {lastSyncedAt && (
               <span className="text-[10px] text-muted-foreground/50">
                 synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
               </span>
             )}
           </div>
-          <button onClick={onAddAccount} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+          <button onClick={onAddAccount} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0">
             <Plus className="h-3 w-3" />Add account
           </button>
         </div>
@@ -3022,19 +3083,21 @@ export const LivePlaidDashboard = ({
           </div>
         ) : (
           <div className="space-y-2">
-            {(["liquid","revolving","term","longterm"] as Bucket[]).map(bucket => (
-              <BucketGroup
-                key={bucket}
-                bucket={bucket}
-                accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
-                txns={txns}
-                accountMeta={accountMeta}
-                creditDetails={creditDetails}
-                items={items}
-                onSelect={a => setDetailAccount(a)}
-                defaultOpen={false}
-              />
-            ))}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-2 items-start">
+              {bucketOrder.map(bucket => (
+                <BucketGroup
+                  key={bucket}
+                  bucket={bucket}
+                  accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
+                  txns={txns}
+                  accountMeta={accountMeta}
+                  creditDetails={creditDetails}
+                  items={items}
+                  onSelect={a => setDetailAccount(a)}
+                  defaultOpen={true}
+                />
+              ))}
+            </div>
             <button
               onClick={onAddAccount}
               className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[12px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
@@ -3047,7 +3110,7 @@ export const LivePlaidDashboard = ({
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
-        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
+        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
           <DialogTitle className="sr-only">{openInsight?.title ?? "Insight"}</DialogTitle>
           <DialogDescription className="sr-only">Financial insight details and recommended action.</DialogDescription>
           {openInsight && (()=>{
@@ -3065,7 +3128,7 @@ export const LivePlaidDashboard = ({
             const monthlyEquivalent = openInsight.impactValue > 0 ? openInsight.impactValue / 12 : 0;
             return (
             <>
-              <div className="relative p-6 pb-4">
+              <div className="relative p-6 pb-4 shrink-0">
                 <button onClick={() => setOpenInsight(null)}
                   className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                   <X className="h-4 w-4" />
@@ -3087,7 +3150,7 @@ export const LivePlaidDashboard = ({
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{openInsight.category}</span>
                   </div>
                 </div>
-                <h3 className="font-display text-xl md:text-2xl mt-4 text-foreground leading-snug">{openInsight.title}</h3>
+                <h3 className="font-display text-xl mt-4 text-foreground leading-snug">{openInsight.title}</h3>
                 <div className="mt-4 flex items-center gap-2 flex-wrap">
                   <div className="inline-flex items-baseline gap-2 rounded-lg bg-positive/10 border border-positive/20 px-3 py-2">
                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Estimated yearly</span>
@@ -3101,7 +3164,7 @@ export const LivePlaidDashboard = ({
                   )}
                 </div>
               </div>
-              <div className="hairline p-6 space-y-4">
+              <div className="hairline p-6 space-y-4 flex-1 overflow-y-auto min-h-0">
                 {([["What's happening", openInsight.what, false],["Why it matters", openInsight.why, false],["Suggested action", openInsight.action, true]] as [string,string,boolean][]).map(([label,body,accent])=>(
                   <div key={label}>
                     <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-1">{label}</div>
@@ -3155,7 +3218,7 @@ export const LivePlaidDashboard = ({
                       ); })()}
                       <div className="flex-1 min-w-0">
                         <div className="text-[12.5px] text-foreground font-medium truncate">{relatedAcc.name}</div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">{relatedAcc.mask?`··${relatedAcc.mask}`:smartSubtypeLabel(relatedAcc)}</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">{relatedAcc.mask?`··${relatedAcc.mask}`:smartSubtypeLabel(relatedAcc, getInstNameFor(relatedAcc, items), accountMeta[relatedAcc.id]?.apr)}</div>
                       </div>
                       <span className={cn("text-[14px] tabular font-semibold shrink-0",isDebt(relatedAcc.type)?"text-negative":"text-foreground")}>
                         {isDebt(relatedAcc.type)?"−":""}{fmtUSD(Math.abs(Number(relatedAcc.current_balance)||0))}
@@ -3165,7 +3228,7 @@ export const LivePlaidDashboard = ({
                   </div>
                 )}
               </div>
-              <div className="hairline p-4 flex flex-wrap gap-2">
+              <div className="hairline p-4 flex flex-wrap gap-2 shrink-0">
                 <button onClick={() => setOpenInsight(null)}
                   className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 rounded-lg bg-positive px-4 py-2 text-xs font-medium text-positive-foreground hover:opacity-90 transition-opacity">
                   <Check className="h-3.5 w-3.5" /> Got it
@@ -3185,7 +3248,7 @@ export const LivePlaidDashboard = ({
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
-        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
+        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
           <DialogTitle className="sr-only">{openActionItem?.title ?? "Action item"}</DialogTitle>
           <DialogDescription className="sr-only">Action item details.</DialogDescription>
           {openActionItem && (()=>{
@@ -3201,7 +3264,7 @@ export const LivePlaidDashboard = ({
             const isPaymentAction = openActionItem.id.startsWith("cc-") || openActionItem.cta.toLowerCase().includes("payment");
             return (
               <>
-                <div className="relative p-6 pb-4">
+                <div className="relative p-6 pb-4 shrink-0">
                   <button onClick={()=>setOpenActionItem(null)}
                     className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                     <X className="h-4 w-4" />
@@ -3217,6 +3280,7 @@ export const LivePlaidDashboard = ({
                   <h3 className="font-display text-xl text-foreground leading-snug">{openActionItem.title}</h3>
                   <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{openActionItem.detail}</p>
                 </div>
+                <div className="flex-1 overflow-y-auto min-h-0">
                 {relatedAcc && (
                   <div className="hairline px-6 py-4">
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Related account</div>
@@ -3260,7 +3324,8 @@ export const LivePlaidDashboard = ({
                     </div>
                   </div>
                 )}
-                <div className="hairline p-4 flex flex-wrap gap-2">
+                </div>
+                <div className="hairline p-4 flex flex-wrap gap-2 shrink-0">
                   {/* Primary CTA — context-aware */}
                   {openActionItem.reviewCategory ? (
                     // "Review" / "Review spending" → open spending popup for that category
@@ -3311,10 +3376,10 @@ export const LivePlaidDashboard = ({
         const shownTxns = catTxns.slice(0, displayCount);
         return (
           <Dialog open onOpenChange={(o)=>{ if(!o){setSpendingPopup(null);setSpendPopupLimit(5);} }}>
-            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden">
+            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
               <DialogTitle className="sr-only">{formatCat(cat)} — current month</DialogTitle>
               <DialogDescription className="sr-only">Top charges in {formatCat(cat)} this month.</DialogDescription>
-              <div className="relative p-5 pb-4">
+              <div className="relative p-5 pb-4 shrink-0">
                 <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);}}
                   className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                   <X className="h-4 w-4" />
@@ -3329,7 +3394,7 @@ export const LivePlaidDashboard = ({
                   </div>
                 </div>
               </div>
-              <div className="hairline px-5 py-3 space-y-3">
+              <div className="hairline px-5 py-3 space-y-3 flex-1 overflow-y-auto min-h-0">
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     {label:"Total",value:fmtUSD(total),color},
@@ -3391,7 +3456,7 @@ export const LivePlaidDashboard = ({
                 )}
                 {catTxns.length===0 && <div className="text-center text-[12px] text-muted-foreground py-4">No transactions in this category this month.</div>}
               </div>
-              <div className="hairline p-4">
+              <div className="hairline p-4 shrink-0">
                 <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);onCategorySelect?.(cat);}}
                   className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground text-background px-4 py-2.5 text-xs font-medium hover:opacity-90 transition-opacity">
                   View all in Spending & Budget <ArrowRight className="h-3.5 w-3.5" />
@@ -3509,7 +3574,7 @@ export const LivePlaidDashboard = ({
 
       <section className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
-          <h2 className="font-display text-base md:text-lg text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
+          <h2 className="font-display text-lg md:text-xl text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
           <span className="text-[11px] text-muted-foreground">{monthlyPeriodTxns.length} transactions</span>
         </div>
         {monthlyPeriodTxns.length===0 ? (
@@ -4264,7 +4329,7 @@ export const LivePlaidDashboard = ({
         {cardsWithInfo.length === 0 && (
           <div className="surface-card p-10 text-center space-y-2">
             <CreditCard className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-            <div className="font-display text-base text-foreground">No credit cards linked</div>
+            <div className="font-display text-lg text-foreground">No credit cards linked</div>
             <div className="text-[12px] text-muted-foreground">Link a credit card to see your rewards and benefits.</div>
           </div>
         )}

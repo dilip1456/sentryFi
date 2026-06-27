@@ -54,7 +54,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
 
   const { user, profile, subscriber, isAdmin, signOut } = useAuth();
   const navigate = useNavigate();
-  const { theme, setTheme, compact, setCompact } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { demo, setDemo } = useDemo();
   const dark = theme === "dark";
   // Only show hardcoded notifs in demo mode; live mode starts empty
@@ -229,14 +229,6 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                 <Sparkles className="h-3.5 w-3.5 mr-2" />
                 Demo mode
               </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={compact}
-                onCheckedChange={(v) => { setCompact(!!v); toast(`Compact density ${v ? "on" : "off"}`); }}
-                className="text-[12px]"
-              >
-                Compact density
-              </DropdownMenuCheckboxItem>
-
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="text-[11px] text-muted-foreground font-normal">Alerts</DropdownMenuLabel>
               <DropdownMenuCheckboxItem

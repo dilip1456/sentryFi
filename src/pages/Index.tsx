@@ -13,6 +13,7 @@ import { DealsSection } from "@/components/finance/DealsSection";
 import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
+import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { accounts } from "@/lib/finance-data";
@@ -21,19 +22,22 @@ import { useDemo } from "@/contexts/DemoContext";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, CalendarClock, Sparkles, Tag, PieChart, Users, Loader2,
-  RefreshCw, Plus,
+  LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
+  RefreshCw, Plus, Gift,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "deals" | "spending" | "admin";
+type View = "overall" | "monthly" | "benefits" | "deals" | "spending" | "giftcards" | "admin";
 
+// "deals" is intentionally left out of BASE_TABS — it has no live-data implementation
+// yet (LivePlaidDashboard only handles "overall" | "monthly" | "spending" | "benefits"),
+// so it's hidden until that's built rather than shown broken.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
-  { k: "overall",  label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
-  { k: "spending", label: "Spending & Budget",   icon: PieChart,        sub: "Budgets & transactions" },
-  { k: "monthly",  label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
-  { k: "benefits", label: "Benefits",            icon: Sparkles,        sub: "Card perks & refinancing" },
-  { k: "deals",    label: "Deals",               icon: Tag,             sub: "Cashback offers across cards" },
+  { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
+  { k: "spending",  label: "Spending & Budget",   icon: PieChart,        sub: "Budgets & transactions" },
+  { k: "monthly",   label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
+  { k: "benefits",  label: "Benefits",            icon: Sparkles,        sub: "Card perks & refinancing" },
+  { k: "giftcards", label: "Gift Cards",          icon: Gift,            sub: "Track balances across brands" },
 ];
 
 const Index = () => {
@@ -60,6 +64,7 @@ const Index = () => {
     const { count } = await supabase
       .from("plaid_items")
       .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
       .eq("status", "active");
     setHasItems((count ?? 0) > 0);
   }, [user]);
@@ -186,6 +191,7 @@ const Index = () => {
         {demo && view === "benefits" && <BenefitsSection />}
         {demo && view === "deals" && <DealsSection />}
         {demo && view === "spending" && <SpendingSection />}
+        {view === "giftcards" && <GiftCardsSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
 
         {!showEmpty && (

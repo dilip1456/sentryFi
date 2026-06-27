@@ -70,7 +70,9 @@ Deno.serve(async (req) => {
       }),
     });
     const accData = await accRes.json();
-    if (accRes.ok && accData.accounts) {
+    if (!accRes.ok) {
+      console.error('accounts/get error', accData);
+    } else if (accData.accounts) {
       const rows = accData.accounts.map((a: any) => ({
         user_id: user.id,
         item_id: itemRow.id,

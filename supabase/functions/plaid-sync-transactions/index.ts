@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
 
     let total = 0;
     for (const item of items ?? []) {
+      await syncAccounts(admin, item.id, user.id, item.access_token);
       total += await syncOne(admin, item.id, user.id, item.access_token, item.cursor);
       await syncLiabilities(admin, user.id, item.access_token);
     }
@@ -42,6 +43,40 @@ Deno.serve(async (req) => {
     return json({ error: String(e) }, 500);
   }
 });
+
+async function syncAccounts(admin: any, itemRowId: string, userId: string, accessToken: string) {
+  try {
+    const res = await fetch(`${PLAID_BASE}/accounts/get`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: Deno.env.get('PLAID_CLIENT_ID'),
+        secret: Deno.env.get('PLAID_SECRET'),
+        access_token: accessToken,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { console.warn('accounts/get error:', data); return; }
+    const rows = (data.accounts ?? []).map((a: any) => ({
+      user_id: userId,
+      item_id: itemRowId,
+      account_id: a.account_id,
+      name: a.name,
+      official_name: a.official_name,
+      mask: a.mask,
+      type: a.type,
+      subtype: a.subtype,
+      current_balance: a.balances?.current,
+      available_balance: a.balances?.available,
+      iso_currency_code: a.balances?.iso_currency_code,
+    }));
+    if (rows.length) {
+      await admin.from('plaid_accounts').upsert(rows, { onConflict: 'account_id' });
+    }
+  } catch (e) {
+    console.warn('syncAccounts failed:', e);
+  }
+}
 
 async function syncOne(admin: any, itemRowId: string, userId: string, accessToken: string, cursor: string | null) {
   let hasMore = true;

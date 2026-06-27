@@ -59,8 +59,10 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
     const { data, error } = await supabase.functions.invoke("plaid-exchange-token", {
       body: {
         public_token,
-        institution_id: metadata?.institution?.institution_id,
-        institution_name: metadata?.institution?.name,
+        institution: {
+          institution_id: metadata?.institution?.institution_id,
+          name: metadata?.institution?.name,
+        },
       },
     });
     setExchanging(false);
@@ -86,7 +88,10 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
       return;
     }
     setPlaidOpen(true);
-    openPlaid();
+    // Wait for our Dialog's close animation + Radix's modal lock (inert/aria-hidden
+    // on siblings) to fully release before Plaid injects its iframe — otherwise the
+    // iframe can get caught by the lock and end up unclickable.
+    setTimeout(() => openPlaid(), 250);
   };
 
   const tryDemo = () => {
