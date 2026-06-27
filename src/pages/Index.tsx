@@ -74,8 +74,8 @@ const Index = () => {
   //  - demo off + hasItems → show live Plaid dashboard
   //  - demo off + no items → show empty/onboarding state
   // Admin tab is always available to admins regardless.
-  const showLive = !demo && hasItems === true && view !== "admin";
-  const showEmpty = !demo && hasItems === false && view !== "admin";
+  const showLive = !demo && hasItems === true && view !== "admin" && view !== "giftcards";
+  const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   return (
     <div className="min-h-screen bg-background">
