@@ -2101,7 +2101,7 @@ export const LivePlaidDashboard = ({
 }: Props) => {
   const { user } = useAuth();
   const { budgets, setBudget, removeBudget } = useBudgets();
-  const { overrides, setOverride, bulkSetOverride, reassignCategory } = useCategoryOverrides();
+  const { overrides, setOverride, bulkSetOverride, bulkSetOverrideMap, reassignCategory } = useCategoryOverrides();
   const { rules, addRule, getRuleCategory } = useCategoryRules();
   const { custom: customCategories, addCategory, removeCategory } = useCustomCategories();
 
@@ -4265,7 +4265,7 @@ export const LivePlaidDashboard = ({
         customCategories={customCategories}
         builtInExpense={EXPENSE_CATEGORIES} builtInIncome={INCOME_CATEGORIES}
         getEffectiveCategory={t=>getEffectiveCategory(t,overrides,getRuleCategory)}
-        onSetOverride={setOverride} onBulkSetOverride={bulkSetOverride}
+        onSetOverride={setOverride} onBulkSetOverride={bulkSetOverride} onBulkSetOverrideMap={bulkSetOverrideMap}
         onReassignCategory={reassignCategory}
         onSetBudget={setBudget} onRemoveBudget={removeBudget}
         onAddCategory={addCategory} onRemoveCategory={removeCategory}
