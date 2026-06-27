@@ -254,6 +254,21 @@ export const GiftCardsSection = () => {
     [cards]
   );
 
+  // Table view sorted by soonest-expiring first; cards with no expiry date sort last.
+  // Keeps the original index so goTo()/detail popup still reference the right card.
+  const sortedForTable = useMemo(() => {
+    if (!cards) return [];
+    return cards
+      .map((card, originalIndex) => ({ card, originalIndex }))
+      .sort((a, b) => {
+        const ea = a.card.expiry_date, eb = b.card.expiry_date;
+        if (!ea && !eb) return 0;
+        if (!ea) return 1;
+        if (!eb) return -1;
+        return new Date(ea).getTime() - new Date(eb).getTime();
+      });
+  }, [cards]);
+
   useEffect(() => {
     if (!cards) return;
     setActiveIndex(i => Math.min(i, Math.max(0, cards.length - 1)));
@@ -337,7 +352,7 @@ export const GiftCardsSection = () => {
           {/* Compact table — full list at a glance, now shown first */}
           <div className="surface-card overflow-hidden">
             <div className="divide-y divide-border/20">
-              {cards.map((card, i) => {
+              {sortedForTable.map(({ card, originalIndex: i }) => {
                 const status = expiryStatus(card.expiry_date);
                 return (
                   <button key={card.id} onClick={() => { goTo(i); setDetailCard(card); }}
