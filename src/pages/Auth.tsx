@@ -20,11 +20,28 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => { if (user && !loading) navigate("/", { replace: true }); }, [user, loading, navigate]);
+  useEffect(() => {
+    const t = setTimeout(() => setShowSplash(false), 1100);
+    return () => clearTimeout(t);
+  }, []);
 
   if (loading) return <div className="min-h-screen grid place-items-center bg-background"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   if (user) return <Navigate to="/" replace />;
+
+  if (showSplash) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-background cursor-pointer" onClick={() => setShowSplash(false)}>
+        <div className="flex flex-col items-center gap-3 animate-pop-in">
+          <div className="h-16 w-16 rounded-2xl bg-foreground text-background grid place-items-center font-display text-3xl font-semibold shadow-[var(--shadow-elevated)]">S</div>
+          <div className="font-display text-xl text-foreground">SentryFi</div>
+          <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
+        </div>
+      </div>
+    );
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +86,7 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen grid place-items-center bg-background px-4">
-      <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60">
+      <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60 animate-fade-up">
         <div className="flex items-center gap-2 mb-5">
           <div className="h-9 w-9 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">S</div>
           <div>

@@ -13,8 +13,8 @@ export const useCountUp = (target: number, duration = 1100): number => {
   const targetRef = useRef(target);
 
   useEffect(() => {
-    // Only animate if the target actually changed
-    if (targetRef.current === target && value !== 0) return;
+    // Only animate if the target actually changed (compare against previous ref value)
+    if (targetRef.current === target && Math.round(value) === Math.round(target)) return;
     const from = value;
     fromRef.current = from;
     targetRef.current = target;

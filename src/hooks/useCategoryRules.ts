@@ -42,10 +42,12 @@ export const useCategoryRules = () => {
   const getRuleCategory = (merchantName: string | null): string | null => {
     if (!merchantName) return null;
     const m = merchantName.toLowerCase();
-    const rule = rules.find(r =>
-      m.includes(r.merchantPattern.toLowerCase()) ||
-      r.merchantPattern.toLowerCase().includes(m)
-    );
+    // Only match if the merchant name contains the rule pattern (not the reverse),
+    // and require the pattern to be at least 4 chars to prevent false positives.
+    const rule = rules.find(r => {
+      const pattern = r.merchantPattern.toLowerCase();
+      return pattern.length >= 4 && m.includes(pattern);
+    });
     return rule?.category ?? null;
   };
 
