@@ -27,7 +27,7 @@ function heuristicCategory(merchantName: string, amount: number): string {
     if (/interest|dividend|yield|return on/.test(n)) return "Interest & Dividends";
     if (/refund|reimburse|reversal|return/.test(n)) return "Refund / Reimbursement";
     if (/transfer|zelle|venmo|cashapp|paypal/.test(n)) return "Transfer In";
-    return "Other Income";
+    return "Other";
   }
   if (/restaurant|cafe|diner|kitchen|food|pizza|burger|sushi|ramen|taco|bbq|grill|mcdonald|starbuck|dunkin|subway|chipotle|domino|panera|wendy|chick.fil|doordash|ubereats|grubhub|seamless/.test(n)) return "Food & Drink";
   if (/grocery|supermarket|whole.foods|trader.joe|safeway|kroger|publix|albertson|sprouts|market|wegman|costco|sams.club|walmart|target.*(food|grocery)|aldi|h-mart/.test(n)) return "Groceries";
@@ -148,14 +148,6 @@ Deno.serve(async (req) => {
         return { id: t.id, category: heuristicCategory(merchant, t.amount), confidence: "medium" as const };
       });
     }
-
-    // Log to DB for analytics (non-blocking)
-    supabase.from("ai_categorize_log").insert({
-      user_id: user.id,
-      txn_count: txns.length,
-      ai_used: !!ANTHROPIC_KEY,
-      created_at: new Date().toISOString(),
-    }).then(() => {});
 
     return json({ results });
   } catch (e) {
