@@ -161,9 +161,12 @@ const CardDetailDialog = ({
     draggingRef.current = true;
     startXRef.current = e.clientX;
     widthRef.current = (e.currentTarget as HTMLElement).clientWidth || 1;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (draggingRef.current) setDragX(e.clientX - startXRef.current);
+    if (!draggingRef.current) return;
+    e.preventDefault();
+    setDragX(e.clientX - startXRef.current);
   };
   const endDrag = () => {
     if (!draggingRef.current) return;
@@ -374,8 +377,16 @@ export const GiftCardsSection = () => {
 
   const goTo = (i: number) => { if (!cards) return; setActiveIndex(Math.max(0, Math.min(cards.length - 1, i))); };
 
-  const onPointerDown = (e: React.PointerEvent) => { draggingRef.current = true; startXRef.current = e.clientX; };
-  const onPointerMove = (e: React.PointerEvent) => { if (draggingRef.current) setDragX(e.clientX - startXRef.current); };
+  const onPointerDown = (e: React.PointerEvent) => {
+    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    e.preventDefault();
+    setDragX(e.clientX - startXRef.current);
+  };
   const endDrag = () => {
     if (!draggingRef.current) return;
     draggingRef.current = false;

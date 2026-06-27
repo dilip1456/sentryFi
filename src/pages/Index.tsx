@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TopBar } from "@/components/finance/TopBar";
 import { NetWorthHeader } from "@/components/finance/NetWorthHeader";
 import { AccountsSection } from "@/components/finance/AccountsSection";
@@ -37,6 +37,33 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 
 const Index = () => {
   const [view, setView] = useState<View>("overall");
+  const bottomNavRef = useRef<HTMLElement>(null);
+
+  // iOS/Android browsers sometimes fail to paint a `position: fixed` bottom bar
+  // in its correct spot until the next scroll/resize event recalculates the
+  // visual viewport (a long-standing mobile rendering quirk, not React-specific).
+  // Forcing a one-frame reflow whenever the tab changes or the visual viewport
+  // resizes/scrolls reliably fixes it.
+  useEffect(() => {
+    const forceReflow = () => {
+      const el = bottomNavRef.current;
+      if (!el) return;
+      el.style.display = "none";
+      requestAnimationFrame(() => {
+        if (el) el.style.display = "";
+      });
+    };
+    forceReflow();
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", forceReflow);
+    vv?.addEventListener("scroll", forceReflow);
+    window.addEventListener("orientationchange", forceReflow);
+    return () => {
+      vv?.removeEventListener("resize", forceReflow);
+      vv?.removeEventListener("scroll", forceReflow);
+      window.removeEventListener("orientationchange", forceReflow);
+    };
+  }, [view]);
   const [linkOpen, setLinkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
@@ -173,6 +200,7 @@ const Index = () => {
       {/* Mobile bottom tab bar — replaces top chip switcher on small screens */}
       {hasItems !== null && (
         <nav
+          ref={bottomNavRef}
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
           style={{ paddingBottom: "env(safe-area-inset-bottom)", transform: "translateZ(0)", WebkitTransform: "translateZ(0)" }}
         >
