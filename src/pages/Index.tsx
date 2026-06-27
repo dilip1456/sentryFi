@@ -78,7 +78,7 @@ const Index = () => {
   const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen min-h-[100dvh] bg-background">
       <TopBar
         active={view}
         onChange={(v) => { setView(v as View); setSelectedCategory(null); }}
@@ -174,7 +174,7 @@ const Index = () => {
       {hasItems !== null && (
         <nav
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          style={{ paddingBottom: "env(safe-area-inset-bottom)", transform: "translateZ(0)", WebkitTransform: "translateZ(0)" }}
         >
           <div className="flex items-stretch overflow-x-auto">
             {TABS.map((t) => {
