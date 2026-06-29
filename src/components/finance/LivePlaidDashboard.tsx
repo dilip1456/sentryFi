@@ -19,6 +19,7 @@ import { useCustomCategories } from "@/hooks/useCustomCategories";
 import { CategoryManager } from "@/components/finance/CategoryManager";
 import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
 import { fmtUSD } from "@/lib/format";
+import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home,
   ShoppingBag, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
@@ -2087,6 +2088,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
 interface Props {
   onAddAccount: ()=>void;
   hasItems: boolean;
+  demo?: boolean;
   view?: string;
   syncTrigger?: number;
   onSyncingChange?: (v:boolean)=>void;
@@ -2095,7 +2097,7 @@ interface Props {
 }
 
 export const LivePlaidDashboard = ({
-  onAddAccount, hasItems, view="overall",
+  onAddAccount, hasItems, demo=false, view="overall",
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
 }: Props) => {
@@ -2207,6 +2209,15 @@ export const LivePlaidDashboard = ({
   };
 
   const load = useCallback(async()=>{
+    // In demo mode: skip Supabase, seed with realistic local data immediately
+    if (demo) {
+      setAccounts(demoAccounts as unknown as PAccount[]);
+      setTxns(demoTransactions as unknown as PTxn[]);
+      setItems(demoItems as unknown as PItem[]);
+      setCreditDetails([]);
+      setLoading(false);
+      return;
+    }
     if (!user) return;
     setLoading(true);
     try {
@@ -2238,7 +2249,7 @@ export const LivePlaidDashboard = ({
     } finally {
       setLoading(false);
     }
-  },[user]);
+  },[user, demo]);
 
   const loadInsights = useCallback(async (force=false)=>{
     if (!user) return;

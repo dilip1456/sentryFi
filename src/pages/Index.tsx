@@ -154,6 +154,7 @@ const Index = () => {
 
         {demo && view !== "giftcards" && view !== "admin" && (
           <LivePlaidDashboard
+            demo
             hasItems={false}
             onAddAccount={() => setLinkOpen(true)}
             view={view}
