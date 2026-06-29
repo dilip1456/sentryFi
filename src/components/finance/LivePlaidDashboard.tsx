@@ -1108,18 +1108,28 @@ const PositionedPicker = ({ txn, pos, overrides, getRuleCategory, customCategori
   onAddRule:(m:string,c:string)=>void; onRemoveCustom:(n:string)=>void; onClose:()=>void;
 }) => {
   const rawCat = getEffectiveCategory(txn, overrides, getRuleCategory);
-  const isMobile = window.innerWidth < 640;
-  const y = isMobile ? undefined : (pos.y + 280 > window.innerHeight ? Math.max(pos.y - 290, 8) : pos.y);
-  const x = isMobile ? undefined : Math.min(Math.max(pos.x, 8), window.innerWidth - 274);
-  const mobileStyle = isMobile ? {position:"fixed" as const,inset:"auto 8px 8px 8px",zIndex:9999} : {position:"fixed" as const,left:x,top:y,zIndex:9999};
   return (
-    <div style={mobileStyle}>
-      <InlineCategoryPicker txn={txn} current={rawCat??"Other"}
-        existingRule={getRuleCategory(txn.merchant_name??txn.name??null)??undefined}
-        customCategories={customCategories}
-        onSelect={cat=>onSelect(txn.id,cat)}
-        onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom} onClose={onClose} />
-    </div>
+    <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[80vh] flex flex-col">
+        <DialogTitle className="sr-only">Edit category</DialogTitle>
+        <DialogDescription className="sr-only">Choose a category for this transaction.</DialogDescription>
+        <div className="px-4 py-3 border-b border-border/40 shrink-0">
+          <div className="text-[13px] font-medium text-foreground truncate">
+            {txn.merchant_name ?? txn.name ?? "Transaction"}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            {new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} · {Number(txn.amount) < 0 ? "Income" : "Expense"}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <InlineCategoryPicker txn={txn} current={rawCat??"Other"}
+            existingRule={getRuleCategory(txn.merchant_name??txn.name??null)??undefined}
+            customCategories={customCategories}
+            onSelect={cat=>{ onSelect(txn.id,cat); onClose(); }}
+            onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom} onClose={onClose} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 

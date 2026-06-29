@@ -108,7 +108,7 @@ const Index = () => {
       )}
 
 
-      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4">
+      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4 flex flex-col">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">
@@ -177,6 +177,7 @@ const Index = () => {
       {hasItems !== null && (
         <nav
           className="md:hidden shrink-0 relative border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-[0_-2px_12px_-4px_rgba(0,0,0,0.12)]"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           {moreOpen && (
