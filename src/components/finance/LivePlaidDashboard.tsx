@@ -3846,13 +3846,16 @@ export const LivePlaidDashboard = ({
                   className="w-full h-8 pl-7 pr-7 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors" />
                 {txnSearch && <button onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"><X className="h-3 w-3" /></button>}
               </div>
-              <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
-                className="h-8 rounded-lg bg-card border border-border/50 text-[11px] text-muted-foreground px-2 focus:outline-none focus:border-[hsl(var(--primary)/0.4)] cursor-pointer appearance-none">
-                <option value="date-desc">Newest</option>
-                <option value="date-asc">Oldest</option>
-                <option value="amount-desc">Largest</option>
-                <option value="amount-asc">Smallest</option>
-              </select>
+              <div className="relative shrink-0">
+                <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
+                  className="h-8 rounded-lg bg-card border border-border/50 text-[11px] text-muted-foreground pl-2 pr-6 focus:outline-none focus:border-[hsl(var(--primary)/0.4)] cursor-pointer appearance-none">
+                  <option value="date-desc">Newest</option>
+                  <option value="date-asc">Oldest</option>
+                  <option value="amount-desc">Largest</option>
+                  <option value="amount-asc">Smallest</option>
+                </select>
+                <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/60 pointer-events-none" />
+              </div>
             </div>
             <div className="flex items-center gap-1 flex-wrap">
               {(["all","expense","income"] as const).map(f=>(
