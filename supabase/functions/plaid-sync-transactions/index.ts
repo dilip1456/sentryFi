@@ -4,6 +4,38 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
 
+// Plaid's modern /transactions/sync responses often leave the legacy `category`
+// field empty and populate `personal_finance_category` instead. Map that into
+// the app's own category labels so transactions don't all fall back to "Other".
+const PFC_PRIMARY_MAP: Record<string, string> = {
+  INCOME: "Salary",
+  TRANSFER_IN: "Transfer In",
+  TRANSFER_OUT: "Transfer Out",
+  LOAN_PAYMENTS: "Bills & Utilities",
+  BANK_FEES: "Bills & Utilities",
+  ENTERTAINMENT: "Entertainment",
+  FOOD_AND_DRINK: "Food & Drink",
+  GENERAL_MERCHANDISE: "Shopping",
+  HOME_IMPROVEMENT: "Shopping",
+  MEDICAL: "Healthcare",
+  PERSONAL_CARE: "Personal Care",
+  GENERAL_SERVICES: "Other",
+  GOVERNMENT_AND_NON_PROFIT: "Charitable Giving",
+  TRANSPORTATION: "Transportation",
+  TRAVEL: "Travel",
+  RENT_AND_UTILITIES: "Bills & Utilities",
+};
+
+function resolveCategory(t: any): string[] | null {
+  if (Array.isArray(t.category) && t.category.length > 0) return t.category;
+  const primary = t.personal_finance_category?.primary;
+  if (primary) {
+    const mapped = PFC_PRIMARY_MAP[primary] ?? "Other";
+    return [mapped];
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -91,6 +123,7 @@ async function syncOne(admin: any, itemRowId: string, userId: string, accessToke
         secret: Deno.env.get('PLAID_SECRET'),
         access_token: accessToken,
         cursor: nextCursor ?? undefined,
+        options: { include_personal_finance_category: true },
       }),
     });
     const data = await res.json();
@@ -109,7 +142,7 @@ async function syncOne(admin: any, itemRowId: string, userId: string, accessToke
         authorized_date: t.authorized_date,
         name: t.name,
         merchant_name: t.merchant_name,
-        category: t.category,
+        category: resolveCategory(t),
         pending: t.pending,
         payment_channel: t.payment_channel,
       }));

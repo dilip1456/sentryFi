@@ -9,7 +9,6 @@ import { UpcomingTransactions } from "@/components/finance/UpcomingTransactions"
 import { SpendingSection } from "@/components/finance/SpendingSection";
 import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
 import { BenefitsSection } from "@/components/finance/BenefitsSection";
-import { DealsSection } from "@/components/finance/DealsSection";
 import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
@@ -23,18 +22,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
-  RefreshCw, Plus, Gift,
+  RefreshCw, Plus, Gift, Wallet,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "deals" | "spending" | "giftcards" | "admin";
-
-// "deals" is intentionally left out of BASE_TABS — it has no live-data implementation
-// yet (LivePlaidDashboard only handles "overall" | "monthly" | "spending" | "benefits"),
-// so it's hidden until that's built rather than shown broken.
+type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
   { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
-  { k: "spending",  label: "Spending & Budget",   icon: PieChart,        sub: "Budgets & transactions" },
+  { k: "spending",  label: "Spending",           icon: PieChart,        sub: "Transactions & breakdowns" },
+  { k: "budget",    label: "Budget",             icon: Wallet,          sub: "Monthly limits by category" },
   { k: "monthly",   label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
   { k: "benefits",  label: "Benefits",            icon: Sparkles,        sub: "Card perks & refinancing" },
   { k: "giftcards", label: "Gift Cards",          icon: Gift,            sub: "Track balances across brands" },
@@ -79,11 +75,11 @@ const Index = () => {
   //  - demo off + hasItems → show live Plaid dashboard
   //  - demo off + no items → show empty/onboarding state
   // Admin tab is always available to admins regardless.
-  const showLive = !demo && hasItems === true && view !== "admin";
-  const showEmpty = !demo && hasItems === false && view !== "admin";
+  const showLive = !demo && hasItems === true && view !== "admin" && view !== "giftcards";
+  const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
       <TopBar
         active={view}
         onChange={(v) => { setView(v as View); setSelectedCategory(null); }}
@@ -94,7 +90,7 @@ const Index = () => {
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
 
-      <main className="w-full px-4 md:px-8 py-5 md:py-6 space-y-4">
+      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">
@@ -113,31 +109,6 @@ const Index = () => {
               <Plus className="h-3 w-3" />
               Link account
             </button>
-          </div>
-        )}
-
-        {/* Mobile chip switcher — always visible on small screens when there's content to navigate */}
-        {hasItems !== null && (
-          <div className="md:hidden -mx-4 px-4 overflow-x-auto">
-            <div className="inline-flex p-1 rounded-full border border-border bg-surface/60 min-w-max">
-              {TABS.map((t) => {
-                const Icon = t.icon;
-                const active = view === t.k;
-                return (
-                  <button
-                    key={t.k}
-                    onClick={() => { setView(t.k); setSelectedCategory(null); }}
-                    className={cn(
-                      "px-3 py-1.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 transition-all whitespace-nowrap",
-                      active ? "bg-foreground text-background" : "text-muted-foreground"
-                    )}
-                  >
-                    <Icon className="h-3 w-3" />
-                    {t.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         )}
 
@@ -189,8 +160,12 @@ const Index = () => {
         )}
 
         {demo && view === "benefits" && <BenefitsSection />}
-        {demo && view === "deals" && <DealsSection />}
         {demo && view === "spending" && <SpendingSection />}
+        {demo && view === "budget" && (
+          <div className="surface-card p-8 text-center text-[13px] text-muted-foreground">
+            Budget tracking uses your real transaction data — switch out of demo mode to set it up.
+          </div>
+        )}
         {view === "giftcards" && <GiftCardsSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
 
@@ -200,6 +175,34 @@ const Index = () => {
           </footer>
         )}
       </main>
+
+      {/* Mobile bottom tab bar — replaces top chip switcher on small screens */}
+      {hasItems !== null && (
+        <nav
+          className="md:hidden shrink-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <div className="flex items-stretch overflow-x-auto">
+            {TABS.map((t) => {
+              const Icon = t.icon;
+              const active = view === t.k;
+              return (
+                <button
+                  key={t.k}
+                  onClick={() => { setView(t.k); setSelectedCategory(null); }}
+                  className={cn(
+                    "flex-1 min-w-[64px] flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[10px] font-medium transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  <Icon className={cn("h-5 w-5", active && "text-gold")} />
+                  <span className="truncate max-w-[72px]">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 };

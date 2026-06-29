@@ -190,7 +190,7 @@ const AccountRow = ({
 
 /* ---------------- bucket table ---------------- */
 const BucketTable = ({
-  bucket, items, expandedId, onToggle, defaultOpen = true,
+  bucket, items, expandedId, onToggle, defaultOpen = false,
 }: {
   bucket: Bucket;
   items: Account[];
