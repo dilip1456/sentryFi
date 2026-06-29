@@ -588,15 +588,18 @@ export const GiftCardsSection = () => {
 
 const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onOpenChange: (o: boolean) => void; onAdded: () => void }) => {
   const { user } = useAuth();
-  const [mode, setMode] = useState<"preset" | "custom">("preset");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<GiftCardBrand | null>(null);
 
-  const [lookupQuery, setLookupQuery] = useState("");
+  // Step 1: brand selection
+  const [step, setStep] = useState<"pick" | "details">("pick");
+  const [search, setSearch] = useState("");
   const [lookupResults, setLookupResults] = useState<BrandSuggestion[]>([]);
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [customPick, setCustomPick] = useState<BrandSuggestion | null>(null);
 
+  // The chosen brand — either a preset or a custom lookup result
+  type ChosenBrand = { name: string; domain: string | null; logo_url: string | null; balanceCheckUrl?: string | null; buyUrl?: string | null };
+  const [chosen, setChosen] = useState<ChosenBrand | null>(null);
+
+  // Step 2: card details
   const [balance, setBalance] = useState("");
   const [cardNumber, setCardNumber] = useState("");
   const [pin, setPin] = useState("");
@@ -607,53 +610,48 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
   const last4 = cardNumber.replace(/\D/g, "").slice(-4);
 
   const reset = () => {
-    setMode("preset"); setSearch(""); setSelected(null);
-    setLookupQuery(""); setLookupResults([]); setCustomPick(null);
+    setStep("pick"); setSearch(""); setLookupResults([]); setChosen(null);
     setBalance(""); setCardNumber(""); setPin(""); setExpiryDate(""); setNotes("");
   };
   useEffect(() => { if (!open) reset(); }, [open]);
 
-  const filtered = useMemo(() => {
+  const filteredPresets = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return GIFT_CARD_BRANDS;
     return GIFT_CARD_BRANDS.filter(b => b.name.toLowerCase().includes(q));
   }, [search]);
 
-  // Debounced "search any company" lookup — backs the Custom brand tab.
+  // Debounced company search — only runs when no preset matches search
   useEffect(() => {
-    if (mode !== "custom" || lookupQuery.trim().length < 2) { setLookupResults([]); return; }
+    const q = search.trim();
+    if (q.length < 2) { setLookupResults([]); return; }
     const controller = new AbortController();
     setLookupLoading(true);
     const t = setTimeout(async () => {
       try {
-        const results = await searchBrands(lookupQuery, controller.signal);
+        const results = await searchBrands(q, controller.signal);
         setLookupResults(results);
-      } catch {
-        // ignore — network hiccup or aborted, user can keep typing
-      } finally {
-        setLookupLoading(false);
-      }
-    }, 350);
+      } catch { /* ignore */ } finally { setLookupLoading(false); }
+    }, 400);
     return () => { clearTimeout(t); controller.abort(); };
-  }, [lookupQuery, mode]);
+  }, [search]);
 
-  const preview = mode === "preset"
-    ? selected
-      ? { brand_name: selected.name, domain: selected.domain, logo_url: null as string | null, balance: Number(balance) || 0, card_number_last4: last4 || null, expiry_date: expiryDate || null }
-      : null
-    : customPick
-      ? { brand_name: customPick.name, domain: customPick.domain, logo_url: customPick.logo, balance: Number(balance) || 0, card_number_last4: last4 || null, expiry_date: expiryDate || null }
-      : lookupQuery.trim()
-        ? { brand_name: lookupQuery.trim(), domain: null, logo_url: null as string | null, balance: Number(balance) || 0, card_number_last4: last4 || null, expiry_date: expiryDate || null }
-        : null;
-
-  const canSave = mode === "preset" ? !!selected && balance !== "" : (customPick || lookupQuery.trim() !== "") && balance !== "";
+  const selectBrand = (brand: ChosenBrand) => {
+    setChosen(brand);
+    setStep("details");
+  };
 
   const save = async () => {
-    if (!user || !canSave) return;
+    if (!user || !chosen || balance === "") return;
     setSaving(true);
     const bal = Number(balance) || 0;
-    const shared = {
+    const { error } = await supabase.from("gift_cards").insert({
+      user_id: user.id,
+      brand_name: chosen.name,
+      domain: chosen.domain ?? null,
+      logo_url: chosen.logo_url ?? null,
+      balance_check_url: chosen.balanceCheckUrl ?? (chosen.domain ? `https://${chosen.domain}` : null),
+      buy_url: chosen.buyUrl ?? null,
       balance: bal,
       initial_balance: bal,
       card_number: cardNumber.replace(/\s/g, "") || null,
@@ -661,179 +659,183 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
       pin: pin || null,
       expiry_date: expiryDate || null,
       notes: notes.trim() || null,
-    };
-    const payload = mode === "preset" && selected
-      ? {
-          user_id: user.id,
-          brand_name: selected.name,
-          domain: selected.domain,
-          logo_url: null,
-          balance_check_url: selected.balanceCheckUrl,
-          buy_url: selected.buyUrl,
-          ...shared,
-        }
-      : {
-          user_id: user.id,
-          brand_name: customPick ? customPick.name : lookupQuery.trim(),
-          domain: customPick?.domain ?? null,
-          logo_url: customPick?.logo ?? null,
-          balance_check_url: customPick ? `https://${customPick.domain}` : null,
-          buy_url: null,
-          ...shared,
-        };
-    const { error } = await supabase.from("gift_cards").insert(payload);
+    });
     setSaving(false);
     if (error) { toast.error("Couldn't add gift card", { description: error.message }); return; }
-    toast.success(`${payload.brand_name} gift card added`);
+    toast.success(`${chosen.name} gift card added`);
     onOpenChange(false);
     onAdded();
   };
 
+  const preview = chosen
+    ? { brand_name: chosen.name, domain: chosen.domain, logo_url: chosen.logo_url, balance: Number(balance) || 0, card_number_last4: last4 || null, expiry_date: expiryDate || null }
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col">
         <DialogTitle className="sr-only">Add a gift card</DialogTitle>
-        <DialogDescription className="sr-only">Track the balance of a gift card from a preset brand or a custom one.</DialogDescription>
+        <DialogDescription className="sr-only">Choose a brand, then enter the card details.</DialogDescription>
 
-        <div className="px-5 pt-5 pb-4 border-b border-border/40 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-lg bg-gold grid place-items-center shrink-0">
-              <Gift className="h-4 w-4" />
-            </div>
-            <div className="font-display text-lg text-foreground">Add a gift card</div>
-          </div>
-          <div className="mt-3 inline-flex p-1 rounded-full border border-border bg-surface/60">
-            <button onClick={() => setMode("preset")}
-              className={cn("px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors", mode === "preset" ? "bg-foreground text-background" : "text-muted-foreground")}>
-              Choose a brand
+        {/* Header with back button on step 2 */}
+        <div className="px-4 pt-4 pb-3 border-b border-border/40 shrink-0 flex items-center gap-2">
+          {step === "details" && (
+            <button onClick={() => setStep("pick")}
+              className="h-8 w-8 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0 no-min-h">
+              <ChevronLeft className="h-4 w-4" />
             </button>
-            <button onClick={() => setMode("custom")}
-              className={cn("px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors", mode === "custom" ? "bg-foreground text-background" : "text-muted-foreground")}>
-              Search any company
-            </button>
+          )}
+          <div className="flex items-center gap-2.5 min-w-0">
+            {step === "details" && chosen ? (
+              <>
+                <BrandLogo domain={chosen.domain} logoUrl={chosen.logo_url} name={chosen.name} size={32} />
+                <div className="min-w-0">
+                  <div className="font-display text-[15px] text-foreground truncate">{chosen.name}</div>
+                  <div className="text-[11px] text-muted-foreground">Enter card details</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="h-8 w-8 rounded-lg bg-gold grid place-items-center shrink-0">
+                  <Gift className="h-4 w-4" />
+                </div>
+                <div className="font-display text-[15px] text-foreground">Add a gift card</div>
+              </>
+            )}
           </div>
+          <button onClick={() => onOpenChange(false)} className="ml-auto h-8 w-8 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4 flex-1 overflow-y-auto min-h-0">
-          {preview && (
-            <div className="max-w-[260px]">
-              <GiftCardTile card={preview} />
-            </div>
-          )}
-
-          {mode === "preset" ? (
-            <>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
-                <input
-                  value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search brands…"
-                  className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-foreground/40"
-                />
-              </div>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-                {filtered.map(b => (
-                  <button key={b.name} onClick={() => setSelected(b)}
-                    className={cn(
-                      "flex flex-col items-center gap-1.5 p-2.5 rounded-lg border transition-colors text-center",
-                      selected?.name === b.name ? "border-primary bg-primary/10" : "border-border/40 hover:border-border-strong"
-                    )}>
-                    <BrandLogo domain={b.domain} name={b.name} size={32} />
-                    <span className="text-[10px] text-foreground leading-tight line-clamp-2">{b.name}</span>
-                  </button>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="col-span-full text-center text-[12px] text-muted-foreground py-6">
-                    No matches — try "Search any company" instead.
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
-                <input
-                  value={lookupQuery}
-                  onChange={e => { setLookupQuery(e.target.value); setCustomPick(null); }}
-                  placeholder="Type a company name…"
-                  className="w-full h-9 pl-9 pr-9 rounded-lg bg-surface/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-foreground/40"
-                />
-                {lookupLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground/50" />}
-              </div>
-              {lookupResults.length > 0 && !customPick && (
-                <div className="rounded-lg border border-border/40 divide-y divide-border/20 overflow-hidden">
-                  {lookupResults.map(r => (
-                    <button key={r.domain} onClick={() => { setCustomPick(r); setLookupQuery(r.name); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-surface-hover/40 transition-colors text-left">
-                      <BrandLogo domain={r.domain} logoUrl={r.logo} name={r.name} size={28} />
-                      <div className="min-w-0">
-                        <div className="text-[12.5px] text-foreground truncate">{r.name}</div>
-                        <div className="text-[10px] text-muted-foreground truncate">{r.domain}</div>
-                      </div>
+        {/* Step 1: Brand picker */}
+        {step === "pick" && (
+          <div className="flex flex-col flex-1 overflow-hidden min-h-0">
+            {/* Brand grid — takes all available space, scrollable */}
+            <div className="flex-1 overflow-y-auto px-4 pt-3 min-h-0">
+              {filteredPresets.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2 pb-3">
+                  {filteredPresets.map(b => (
+                    <button key={b.name} onClick={() => selectBrand({ name: b.name, domain: b.domain, logo_url: null, balanceCheckUrl: b.balanceCheckUrl, buyUrl: b.buyUrl })}
+                      className="flex flex-col items-center gap-2 p-3 rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 active:scale-95 transition-all">
+                      <BrandLogo domain={b.domain} name={b.name} size={36} />
+                      <span className="text-[11px] text-foreground leading-tight text-center line-clamp-2">{b.name}</span>
                     </button>
                   ))}
                 </div>
-              )}
-              {customPick && (
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-positive" /> Found {customPick.name} ({customPick.domain})
-                  <button onClick={() => { setCustomPick(null); setLookupResults([]); }} className="ml-auto text-muted-foreground/60 hover:text-foreground underline">change</button>
+              ) : (
+                /* No preset matches — show company search results inline */
+                <div className="py-2 space-y-1 pb-3">
+                  {lookupLoading && (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  {!lookupLoading && lookupResults.length > 0 && lookupResults.map(r => (
+                    <button key={r.domain} onClick={() => selectBrand({ name: r.name, domain: r.domain, logo_url: r.logo })}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-colors text-left">
+                      <BrandLogo domain={r.domain} logoUrl={r.logo} name={r.name} size={36} />
+                      <div className="min-w-0">
+                        <div className="text-[13px] text-foreground font-medium truncate">{r.name}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{r.domain}</div>
+                      </div>
+                    </button>
+                  ))}
+                  {!lookupLoading && search.trim().length >= 2 && lookupResults.length === 0 && (
+                    <button onClick={() => selectBrand({ name: search.trim(), domain: null, logo_url: null })}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-border/40 border-dashed hover:border-primary/50 hover:bg-primary/5 transition-colors text-left">
+                      <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                        <Plus className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <div className="text-[13px] text-foreground font-medium">Add "{search.trim()}"</div>
+                        <div className="text-[11px] text-muted-foreground">Save without a logo</div>
+                      </div>
+                    </button>
+                  )}
                 </div>
               )}
-              {!customPick && lookupQuery.trim() !== "" && !lookupLoading && lookupResults.length === 0 && (
-                <div className="text-[11px] text-muted-foreground">
-                  No match found — we'll save it as "{lookupQuery.trim()}" without a logo. You can add one later from Edit.
+            </div>
+
+            {/* Search bar — pinned at the bottom */}
+            <div className="shrink-0 px-4 pb-4 pt-2 border-t border-border/30 bg-background/80 backdrop-blur">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                <input
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search brands or any company…"
+                  className="w-full h-11 pl-10 pr-10 rounded-xl bg-surface/60 border border-border/60 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors"
+                />
+                {search && (
+                  <button onClick={() => { setSearch(""); setLookupResults([]); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center text-muted-foreground hover:text-foreground no-min-h">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {lookupLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground/50" />}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Card details */}
+        {step === "details" && (
+          <>
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0">
+              {/* Live card preview */}
+              {preview && (
+                <div className="max-w-[260px] mx-auto">
+                  <GiftCardTile card={preview} />
                 </div>
               )}
-            </>
-          )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Current balance</label>
-              <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)} placeholder="0.00"
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Expiry date (optional)</label>
-              <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
-            </div>
-          </div>
+              {/* Balance — required, prominent */}
+              <div>
+                <label className="text-[12px] font-medium text-foreground">Current balance *</label>
+                <div className="relative mt-1.5">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[15px]">$</span>
+                  <input
+                    type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
+                    placeholder="0.00" autoFocus
+                    className="w-full h-12 pl-7 pr-3 bg-surface/40 border border-border/60 rounded-xl text-[16px] text-foreground outline-none focus:border-primary/50 transition-colors"
+                  />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Card number (optional)</label>
-              <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="e.g. 6006 1234 5678 9012"
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">PIN (optional)</label>
-              <input value={pin} onChange={e => setPin(e.target.value)} placeholder="e.g. 1234"
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[12px] font-medium text-foreground">Card number</label>
+                  <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Optional"
+                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                </div>
+                <div>
+                  <label className="text-[12px] font-medium text-foreground">PIN</label>
+                  <input value={pin} onChange={e => setPin(e.target.value)} placeholder="Optional"
+                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                </div>
+              </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Notes (optional)</label>
-            <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Birthday gift from mom"
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
-          </div>
+              <div>
+                <label className="text-[12px] font-medium text-foreground">Expiry date</label>
+                <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
+                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+              </div>
 
-          {mode === "preset" && selected && (
-            <div className="rounded-md bg-secondary/30 border border-border/40 px-3 py-2 text-[11px] text-muted-foreground">
-              We can't read balances directly from {selected.name}'s site (it's protected against automated access). After saving, use "Check balance on {selected.name}" to verify it there, and "Log spend" each time you use the card to keep the balance here up to date.
+              <div>
+                <label className="text-[12px] font-medium text-foreground">Notes</label>
+                <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Birthday gift from mom"
+                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+              </div>
             </div>
-          )}
-        </div>
 
-        <div className="p-4 border-t border-border/40 shrink-0">
-          <button onClick={save} disabled={!canSave || saving}
-            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50">
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Plus className="h-4 w-4" /> Add gift card</>}
-          </button>
-        </div>
+            <div className="p-4 border-t border-border/40 shrink-0">
+              <button onClick={save} disabled={balance === "" || saving}
+                className="w-full h-12 rounded-xl bg-gold text-[14px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Plus className="h-4 w-4" /> Add {chosen?.name ?? "gift card"}</>}
+              </button>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
