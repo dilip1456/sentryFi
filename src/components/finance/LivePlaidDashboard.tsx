@@ -3609,7 +3609,7 @@ export const LivePlaidDashboard = ({
       {/* Header + period nav + manage */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h2 className="font-display text-xl text-primary">Spending & Budget</h2>
+          <h2 className="font-display text-xl text-primary">Spending</h2>
           <div className="text-[11px] text-muted-foreground mt-0.5">{getPeriodLabel(spendingPeriod)}</div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -3644,11 +3644,8 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
-      {/* ── Two-column page: left = spending insights + transactions, right = budget ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-3 items-start">
-
-      {/* ══ LEFT COLUMN (xl:3) ══ */}
-      <div className="xl:col-span-3 space-y-3">
+      {/* ── Spending — transaction lookup by category ── */}
+      <div className="space-y-3">
 
       {/* Compact insights strip — one row, no padding-heavy cards */}
       <div className="surface-card overflow-hidden">
@@ -4005,129 +4002,7 @@ export const LivePlaidDashboard = ({
         </div>
 
       </div>
-      {/* ══ END LEFT COLUMN ══ */}
-
-      {/* ══ RIGHT COLUMN (xl:2) — Income + Spending Budget + Summary ══ */}
-      <div className="xl:col-span-2 space-y-3">
-      {(() => {
-        const periodIncomeTxns = spendingPeriodTxns.filter(t => !internalTxnIds.has(t.id) && Number(t.amount) < 0);
-        const totalIncome = periodIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-        const incomeByCat: Record<string,{total:number;count:number}> = {};
-        for (const t of periodIncomeTxns) {
-          const cat = getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other income";
-          if (!incomeByCat[cat]) incomeByCat[cat] = {total:0,count:0};
-          incomeByCat[cat].total += Math.abs(Number(t.amount));
-          incomeByCat[cat].count += 1;
-        }
-        const incomeSources = Object.entries(incomeByCat).map(([category,v])=>({category,...v})).sort((a,b)=>b.total-a.total);
-
-        const budgetedCats = spendingPeriodByCategory.filter(c=>!!budgets[c.category]);
-        const otherCats = spendingPeriodByCategory.filter(c=>!budgets[c.category]);
-        const totalBudgetAllocated = budgetedCats.reduce((s,c)=>s+(budgets[c.category]??0),0);
-        const totalBudgetedSpend = budgetedCats.reduce((s,c)=>s+c.total,0);
-        const totalOtherSpend = otherCats.reduce((s,c)=>s+c.total,0);
-        const overCount = budgetedCats.filter(c=>c.total>budgets[c.category]).length;
-        const remainingToBudget = totalIncome - totalBudgetAllocated;
-        const actualRemaining = totalIncome - spendingPeriodTotal;
-
-        return (
-        <>
-          {/* ── Income ── */}
-          <div className="surface-card overflow-hidden">
-            <button onClick={()=>setIncomeExpanded(v=>!v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/30 transition-colors">
-              <div className="flex items-center gap-2">
-                <h3 className="font-display text-[13px] text-primary">Income</h3>
-                <span className="text-[10px] text-muted-foreground">{incomeSources.length} source{incomeSources.length!==1?"s":""}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[13px] tabular font-semibold text-positive">+{fmtUSD(totalIncome)}</span>
-                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", incomeExpanded && "rotate-180")} />
-              </div>
-            </button>
-            {incomeExpanded && (
-              incomeSources.length === 0 ? (
-                <div className="px-4 py-4 text-center text-[11.5px] text-muted-foreground border-t border-border/20">No income detected this period.</div>
-              ) : (
-                <div className="divide-y divide-border/20 border-t border-border/20 max-h-[220px] overflow-y-auto">
-                  {incomeSources.map(s=>{
-                    const Icon=categoryIcon(s.category); const color=catColor(s.category);
-                    return (
-                      <div key={s.category} className="flex items-center gap-2.5 px-3.5 py-2">
-                        <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
-                          <Icon className="h-3 w-3" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[11.5px] text-foreground font-medium truncate">{formatCat(s.category)}</div>
-                          <div className="text-[9.5px] text-muted-foreground">{s.count} txn{s.count!==1?"s":""}</div>
-                        </div>
-                        <span className="text-[12px] tabular font-semibold text-positive shrink-0">+{fmtUSD(s.total)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            )}
-          </div>
-
-          {/* ── Budget reference (read-only) — full editing now lives in the Budget tab ── */}
-          {totalBudgetAllocated > 0 && (
-            <div className="surface-card overflow-hidden">
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div>
-                  <h3 className="font-display text-[13px] text-primary">Budget this month</h3>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">{budgetedCats.length} categories budgeted · edit in the Budget tab</div>
-                </div>
-                <div className="text-right">
-                  <div className={cn("text-[13px] tabular font-semibold", totalBudgetedSpend > totalBudgetAllocated ? "text-negative" : "text-foreground")}>
-                    {fmtUSD(totalBudgetedSpend)} <span className="text-muted-foreground font-normal text-[11px]">/ {fmtUSD(totalBudgetAllocated)}</span>
-                  </div>
-                  {overCount > 0 && <div className="text-[10px] text-negative font-medium">{overCount} over</div>}
-                </div>
-              </div>
-              <div className="h-1.5 mx-4 mb-3 rounded-full bg-border/40 overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{
-                  width:`${Math.min((totalBudgetedSpend/totalBudgetAllocated)*100,100)}%`,
-                  backgroundColor: totalBudgetedSpend > totalBudgetAllocated ? "hsl(var(--negative))" : totalBudgetedSpend/totalBudgetAllocated > 0.8 ? "hsl(var(--warning))" : "hsl(var(--positive))"
-                }}/>
-              </div>
-            </div>
-          )}
-
-          {/* ── Summary ── */}
-          <div className="surface-card overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
-              Summary · {getPeriodLabel(spendingPeriod)}
-            </div>
-            <div className="divide-y divide-border/15">
-              <div className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-[11.5px] text-muted-foreground">Total Income</span>
-                <span className="text-[12.5px] tabular font-semibold text-positive">+{fmtUSD(totalIncome)}</span>
-              </div>
-              <div className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-[11.5px] text-muted-foreground">Total Budgeted Expenses</span>
-                <span className="text-[12.5px] tabular font-semibold text-foreground">{fmtUSD(totalBudgetAllocated)}</span>
-              </div>
-              <div className="flex items-center justify-between px-4 py-2.5">
-                <span className="text-[11.5px] text-muted-foreground">Total Remaining Income</span>
-                <span className={cn("text-[12.5px] tabular font-semibold", remainingToBudget>=0?"text-foreground":"text-negative")}>
-                  {remainingToBudget>=0?"":"−"}{fmtUSD(Math.abs(remainingToBudget))}
-                </span>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3 bg-secondary/20">
-                <span className="text-[12px] font-medium text-foreground">{actualRemaining>=0?"Remaining this month":"Overflow this month"}</span>
-                <span className={cn("text-[15px] tabular font-bold", actualRemaining>=0?"text-positive":"text-negative")}>
-                  {actualRemaining>=0?"+":"−"}{fmtUSD(Math.abs(actualRemaining))}
-                </span>
-              </div>
-            </div>
-          </div>
-        </>
-        );
-      })()}
-      </div>
-
-      </div>
-      {/* ══ END two-column page ══ */}
+      {/* ══ END single-column page ══ */}
 
       {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
       <CategoryManager
@@ -4148,7 +4023,16 @@ export const LivePlaidDashboard = ({
   if (view === "budget") {
     const budgetPeriodState: PeriodState = { granularity: "month", offset: budgetMonthOffset };
     const budgetTxns = filterByPeriod(txns, budgetPeriodState).filter(t => !internalTxnIds.has(t.id));
-    const budgetIncomeTotal = budgetTxns.filter(t => Number(t.amount) < 0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+    const budgetIncomeTxns = budgetTxns.filter(t => Number(t.amount) < 0);
+    const budgetIncomeTotal = budgetIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+    const incomeByCat: Record<string,{total:number;count:number}> = {};
+    for (const t of budgetIncomeTxns) {
+      const cat = getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other income";
+      if (!incomeByCat[cat]) incomeByCat[cat] = { total: 0, count: 0 };
+      incomeByCat[cat].total += Math.abs(Number(t.amount));
+      incomeByCat[cat].count += 1;
+    }
+    const incomeSources = Object.entries(incomeByCat).map(([category,v])=>({category,...v})).sort((a,b)=>b.total-a.total);
 
     const catMap: Record<string,{total:number;count:number}> = {};
     for (const t of budgetTxns) {
@@ -4165,12 +4049,13 @@ export const LivePlaidDashboard = ({
       .filter(cat => !catMap[cat])
       .map(cat => ({ category: cat, total: 0, count: 0 }));
     const allBudgetedCats = [...budgetedCats, ...zeroSpendBudgeted].sort((a,b)=>(budgets[b.category]??0)-(budgets[a.category]??0));
-    const unbudgetedCats = allCats.filter(c => !budgets[c.category]);
+    const totalSpendAllCats = allCats.reduce((s,c)=>s+c.total,0);
 
     const totalAllocated = allBudgetedCats.reduce((s,c)=>s+(budgets[c.category]??0),0);
     const totalSpentOfBudgeted = allBudgetedCats.reduce((s,c)=>s+c.total,0);
     const overCount = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0)).length;
     const remainingToBudget = budgetIncomeTotal - totalAllocated;
+    const actualRemaining = budgetIncomeTotal - totalSpendAllCats;
     const overallPct = totalAllocated>0 ? (totalSpentOfBudgeted/totalAllocated)*100 : 0;
 
     const BudgetCard = ({ c }: { c: { category: string; total: number; count: number } }) => {
@@ -4272,8 +4157,13 @@ export const LivePlaidDashboard = ({
           </div>
         </div>
 
-        {/* Top summary strip */}
-        <div className="grid grid-cols-3 gap-2">
+        {/* Top summary strip — Income / Budgeted / Spent / Remaining */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="surface-card p-3.5">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Income</div>
+            <div className="font-display text-lg tabular text-positive mt-0.5">+{fmtUSD(budgetIncomeTotal)}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">{incomeSources.length} source{incomeSources.length!==1?"s":""}</div>
+          </div>
           <div className="surface-card p-3.5">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Budgeted</div>
             <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalAllocated)}</div>
@@ -4286,8 +4176,8 @@ export const LivePlaidDashboard = ({
           </div>
           <div className="surface-card p-3.5">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Remaining</div>
-            <div className={cn("font-display text-lg tabular mt-0.5", remainingToBudget>=0 ? "text-foreground" : "text-negative")}>{remainingToBudget>=0?"":"−"}{fmtUSD(Math.abs(remainingToBudget))}</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">of income to budget</div>
+            <div className={cn("font-display text-lg tabular mt-0.5", actualRemaining>=0 ? "text-foreground" : "text-negative")}>{actualRemaining>=0?"":"−"}{fmtUSD(Math.abs(actualRemaining))}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">after all spending</div>
           </div>
         </div>
 
@@ -4306,44 +4196,66 @@ export const LivePlaidDashboard = ({
           </div>
         )}
 
-        {/* Budgeted categories grid */}
-        {allBudgetedCats.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {allBudgetedCats.map(c => <BudgetCard key={c.category} c={c} />)}
-          </div>
-        ) : (
-          <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">
-            No budgets set yet — pick a category below to set a monthly limit.
+        {/* Income breakdown — collapsible, same pattern as before */}
+        {incomeSources.length > 0 && (
+          <div className="surface-card overflow-hidden">
+            <button onClick={()=>setIncomeExpanded(v=>!v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/30 transition-colors">
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-[13px] text-primary">Income sources</h3>
+              </div>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", incomeExpanded && "rotate-180")} />
+            </button>
+            {incomeExpanded && (
+              <div className="divide-y divide-border/20 border-t border-border/20 max-h-[220px] overflow-y-auto">
+                {incomeSources.map(s=>{
+                  const Icon=categoryIcon(s.category); const color=catColor(s.category);
+                  return (
+                    <div key={s.category} className="flex items-center gap-2.5 px-3.5 py-2">
+                      <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
+                        <Icon className="h-3 w-3" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11.5px] text-foreground font-medium truncate">{formatCat(s.category)}</div>
+                        <div className="text-[9.5px] text-muted-foreground">{s.count} txn{s.count!==1?"s":""}</div>
+                      </div>
+                      <span className="text-[12px] tabular font-semibold text-positive shrink-0">+{fmtUSD(s.total)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Unbudgeted categories — quick add */}
-        {unbudgetedCats.length > 0 && (
-          <div className="surface-card overflow-hidden">
-            <button onClick={()=>setOtherCatsExpanded(v=>!v)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-hover/30 transition-colors">
-              <div className="flex items-center gap-2">
-                <Coins className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[12.5px] font-medium text-foreground">Categories without a budget</span>
-                <span className="text-[10px] text-muted-foreground">({unbudgetedCats.length})</span>
+        {/* Two-column layout: all spending categories (left) vs budgeted categories (right) */}
+        {allCats.length === 0 ? (
+          <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">No spending this period.</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            {/* LEFT — all categories this month */}
+            <div className="surface-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border/20 flex items-center justify-between">
+                <h3 className="font-display text-[13px] text-primary">All categories this month</h3>
+                <span className="text-[10px] text-muted-foreground">{allCats.length} · {fmtUSD(totalSpendAllCats)}</span>
               </div>
-              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", otherCatsExpanded && "rotate-180")} />
-            </button>
-            {otherCatsExpanded && (
-              <div className="divide-y divide-border/15 border-t border-border/20">
-                {unbudgetedCats.map(c => {
+              <div className="divide-y divide-border/15 max-h-[520px] overflow-y-auto">
+                {allCats.map(c => {
                   const Icon = categoryIcon(c.category); const color = catColor(c.category);
+                  const budget = budgets[c.category];
                   const isEditing = editingBudgetCat === c.category;
+                  const sharePct = totalSpendAllCats>0 ? (c.total/totalSpendAllCats)*100 : 0;
                   return (
-                    <div key={c.category} className="flex items-center gap-2.5 px-4 py-2.5">
-                      <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}1f`, color }}>
+                    <div key={c.category} className="flex items-center gap-2.5 px-4 py-2.5 relative overflow-hidden">
+                      <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`,background:`${color}0a`}} />
+                      <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0 relative" style={{ backgroundColor: `${color}1f`, color }}>
                         <Icon className="h-3.5 w-3.5" />
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <button onClick={()=>onCategorySelect?.(selectedCategory===c.category?"":c.category)} className="flex-1 min-w-0 text-left relative">
                         <div className="text-[12px] text-foreground font-medium truncate">{formatCat(c.category)}</div>
-                        <div className="text-[10px] text-muted-foreground">{fmtUSD(c.total)} spent · {c.count} txn{c.count!==1?"s":""}</div>
-                      </div>
+                        <div className="text-[10px] text-muted-foreground">{fmtUSD(c.total)} · {c.count} txn{c.count!==1?"s":""}</div>
+                      </button>
                       {isEditing ? (
-                        <form className="flex items-center gap-1 shrink-0" onSubmit={e=>{
+                        <form className="flex items-center gap-1 shrink-0 relative" onSubmit={e=>{
                           e.preventDefault();
                           const n = parseFloat(budgetDraft);
                           if (!isNaN(n) && n>=0) setBudget(c.category, n);
@@ -4361,15 +4273,30 @@ export const LivePlaidDashboard = ({
                           </div>
                           <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium hover:opacity-90">Save</button>
                         </form>
+                      ) : budget ? (
+                        <span className="text-[10.5px] tabular text-muted-foreground shrink-0 relative">Budgeted {fmtUSD(budget)}</span>
                       ) : (
                         <button onClick={()=>{ setEditingBudgetCat(c.category); setBudgetDraft(""); }}
-                          className="text-[11px] font-medium text-[hsl(var(--primary))] hover:underline shrink-0">+ Set budget</button>
+                          className="text-[11px] font-medium text-[hsl(var(--primary))] hover:underline shrink-0 relative">+ Set budget</button>
                       )}
                     </div>
                   );
                 })}
               </div>
-            )}
+            </div>
+
+            {/* RIGHT — budgeted categories */}
+            <div>
+              {allBudgetedCats.length > 0 ? (
+                <div className="space-y-3">
+                  {allBudgetedCats.map(c => <BudgetCard key={c.category} c={c} />)}
+                </div>
+              ) : (
+                <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">
+                  No budgets set yet — pick "+ Set budget" on a category to the left.
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

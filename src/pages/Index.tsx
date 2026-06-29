@@ -19,10 +19,11 @@ import { accounts } from "@/lib/finance-data";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { supabase } from "@/integrations/supabase/client";
+import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
-  RefreshCw, Plus, Gift, Wallet,
+  RefreshCw, Plus, Gift, Wallet, Download, X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -55,6 +56,16 @@ const Index = () => {
   );
 
   const [hasItems, setHasItems] = useState<boolean | null>(null);
+  const [showAppBanner, setShowAppBanner] = useState(false);
+  useEffect(() => {
+    const isAndroidWeb = /Android/i.test(navigator.userAgent) && !isNative();
+    const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
+    setShowAppBanner(isAndroidWeb && !dismissed);
+  }, []);
+  const dismissAppBanner = () => {
+    localStorage.setItem("sentryfi_app_banner_dismissed", "1");
+    setShowAppBanner(false);
+  };
   const checkItems = useCallback(async () => {
     if (!user) { setHasItems(false); return; }
     const { count } = await supabase
@@ -89,6 +100,24 @@ const Index = () => {
         syncing={syncing}
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
+
+      {showAppBanner && (
+        <div className="shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-2 flex items-center gap-2.5">
+          <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
+          <span className="text-[12px] text-foreground flex-1 min-w-0">Get the SentryFi app for a faster, full-screen experience.</span>
+          <a
+            href="/downloads/SentryFi.apk"
+            download
+            className="text-[11.5px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0"
+          >
+            Download
+          </a>
+          <button onClick={dismissAppBanner} aria-label="Dismiss" className="h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
 
       <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}

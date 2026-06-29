@@ -319,6 +319,7 @@ export const GiftCardsSection = () => {
   const [editCard, setEditCard] = useState<GiftCardRow | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragX, setDragX] = useState(0);
   const draggingRef = useRef(false);
@@ -406,12 +407,26 @@ export const GiftCardsSection = () => {
             </div>
           )}
         </div>
-        <button
-          onClick={() => setAddOpen(true)}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity"
-        >
-          <Plus className="h-3.5 w-3.5" /> Add gift card
-        </button>
+        <div className="flex items-center gap-2">
+          {cards && cards.length > 0 && (
+            <div className="inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
+              <button onClick={() => setViewMode("cards")}
+                className={cn("px-2.5 h-7 rounded-[5px] text-[11.5px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                Cards
+              </button>
+              <button onClick={() => setViewMode("table")}
+                className={cn("px-2.5 h-7 rounded-[5px] text-[11.5px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                Table
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => setAddOpen(true)}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add gift card
+          </button>
+        </div>
       </div>
 
       {(expired.length > 0 || expiringSoon.length > 0) && (
@@ -448,127 +463,106 @@ export const GiftCardsSection = () => {
           </button>
         </div>
       ) : (
-        <>
-          {/* Compact table — full list at a glance, now shown first */}
-          <div className="surface-card overflow-hidden">
-            <div className="divide-y divide-border/20">
-              {sortedForTable.map(({ card, originalIndex: i }) => {
-                const status = expiryStatus(card.expiry_date);
-                return (
-                  <button key={card.id} onClick={() => { goTo(i); setDetailIndex(i); }}
-                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
-                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
-                    <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
-                    {status && (
-                      <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
-                        {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
-                      </span>
-                    )}
-                    <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Swipeable card stack */}
-          <div
-            className="relative h-44 sm:h-48 select-none"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerLeave={endDrag}
-            style={{ touchAction: "none" }}
-          >
-            {cards.map((card, i) => {
-              const offset = i - activeIndex;
-              if (Math.abs(offset) > 2) return null;
-              const isActive = offset === 0;
-              const liveDrag = isActive ? dragX : 0;
-              const translate = offset * 28 + liveDrag / 3;
-              const scale = 1 - Math.min(Math.abs(offset), 2) * 0.08;
-              const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.35;
-              return (
-                <div
-                  key={card.id}
-                  className="absolute inset-x-0 top-0 max-w-sm mx-auto cursor-grab active:cursor-grabbing"
-                  style={{
-                    transform: `translateX(${translate}%) scale(${scale})`,
-                    opacity,
-                    zIndex: 10 - Math.abs(offset),
-                    transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
-                    pointerEvents: isActive ? "auto" : "none",
-                  }}
-                  onClick={() => { if (isActive) setDetailIndex(i); else goTo(i); }}
-                >
-                  <GiftCardTile card={card}>
-                    <div className="relative flex items-center gap-1">
-                      {card.balance_verified ? (
-                        <span title="Verified on vendor site" className="text-positive"><CheckCircle2 className="h-3.5 w-3.5" /></span>
-                      ) : (
-                        <span title={`Estimated · updated ${new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`} className="text-white/60"><AlertCircle className="h-3.5 w-3.5" /></span>
+        <div className="overflow-x-hidden">
+          {viewMode === "table" ? (
+            /* Table view — capped height with its own scroll once the list gets long */
+            <div className="surface-card overflow-hidden">
+              <div className="divide-y divide-border/20 max-h-[420px] overflow-y-auto">
+                {sortedForTable.map(({ card, originalIndex: i }) => {
+                  const status = expiryStatus(card.expiry_date);
+                  return (
+                    <button key={card.id} onClick={() => { goTo(i); setDetailIndex(i); }}
+                      className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
+                      <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
+                      <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
+                      {status && (
+                        <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
+                          {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
+                        </span>
                       )}
-                      <button onClick={(e) => { e.stopPropagation(); removeCard(card.id); }} disabled={removingId === card.id}
-                        className="h-6 w-6 grid place-items-center rounded text-white/60 hover:text-white hover:bg-black/20 transition-colors shrink-0 disabled:opacity-40">
-                        {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                      </button>
+                      <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Swipeable card stack */}
+              <div
+                className="relative h-44 sm:h-48 select-none"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerLeave={endDrag}
+                style={{ touchAction: "none" }}
+              >
+                {cards.map((card, i) => {
+                  const offset = i - activeIndex;
+                  if (Math.abs(offset) > 2) return null;
+                  const isActive = offset === 0;
+                  const liveDrag = isActive ? dragX : 0;
+                  const translate = offset * 28 + liveDrag / 3;
+                  const scale = 1 - Math.min(Math.abs(offset), 2) * 0.08;
+                  const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.35;
+                  return (
+                    <div
+                      key={card.id}
+                      className="absolute inset-x-0 top-0 max-w-sm mx-auto cursor-grab active:cursor-grabbing"
+                      style={{
+                        transform: `translateX(${translate}%) scale(${scale})`,
+                        opacity,
+                        zIndex: 10 - Math.abs(offset),
+                        transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
+                        pointerEvents: isActive ? "auto" : "none",
+                      }}
+                      onClick={() => { if (isActive) setDetailIndex(i); else goTo(i); }}
+                    >
+                      <GiftCardTile card={card}>
+                        <div className="relative flex items-center gap-1">
+                          {card.balance_verified ? (
+                            <span title="Verified on vendor site" className="text-positive"><CheckCircle2 className="h-3.5 w-3.5" /></span>
+                          ) : (
+                            <span title={`Estimated · updated ${new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`} className="text-white/60"><AlertCircle className="h-3.5 w-3.5" /></span>
+                          )}
+                          <button onClick={(e) => { e.stopPropagation(); removeCard(card.id); }} disabled={removingId === card.id}
+                            className="h-6 w-6 grid place-items-center rounded text-white/60 hover:text-white hover:bg-black/20 transition-colors shrink-0 disabled:opacity-40">
+                            {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                          </button>
+                        </div>
+                      </GiftCardTile>
                     </div>
-                  </GiftCardTile>
+                  );
+                })}
+
+                {cards.length > 1 && (
+                  <>
+                    <button onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0}
+                      className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded-full bg-surface-elevated border border-border/60 text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors z-20">
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => goTo(activeIndex + 1)} disabled={activeIndex === cards.length - 1}
+                      className="absolute right-0 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded-full bg-surface-elevated border border-border/60 text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors z-20">
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Dot indicators */}
+              {cards.length > 1 && (
+                <div className="flex items-center justify-center gap-1.5 mt-3">
+                  {cards.map((c, i) => (
+                    <button key={c.id} onClick={() => goTo(i)} aria-label={`Go to ${c.brand_name}`}
+                      className={cn("h-1.5 rounded-full transition-all", i === activeIndex ? "w-5 bg-primary" : "w-1.5 bg-border-strong hover:bg-muted-foreground")} />
+                  ))}
                 </div>
-              );
-            })}
-
-            {cards.length > 1 && (
-              <>
-                <button onClick={() => goTo(activeIndex - 1)} disabled={activeIndex === 0}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded-full bg-surface-elevated border border-border/60 text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors z-20">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button onClick={() => goTo(activeIndex + 1)} disabled={activeIndex === cards.length - 1}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded-full bg-surface-elevated border border-border/60 text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors z-20">
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Dot indicators */}
-          {cards.length > 1 && (
-            <div className="flex items-center justify-center gap-1.5">
-              {cards.map((c, i) => (
-                <button key={c.id} onClick={() => goTo(i)} aria-label={`Go to ${c.brand_name}`}
-                  className={cn("h-1.5 rounded-full transition-all", i === activeIndex ? "w-5 bg-primary" : "w-1.5 bg-border-strong hover:bg-muted-foreground")} />
-              ))}
-            </div>
-          )}
-
-          {/* Actions for the active card */}
-          {cards[activeIndex] && (
-            <div className="grid grid-cols-2 gap-1.5 max-w-sm mx-auto">
-              <button onClick={() => setSpendCard(cards[activeIndex])}
-                className="inline-flex items-center justify-center gap-1.5 h-8 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                <MinusCircle className="h-3 w-3" /> Log spend
-              </button>
-              <button onClick={() => setEditCard(cards[activeIndex])}
-                className="inline-flex items-center justify-center gap-1.5 h-8 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                <Pencil className="h-3 w-3" /> Edit
-              </button>
-              {cards[activeIndex].card_number_last4 && (
-                <button onClick={() => copyToClipboard(cards[activeIndex].card_number ?? cards[activeIndex].card_number_last4!, "Card number")}
-                  className="inline-flex items-center justify-center gap-1.5 h-8 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                  <Copy className="h-3 w-3" /> Copy number
-                </button>
               )}
-              {cards[activeIndex].balance_check_url && (
-                <a href={cards[activeIndex].balance_check_url!} target="_blank" rel="noopener noreferrer"
-                  className={cn("inline-flex items-center justify-center gap-1.5 h-8 rounded-md bg-secondary/60 text-[11px] text-foreground hover:bg-secondary transition-colors",
-                    !cards[activeIndex].card_number_last4 && "col-span-2")}>
-                  <ExternalLink className="h-3 w-3" /> Check balance
-                </a>
-              )}
-            </div>
+
+              <div className="text-center text-[10.5px] text-muted-foreground mt-2">Tap a card for details, balance, and actions</div>
+            </>
           )}
-        </>
+        </div>
       )}
 
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />

@@ -1,0 +1,69 @@
+name: Build Android APK
+
+# Keeps public/downloads/SentryFi.apk in sync with main automatically.
+# Without this, the APK is a frozen snapshot from whenever someone last
+# built it locally -- it never reflects subsequent web/app fixes.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build web bundle
+        run: npm run build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Sync Capacitor Android project with latest web build
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Copy APK to public/downloads
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK produced — failing the build"
+            exit 1
+          fi
+          mkdir -p public/downloads
+          cp "$APK_PATH" public/downloads/SentryFi.apk
+
+      - name: Commit updated APK back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/downloads/SentryFi.apk
+          if git diff --cached --quiet; then
+            echo "APK unchanged, nothing to commit"
+          else
+            git commit -m "chore: auto-rebuild Android APK [skip ci]"
+            git push
+          fi
