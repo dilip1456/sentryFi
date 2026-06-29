@@ -586,6 +586,34 @@ export const GiftCardsSection = () => {
 
 /* ───────────────────────── Add dialog ───────────────────────── */
 
+/** Logo specifically for search-result dropdowns — uses Google favicon as primary
+ *  source (loads instantly, never blank) with the Clearbit/logo.dev logo as
+ *  a higher-res fallback once it resolves. Falls back to a colored letter avatar. */
+const SearchResultLogo = ({ name, domain, logo }: { name: string; domain: string; logo: string }) => {
+  const [src, setSrc] = useState<string>(faviconUrlForDomain(domain, 64));
+  const [tried, setTried] = useState(0);
+  const fallbacks = [logo, logoUrlForDomain(domain)];
+
+  const onError = () => {
+    const next = fallbacks[tried];
+    if (next) { setSrc(next); setTried(t => t + 1); }
+    else setSrc("__none__");
+  };
+
+  if (src === "__none__") {
+    return (
+      <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center text-gold font-display shrink-0"
+        style={{ fontSize: 15 }}>
+        {name.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt={`${name} logo`} onError={onError}
+      className="h-9 w-9 rounded-lg object-contain bg-white p-[8%] shrink-0 border border-border/30" />
+  );
+};
+
 const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onOpenChange: (o: boolean) => void; onAdded: () => void }) => {
   const { user } = useAuth();
 
@@ -734,7 +762,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                   {!lookupLoading && lookupResults.length > 0 && lookupResults.map(r => (
                     <button key={r.domain} onClick={() => selectBrand({ name: r.name, domain: r.domain, logo_url: r.logo })}
                       className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-colors text-left">
-                      <BrandLogo domain={r.domain} logoUrl={r.logo} name={r.name} size={36} />
+                      <SearchResultLogo name={r.name} domain={r.domain} logo={r.logo} />
                       <div className="min-w-0">
                         <div className="text-[13px] text-foreground font-medium truncate">{r.name}</div>
                         <div className="text-[11px] text-muted-foreground truncate">{r.domain}</div>

@@ -375,3 +375,96 @@ export const actionItems: ActionItem[] = [
   { id: "a4", priority: "soon",   title: "Refinance mortgage saves $188/mo", detail: "Better.com offers 5.85% vs your 6.75%. Breakeven in 22 months.",                          cta: "Review",       icon: Home },
   { id: "a5", priority: "info",   title: "Idle cash at 0.05% APY",           detail: "$6,200 in Wells Fargo Savings could earn $269/yr at Marcus.",                            cta: "Move funds",   icon: PiggyBank },
 ];
+
+/* =================================================================
+ * DEMO DATA — Plaid-shaped accounts and transactions for demo mode
+ * ================================================================= */
+export interface DemoPAccount {
+  id: string; account_id: string; name: string | null; official_name: string | null;
+  mask: string | null; type: string | null; subtype: string | null;
+  current_balance: number | null; available_balance: number | null; iso_currency_code: string | null;
+  item_id: string;
+}
+
+export const demoAccounts: DemoPAccount[] = [
+  { id: "da1", account_id: "da1", name: "Everyday Checking", official_name: "Chase Total Checking", mask: "4421", type: "depository", subtype: "checking", current_balance: 8420.55, available_balance: 8320.55, iso_currency_code: "USD", item_id: "di1" },
+  { id: "da2", account_id: "da2", name: "High-Yield Savings", official_name: "Marcus High-Yield Savings", mask: "1102", type: "depository", subtype: "savings", current_balance: 42800.00, available_balance: 42800.00, iso_currency_code: "USD", item_id: "di1" },
+  { id: "da3", account_id: "da3", name: "Emergency Fund", official_name: "Ally Online Savings", mask: "7745", type: "depository", subtype: "savings", current_balance: 18500.00, available_balance: 18500.00, iso_currency_code: "USD", item_id: "di2" },
+  { id: "da4", account_id: "da4", name: "Sapphire Reserve", official_name: "Chase Sapphire Reserve", mask: "9921", type: "credit", subtype: "credit card", current_balance: 2840.22, available_balance: 22159.78, iso_currency_code: "USD", item_id: "di1" },
+  { id: "da5", account_id: "da5", name: "Amex Gold", official_name: "American Express Gold Card", mask: "1004", type: "credit", subtype: "credit card", current_balance: 1120.40, available_balance: 13879.60, iso_currency_code: "USD", item_id: "di3" },
+  { id: "da6", account_id: "da6", name: "Brokerage", official_name: "Schwab One Brokerage", mask: "BRK1", type: "investment", subtype: "brokerage", current_balance: 38420.50, available_balance: null, iso_currency_code: "USD", item_id: "di2" },
+  { id: "da7", account_id: "da7", name: "401(k)", official_name: "Fidelity NetBenefits 401k", mask: "K401", type: "investment", subtype: "401k", current_balance: 184320.00, available_balance: null, iso_currency_code: "USD", item_id: "di2" },
+  { id: "da8", account_id: "da8", name: "Auto Loan", official_name: "Ally Auto Loan", mask: "AUTO", type: "loan", subtype: "auto", current_balance: 9200.00, available_balance: null, iso_currency_code: "USD", item_id: "di2" },
+];
+
+export const demoItems = [
+  { id: "di1", item_id: "plaid_item_chase", institution_id: "ins_3", institution_name: "Chase" },
+  { id: "di2", item_id: "plaid_item_ally", institution_id: "ins_7", institution_name: "Ally" },
+  { id: "di3", item_id: "plaid_item_amex", institution_id: "ins_10", institution_name: "American Express" },
+];
+
+// 60 demo transactions spread across the last 3 months
+const today = new Date();
+const d = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86400000).toISOString().slice(0, 10);
+export const demoTransactions = [
+  { id: "dt1",  account_id: "da4", amount: 86.42,  date: d(1),  name: "Whole Foods Market", merchant_name: "Whole Foods", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt2",  account_id: "da4", amount: 52.18,  date: d(1),  name: "Uber Eats", merchant_name: "Uber Eats", category: ["Food & Drink"], pending: false, payment_channel: "online" },
+  { id: "dt3",  account_id: "da1", amount: -5240.00, date: d(2), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt4",  account_id: "da5", amount: 34.50,  date: d(2),  name: "Starbucks", merchant_name: "Starbucks", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt5",  account_id: "da4", amount: 128.00, date: d(3),  name: "Con Edison", merchant_name: "Con Edison", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt6",  account_id: "da5", amount: 19.99,  date: d(3),  name: "Netflix", merchant_name: "Netflix", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt7",  account_id: "da4", amount: 67.80,  date: d(4),  name: "Shell", merchant_name: "Shell", category: ["Transportation"], pending: false, payment_channel: "in store" },
+  { id: "dt8",  account_id: "da4", amount: 214.30, date: d(5),  name: "Amazon.com", merchant_name: "Amazon", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dt9",  account_id: "da5", amount: 88.00,  date: d(5),  name: "Cheesecake Factory", merchant_name: "Cheesecake Factory", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt10", account_id: "da4", amount: 15.00,  date: d(6),  name: "Spotify", merchant_name: "Spotify", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt11", account_id: "da1", amount: 48.00,  date: d(7),  name: "Verizon Wireless", merchant_name: "Verizon", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt12", account_id: "da4", amount: 320.00, date: d(8),  name: "Best Buy", merchant_name: "Best Buy", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt13", account_id: "da5", amount: 22.50,  date: d(9),  name: "Chipotle", merchant_name: "Chipotle", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt14", account_id: "da1", amount: 2480.00, date: d(10), name: "Rocket Mortgage", merchant_name: "Rocket Mortgage", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt15", account_id: "da4", amount: 42.00,  date: d(11), name: "Uber", merchant_name: "Uber", category: ["Transportation"], pending: false, payment_channel: "online" },
+  { id: "dt16", account_id: "da4", amount: 156.00, date: d(12), name: "Trader Joe's", merchant_name: "Trader Joe's", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt17", account_id: "da5", amount: 89.99,  date: d(13), name: "Apple.com", merchant_name: "Apple", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dt18", account_id: "da4", amount: 14.99,  date: d(14), name: "Disney+", merchant_name: "Disney+", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt19", account_id: "da1", amount: -5240.00, date: d(16), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt20", account_id: "da4", amount: 62.14,  date: d(17), name: "CVS Pharmacy", merchant_name: "CVS", category: ["Healthcare"], pending: false, payment_channel: "in store" },
+  { id: "dt21", account_id: "da5", amount: 74.80,  date: d(18), name: "Olive Garden", merchant_name: "Olive Garden", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt22", account_id: "da4", amount: 180.00, date: d(19), name: "T-Mobile", merchant_name: "T-Mobile", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt23", account_id: "da4", amount: 56.20,  date: d(20), name: "Exxon", merchant_name: "Exxon", category: ["Transportation"], pending: false, payment_channel: "in store" },
+  { id: "dt24", account_id: "da5", amount: 124.00, date: d(21), name: "Target", merchant_name: "Target", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt25", account_id: "da1", amount: 415.00, date: d(22), name: "Ally Auto Loan", merchant_name: "Ally", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt26", account_id: "da4", amount: 45.00,  date: d(23), name: "Lyft", merchant_name: "Lyft", category: ["Transportation"], pending: false, payment_channel: "online" },
+  { id: "dt27", account_id: "da4", amount: 98.40,  date: d(24), name: "Wegmans", merchant_name: "Wegmans", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt28", account_id: "da5", amount: 13.99,  date: d(25), name: "Hulu", merchant_name: "Hulu", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt29", account_id: "da4", amount: 240.00, date: d(26), name: "Nordstrom", merchant_name: "Nordstrom", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt30", account_id: "da1", amount: -5240.00, date: d(30), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt31", account_id: "da4", amount: 32.00,  date: d(31), name: "DoorDash", merchant_name: "DoorDash", category: ["Food & Drink"], pending: false, payment_channel: "online" },
+  { id: "dt32", account_id: "da4", amount: 280.00, date: d(32), name: "Comcast", merchant_name: "Comcast", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt33", account_id: "da5", amount: 55.00,  date: d(33), name: "Panera Bread", merchant_name: "Panera", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt34", account_id: "da4", amount: 189.00, date: d(34), name: "Nike.com", merchant_name: "Nike", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dt35", account_id: "da4", amount: 77.30,  date: d(35), name: "BP", merchant_name: "BP", category: ["Transportation"], pending: false, payment_channel: "in store" },
+  { id: "dt36", account_id: "da5", amount: 42.50,  date: d(36), name: "Sephora", merchant_name: "Sephora", category: ["Personal Care"], pending: false, payment_channel: "in store" },
+  { id: "dt37", account_id: "da4", amount: 320.00, date: d(37), name: "Nelnet Student Loan", merchant_name: "Nelnet", category: ["Bills & Utilities"], pending: false, payment_channel: "online" },
+  { id: "dt38", account_id: "da1", amount: -420.00, date: d(38), name: "Freelance Payment - Client", merchant_name: null, category: ["Freelance Income"], pending: false, payment_channel: "other" },
+  { id: "dt39", account_id: "da4", amount: 68.00,  date: d(39), name: "The Home Depot", merchant_name: "Home Depot", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt40", account_id: "da5", amount: 110.00, date: d(40), name: "Chewy.com", merchant_name: "Chewy", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dt41", account_id: "da4", amount: 48.00,  date: d(45), name: "Planet Fitness", merchant_name: "Planet Fitness", category: ["Personal Care"], pending: false, payment_channel: "other" },
+  { id: "dt42", account_id: "da1", amount: -5240.00, date: d(46), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt43", account_id: "da4", amount: 92.00,  date: d(47), name: "Kroger", merchant_name: "Kroger", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt44", account_id: "da5", amount: 280.00, date: d(48), name: "United Airlines", merchant_name: "United", category: ["Travel"], pending: false, payment_channel: "online" },
+  { id: "dt45", account_id: "da4", amount: 160.00, date: d(50), name: "Hilton Hotels", merchant_name: "Hilton", category: ["Travel"], pending: false, payment_channel: "online" },
+  { id: "dt46", account_id: "da4", amount: 35.00,  date: d(52), name: "McDonald's", merchant_name: "McDonald's", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt47", account_id: "da5", amount: 95.40,  date: d(54), name: "Costco Wholesale", merchant_name: "Costco", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt48", account_id: "da4", amount: 420.00, date: d(56), name: "Amazon Prime", merchant_name: "Amazon", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dt49", account_id: "da1", amount: 85.00,  date: d(58), name: "Dr. Smith - Copay", merchant_name: null, category: ["Healthcare"], pending: false, payment_channel: "other" },
+  { id: "dt50", account_id: "da4", amount: 18.99,  date: d(60), name: "Apple TV+", merchant_name: "Apple", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt51", account_id: "da1", amount: -5240.00, date: d(62), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt52", account_id: "da4", amount: 46.00,  date: d(63), name: "Chick-fil-A", merchant_name: "Chick-fil-A", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dt53", account_id: "da5", amount: 230.00, date: d(65), name: "REI", merchant_name: "REI", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt54", account_id: "da4", amount: 72.00,  date: d(67), name: "Publix", merchant_name: "Publix", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  { id: "dt55", account_id: "da4", amount: 39.99,  date: d(69), name: "YouTube Premium", merchant_name: "Google", category: ["Entertainment"], pending: false, payment_channel: "online" },
+  { id: "dt56", account_id: "da1", amount: -200.00, date: d(70), name: "Interest & Dividends - Marcus", merchant_name: null, category: ["Interest & Dividends"], pending: false, payment_channel: "other" },
+  { id: "dt57", account_id: "da5", amount: 145.00, date: d(72), name: "Macy's", merchant_name: "Macy's", category: ["Shopping"], pending: false, payment_channel: "in store" },
+  { id: "dt58", account_id: "da4", amount: 68.40,  date: d(75), name: "Sunoco", merchant_name: "Sunoco", category: ["Transportation"], pending: false, payment_channel: "in store" },
+  { id: "dt59", account_id: "da1", amount: -5240.00, date: d(76), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
+  { id: "dt60", account_id: "da5", amount: 310.00, date: d(80), name: "Southwest Airlines", merchant_name: "Southwest", category: ["Travel"], pending: false, payment_channel: "online" },
+];
