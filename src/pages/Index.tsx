@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TopBar } from "@/components/finance/TopBar";
-import { NetWorthHeader } from "@/components/finance/NetWorthHeader";
-import { AccountsSection } from "@/components/finance/AccountsSection";
-import { PoolsSection } from "@/components/finance/PoolsSection";
-import { InsightsSection } from "@/components/finance/InsightsSection";
-import { ActionableItems } from "@/components/finance/ActionableItems";
-import { UpcomingTransactions } from "@/components/finance/UpcomingTransactions";
-import { SpendingSection } from "@/components/finance/SpendingSection";
-import { MonthlyMaintenance } from "@/components/finance/MonthlyMaintenance";
-import { BenefitsSection } from "@/components/finance/BenefitsSection";
-import { CollapsibleSection } from "@/components/finance/CollapsibleSection";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
-import { accounts } from "@/lib/finance-data";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -50,7 +39,6 @@ const Index = () => {
     setView("spending");
   };
   const { demo } = useDemo();
-  const TABS = useMemo(
     () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
     [isAdmin]
   );
@@ -84,15 +72,8 @@ const Index = () => {
   }, [user]);
   useEffect(() => { checkItems(); }, [checkItems]);
 
-  const assets = accounts.filter((a) => a.balance > 0).reduce((s, a) => s + a.balance, 0);
-  const liabilities = accounts.filter((a) => a.balance < 0).reduce((s, a) => s + a.balance, 0);
-  const netWorth = assets + liabilities;
-
-  // Routing:
-  //  - demo on → show demo dashboards (existing sections)
-  //  - demo off + hasItems → show live Plaid dashboard
-  //  - demo off + no items → show empty/onboarding state
-  // Admin tab is always available to admins regardless.
+  // Routing: demo uses LivePlaidDashboard with no real data (same UI, sample-less)
+  // Live: LivePlaidDashboard with real Plaid data
   const showLive = !demo && hasItems === true && view !== "admin" && view !== "giftcards";
   const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
 
@@ -133,14 +114,14 @@ const Index = () => {
             <button
               onClick={() => setSyncTrigger(t => t + 1)}
               disabled={syncing}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-border-strong text-muted-foreground text-[11px] disabled:opacity-50"
+              className="no-min-h inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border-strong text-muted-foreground text-[11px] disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
               {syncing ? "Syncing…" : "Sync"}
             </button>
             <button
               onClick={() => setLinkOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full bg-gold text-[11px] font-medium"
+              className="no-min-h inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gold text-[11px] font-medium"
             >
               <Plus className="h-3 w-3" />
               Link account
@@ -170,37 +151,15 @@ const Index = () => {
           />
         )}
 
-        {demo && view === "overall" && (
-          <div className="space-y-4 animate-fade-up">
-            <NetWorthHeader netWorth={netWorth} assets={assets} liabilities={liabilities} />
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <ActionableItems />
-              <InsightsSection compact />
-            </div>
-            <AccountsSection onAddAccount={() => setLinkOpen(true)} />
-          </div>
-        )}
-
-        {demo && view === "monthly" && (
-          <div className="space-y-4 animate-fade-up">
-            <UpcomingTransactions />
-            <MonthlyMaintenance />
-            <CollapsibleSection
-              title="Virtual savings pools"
-              subtitle="One HYSA, sliced into named buckets by payday rules."
-              defaultOpen={false}
-            >
-              <PoolsSection embedded />
-            </CollapsibleSection>
-          </div>
-        )}
-
-        {demo && view === "benefits" && <BenefitsSection />}
-        {demo && view === "spending" && <SpendingSection />}
-        {demo && view === "budget" && (
-          <div className="surface-card p-8 text-center text-[13px] text-muted-foreground">
-            Budget tracking uses your real transaction data — switch out of demo mode to set it up.
-          </div>
+        {demo && view !== "giftcards" && view !== "admin" && (
+          <LivePlaidDashboard
+            hasItems={false}
+            onAddAccount={() => setLinkOpen(true)}
+            view={view}
+            syncTrigger={0}
+            selectedCategory={selectedCategory}
+            onCategorySelect={handleCategorySelect}
+          />
         )}
         {view === "giftcards" && <GiftCardsSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
