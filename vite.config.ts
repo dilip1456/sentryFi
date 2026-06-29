@@ -11,6 +11,11 @@ export default defineConfig(() => ({
       overlay: false,
     },
   },
+  define: {
+    // Baked in at build time so every build (web or mobile) can show exactly when it was built —
+    // makes it obvious on-device whether you're running a stale APK or the latest one.
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [react()],
   resolve: {
     alias: {

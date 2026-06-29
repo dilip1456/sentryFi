@@ -96,9 +96,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
     <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/70 border-b border-border/60">
       <div className="w-full px-4 md:px-8 h-14 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 shrink-0">
-          <div className="h-8 w-8 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">
-            S
-          </div>
+          <img src="/logo.png" alt="SentryFi" className="h-8 w-8 rounded-lg" />
           <div className="font-display text-base tracking-tight text-foreground hidden sm:block">
             SentryFi <span className="text-muted-foreground font-normal">/ Finance</span>
           </div>

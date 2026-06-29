@@ -13,5 +13,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // Explicit (not left to the library default) so the native OAuth deep-link handler
+    // in AuthContext knows exactly which shape ("code" query param) to expect back.
+    flowType: 'pkce',
   }
 });

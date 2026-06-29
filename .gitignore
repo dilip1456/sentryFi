@@ -27,3 +27,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Android (Capacitor) build artifacts — keep the native project source, not build output
+android/.gradle
+android/build
+android/app/build
+android/capacitor-cordova-android-plugins/build
+android/local.properties
+
+# Misc build caches
+tsconfig.app.tsbuildinfo
+supabase/.temp
