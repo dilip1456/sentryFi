@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { GIFT_CARD_BRANDS, logoUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
+import { GIFT_CARD_BRANDS, logoUrlForDomain, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
 import {
   Gift, Plus, X, ExternalLink, ShoppingBag, Pencil, Trash2, Search,
@@ -38,9 +38,14 @@ const expiryStatus = (expiry?: string | null): "expired" | "soon" | null => {
 };
 
 const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | null; logoUrl?: string | null; name: string; size?: number }) => {
-  const [failed, setFailed] = useState(false);
-  const src = logoUrl ?? (domain ? logoUrlForDomain(domain) : null);
-  if (!src || failed) {
+  const [attempt, setAttempt] = useState(0);
+  const sources = [
+    logoUrl,
+    domain ? logoUrlForDomain(domain) : null,
+    domain ? faviconUrlForDomain(domain) : null,
+  ].filter(Boolean) as string[];
+  const src = sources[attempt];
+  if (!src) {
     return (
       <div
         className="rounded-lg bg-secondary/60 border border-border/50 grid place-items-center text-gold font-display shrink-0"
@@ -54,14 +59,45 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
     <img
       src={src}
       alt={`${name} logo`}
-      onError={() => setFailed(true)}
+      onError={() => setAttempt(a => a + 1)}
       className="rounded-lg border border-border/50 object-contain bg-white shrink-0"
       style={{ height: size, width: size }}
     />
   );
 };
 
-/** Renders an actual gift-card-shaped tile: brand-tinted gradient, logo, balance, masked number. */
+/** Large, faded brand mark used as a background watermark on the big card tile — falls back to a soft monogram if no image resolves. */
+const BrandWatermark = ({ domain, logoUrl, name }: { domain?: string | null; logoUrl?: string | null; name: string }) => {
+  const [attempt, setAttempt] = useState(0);
+  const sources = [
+    logoUrl,
+    domain ? logoUrlForDomain(domain) : null,
+    domain ? faviconUrlForDomain(domain) : null,
+  ].filter(Boolean) as string[];
+  const src = sources[attempt];
+  if (!src) {
+    return (
+      <div
+        aria-hidden
+        className="absolute -right-3 -bottom-7 text-white/10 font-display select-none pointer-events-none leading-none"
+        style={{ fontSize: 130 }}
+      >
+        {name.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      onError={() => setAttempt(a => a + 1)}
+      className="absolute -right-4 -bottom-4 h-28 w-28 object-contain opacity-15 pointer-events-none select-none rounded-2xl"
+    />
+  );
+};
+
+/** Renders an actual gift-card-shaped tile: brand-tinted gradient, watermark, magstripe accent, logo, balance, masked number. */
 const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?: string | null; logo_url?: string | null; balance: number; card_number_last4?: string | null; expiry_date?: string | null }; children?: React.ReactNode }) => {
   const status = expiryStatus(card.expiry_date);
   return (
@@ -70,6 +106,10 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
       style={{ background: brandGradient(card.brand_name) }}
     >
       <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle at 85% 15%, white, transparent 60%)" }} />
+      {/* Large faded brand watermark — makes the card visually identifiable at a glance, like a real branded gift card */}
+      <BrandWatermark domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} />
+      {/* Subtle magstripe-style accent near the top, evoking a physical card */}
+      <div className="absolute left-0 right-0 top-[3.1rem] h-2 bg-black/15" />
       <div className="relative flex items-start justify-between">
         <div className="h-10 w-10 rounded-lg bg-white grid place-items-center overflow-hidden shrink-0 shadow-sm">
           <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={40} />
@@ -98,6 +138,179 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   );
 };
 
+/** Click-to-view popup for a card — read-only quick view with shortcuts into edit/spend/remove.
+ *  Supports swiping left/right to browse other cards without closing the popup. */
+const CardDetailDialog = ({
+  cards, index, onIndexChange, onClose, onEdit, onLogSpend, onRemove, removingId,
+}: {
+  cards: GiftCardRow[]; index: number; onIndexChange: (i: number) => void;
+  onClose: () => void; onEdit: (card: GiftCardRow) => void; onLogSpend: (card: GiftCardRow) => void;
+  onRemove: (card: GiftCardRow) => void; removingId: string | null;
+}) => {
+  const [reveal, setReveal] = useState(false);
+  const [dragX, setDragX] = useState(0);
+  const draggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const widthRef = useRef(1);
+
+  const card = cards[index];
+  if (!card) return null;
+  const status = expiryStatus(card.expiry_date);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    widthRef.current = (e.currentTarget as HTMLElement).clientWidth || 1;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    e.preventDefault();
+    setDragX(e.clientX - startXRef.current);
+  };
+  const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    const threshold = widthRef.current * 0.18;
+    if (dragX < -threshold && index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); }
+    else if (dragX > threshold && index > 0) { onIndexChange(index - 1); setReveal(false); }
+    setDragX(0);
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
+        <DialogDescription className="sr-only">Full details for this gift card. Swipe to browse other cards.</DialogDescription>
+
+        <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
+          <X className="h-4 w-4" />
+        </button>
+        {cards.length > 1 && (
+          <>
+            <button onClick={() => { if (index > 0) { onIndexChange(index - 1); setReveal(false); } }} disabled={index === 0}
+              className="absolute left-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button onClick={() => { if (index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); } }} disabled={index === cards.length - 1}
+              className="absolute right-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </>
+        )}
+
+        {/* Swipeable card visual at top */}
+        <div
+          className="p-4 select-none"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerLeave={endDrag}
+          style={{
+            transform: `translateX(${dragX}px)`,
+            transition: draggingRef.current ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)",
+            cursor: cards.length > 1 ? "grab" : "default",
+            touchAction: "none",
+          }}
+        >
+          <GiftCardTile card={card} />
+        </div>
+        {cards.length > 1 && (
+          <div className="text-center text-[10.5px] text-muted-foreground -mt-1 mb-1">{index + 1} of {cards.length} · swipe to browse</div>
+        )}
+
+        <div className="px-5 pb-5 space-y-4">
+          {status && (
+            <div className={cn("flex items-center gap-1.5 text-[12px]", status === "expired" ? "text-negative" : "text-warning")}>
+              <Clock className="h-3.5 w-3.5" /> {status === "expired" ? "This card has expired" : `Expires in ${daysUntil(card.expiry_date!)} days`}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 text-[12px]">
+            {card.balance_verified ? (
+              <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            )}
+          </div>
+
+          {(card.card_number || card.card_number_last4 || card.pin) && (
+            <div className="surface-card p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</span>
+                <button onClick={() => setReveal(v => !v)} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                  {reveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
+                </button>
+              </div>
+              {(card.card_number || card.card_number_last4) && (
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">Number</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono tracking-wider text-foreground">
+                      {reveal ? (card.card_number ?? `•••• ${card.card_number_last4}`) : `•••• ${card.card_number_last4 ?? "????"}`}
+                    </span>
+                    {card.card_number && (
+                      <button onClick={() => copyToClipboard(card.card_number!, "Card number")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {card.pin && (
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-muted-foreground">PIN</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
+                    <button onClick={() => copyToClipboard(card.pin!, "PIN")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {card.notes && (
+            <div className="text-[12px] text-muted-foreground">
+              <span className="text-[10px] uppercase tracking-wider block mb-1">Notes</span>
+              {card.notes}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <button onClick={() => onLogSpend(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              <MinusCircle className="h-3.5 w-3.5" /> Log spend
+            </button>
+            <button onClick={() => onEdit(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </button>
+            {card.balance_check_url && (
+              <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                <ExternalLink className="h-3.5 w-3.5" /> Check balance
+              </a>
+            )}
+            {card.buy_url && (
+              <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                <ShoppingBag className="h-3.5 w-3.5" /> Buy more
+              </a>
+            )}
+          </div>
+
+          <button onClick={() => onRemove(card)} disabled={removingId === card.id}
+            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[12px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+            {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export const GiftCardsSection = () => {
   const { user } = useAuth();
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
@@ -105,6 +318,7 @@ export const GiftCardsSection = () => {
   const [spendCard, setSpendCard] = useState<GiftCardRow | null>(null);
   const [editCard, setEditCard] = useState<GiftCardRow | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragX, setDragX] = useState(0);
   const draggingRef = useRef(false);
@@ -132,6 +346,21 @@ export const GiftCardsSection = () => {
     [cards]
   );
 
+  // Table view sorted by soonest-expiring first; cards with no expiry date sort last.
+  // Keeps the original index so goTo()/detail popup still reference the right card.
+  const sortedForTable = useMemo(() => {
+    if (!cards) return [];
+    return cards
+      .map((card, originalIndex) => ({ card, originalIndex }))
+      .sort((a, b) => {
+        const ea = a.card.expiry_date, eb = b.card.expiry_date;
+        if (!ea && !eb) return 0;
+        if (!ea) return 1;
+        if (!eb) return -1;
+        return new Date(ea).getTime() - new Date(eb).getTime();
+      });
+  }, [cards]);
+
   useEffect(() => {
     if (!cards) return;
     setActiveIndex(i => Math.min(i, Math.max(0, cards.length - 1)));
@@ -148,8 +377,16 @@ export const GiftCardsSection = () => {
 
   const goTo = (i: number) => { if (!cards) return; setActiveIndex(Math.max(0, Math.min(cards.length - 1, i))); };
 
-  const onPointerDown = (e: React.PointerEvent) => { draggingRef.current = true; startXRef.current = e.clientX; };
-  const onPointerMove = (e: React.PointerEvent) => { if (draggingRef.current) setDragX(e.clientX - startXRef.current); };
+  const onPointerDown = (e: React.PointerEvent) => {
+    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    e.preventDefault();
+    setDragX(e.clientX - startXRef.current);
+  };
   const endDrag = () => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
@@ -212,13 +449,36 @@ export const GiftCardsSection = () => {
         </div>
       ) : (
         <>
+          {/* Compact table — full list at a glance, now shown first */}
+          <div className="surface-card overflow-hidden">
+            <div className="divide-y divide-border/20">
+              {sortedForTable.map(({ card, originalIndex: i }) => {
+                const status = expiryStatus(card.expiry_date);
+                return (
+                  <button key={card.id} onClick={() => { goTo(i); setDetailIndex(i); }}
+                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
+                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
+                    <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
+                    {status && (
+                      <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
+                        {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
+                      </span>
+                    )}
+                    <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Swipeable card stack */}
           <div
-            className="relative h-44 sm:h-48 select-none touch-pan-y"
+            className="relative h-44 sm:h-48 select-none"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
             onPointerLeave={endDrag}
+            style={{ touchAction: "none" }}
           >
             {cards.map((card, i) => {
               const offset = i - activeIndex;
@@ -239,7 +499,7 @@ export const GiftCardsSection = () => {
                     transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
                     pointerEvents: isActive ? "auto" : "none",
                   }}
-                  onClick={() => !isActive && goTo(i)}
+                  onClick={() => { if (isActive) setDetailIndex(i); else goTo(i); }}
                 >
                   <GiftCardTile card={card}>
                     <div className="relative flex items-center gap-1">
@@ -308,34 +568,24 @@ export const GiftCardsSection = () => {
               )}
             </div>
           )}
-
-          {/* Compact table — full list at a glance */}
-          <div className="surface-card overflow-hidden">
-            <div className="divide-y divide-border/20">
-              {cards.map((card, i) => {
-                const status = expiryStatus(card.expiry_date);
-                return (
-                  <button key={card.id} onClick={() => goTo(i)}
-                    className={cn("w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors", i === activeIndex ? "bg-surface-hover/50" : "hover:bg-surface-hover/30")}>
-                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={24} />
-                    <span className="text-[12px] text-foreground font-medium truncate flex-1 min-w-0">{card.brand_name}</span>
-                    {status && (
-                      <span className={cn("text-[9.5px] px-1.5 py-0.5 rounded-full font-medium shrink-0", status === "expired" ? "bg-negative/10 text-negative" : "bg-warning/10 text-warning")}>
-                        {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
-                      </span>
-                    )}
-                    <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(card.balance))}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </>
       )}
 
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
       {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} />}
       {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} />}
+      {detailIndex !== null && cards && cards[detailIndex] && (
+        <CardDetailDialog
+          cards={cards}
+          index={detailIndex}
+          onIndexChange={(i) => { setDetailIndex(i); goTo(i); }}
+          onClose={() => setDetailIndex(null)}
+          onEdit={(c) => { setEditCard(c); setDetailIndex(null); }}
+          onLogSpend={(c) => { setSpendCard(c); setDetailIndex(null); }}
+          onRemove={(c) => { removeCard(c.id); setDetailIndex(null); }}
+          removingId={removingId}
+        />
+      )}
     </section>
   );
 };

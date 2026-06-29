@@ -27,6 +27,13 @@ export const useCategoryOverrides = () => {
     persist(next);
   };
 
+  /** Apply many DIFFERENT categories at once (e.g. accepting a batch of AI suggestions).
+   *  Unlike calling setOverride in a loop, this merges everything in a single persist
+   *  call, so earlier entries can't get clobbered by a stale closure. */
+  const bulkSetOverrideMap = (map: Record<string, string>) => {
+    persist({ ...overrides, ...map });
+  };
+
   const removeOverride = (txnId: string) => {
     const next = { ...overrides };
     delete next[txnId];
@@ -47,5 +54,5 @@ export const useCategoryOverrides = () => {
     bulkSetOverride(txnIds, UNASSIGNED);
   };
 
-  return { overrides, setOverride, bulkSetOverride, removeOverride, reassignCategory, markUnassigned };
+  return { overrides, setOverride, bulkSetOverride, bulkSetOverrideMap, removeOverride, reassignCategory, markUnassigned };
 };

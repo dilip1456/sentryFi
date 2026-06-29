@@ -35,6 +35,7 @@ interface Props {
   getEffectiveCategory: (t: PTxn) => string | null;
   onSetOverride: (id: string, cat: string) => void;
   onBulkSetOverride: (ids: string[], cat: string) => void;
+  onBulkSetOverrideMap: (map: Record<string, string>) => void;
   onReassignCategory: (from: string, to?: string) => void;
   onSetBudget: (cat: string, limit: number) => void;
   onRemoveBudget: (cat: string) => void;
@@ -119,7 +120,7 @@ export const CategoryManager = ({
   open, onClose, txns, overrides, rules, budgets, customCategories,
   builtInExpense, builtInIncome,
   getEffectiveCategory,
-  onSetOverride, onBulkSetOverride, onReassignCategory,
+  onSetOverride, onBulkSetOverride, onBulkSetOverrideMap, onReassignCategory,
   onSetBudget, onRemoveBudget,
   onAddCategory, onRemoveCategory,
 }: Props) => {
@@ -210,9 +211,11 @@ export const CategoryManager = ({
   };
 
   const acceptAllSuggestions = () => {
-    const ids = Object.keys(aiSuggestions);
-    ids.forEach(id => onSetOverride(id, aiSuggestions[id].category));
-    toast.success(`Applied ${ids.length} AI suggestions`);
+    const map: Record<string, string> = {};
+    Object.entries(aiSuggestions).forEach(([id, s]) => { map[id] = s.category; });
+    const count = Object.keys(map).length;
+    onBulkSetOverrideMap(map);
+    toast.success(`Applied ${count} AI suggestions`);
     setAiSuggestions({});
   };
 

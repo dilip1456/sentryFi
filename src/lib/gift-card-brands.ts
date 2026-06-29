@@ -86,6 +86,10 @@ export const GIFT_CARD_BRANDS: GiftCardBrand[] = [
 export const logoUrlForDomain = (domain: string) =>
   `https://img.logo.dev/${domain}?size=80&fallback=404`;
 
+/** Google's favicon service — not a high-res logo, but extremely reliable/uptime-stable, used as a last-resort real image before falling back to a generated letter avatar. */
+export const faviconUrlForDomain = (domain: string, size = 128) =>
+  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${size}`;
+
 export const lookupBrandByDomain = (domain: string) =>
   GIFT_CARD_BRANDS.find(b => b.domain.toLowerCase() === domain.toLowerCase());
 

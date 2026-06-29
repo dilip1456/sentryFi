@@ -158,6 +158,9 @@
     font-family: 'Inter', system-ui, sans-serif;
     font-feature-settings: 'cv11', 'ss01', 'ss03';
     -webkit-font-smoothing: antialiased;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     background-image: var(--gradient-glow);
