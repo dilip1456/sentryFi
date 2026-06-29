@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="shieldTop" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%"   stop-color="#F2CC50"/>
+      <stop offset="50%"  stop-color="#D49010"/>
+      <stop offset="100%" stop-color="#A06400"/>
+    </linearGradient>
+    <linearGradient id="shieldSide" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#C8860A"/>
+      <stop offset="100%" stop-color="#E8A820"/>
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%"   stop-color="#FFFBEE"/>
+      <stop offset="100%" stop-color="#F5E090"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-8%" width="124%" height="128%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="innerShadow">
+      <feComposite in="SourceGraphic"/>
+    </filter>
+  </defs>
+
+  <!-- Main shield — clean gold, no dark overlay -->
+  <path d="M256 44 L68 116 L68 282 C68 374 154 448 256 482 C358 448 444 374 444 282 L444 116 Z"
+    fill="url(#shieldTop)" filter="url(#shadow)"/>
+
+  <!-- Top highlight rim -->
+  <path d="M256 44 L68 116 L68 124 L256 52 L444 124 L444 116 Z"
+    fill="#FDEEA0" fill-opacity="0.6"/>
+
+  <!-- Inner bevel line -->
+  <path d="M256 72 L96 136 L96 280 C96 360 170 426 256 458 C342 426 416 360 416 280 L416 136 Z"
+    fill="none" stroke="#FDEEA0" stroke-width="3" stroke-opacity="0.3"/>
+
+  <!-- Arrow mark — bright cream/white so it pops off the gold -->
+  <!-- Left leg -->
+  <path d="M170 348 L170 290 L226 200" fill="none" stroke="url(#arrowGrad)" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right leg -->
+  <path d="M342 348 L342 290 L286 200" fill="none" stroke="url(#arrowGrad)" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Arrow head triangle -->
+  <polygon points="256,138 310,220 202,220" fill="url(#arrowGrad)"/>
+
+  <!-- Small crossbar to make it read as a chart/arrow up -->
+  <rect x="196" y="286" width="120" height="38" rx="19" fill="url(#arrowGrad)"/>
+</svg>
