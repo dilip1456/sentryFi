@@ -23,7 +23,7 @@ import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
-  RefreshCw, Plus, Gift, Wallet, Download, X,
+  RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,6 +54,13 @@ const Index = () => {
     () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
     [isAdmin]
   );
+  // Bottom nav shows a focused set of primary tabs directly; everything else
+  // (Monthly, Benefits, Admin) lives behind "More" so it never needs to
+  // horizontally scroll on a phone-width screen.
+  const PRIMARY_KEYS: View[] = ["overall", "spending", "budget", "giftcards"];
+  const primaryTabs = TABS.filter(t => PRIMARY_KEYS.includes(t.k));
+  const overflowTabs = TABS.filter(t => !PRIMARY_KEYS.includes(t.k));
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const [hasItems, setHasItems] = useState<boolean | null>(null);
   const [showAppBanner, setShowAppBanner] = useState(false);
@@ -205,30 +212,75 @@ const Index = () => {
         )}
       </main>
 
-      {/* Mobile bottom tab bar — replaces top chip switcher on small screens */}
+      {/* Mobile bottom tab bar — fixed set of primary tabs, no horizontal scroll */}
       {hasItems !== null && (
         <nav
-          className="md:hidden shrink-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+          className="md:hidden shrink-0 relative border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-[0_-2px_12px_-4px_rgba(0,0,0,0.12)]"
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
-          <div className="flex items-stretch overflow-x-auto">
-            {TABS.map((t) => {
+          {moreOpen && (
+            <>
+              <button
+                aria-label="Close menu"
+                onClick={() => setMoreOpen(false)}
+                className="fixed inset-0 z-40 bg-black/20"
+              />
+              <div className="absolute bottom-full right-2 mb-2 z-50 w-48 rounded-xl border border-border bg-surface-elevated shadow-lg overflow-hidden">
+                {overflowTabs.map((t) => {
+                  const Icon = t.icon;
+                  const isActive = view === t.k;
+                  return (
+                    <button
+                      key={t.k}
+                      onClick={() => { setView(t.k); setSelectedCategory(null); setMoreOpen(false); }}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] transition-colors text-left",
+                        isActive ? "bg-secondary/60 text-foreground font-medium" : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          <div className="flex items-stretch">
+            {primaryTabs.map((t) => {
               const Icon = t.icon;
               const active = view === t.k;
               return (
                 <button
                   key={t.k}
-                  onClick={() => { setView(t.k); setSelectedCategory(null); }}
-                  className={cn(
-                    "flex-1 min-w-[64px] flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[10px] font-medium transition-colors",
-                    active ? "text-foreground" : "text-muted-foreground"
-                  )}
+                  onClick={() => { setView(t.k); setSelectedCategory(null); setMoreOpen(false); }}
+                  className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[10.5px] font-medium transition-colors"
                 >
-                  <Icon className={cn("h-5 w-5", active && "text-gold")} />
-                  <span className="truncate max-w-[72px]">{t.label}</span>
+                  <span className={cn(
+                    "h-7 w-10 rounded-full grid place-items-center transition-colors",
+                    active ? "bg-[hsl(var(--primary)/0.14)]" : ""
+                  )}>
+                    <Icon className={cn("h-[19px] w-[19px]", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
+                  </span>
+                  <span className={active ? "text-foreground" : "text-muted-foreground"}>{t.label}</span>
                 </button>
               );
             })}
+            {overflowTabs.length > 0 && (
+              <button
+                onClick={() => setMoreOpen(v => !v)}
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[10.5px] font-medium transition-colors"
+              >
+                <span className={cn(
+                  "h-7 w-10 rounded-full grid place-items-center transition-colors",
+                  moreOpen || overflowTabs.some(t => t.k === view) ? "bg-[hsl(var(--primary)/0.14)]" : ""
+                )}>
+                  <MoreHorizontal className={cn("h-[19px] w-[19px]", moreOpen || overflowTabs.some(t => t.k === view) ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
+                </span>
+                <span className={moreOpen || overflowTabs.some(t => t.k === view) ? "text-foreground" : "text-muted-foreground"}>More</span>
+              </button>
+            )}
           </div>
         </nav>
       )}
