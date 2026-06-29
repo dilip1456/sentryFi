@@ -98,7 +98,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
       {/* Mobile: 60px tall app bar with logo + title on left, sync + avatar on right */}
       <div className="md:hidden w-full px-4 h-[60px] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-xl" />
+          <img src="/logo.svg" alt="SentryFi" className="h-10 w-10 rounded-xl" />
           <div>
             <div className="font-display text-[16px] tracking-tight text-foreground leading-tight">SentryFi</div>
             <div className="text-[11px] text-muted-foreground leading-tight">Personal Finance</div>
@@ -187,7 +187,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
       {/* Desktop: original full-featured header */}
       <div className="hidden md:flex w-full px-8 h-14 items-center justify-between gap-3">
         <div className="flex items-center gap-3 shrink-0">
-          <img src="/logo.png" alt="SentryFi" className="h-8 w-8 rounded-lg" />
+          <img src="/logo.svg" alt="SentryFi" className="h-8 w-8 rounded-lg" />
           <div className="font-display text-base tracking-tight text-foreground">
             SentryFi <span className="text-muted-foreground font-normal">/ Finance</span>
           </div>
