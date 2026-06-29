@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
+import { App } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { isNative, OAUTH_REDIRECT_URL } from "@/lib/capacitor-oauth";
 
 interface Profile {
   display_name: string | null;
@@ -80,6 +84,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setLoading(false);
     });
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Native-only: Google sign-in finishes by deep-linking back into the app via the
+  // custom scheme registered in AndroidManifest.xml. Pull the auth code out of that
+  // URL and exchange it for a session (mirrors what Supabase's web redirect handler
+  // does automatically in a browser — there's no browser here to do it for us).
+  useEffect(() => {
+    if (!isNative()) return;
+    let handle: { remove: () => void } | undefined;
+    App.addListener("appUrlOpen", async ({ url }) => {
+      if (!url.startsWith(OAUTH_REDIRECT_URL)) return;
+      try {
+        // PKCE flow (what the client now explicitly requests): "...?code=xxx"
+        const queryPart = url.split("#")[0].split("?")[1] ?? "";
+        const code = new URLSearchParams(queryPart).get("code");
+        // Fallback in case Supabase ever hands back an implicit-flow style URL instead:
+        // "...#access_token=xxx&refresh_token=yyy"
+        const hashPart = url.split("#")[1] ?? "";
+        const hashParams = new URLSearchParams(hashPart);
+        const access_token = hashParams.get("access_token");
+        const refresh_token = hashParams.get("refresh_token");
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        } else if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (error) throw error;
+        } else {
+          throw new Error(`OAuth callback had neither a code nor tokens: ${url}`);
+        }
+      } catch (err) {
+        console.error("[auth] failed to complete native OAuth callback:", err);
+        toast.error("Google sign-in didn't complete", { description: err instanceof Error ? err.message : String(err) });
+      } finally {
+        Browser.close().catch(() => {});
+      }
+    }).then(h => { handle = h; });
+    return () => handle?.remove();
   }, []);
 
   const refresh = async () => { if (user) await loadExtras(user.id); };

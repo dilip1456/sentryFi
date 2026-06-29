@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { z } from "zod";
+import { App } from "@capacitor/app";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { signInWithGoogle, isNative } from "@/lib/capacitor-oauth";
+import { formatBuildTime } from "@/lib/app-version";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -27,6 +30,15 @@ const Auth = () => {
     const t = setTimeout(() => setShowSplash(false), 1100);
     return () => clearTimeout(t);
   }, []);
+  // Clear the "Signing in…" state whenever the app comes back to the foreground after the
+  // Google in-app browser closes — otherwise a failed sign-in leaves the button stuck spinning
+  // forever (the success path doesn't need this: it navigates away once `user` is set above).
+  useEffect(() => {
+    if (!isNative()) return;
+    let handle: { remove: () => void } | undefined;
+    App.addListener("appStateChange", ({ isActive }) => { if (isActive) setBusy(false); }).then(h => { handle = h; });
+    return () => handle?.remove();
+  }, []);
 
   if (loading) return <div className="min-h-screen grid place-items-center bg-background"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   if (user) return <Navigate to="/" replace />;
@@ -35,9 +47,10 @@ const Auth = () => {
     return (
       <div className="min-h-screen grid place-items-center bg-background cursor-pointer" onClick={() => setShowSplash(false)}>
         <div className="flex flex-col items-center gap-3 animate-pop-in">
-          <div className="h-16 w-16 rounded-2xl bg-foreground text-background grid place-items-center font-display text-3xl font-semibold shadow-[var(--shadow-elevated)]">S</div>
+          <img src="/logo.png" alt="SentryFi" className="h-16 w-16 rounded-2xl shadow-[var(--shadow-elevated)]" />
           <div className="font-display text-xl text-foreground">SentryFi</div>
           <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-2">Build {formatBuildTime()}</div>
         </div>
       </div>
     );
@@ -77,10 +90,7 @@ const Auth = () => {
 
   const google = async () => {
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
+    const { error } = await signInWithGoogle();
     if (error) { toast.error(error.message ?? "Google sign-in failed"); setBusy(false); }
   };
 
@@ -88,7 +98,7 @@ const Auth = () => {
     <div className="min-h-screen grid place-items-center bg-background px-4">
       <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60 animate-fade-up">
         <div className="flex items-center gap-2 mb-5">
-          <div className="h-9 w-9 rounded-lg bg-foreground text-background grid place-items-center font-display text-lg font-semibold">S</div>
+          <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
           <div>
             <div className="font-display text-base text-foreground">SentryFi</div>
             <div className="text-[11px] text-muted-foreground">Personal finance intelligence</div>
