@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TopBar } from "@/components/finance/TopBar";
 import { NetWorthHeader } from "@/components/finance/NetWorthHeader";
 import { AccountsSection } from "@/components/finance/AccountsSection";
@@ -22,14 +22,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
-  RefreshCw, Plus, Gift,
+  RefreshCw, Plus, Gift, Wallet,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "spending" | "giftcards" | "admin";
+type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
   { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
-  { k: "spending",  label: "Spending & Budget",   icon: PieChart,        sub: "Budgets & transactions" },
+  { k: "spending",  label: "Spending",           icon: PieChart,        sub: "Transactions & breakdowns" },
+  { k: "budget",    label: "Budget",             icon: Wallet,          sub: "Monthly limits by category" },
   { k: "monthly",   label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
   { k: "benefits",  label: "Benefits",            icon: Sparkles,        sub: "Card perks & refinancing" },
   { k: "giftcards", label: "Gift Cards",          icon: Gift,            sub: "Track balances across brands" },
@@ -37,33 +38,6 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
 
 const Index = () => {
   const [view, setView] = useState<View>("overall");
-  const bottomNavRef = useRef<HTMLElement>(null);
-
-  // iOS/Android browsers sometimes fail to paint a `position: fixed` bottom bar
-  // in its correct spot until the next scroll/resize event recalculates the
-  // visual viewport (a long-standing mobile rendering quirk, not React-specific).
-  // Forcing a one-frame reflow whenever the tab changes or the visual viewport
-  // resizes/scrolls reliably fixes it.
-  useEffect(() => {
-    const forceReflow = () => {
-      const el = bottomNavRef.current;
-      if (!el) return;
-      el.style.display = "none";
-      requestAnimationFrame(() => {
-        if (el) el.style.display = "";
-      });
-    };
-    forceReflow();
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", forceReflow);
-    vv?.addEventListener("scroll", forceReflow);
-    window.addEventListener("orientationchange", forceReflow);
-    return () => {
-      vv?.removeEventListener("resize", forceReflow);
-      vv?.removeEventListener("scroll", forceReflow);
-      window.removeEventListener("orientationchange", forceReflow);
-    };
-  }, [view]);
   const [linkOpen, setLinkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
@@ -105,7 +79,7 @@ const Index = () => {
   const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-background">
+    <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
       <TopBar
         active={view}
         onChange={(v) => { setView(v as View); setSelectedCategory(null); }}
@@ -116,7 +90,7 @@ const Index = () => {
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
 
-      <main className="w-full px-4 md:px-8 pt-5 md:pt-6 pb-24 md:pb-6 space-y-4">
+      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4">
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">
@@ -187,6 +161,11 @@ const Index = () => {
 
         {demo && view === "benefits" && <BenefitsSection />}
         {demo && view === "spending" && <SpendingSection />}
+        {demo && view === "budget" && (
+          <div className="surface-card p-8 text-center text-[13px] text-muted-foreground">
+            Budget tracking uses your real transaction data — switch out of demo mode to set it up.
+          </div>
+        )}
         {view === "giftcards" && <GiftCardsSection />}
         {view === "admin" && isAdmin && <AdminUsersSection />}
 
@@ -200,9 +179,8 @@ const Index = () => {
       {/* Mobile bottom tab bar — replaces top chip switcher on small screens */}
       {hasItems !== null && (
         <nav
-          ref={bottomNavRef}
-          className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)", transform: "translateZ(0)", WebkitTransform: "translateZ(0)" }}
+          className="md:hidden shrink-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           <div className="flex items-stretch overflow-x-auto">
             {TABS.map((t) => {
