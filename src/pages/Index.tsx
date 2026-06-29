@@ -39,6 +39,7 @@ const Index = () => {
     setView("spending");
   };
   const { demo } = useDemo();
+  const TABS = useMemo(
     () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
     [isAdmin]
   );
