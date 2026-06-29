@@ -243,32 +243,93 @@
 }
 
 /* ── Readable type floor ──────────────────────────────────────
-   The dashboard leans on a lot of literal arbitrary text sizes
-   (text-[10px], text-[12px], etc.) that render too small to read
-   comfortably. Raise them uniformly here instead of touching every
-   call site — keeps relative hierarchy (badges < body < headings)
-   but lifts the floor to a legible, modern scale. */
+   Lifts tiny arbitrary sizes to comfortable reading scale.
+   Mobile gets even larger sizes via the @media override below. */
 .text-\[8px\]    { font-size: 10px   !important; }
 .text-\[9px\]    { font-size: 11px   !important; }
 .text-\[9\.5px\] { font-size: 11px   !important; }
 .text-\[10px\]   { font-size: 12px   !important; }
-.text-\[10\.5px\]{ font-size: 12px   !important; }
+.text-\[10\.5px\]{ font-size: 12.5px !important; }
 .text-\[11px\]   { font-size: 13px   !important; }
-.text-\[11\.5px\]{ font-size: 13px   !important; }
+.text-\[11\.5px\]{ font-size: 13.5px !important; }
 .text-\[12px\]   { font-size: 14px   !important; }
-.text-\[12\.5px\]{ font-size: 14px   !important; }
-.text-\[13px\]   { font-size: 14.5px !important; }
-.text-\[13\.5px\]{ font-size: 15px   !important; }
-.text-\[14px\]   { font-size: 15px   !important; }
-.text-\[15px\]   { font-size: 16px   !important; }
+.text-\[12\.5px\]{ font-size: 14.5px !important; }
+.text-\[13px\]   { font-size: 15px   !important; }
+.text-\[13\.5px\]{ font-size: 15.5px !important; }
+.text-\[14px\]   { font-size: 16px   !important; }
+.text-\[15px\]   { font-size: 16.5px !important; }
 .text-\[17px\]   { font-size: 18px   !important; }
 
-/* Mobile touch improvements */
+/* ── Mobile-first UI fixes ────────────────────────────────────
+   Everything below only applies on phone-width screens.
+   Goal: feel like a native iOS/Android app, not a small website. */
 @media (max-width: 768px) {
-  button, [role="button"] {
+  /* --- Touch: no tap flicker, no tiny hit zones --- */
+  button, [role="button"], a, select {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    /* Minimum 44px touch target — Apple HIG & Material Design standard */
+    min-height: 44px;
   }
+  /* Don't force height on purely decorative or tiny contained elements */
+  button.no-min-h, [role="button"].no-min-h,
+  input + button, textarea + button {
+    min-height: unset;
+  }
+
+  /* --- Type: bump the floor further on mobile so nothing reads as footnote --- */
+  .text-\[8px\]    { font-size: 11px   !important; }
+  .text-\[9px\]    { font-size: 12px   !important; }
+  .text-\[9\.5px\] { font-size: 12px   !important; }
+  .text-\[10px\]   { font-size: 13px   !important; }
+  .text-\[10\.5px\]{ font-size: 13px   !important; }
+  .text-\[11px\]   { font-size: 14px   !important; }
+  .text-\[11\.5px\]{ font-size: 14px   !important; }
+  .text-\[12px\]   { font-size: 15px   !important; }
+  .text-\[12\.5px\]{ font-size: 15px   !important; }
+  .text-\[13px\]   { font-size: 15.5px !important; }
+  .text-\[14px\]   { font-size: 16.5px !important; }
+
+  /* --- Scrollbar: hide on mobile, it just looks bad --- */
+  ::-webkit-scrollbar { display: none !important; }
+  * { scrollbar-width: none !important; }
+
+  /* --- Cards: slightly more padding and a taller minimum for row items --- */
+  .surface-card { border-radius: 14px; }
+
+  /* --- Main scroll area: breathe, don't pack --- */
+  main { padding-left: 12px !important; padding-right: 12px !important; gap: 12px; }
+
+  /* --- Section + card spacing --- */
+  .space-y-3 { gap: 10px; }
+  .space-y-4 { gap: 14px; }
+  .space-y-2 { gap: 8px; }
+  .gap-2     { gap: 8px; }
+  .gap-3     { gap: 10px; }
+
+  /* --- Divider rows: make sure list rows are at least 52px tall --- */
+  .divide-y > * { min-height: 52px; }
+
+  /* --- Hero numbers: bigger on phone so they actually command attention --- */
+  .stat-gold { font-size: 2.4rem !important; }
+
+  /* --- Grid: 2-column stat grids stay 2 columns on phone, not 4 --- */
+  .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .sm\:grid-cols-4 { grid-template-columns: repeat(2, 1fr); }
+
+  /* --- Remove hover card lift on touch (it triggers on tap, looks odd) --- */
+  .surface-card.card-hover:hover {
+    transform: none;
+    box-shadow: var(--shadow-card), var(--gold-panel-glow);
+    border-color: var(--gold-border);
+  }
+
+  /* --- Scale down fancy hover row borders (they fire on tap) --- */
+  .row-hover::before { display: none; }
+  .row-hover:hover { background-color: transparent; }
+  .row-hover:active { background-color: hsl(var(--surface-hover) / 0.4); }
+
+  /* --- Overflow smoothness --- */
   .overflow-y-auto, .overflow-auto {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
