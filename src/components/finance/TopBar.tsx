@@ -50,6 +50,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
     { k: "benefits", label: "Benefits" },
     { k: "giftcards", label: "Gift Cards" },
     { k: "spending", label: "Spending" },
+    { k: "budget", label: "Budget" },
   ];
 
   const { user, profile, subscriber, isAdmin, signOut } = useAuth();
