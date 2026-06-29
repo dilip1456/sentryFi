@@ -60,7 +60,7 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
       src={src}
       alt={`${name} logo`}
       onError={() => setAttempt(a => a + 1)}
-      className="rounded-lg border border-border/50 object-contain bg-white shrink-0"
+      className="rounded-lg border border-border/50 object-contain bg-white shrink-0 p-[10%]"
       style={{ height: size, width: size }}
     />
   );
