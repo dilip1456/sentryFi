@@ -264,26 +264,23 @@
    Everything below only applies on phone-width screens.
    Goal: feel like a native iOS/Android app, not a small website. */
 @media (max-width: 768px) {
-  /* --- Touch: no tap flicker, 44px minimum hit zone for interactive elements --- */
-  button, [role="button"], a {
+  /* --- Touch: remove tap highlight; DO NOT set touch-action on buttons —
+        that's what was blocking scroll when dragging through button-dense areas.
+        Browsers handle scroll vs tap discrimination fine on their own. --- */
+  button, [role="button"], a, select {
     -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
   }
-  /* Primary interactive buttons: 44px minimum touch target */
+
+  /* --- 44px minimum touch target on primary buttons --- */
   button:not(.no-min-h):not(.icon-btn), [role="button"]:not(.no-min-h) {
     min-height: 44px;
   }
-  /* Selects: no minimum height override needed -- native select handles its own sizing */
-  select {
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-  }
 
-  /* --- Scroll: divs/sections must always allow scroll via touch, even if they contain buttons.
-        Only the element actually being dragged should prevent scroll via touch-action.
-        Setting manipulation on buttons means: tap works, but dragging over them still scrolls. --- */
-  div, section, aside, nav, article, ul, ol {
-    touch-action: pan-y pan-x;
+  /* --- Ensure scroll containers never block vertical pan --- */
+  .overflow-y-auto, .overflow-auto, .overflow-y-scroll, main {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   /* --- Type: bump the floor further on mobile so nothing reads as footnote --- */
