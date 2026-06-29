@@ -2332,7 +2332,11 @@ export const LivePlaidDashboard = ({
           return r.item_id === itemId;
         });
         if (!stillHasAccounts) {
-          await supabase.from("plaid_items").delete().eq("id", itemId).eq("user_id", user.id);
+          // Calls Plaid's /item/remove server-side before dropping our row — deleting only
+          // the local row leaks the Item on Plaid's side forever (it stays alive and counted
+          // against the account's Item limit, with no way to find it again afterward).
+          const { error: rmErr } = await supabase.functions.invoke("plaid-remove-item", { body: { itemId } });
+          if (rmErr) throw rmErr;
         }
       }
 
