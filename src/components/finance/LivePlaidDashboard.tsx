@@ -3758,86 +3758,101 @@ export const LivePlaidDashboard = ({
         };
 
         return (
-          <div className="surface-card p-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Spend trend bar chart */}
-              <div className={cn("pr-0 sm:pr-3", "sm:border-r sm:border-border/20")}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[10.5px] font-semibold text-foreground">
-                    {spendingPeriod.granularity==="year"?"Monthly breakdown":"Daily breakdown"}
-                    <span className="ml-1 font-normal text-muted-foreground/60">· click a bar</span>
+          <div className="surface-card p-3 space-y-4">
+            {/* Spend trend bar chart — full width, taller on mobile */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="text-[11px] font-semibold text-foreground">
+                  {spendingPeriod.granularity==="year" ? "Monthly breakdown" : "Daily breakdown"}
+                </div>
+                {spendDeltaPct!==null && (
+                  <div className={cn("text-[10px] tabular font-medium px-2 py-0.5 rounded-full", spendDeltaPct>0 ? "bg-negative/10 text-negative" : "bg-positive/10 text-positive")}>
+                    {spendDeltaPct>0?"+":""}{spendDeltaPct}% vs prior
                   </div>
-                  {spendDeltaPct!==null && (
-                    <div className={cn("text-[9.5px] tabular font-medium", spendDeltaPct>0?"text-negative":"text-positive")}>
-                      {spendDeltaPct>0?"+":""}{spendDeltaPct}% vs prior
-                    </div>
-                  )}
-                </div>
-                <div className="h-20">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={bkts} margin={{top:2,right:0,bottom:0,left:0}} barCategoryGap="30%"
-                      style={{cursor:"pointer"}}
-                      onClick={(state:any)=>{
-                        const idx = state?.activeTooltipIndex;
-                        if (idx==null) return;
-                        const b: Bkt|undefined = bkts[idx];
-                        if (!b) return;
-                        if (b.dateKey) setChartDrillDate(prev=>prev===b.dateKey?null:b.dateKey!);
-                        else if (b.monthIdx!=null) setChartDrillMonth(prev=>prev===b.monthIdx?null:b.monthIdx!);
-                      }}>
-                      <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.25} vertical={false} />
-                      <XAxis dataKey="label" axisLine={false} tickLine={false}
-                        interval={spendingPeriod.granularity==="month" ? Math.floor(bkts.length/8) : 0}
-                        tick={{ fontSize:8.5, fill:"hsl(var(--muted-foreground))", fontFamily:"inherit" }} />
-                      <YAxis hide domain={[0,"dataMax+50"]} />
-                      <Tooltip content={<TrendTip />} cursor={{ fill:"hsl(var(--foreground))", fillOpacity:0.06 }} />
-                      <Bar dataKey="total" radius={[2,2,0,0]} animationDuration={500}>
-                        {bkts.map((b,idx)=>{
-                          const isDrilled = (!!b.dateKey && b.dateKey===chartDrillDate) || (b.monthIdx!=null && b.monthIdx===chartDrillMonth);
-                          return (
-                            <Cell key={idx}
-                              fill={isDrilled ? "hsl(var(--negative))" : "hsl(var(--primary))"}
-                              fillOpacity={isDrilled || b.isCurrent ? 1 : 0.45} />
-                          );
-                        })}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                {(chartDrillDate || chartDrillMonth!=null) && (
-                  <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
-                    className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-medium border border-negative/30 bg-negative/10 text-negative">
-                    {chartDrillDate ? new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
-                    <X className="h-2.5 w-2.5"/>
-                  </button>
                 )}
               </div>
+              {/* h-36 on mobile (144px), h-28 on desktop — much more readable */}
+              <div className="h-36 sm:h-28">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={bkts} margin={{top:4,right:0,bottom:0,left:0}} barCategoryGap="28%"
+                    style={{cursor:"pointer"}}
+                    onClick={(state:any)=>{
+                      const idx = state?.activeTooltipIndex;
+                      if (idx==null) return;
+                      const b: Bkt|undefined = bkts[idx];
+                      if (!b) return;
+                      if (b.dateKey) setChartDrillDate(prev=>prev===b.dateKey?null:b.dateKey!);
+                      else if (b.monthIdx!=null) setChartDrillMonth(prev=>prev===b.monthIdx?null:b.monthIdx!);
+                    }}>
+                    <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.25} vertical={false} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false}
+                      interval={spendingPeriod.granularity==="month" ? Math.floor(bkts.length/8) : 0}
+                      tick={{ fontSize:9, fill:"hsl(var(--muted-foreground))", fontFamily:"inherit" }} />
+                    <YAxis hide domain={[0,"dataMax+50"]} />
+                    <Tooltip content={<TrendTip />} cursor={{ fill:"hsl(var(--foreground))", fillOpacity:0.06 }} />
+                    <Bar dataKey="total" radius={[3,3,0,0]} animationDuration={500}>
+                      {bkts.map((b,idx)=>{
+                        const isDrilled = (!!b.dateKey && b.dateKey===chartDrillDate) || (b.monthIdx!=null && b.monthIdx===chartDrillMonth);
+                        return (
+                          <Cell key={idx}
+                            fill={isDrilled ? "hsl(var(--negative))" : "hsl(var(--primary))"}
+                            fillOpacity={isDrilled || b.isCurrent ? 1 : 0.45} />
+                        );
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {(chartDrillDate || chartDrillMonth!=null) && (
+                <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
+                  className="mt-2 no-min-h inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-negative/30 bg-negative/10 text-negative">
+                  {chartDrillDate ? new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
+                  <X className="h-2.5 w-2.5"/>
+                </button>
+              )}
+            </div>
 
-              {/* Spending donut pie */}
-              <div>
-                <div className="text-[10.5px] font-semibold text-foreground mb-2">By Category · {spendingPeriodByCategory.length}</div>
-                <div className="flex items-center gap-2.5">
-                  <div className="shrink-0" style={{width:84,height:84}}>
-                    <PieChart width={84} height={84}>
-                      <Pie data={pieSlices} cx={40} cy={40} innerRadius={22} outerRadius={38}
-                        dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
-                        {pieSlices.map((s,idx)=>(
-                          <Cell key={idx} fill={s.color}
-                            opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
-                        ))}
-                      </Pie>
-                      <Tooltip content={<PieTip />} />
-                    </PieChart>
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-0.5 max-h-[78px] overflow-y-auto">
-                    {pieSlices.map(s=>(
-                      <div key={s.name} className="flex items-center gap-1.5 text-[9.5px]">
-                        <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{background:s.color}}/>
-                        <span className="truncate text-muted-foreground">{s.name}</span>
-                        <span className="tabular text-foreground font-medium ml-auto shrink-0">{spendingPeriodTotal>0?Math.round((s.value/spendingPeriodTotal)*100):0}%</span>
-                      </div>
-                    ))}
-                  </div>
+            {/* Divider */}
+            <div className="border-t border-border/20" />
+
+            {/* Category pie — larger on mobile, side by side with legend */}
+            <div>
+              <div className="text-[11px] font-semibold text-foreground mb-3">By category · {spendingPeriodByCategory.length}</div>
+              <div className="flex items-center gap-4">
+                {/* Bigger pie on mobile */}
+                <div className="shrink-0 sm:hidden" style={{width:120,height:120}}>
+                  <PieChart width={120} height={120}>
+                    <Pie data={pieSlices} cx={58} cy={58} innerRadius={30} outerRadius={54}
+                      dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
+                      {pieSlices.map((s,idx)=>(
+                        <Cell key={idx} fill={s.color}
+                          opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
+                      ))}
+                    </Pie>
+                    <Tooltip content={<PieTip />} />
+                  </PieChart>
+                </div>
+                {/* Normal pie on desktop */}
+                <div className="hidden sm:block shrink-0" style={{width:100,height:100}}>
+                  <PieChart width={100} height={100}>
+                    <Pie data={pieSlices} cx={48} cy={48} innerRadius={26} outerRadius={44}
+                      dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
+                      {pieSlices.map((s,idx)=>(
+                        <Cell key={idx} fill={s.color}
+                          opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
+                      ))}
+                    </Pie>
+                    <Tooltip content={<PieTip />} />
+                  </PieChart>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  {pieSlices.map(s=>(
+                    <div key={s.name} className="flex items-center gap-2 text-[11px]">
+                      <div className="h-2 w-2 rounded-full shrink-0" style={{background:s.color}}/>
+                      <span className="truncate text-muted-foreground flex-1">{s.name}</span>
+                      <span className="tabular text-foreground font-medium shrink-0">{spendingPeriodTotal>0?Math.round((s.value/spendingPeriodTotal)*100):0}%</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
