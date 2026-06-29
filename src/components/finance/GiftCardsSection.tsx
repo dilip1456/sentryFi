@@ -590,17 +590,17 @@ export const GiftCardsSection = () => {
  *  source (loads instantly, never blank) with the Clearbit/logo.dev logo as
  *  a higher-res fallback once it resolves. Falls back to a colored letter avatar. */
 const SearchResultLogo = ({ name, domain, logo }: { name: string; domain: string; logo: string }) => {
-  const [src, setSrc] = useState<string>(faviconUrlForDomain(domain, 64));
-  const [tried, setTried] = useState(0);
-  const fallbacks = [logo, logoUrlForDomain(domain)];
+  // Clearbit's logo from the search API is a direct CDN URL — use it first.
+  // Logo.dev is the second choice. Letter avatar only if both fail.
+  const fallbacks = [
+    logo,                        // clearbit search result logo (direct CDN, CORS-friendly)
+    logoUrlForDomain(domain),    // logo.dev
+    `https://icons.duckduckgo.com/ip3/${domain}.ico`, // DDG favicon (CORS-friendly fallback)
+  ].filter(Boolean);
+  const [attempt, setAttempt] = useState(0);
+  const src = fallbacks[attempt];
 
-  const onError = () => {
-    const next = fallbacks[tried];
-    if (next) { setSrc(next); setTried(t => t + 1); }
-    else setSrc("__none__");
-  };
-
-  if (src === "__none__") {
+  if (!src) {
     return (
       <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center text-gold font-display shrink-0"
         style={{ fontSize: 15 }}>
@@ -609,7 +609,8 @@ const SearchResultLogo = ({ name, domain, logo }: { name: string; domain: string
     );
   }
   return (
-    <img src={src} alt={`${name} logo`} onError={onError}
+    <img src={src} alt={`${name} logo`}
+      onError={() => setAttempt(a => a + 1 < fallbacks.length ? a + 1 : fallbacks.length)}
       className="h-9 w-9 rounded-lg object-contain bg-white p-[8%] shrink-0 border border-border/30" />
   );
 };
