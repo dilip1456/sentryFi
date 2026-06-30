@@ -99,7 +99,10 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
       {/* Mobile: 60px tall app bar with logo + title on left, sync + avatar on right */}
       <div className="md:hidden w-full px-4 h-[60px] flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <img src="/logo.svg" alt="SentryFi" className="h-10 w-10 rounded-xl" />
+          <div className="relative h-10 w-10 shrink-0">
+            <div className="absolute inset-[-20%] rounded-full bg-[radial-gradient(circle,hsl(var(--primary)/0.4)_0%,transparent_70%)] blur-[6px]" style={{ animation: "shield-pulse 3.4s ease-in-out infinite" }} />
+            <img src="/logo.svg" alt="SentryFi" className="relative h-10 w-10 rounded-xl" />
+          </div>
           <div>
             <div className="font-display text-[16px] tracking-tight text-foreground leading-tight">SentryFi</div>
             <div className="text-[11px] text-muted-foreground leading-tight">Personal Finance</div>

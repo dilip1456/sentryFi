@@ -422,6 +422,54 @@
 }
 .animate-pop-in { animation: pop-in 380ms var(--transition-smooth) both; }
 
+/* ── Splash screen shield glow ──────────────────────────────────
+   Breathing gold aura behind the logo + a slow rotating shimmer ring,
+   for a "powering up" feel on the splash screen. */
+@keyframes shield-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.08); }
+}
+@keyframes shield-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes shield-float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-4px); }
+}
+.shield-glow-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.shield-glow-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -28%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, hsl(var(--primary) / 0.55) 0%, hsl(var(--primary) / 0.18) 45%, transparent 72%);
+  filter: blur(14px);
+  animation: shield-pulse 2.6s ease-in-out infinite;
+  z-index: 0;
+}
+.shield-glow-wrap::after {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  border-top-color: hsl(var(--primary) / 0.7);
+  border-right-color: hsl(var(--primary) / 0.25);
+  animation: shield-spin 3.2s linear infinite;
+  z-index: 0;
+}
+.shield-glow-img {
+  position: relative;
+  z-index: 1;
+  animation: shield-float 2.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 18px hsl(var(--primary) / 0.65));
+}
+
 /* Subtle gold glow on focused interactive elements */
 button:focus-visible,
 [role="button"]:focus-visible {
