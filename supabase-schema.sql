@@ -65,12 +65,19 @@ create policy "Users can view own roles" on public.user_roles for select using (
 
 -- Helper function for role checks
 create or replace function public.has_role(_user_id uuid, _role public.app_role)
-returns boolean language sql security definer as $$
+returns boolean language sql security definer set search_path = public as $$
   select exists (
     select 1 from public.user_roles
     where user_id = _user_id and role = _role
   );
 $$;
+
+-- has_role and handle_new_user are internal helpers only -- handle_new_user
+-- fires solely via the on_auth_user_created trigger, and has_role is only
+-- ever queried indirectly (the app checks user_roles directly under RLS, not
+-- via RPC). Neither should be callable directly through the REST API.
+revoke execute on function public.handle_new_user() from public, anon, authenticated;
+revoke execute on function public.has_role(uuid, public.app_role) from public, anon, authenticated;
 
 -- Plaid items (linked bank connections)
 create table public.plaid_items (
