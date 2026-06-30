@@ -16,10 +16,30 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Without this, the APK bundles native libraries for every CPU architecture
+    // (arm64, armv7, x86, x86_64) -- roughly 3-4x larger than necessary, since
+    // the overwhelming majority of real Android phones are arm64. Building a
+    // single-ABI APK is the single biggest size win available here.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a"
+            universal false
+        }
+    }
     buildTypes {
+        debug {
+            // Debug builds carry full debug symbols and skip shrinking entirely --
+            // fine for local development, but never for a distributed APK.
+        }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Self-signed debug key so CI can produce an installable release APK
+            // without needing a managed signing keystore secret.
+            signingConfig signingConfigs.debug
         }
     }
     applicationVariants.all { variant ->

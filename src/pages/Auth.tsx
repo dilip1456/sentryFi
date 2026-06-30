@@ -48,7 +48,7 @@ const Auth = () => {
       <div className="min-h-screen grid place-items-center bg-background cursor-pointer" onClick={() => setShowSplash(false)}>
         <div className="flex flex-col items-center gap-3 animate-pop-in">
           <div className="shield-glow-wrap h-20 w-20 mb-1">
-            <img src="/logo.svg" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
+            <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
           </div>
           <div className="font-display text-xl text-foreground">SentryFi</div>
           <div className="text-[11px] text-muted-foreground/70 -mt-2">Sentry Finance</div>
