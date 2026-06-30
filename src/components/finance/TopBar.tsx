@@ -46,6 +46,7 @@ const toneClass: Record<Notif["tone"], string> = {
 export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }: Props) => {
   const navItems: TopBarTab[] = tabs ?? [
     { k: "overall", label: "Overview" },
+    { k: "moneymap", label: "Money Map" },
     { k: "monthly", label: "Monthly" },
     { k: "benefits", label: "Benefits" },
     { k: "giftcards", label: "Gift Cards" },

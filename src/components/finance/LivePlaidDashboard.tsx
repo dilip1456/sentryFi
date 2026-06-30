@@ -13,6 +13,8 @@ import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
 import { useBudgets } from "@/hooks/useBudgets";
+import { useAccountRoles, ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
+import { useMoneyMapFeedback } from "@/hooks/useMoneyMapFeedback";
 import { useCategoryOverrides } from "@/hooks/useCategoryOverrides";
 import { useCategoryRules } from "@/hooks/useCategoryRules";
 import { useCustomCategories } from "@/hooks/useCustomCategories";
@@ -27,6 +29,8 @@ import {
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
   Pencil, Search, Trash2, ExternalLink, Tag, Calendar, Unlink,
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
+  Compass, ShieldAlert, Target, ThumbsUp, ThumbsDown,
+  ArrowRightLeft, CalendarClock, Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -2113,6 +2117,8 @@ export const LivePlaidDashboard = ({
 }: Props) => {
   const { user } = useAuth();
   const { budgets, setBudget, removeBudget } = useBudgets();
+  const { roles, setRole, getRole } = useAccountRoles();
+  const { feedback, recordFeedback, getFeedback } = useMoneyMapFeedback();
   const { overrides, setOverride, bulkSetOverride, bulkSetOverrideMap, reassignCategory } = useCategoryOverrides();
   const { rules, addRule, getRuleCategory } = useCategoryRules();
   const { custom: customCategories, addCategory, removeCategory } = useCustomCategories();
@@ -4336,6 +4342,245 @@ export const LivePlaidDashboard = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── MONEY MAP ──────────────────────────────────────────────
+  // The core idea: not all money in your accounts is "available." A 10k
+  // emergency fund shouldn't count toward what you can spend today. This view
+  // separates accounts into roles (spending / buffer / reserve / savings goal /
+  // investment / debt), computes a real "in hand" number from income minus
+  // planned expenses minus committed savings (excluding buffer/reserve
+  // balances entirely), and surfaces two kinds of actionable suggestions:
+  // overspend-to-reserve matches and upcoming-expense forecasts -- both with
+  // accept/dismiss feedback so repeated or rejected suggestions don't nag.
+  if (view === "moneymap") {
+    const moneyMapPeriod: PeriodState = { granularity: "month", offset: 0 };
+    const periodKey = new Date().toISOString().slice(0, 7); // "2026-06" for suggestion ids
+    const periodTxns = filterByPeriod(txns, moneyMapPeriod).filter(t => !internalTxnIds.has(t.id));
+
+    // ── Categorize accounts by role ──
+    const accountsWithRole = accounts.map(a => ({ acc: a, info: getRole(a.account_id, a.type, a.subtype) }));
+    const spendingAccts = accountsWithRole.filter(x => x.info.role === "spending");
+    const bufferAccts = accountsWithRole.filter(x => x.info.role === "buffer");
+    const reserveAccts = accountsWithRole.filter(x => x.info.role === "reserve" || x.info.role === "savings_goal");
+    const investmentAccts = accountsWithRole.filter(x => x.info.role === "investment");
+    const debtAccts = accountsWithRole.filter(x => x.info.role === "debt");
+    const unassignedAccts = accountsWithRole.filter(x => x.info.role === "unassigned");
+
+    const sumBal = (list: typeof accountsWithRole) => list.reduce((s, x) => s + (Number(x.acc.current_balance) || 0), 0);
+    const spendingBalance = sumBal(spendingAccts);
+    const bufferBalance = sumBal(bufferAccts);
+    const reserveBalance = sumBal(reserveAccts);
+    const investmentBalance = sumBal(investmentAccts);
+    const debtBalance = sumBal(debtAccts);
+
+    // ── True Available: income this period minus planned expenses minus committed
+    //    savings transfers, period. Buffer/reserve balances never enter this number
+    //    at all -- they're informational, shown separately. ──
+    const incomeThisPeriod = periodTxns.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+    const expensesThisPeriod = periodTxns.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
+    const totalBudgeted = Object.values(budgets).reduce((s, b) => s + b, 0);
+    const trueAvailable = spendingBalance; // current real balance in spending-role accounts is the ground truth
+    const projectedRemaining = incomeThisPeriod - expensesThisPeriod; // this period's net flow so far
+
+    // ── Spend-by-category this period, for overspend detection ──
+    const catTotals: Record<string, number> = {};
+    for (const t of periodTxns) {
+      if (Number(t.amount) <= 0) continue;
+      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      catTotals[cat] = (catTotals[cat] || 0) + Number(t.amount);
+    }
+
+    // ── Suggestion 1: overspend matched to a reserve account by name/label ──
+    type Suggestion = { id: string; kind: "overage" | "upcoming"; title: string; detail: string; amount: number; matchAccount?: string };
+    const suggestions: Suggestion[] = [];
+
+    for (const [cat, spent] of Object.entries(catTotals)) {
+      const budget = budgets[cat];
+      if (!budget || spent <= budget) continue;
+      const over = spent - budget;
+      const catWords = formatCat(cat).toLowerCase();
+      // Find a reserve/goal account whose label or name loosely matches this category
+      const match = reserveAccts.find(x => {
+        const label = (x.info.label || x.acc.name || x.acc.official_name || "").toLowerCase();
+        return label && (label.includes(catWords) || catWords.includes(label) || catWords.split(" ").some(w => w.length > 3 && label.includes(w)));
+      });
+      const id = `overage:${cat}:${periodKey}`;
+      suggestions.push({
+        id, kind: "overage",
+        title: `${formatCat(cat)} is ${fmtUSD(over)} over budget`,
+        detail: match
+          ? `Move ${fmtUSD(over)} from "${match.acc.name}" to cover it — that account looks earmarked for this.`
+          : `No matching reserve account found. Tag a savings account for "${formatCat(cat)}" below so this can suggest covering it automatically.`,
+        amount: over,
+        matchAccount: match?.acc.account_id,
+      });
+    }
+
+    // ── Suggestion 2: upcoming expenses, reusing the existing recurring-charge detector ──
+    const upcoming = detectRecurring(txns).slice(0, 6);
+    for (const r of upcoming) {
+      const id = `upcoming:${r.merchant}:${r.predictedDate.toISOString().slice(0,10)}`;
+      const daysOut = Math.round((r.predictedDate.getTime() - Date.now()) / 86400000);
+      if (daysOut < 0 || daysOut > 21) continue; // only surface genuinely near-term ones here
+      suggestions.push({
+        id, kind: "upcoming",
+        title: `${r.merchant} — ~${fmtUSD(r.avgAmount)} expected ${daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`}`,
+        detail: `Based on ${r.monthsActive} months of history (${r.intervalLabel.toLowerCase()}). Make sure your spending account can cover it.`,
+        amount: r.avgAmount,
+      });
+    }
+
+    const visibleSuggestions = suggestions.filter(s => !getFeedback(s.id));
+    const actedSuggestions = suggestions.filter(s => !!getFeedback(s.id));
+
+    const RoleBadgeSelect = ({ accountId, accType, accSubtype }: { accountId: string; accType: string | null; accSubtype: string | null }) => {
+      const current = getRole(accountId, accType, accSubtype);
+      const [editing, setEditing] = useState(false);
+      const [labelDraft, setLabelDraft] = useState(current.label ?? "");
+      if (editing) {
+        return (
+          <form className="flex items-center gap-1.5" onSubmit={e => {
+            e.preventDefault();
+            setRole(accountId, { role: current.role, label: labelDraft.trim() || undefined });
+            setEditing(false);
+          }}>
+            <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+              placeholder="e.g. Travel" onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
+              className="h-7 w-24 px-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none" />
+            <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
+          </form>
+        );
+      }
+      return (
+        <div className="flex items-center gap-1.5">
+          <select value={current.role} onChange={e => setRole(accountId, { role: e.target.value as AccountRole, label: current.label })}
+            className="h-7 px-2 rounded-md bg-surface/60 border border-border/50 text-[11px] text-foreground outline-none cursor-pointer">
+            {(Object.keys(ROLE_META) as AccountRole[]).filter(r => r !== "unassigned").map(r => (
+              <option key={r} value={r}>{ROLE_META[r].name}</option>
+            ))}
+          </select>
+          {(current.role === "reserve" || current.role === "savings_goal") && (
+            <button onClick={() => { setLabelDraft(current.label ?? ""); setEditing(true); }}
+              className="text-[10.5px] text-muted-foreground hover:text-foreground">
+              {current.label ? `"${current.label}"` : "+ label"}
+            </button>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="space-y-4 animate-fade-up">
+        <div>
+          <h2 className="font-display text-xl text-primary flex items-center gap-2"><Compass className="h-5 w-5" /> Money Map</h2>
+          <div className="text-[11px] text-muted-foreground mt-0.5">What you actually have available — separate from buffers and reserves</div>
+        </div>
+
+        {/* ── The headline number ── */}
+        <div className="surface-card p-5">
+          <div className="text-[11px] text-muted-foreground uppercase tracking-wide">In hand right now</div>
+          <div className="font-display text-4xl tabular text-foreground mt-1">{fmtUSD(trueAvailable)}</div>
+          <div className="text-[11px] text-muted-foreground mt-1.5">
+            Sum of accounts tagged <span className="text-foreground font-medium">Spending</span> only — buffers and reserves below are excluded on purpose.
+          </div>
+          <div className={cn("text-[12px] mt-2 tabular font-medium", projectedRemaining >= 0 ? "text-positive" : "text-negative")}>
+            {projectedRemaining >= 0 ? "+" : "−"}{fmtUSD(Math.abs(projectedRemaining))} net this month so far
+          </div>
+        </div>
+
+        {/* ── Bucket breakdown ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {[
+            { label: "Emergency Buffer", value: bufferBalance, icon: ShieldAlert, color: "hsl(var(--info))", count: bufferAccts.length },
+            { label: "Reserves & Goals", value: reserveBalance, icon: Target, color: "hsl(var(--gold))", count: reserveAccts.length },
+            { label: "Investments", value: investmentBalance, icon: TrendingUp, color: "hsl(var(--positive))", count: investmentAccts.length },
+            { label: "Debt", value: debtBalance, icon: CreditCard, color: "hsl(var(--negative))", count: debtAccts.length },
+          ].map(b => (
+            <div key={b.label} className="surface-card p-3.5">
+              <div className="flex items-center gap-1.5">
+                <b.icon className="h-3.5 w-3.5" style={{ color: b.color }} />
+                <span className="text-[10.5px] text-muted-foreground uppercase tracking-wide">{b.label}</span>
+              </div>
+              <div className="font-display text-lg tabular text-foreground mt-1">{fmtUSD(b.value)}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{b.count} account{b.count !== 1 ? "s" : ""}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Suggestions ── */}
+        <div className="surface-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+            <h3 className="font-display text-[13px] text-primary">Suggestions</h3>
+            <span className="text-[10px] text-muted-foreground ml-auto">{visibleSuggestions.length} active</span>
+          </div>
+          {visibleSuggestions.length === 0 ? (
+            <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">
+              Nothing needs your attention right now.
+            </div>
+          ) : (
+            <div className="divide-y divide-border/15">
+              {visibleSuggestions.map(s => (
+                <div key={s.id} className="px-4 py-3 flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{
+                    backgroundColor: s.kind === "overage" ? "hsl(var(--negative)/0.12)" : "hsl(var(--info)/0.12)",
+                    color: s.kind === "overage" ? "hsl(var(--negative))" : "hsl(var(--info))",
+                  }}>
+                    {s.kind === "overage" ? <ArrowRightLeft className="h-4 w-4" /> : <CalendarClock className="h-4 w-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12.5px] text-foreground font-medium">{s.title}</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{s.detail}</div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <button onClick={() => recordFeedback(s.id, "accepted")}
+                        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-positive/10 text-positive text-[10.5px] font-medium hover:bg-positive/20 transition-colors">
+                        <ThumbsUp className="h-3 w-3" /> Got it
+                      </button>
+                      <button onClick={() => recordFeedback(s.id, "dismissed")}
+                        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-border-strong text-muted-foreground text-[10.5px] hover:text-foreground transition-colors">
+                        <ThumbsDown className="h-3 w-3" /> Not now
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Account role assignment ── */}
+        <div className="surface-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/30">
+            <h3 className="font-display text-[13px] text-primary">Tag your accounts</h3>
+            <div className="text-[10.5px] text-muted-foreground mt-0.5">
+              {unassignedAccts.length > 0 ? `${unassignedAccts.length} account${unassignedAccts.length!==1?"s":""} need${unassignedAccts.length===1?"s":""} a role` : "All accounts tagged"}
+            </div>
+          </div>
+          <div className="divide-y divide-border/15">
+            {accountsWithRole.map(({ acc, info }) => (
+              <div key={acc.account_id} className="px-4 py-2.5 flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                  <Landmark className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                  <div className="text-[10px] text-muted-foreground tabular">{fmtUSD(Number(acc.current_balance) || 0)}</div>
+                </div>
+                <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Acted-on suggestions, collapsed reference ── */}
+        {actedSuggestions.length > 0 && (
+          <div className="text-[10.5px] text-muted-foreground text-center">
+            {actedSuggestions.length} suggestion{actedSuggestions.length!==1?"s":""} already handled this period
           </div>
         )}
       </div>

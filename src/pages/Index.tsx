@@ -12,13 +12,14 @@ import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
-  RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal,
+  RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "giftcards" | "admin";
+type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
   { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
+  { k: "moneymap",  label: "Money Map",          icon: Compass,         sub: "What you actually have available" },
   { k: "spending",  label: "Spending",           icon: PieChart,        sub: "Transactions & breakdowns" },
   { k: "budget",    label: "Budget",             icon: Wallet,          sub: "Monthly limits by category" },
   { k: "monthly",   label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
@@ -46,7 +47,7 @@ const Index = () => {
   // Bottom nav shows a focused set of primary tabs directly; everything else
   // (Monthly, Benefits, Admin) lives behind "More" so it never needs to
   // horizontally scroll on a phone-width screen.
-  const PRIMARY_KEYS: View[] = ["overall", "spending", "budget", "giftcards"];
+  const PRIMARY_KEYS: View[] = ["overall", "moneymap", "spending", "giftcards"];
   const primaryTabs = TABS.filter(t => PRIMARY_KEYS.includes(t.k));
   const overflowTabs = TABS.filter(t => !PRIMARY_KEYS.includes(t.k));
   const [moreOpen, setMoreOpen] = useState(false);
