@@ -5,7 +5,7 @@ import { App } from "@capacitor/app";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { signInWithGoogle, isNative } from "@/lib/capacitor-oauth";
-import { formatBuildTime } from "@/lib/app-version";
+import { formatBuildTime, APP_VERSION } from "@/lib/app-version";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -47,10 +47,13 @@ const Auth = () => {
     return (
       <div className="min-h-screen grid place-items-center bg-background cursor-pointer" onClick={() => setShowSplash(false)}>
         <div className="flex flex-col items-center gap-3 animate-pop-in">
-          <img src="/logo.png" alt="SentryFi" className="h-16 w-16 rounded-2xl shadow-[var(--shadow-elevated)]" />
+          <div className="shield-glow-wrap h-20 w-20 mb-1">
+            <img src="/logo.svg" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
+          </div>
           <div className="font-display text-xl text-foreground">SentryFi</div>
+          <div className="text-[11px] text-muted-foreground/70 -mt-2">Sentry Finance</div>
           <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
-          <div className="text-[10px] text-muted-foreground/50 mt-2">Build {formatBuildTime()}</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
         </div>
       </div>
     );
