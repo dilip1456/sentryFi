@@ -42,19 +42,20 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build debug APK
+      - name: Build release APK (arm64-only, minified, shrunk -- not debug)
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Copy APK to public/downloads
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n1)
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*arm64*.apk" | head -n1)
           if [ -z "$APK_PATH" ]; then
-            echo "No APK produced — failing the build"
+            echo "No release APK produced — failing the build"
             exit 1
           fi
           mkdir -p public/downloads
           cp "$APK_PATH" public/downloads/SentryFi.apk
+          ls -lh public/downloads/SentryFi.apk
 
       - name: Commit updated APK back to main
         run: |
