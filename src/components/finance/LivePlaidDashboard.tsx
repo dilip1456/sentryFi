@@ -2800,6 +2800,9 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
+      {/* ── 2-col on xl+: left = insights, right = accounts ── */}
+      <div className="xl:grid xl:grid-cols-[1.4fr_1fr] xl:gap-4 xl:items-start space-y-3 xl:space-y-0">
+      <div className="space-y-3 min-w-0">
       {/* ═══ Insights into your spending ═══════════════════════ */}
       {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
         <section className="space-y-3">
@@ -3102,6 +3105,8 @@ export const LivePlaidDashboard = ({
         </section>
       )}
 
+      </div>{/* end left col */}
+      <div className="min-w-0 space-y-2">
       {/* Accounts — grouped by type, banks shown within each type, all collapsed by default */}
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
@@ -3147,6 +3152,9 @@ export const LivePlaidDashboard = ({
           </div>
         )}
       </section>
+
+      </div>{/* end right col */}
+      </div>{/* end 2-col grid */}
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
@@ -3516,6 +3524,9 @@ export const LivePlaidDashboard = ({
         <h2 className="font-display text-xl text-primary">Monthly</h2>
         <PeriodNav state={monthlyPeriod} onChange={setMonthlyPeriod} />
       </div>
+      {/* 2-col on xl+: left = stats+chart+categories, right = txn list */}
+      <div className="xl:grid xl:grid-cols-[1fr_1.3fr] xl:gap-4 xl:items-start space-y-4 xl:space-y-0">
+      <div className="space-y-4 min-w-0">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="surface-card p-4 relative overflow-hidden">
           <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-positive/8 blur-2xl" />
@@ -3612,6 +3623,8 @@ export const LivePlaidDashboard = ({
         );
       })()}
 
+      </div>{/* end left col */}
+      <div className="min-w-0">
       <section className="space-y-2">
         <div className="flex items-baseline justify-between px-1">
           <h2 className="font-display text-lg md:text-xl text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
@@ -3620,7 +3633,7 @@ export const LivePlaidDashboard = ({
         {monthlyPeriodTxns.length===0 ? (
           <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">No transactions for this period.</div>
         ) : (
-          <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px]">
+          <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px] xl:max-h-[calc(100dvh-240px)]">
             {monthlyPeriodTxns.map((t,i)=><TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories}
               openPickerId={openPickerTxn?.id??null}
               onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
@@ -3634,6 +3647,8 @@ export const LivePlaidDashboard = ({
           </div></div>
         )}
       </section>
+      </div>{/* end right col */}
+      </div>{/* end 2-col grid */}
       {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
     </div>
   );
@@ -3682,7 +3697,7 @@ export const LivePlaidDashboard = ({
       {/* ── Spending — transaction lookup by category ── */}
       <div className="space-y-3">
 
-      {/* Compact insights strip — one row, no padding-heavy cards */}
+      {/* Compact insights strip — full width above the 2-col layout */}
       <div className="surface-card overflow-hidden">
         <div className="flex items-stretch divide-x divide-border/20 overflow-x-auto">
           <div className="flex-1 min-w-[110px] px-3.5 py-2.5">
@@ -3714,6 +3729,9 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
+      {/* ── 2-col: left = charts/categories, right = transaction list ── */}
+      <div className="xl:grid xl:grid-cols-[1fr_1.5fr] xl:gap-3 xl:items-start space-y-3 xl:space-y-0">
+      <div className="space-y-3 min-w-0">
       {/* ── Spend trend + pie: side-by-side panel ── */}
       {spendingPeriodExpenses.length > 0 && (() => {
         // Build trend buckets
@@ -3884,6 +3902,8 @@ export const LivePlaidDashboard = ({
         );
       })()}
 
+      </div>{/* end left col */}
+      <div className="min-w-0">
         {/* ── Transaction explorer ── */}
         <div className="surface-card overflow-hidden">
           {/* Toolbar */}
@@ -4042,7 +4062,7 @@ export const LivePlaidDashboard = ({
               });
             }else{content=shown.map((t,i)=>renderRow(t,i));}
             return(
-              <div className="overflow-y-auto max-h-[680px]">
+              <div className="overflow-y-auto max-h-[680px] xl:max-h-[calc(100dvh-260px)]">
                 {content}
                 {filteredSpendingTxns.length>txnLimit&&(
                   <button onClick={()=>setTxnLimit(l=>l+150)} className="w-full py-2.5 text-[11px] text-muted-foreground hover:text-foreground border-t border-border/20 transition-colors">
@@ -4053,9 +4073,10 @@ export const LivePlaidDashboard = ({
             );
           })()}
         </div>
+      </div>{/* end right col */}
+      </div>{/* end 2-col grid */}
 
       </div>
-      {/* ══ END single-column page ══ */}
 
       {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
       <CategoryManager
