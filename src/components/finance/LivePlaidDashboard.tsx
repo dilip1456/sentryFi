@@ -2674,7 +2674,11 @@ export const LivePlaidDashboard = ({
         const savingsRate = curMonthIncome > 0 ? Math.round((net / curMonthIncome) * 100) : null;
         return (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="surface-card p-3 relative overflow-hidden">
+            <button type="button" onClick={()=>{
+                setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("expense");setTxnLimit(150);
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("");
+              }}
+              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
               <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalSpend)}</div>
@@ -2686,13 +2690,17 @@ export const LivePlaidDashboard = ({
                   </div>
                 ) : null;
               })()}
-            </div>
-            <div className="surface-card p-3 relative overflow-hidden">
+            </button>
+            <button type="button" onClick={()=>{
+                setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("income");setTxnLimit(150);
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("");
+              }}
+              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Income this month</div>
               <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
               <div className="text-[9px] text-muted-foreground mt-0.5">excl. transfers</div>
-            </div>
+            </button>
             <div className="surface-card p-3 relative overflow-hidden">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
@@ -4438,6 +4446,111 @@ export const LivePlaidDashboard = ({
     const visibleSuggestions = suggestions.filter(s => !getFeedback(s.id));
     const actedSuggestions = suggestions.filter(s => !!getFeedback(s.id));
 
+    const ROLE_OPTIONS: { role: AccountRole; icon: typeof Wallet }[] = [
+      { role: "spending", icon: Wallet },
+      { role: "buffer", icon: ShieldAlert },
+      { role: "reserve", icon: Target },
+      { role: "savings_goal", icon: PiggyBank },
+      { role: "investment", icon: TrendingUp },
+      { role: "debt", icon: CreditCard },
+    ];
+
+    const AccountTagStack = ({ list }: { list: typeof unassignedAccts }) => {
+      const [index, setIndex] = useState(0);
+      const [dragX, setDragX] = useState(0);
+      const draggingRef = useRef(false);
+      const startXRef = useRef(0);
+      const clamped = Math.min(index, Math.max(0, list.length - 1));
+
+      if (list.length === 0) return null;
+      const current = list[clamped];
+
+      const goNext = () => setIndex(i => Math.min(list.length - 1, i + 1));
+      const goPrev = () => setIndex(i => Math.max(0, i - 1));
+      const onPointerDown = (e: React.PointerEvent) => {
+        draggingRef.current = true;
+        startXRef.current = e.clientX;
+        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+      };
+      const onPointerMove = (e: React.PointerEvent) => {
+        if (!draggingRef.current) return;
+        e.preventDefault();
+        setDragX(e.clientX - startXRef.current);
+      };
+      const endDrag = () => {
+        if (!draggingRef.current) return;
+        draggingRef.current = false;
+        if (dragX < -60) goNext(); else if (dragX > 60) goPrev();
+        setDragX(0);
+      };
+      const assign = (role: AccountRole) => {
+        setRole(current.acc.account_id, { role });
+        setDragX(0);
+        // List shrinks by one once tagged — keep the index pinned so the next
+        // untagged account slides into view in the same spot.
+        setIndex(i => Math.min(i, Math.max(0, list.length - 2)));
+      };
+
+      return (
+        <div className="surface-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
+            <div>
+              <h3 className="font-display text-[13px] text-primary">Quick-tag accounts</h3>
+              <div className="text-[10.5px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
+            </div>
+            <span className="text-[10px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
+          </div>
+          <div className="p-4">
+            <div className="relative h-[126px] select-none" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerLeave={endDrag} style={{ touchAction: "none" }}>
+              {list.map(({ acc }, i) => {
+                const offset = i - clamped;
+                if (Math.abs(offset) > 2) return null;
+                const isActive = offset === 0;
+                const liveDrag = isActive ? dragX : 0;
+                const translate = offset * 22 + liveDrag / 3;
+                const scale = 1 - Math.min(Math.abs(offset), 2) * 0.06;
+                const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.4;
+                return (
+                  <div key={acc.account_id}
+                    className="absolute inset-0 max-w-md mx-auto rounded-xl border border-border/50 bg-surface-elevated px-4 py-3.5 flex items-center gap-3 cursor-grab active:cursor-grabbing"
+                    style={{
+                      transform: `translateX(${translate}%) scale(${scale})`, opacity, zIndex: 10 - Math.abs(offset),
+                      transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
+                      pointerEvents: isActive ? "auto" : "none",
+                    }}>
+                    <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                      <Landmark className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                      <div className="text-[11px] text-muted-foreground tabular mt-0.5">{fmtUSD(Number(acc.current_balance) || 0)}</div>
+                      <div className="text-[10.5px] text-muted-foreground mt-1">What's this account for?</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 mt-3">
+              {ROLE_OPTIONS.map(({ role, icon: Icon }) => (
+                <button key={role} onClick={() => assign(role)}
+                  className="flex flex-col items-center gap-1 rounded-lg border border-border/40 py-2 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-[10px] text-foreground text-center leading-tight">{ROLE_META[role].name}</span>
+                </button>
+              ))}
+            </div>
+            {list.length > 1 && (
+              <div className="flex justify-center gap-1.5 mt-3">
+                {list.map((_, i) => (
+                  <div key={i} className={cn("h-1.5 rounded-full transition-all", i === clamped ? "w-4 bg-gold" : "w-1.5 bg-border/50")} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
     const RoleBadgeSelect = ({ accountId, accType, accSubtype }: { accountId: string; accType: string | null; accSubtype: string | null }) => {
       const current = getRole(accountId, accType, accSubtype);
       const [editing, setEditing] = useState(false);
@@ -4494,7 +4607,7 @@ export const LivePlaidDashboard = ({
         </div>
 
         {/* ── Bucket breakdown ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
             { label: "Emergency Buffer", value: bufferBalance, icon: ShieldAlert, color: "hsl(var(--info))", count: bufferAccts.length },
             { label: "Reserves & Goals", value: reserveBalance, icon: Target, color: "hsl(var(--gold))", count: reserveAccts.length },
@@ -4553,29 +4666,37 @@ export const LivePlaidDashboard = ({
           )}
         </div>
 
-        {/* ── Account role assignment ── */}
-        <div className="surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border/30">
-            <h3 className="font-display text-[13px] text-primary">Tag your accounts</h3>
-            <div className="text-[10.5px] text-muted-foreground mt-0.5">
-              {unassignedAccts.length > 0 ? `${unassignedAccts.length} account${unassignedAccts.length!==1?"s":""} need${unassignedAccts.length===1?"s":""} a role` : "All accounts tagged"}
-            </div>
-          </div>
-          <div className="divide-y divide-border/15">
-            {accountsWithRole.map(({ acc, info }) => (
-              <div key={acc.account_id} className="px-4 py-2.5 flex items-center gap-2.5">
-                <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
-                  <Landmark className="h-3.5 w-3.5 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
-                  <div className="text-[10px] text-muted-foreground tabular">{fmtUSD(Number(acc.current_balance) || 0)}</div>
-                </div>
-                <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
+        {/* ── Account role assignment: only unassigned accounts need action ── */}
+        {unassignedAccts.length > 0 && <AccountTagStack list={unassignedAccts} />}
+
+        {/* ── Already-tagged accounts: collapsed by default so they don't eat space ── */}
+        {accountsWithRole.length > unassignedAccts.length && (
+          <details className="surface-card overflow-hidden group">
+            <summary className="px-4 py-3 flex items-center justify-between cursor-pointer list-none">
+              <div className="flex items-center gap-2">
+                <Check className="h-3.5 w-3.5 text-positive" />
+                <span className="text-[12.5px] text-foreground font-medium">
+                  {accountsWithRole.length - unassignedAccts.length} account{accountsWithRole.length - unassignedAccts.length !== 1 ? "s" : ""} tagged
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="divide-y divide-border/15 border-t border-border/20">
+              {accountsWithRole.filter(x => x.info.role !== "unassigned").map(({ acc }) => (
+                <div key={acc.account_id} className="px-4 py-2.5 flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                    <Landmark className="h-3.5 w-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                    <div className="text-[10px] text-muted-foreground tabular">{fmtUSD(Number(acc.current_balance) || 0)}</div>
+                  </div>
+                  <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         {/* ── Acted-on suggestions, collapsed reference ── */}
         {actedSuggestions.length > 0 && (
