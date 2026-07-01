@@ -10,6 +10,7 @@ import { DemoProvider } from "@/contexts/DemoContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index.tsx";
 import Auth from "./pages/Auth.tsx";
+import Welcome from "./pages/Welcome.tsx";
 import Pricing from "./pages/Pricing.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -26,6 +27,7 @@ const App = () => (
           <AuthProvider>
             <DemoProvider>
               <Routes>
+                <Route path="/welcome" element={<Welcome />} />
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
