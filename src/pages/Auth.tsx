@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { signInWithGoogle, isNative } from "@/lib/capacitor-oauth";
 import { formatBuildTime, APP_VERSION } from "@/lib/app-version";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Download, X } from "lucide-react";
 
 const schema = z.object({
   email: z.string().trim().email("Enter a valid email").max(255),
@@ -24,6 +24,17 @@ const Auth = () => {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+
+  const [showBanner, setShowBanner] = useState(false);
+  useEffect(() => {
+    const isAndroidWeb = /Android/i.test(navigator.userAgent) && !isNative();
+    const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
+    setShowBanner(isAndroidWeb && !dismissed);
+  }, []);
+  const dismissBanner = () => {
+    localStorage.setItem("sentryfi_app_banner_dismissed", "1");
+    setShowBanner(false);
+  };
 
   useEffect(() => { if (user && !loading) navigate("/", { replace: true }); }, [user, loading, navigate]);
   useEffect(() => {
@@ -98,7 +109,21 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-background px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background px-4 gap-3">
+      {showBanner && (
+        <div className="w-full max-w-sm bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.25)] rounded-xl px-4 py-3 flex items-center gap-2.5">
+          <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
+          <span className="text-[12px] text-foreground flex-1">Get the Sentry Finance app for the best experience.</span>
+          <a href="/downloads/SentryFi.apk" download
+            className="text-[11.5px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 no-min-h">
+            Download
+          </a>
+          <button onClick={dismissBanner} aria-label="Dismiss" className="h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0 no-min-h">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60 animate-fade-up">
         <div className="flex items-center gap-2 mb-5">
           <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
