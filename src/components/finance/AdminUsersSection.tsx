@@ -127,7 +127,7 @@ export const AdminUsersSection = () => {
                   <div className="text-[10.5px] text-muted-foreground truncate">{r.user_id.slice(0, 8)}…</div>
                 </div>
               </div>
-              <div className="text-foreground capitalize">{r.plan ?? "—"}</div>
+              <div className="text-foreground capitalize">{r.plan ?? "none"}</div>
               <div>
                 <span className={cn(
                   "inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px]",
