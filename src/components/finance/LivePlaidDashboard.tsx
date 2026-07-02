@@ -3026,7 +3026,7 @@ export const LivePlaidDashboard = ({
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
               <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
-                {savingsRate != null ? `${savingsRate}%` : "—"}
+                {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
               <div className="text-[9px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
             </div>

@@ -222,7 +222,7 @@ export const CategoryManager = ({
   const deleteCategory = (name: string) => {
     onReassignCategory(name, UNASSIGNED);
     onRemoveCategory(name);
-    toast.success(`"${name}" deleted — affected transactions moved to Unassigned`);
+    toast.success(`"${name}" deleted. Affected transactions moved to Unassigned.`);
   };
 
   if (!open) return null;

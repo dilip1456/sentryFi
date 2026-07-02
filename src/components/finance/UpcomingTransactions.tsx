@@ -51,7 +51,7 @@ export const UpcomingTransactions = () => {
             </div>
             <div className="text-muted-foreground mt-0.5">
               Balance {fmtUSD(balance, { compact: true })} · scheduled outflow {fmtUSD(totalDue, { compact: true })}
-              {isShort && " — move funds from your high-yield savings before May 1."}
+              {isShort && ". Move funds from your high-yield savings before May 1."}
             </div>
           </div>
           {isShort && (

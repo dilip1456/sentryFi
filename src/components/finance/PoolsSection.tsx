@@ -30,7 +30,7 @@ const accentMap: Record<PoolAccent, { ring: string; text: string; bg: string; ba
 };
 
 const initialPools: Pool[] = [
-  { id: "p1", name: "Travel",         icon: Plane,         accent: "sky",    monthly: 600, balance: 4200, target: 8000, note: "Japan trip — Oct 2026" },
+  { id: "p1", name: "Travel",         icon: Plane,         accent: "sky",    monthly: 600, balance: 4200, target: 8000, note: "Japan trip, Oct 2026" },
   { id: "p2", name: "Dining out",     icon: Utensils,      accent: "amber",  monthly: 400, balance: 320 },
   { id: "p3", name: "Rent buffer",    icon: Home,          accent: "mint",   monthly: 200, balance: 1800, target: 2400, note: "1 month cushion" },
   { id: "p4", name: "Emergency top-up", icon: Shield,      accent: "coral",  monthly: 300, balance: 12500, target: 18000 },
