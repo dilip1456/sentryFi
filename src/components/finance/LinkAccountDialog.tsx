@@ -70,7 +70,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
       toast.error("Failed to link account", { description: error?.message ?? data?.error });
       return;
     }
-    toast.success("Account linked — syncing transactions");
+    toast.success("Account linked. Syncing transactions…");
     setDemo(false);
     onOpenChange(false);
     onLinked?.();
@@ -97,7 +97,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   const tryDemo = () => {
     setDemo(true);
     onOpenChange(false);
-    toast.success("Demo mode enabled — showing sample portfolio");
+    toast.success("Demo mode enabled. Showing sample portfolio.");
   };
 
   return (

@@ -885,7 +885,7 @@ export const SpendingScreen = ({
                         <button onClick={() => {
                           onReassignCategory(cat.name);
                           onRemoveCategory(cat.name);
-                          toast.success(`"${cat.name}" deleted — transactions moved to Unassigned`);
+                          toast.success(`"${cat.name}" deleted. Transactions moved to Unassigned.`);
                         }} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-negative transition-all">
                           <Trash2 className="h-3 w-3" />
                         </button>
