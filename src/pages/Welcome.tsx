@@ -1,6 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDemo } from "@/contexts/DemoContext";
 import { useEffect, useState } from "react";
 import { isNative } from "@/lib/capacitor-oauth";
 
@@ -55,8 +54,7 @@ const HOW = [
 
 export default function Welcome() {
   const { user } = useAuth();
-  const { setDemo } = useDemo();
-  const navigate = useNavigate();
+const navigate = useNavigate();
   const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
@@ -68,8 +66,7 @@ export default function Welcome() {
   }, []);
 
   const tryDemo = () => {
-    setDemo(true);
-    navigate("/");
+    navigate("/demo");
   };
 
   return (
