@@ -2269,6 +2269,7 @@ export const LivePlaidDashboard = ({
   const [showFilterBuilder, setShowFilterBuilder] = useState(false);
   const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
   const [incomeExpanded, setIncomeExpanded] = useState(false);
+  const [monthlyFlowFilter, setMonthlyFlowFilter] = useState<"all"|"expense"|"income">("all");
   const BENEFITS_KEY = "sentryfi_benefits_used";
   const [benefitsUsed, setBenefitsUsed] = useState<Record<string,boolean>>(() => {
     try { return JSON.parse(localStorage.getItem(BENEFITS_KEY) ?? "{}"); } catch { return {}; }
@@ -3779,7 +3780,8 @@ export const LivePlaidDashboard = ({
       <div className="min-w-0">
       <section className="space-y-2">
         {(() => {
-          const [mFlow, setMFlow] = React.useState<"all"|"expense"|"income">("all");
+          const mFlow = monthlyFlowFilter;
+          const setMFlow = setMonthlyFlowFilter;
           const filtered = monthlyPeriodTxns.filter(t => {
             if (hideInternal && internalTxnIds.has(t.id)) return false;
             if (mFlow === "expense") return Number(t.amount) > 0;
@@ -4039,8 +4041,9 @@ export const LivePlaidDashboard = ({
                   return (
                     <button key={c.category}
                       onClick={()=>{ onCategorySelect?.(isActive ? "" : c.category); setTxnFlowFilter("expense"); }}
-                      className={cn("group w-full text-left rounded-lg px-3 py-2 transition-colors",
-                        isActive ? "bg-secondary/70" : "hover:bg-secondary/40")}>
+                      className={cn("group w-full text-left rounded-lg px-3 py-2 transition-all",
+                        isActive ? "bg-secondary/70" : "hover:bg-secondary/40",
+                        selectedCategory && !isActive ? "opacity-50 hover:opacity-80" : "")}>
                       <div className="flex items-center gap-2 mb-1.5">
                         <div className="h-5 w-5 rounded grid place-items-center shrink-0 transition-transform group-hover:scale-105"
                           style={{backgroundColor:`${color}20`,color}}>
