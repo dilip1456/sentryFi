@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, Link } from "react-router-dom";
 import { z } from "zod";
 import { App } from "@capacitor/app";
 import { supabase } from "@/integrations/supabase/client";
@@ -186,6 +186,12 @@ const Auth = () => {
 
         <div className="mt-4 text-center text-[10.5px] text-muted-foreground">
           By continuing you agree to our Terms & Privacy.
+        </div>
+
+        <div className="mt-3 text-center">
+          <Link to="/demo" className="text-[11.5px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+            Just browsing? Try the demo →
+          </Link>
         </div>
       </div>
     </div>

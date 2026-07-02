@@ -322,26 +322,31 @@ const buildMonthlyFlow = (txns: PTxn[]) => {
  */
 const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
   const ids = new Set<string>();
-  const TRANSFER_NAME = /\btransfer\b|zelle|venmo|cashapp|pay yourself|from checking|to savings|to checking|from savings|online payment|autopay|bill pay/i;
+  // Only patterns that reliably indicate own-account movement (not person-to-person).
+  // Excluded: zelle, venmo, cashapp — those are often real income/expense.
+  // Excluded: autopay, bill pay, online payment — those are real bill payments.
+  const OWN_TRANSFER = /\btransfer\b|pay yourself|\bfrom checking\b|\bto savings\b|\bto checking\b|\bfrom savings\b/i;
 
-  const isTransfer = (t: PTxn) =>
+  const isCandidate = (t: PTxn) =>
     (t.category?.[0] ?? "").toLowerCase().includes("transfer") ||
-    TRANSFER_NAME.test(t.merchant_name ?? t.name ?? "");
+    OWN_TRANSFER.test(t.merchant_name ?? t.name ?? "");
 
-  const candidates = txns.filter(isTransfer);
+  const candidates = txns.filter(isCandidate);
 
   for (const t of candidates) {
     if (ids.has(t.id)) continue;
     const amt = Number(t.amount);
     const tDate = new Date(t.date + "T00:00:00");
 
-    // Look for a matching opposite transaction (same amount, different account, within 3 days)
+    // Require a matching opposite-sign transaction in a DIFFERENT account within 3 days.
+    // Without a confirmed pair, we do NOT auto-mark — better to miss some than to
+    // incorrectly hide real income or expenses (e.g. Zelle from a friend).
     const match = candidates.find(o => {
       if (o.id === t.id || ids.has(o.id)) return false;
       if (o.account_id === t.account_id) return false;
       const oAmt = Number(o.amount);
       if (Math.abs(Math.abs(oAmt) - Math.abs(amt)) > 0.01) return false;
-      if (Math.sign(oAmt) === Math.sign(amt)) return false; // must be opposite signs
+      if (Math.sign(oAmt) === Math.sign(amt)) return false;
       const oDate = new Date(o.date + "T00:00:00");
       return Math.abs(tDate.getTime() - oDate.getTime()) <= 3 * 86400000;
     });
@@ -349,10 +354,8 @@ const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
     if (match) {
       ids.add(t.id);
       ids.add(match.id);
-    } else if ((t.category?.[0] ?? "").toLowerCase().includes("transfer")) {
-      // Even without a pair, Plaid-confirmed transfers are internal
-      ids.add(t.id);
     }
+    // No fallback — only mark as internal when we have a confirmed pair.
   }
   return ids;
 };
@@ -585,7 +588,7 @@ const generateActions = (
   if (lowCheck.length > 0) items.push({
     id: "low-checking", priority: "urgent",
     title: `Low checking balance`,
-    detail: `${lowCheck[0].name} is at ${fmtUSD(Number(lowCheck[0].current_balance) || 0)} — consider a transfer.`,
+    detail: `${lowCheck[0].name} is at ${fmtUSD(Number(lowCheck[0].current_balance) || 0)}. Consider a transfer.`,
     cta: "Transfer funds", icon: AlertTriangle,
   });
 
@@ -610,7 +613,7 @@ const generateActions = (
       items.push({
         id: "budget-overage", priority: "urgent",
         title: `Budget exceeded: ${formatCat(top.cat)}`,
-        detail: `${fmtUSD(top.spent)} spent vs ${fmtUSD(budgets[top.cat])} budget — ${fmtUSD(top.over)} over.${overages.length > 1 ? ` +${overages.length - 1} more categor${overages.length > 2 ? "ies" : "y"}.` : ""}`,
+        detail: `${fmtUSD(top.spent)} spent vs ${fmtUSD(budgets[top.cat])} budget, ${fmtUSD(top.over)} over.${overages.length > 1 ? ` +${overages.length - 1} more categor${overages.length > 2 ? "ies" : "y"}.` : ""}`,
         cta: "Review spending", icon: AlertTriangle, reviewCategory: top.cat,
       });
     }
@@ -650,7 +653,7 @@ const generateActions = (
       items.push({
         id: "spend-spike", priority: "soon",
         title: `${formatCat(s.cat)} spending up ${s.pct}%`,
-        detail: `${fmtUSD(s.thisAmt)} this month vs ${fmtUSD(Math.round(s.avg))} avg — ${fmtUSD(Math.round(s.thisAmt - s.avg))} above normal.`,
+        detail: `${fmtUSD(s.thisAmt)} this month vs ${fmtUSD(Math.round(s.avg))} avg, ${fmtUSD(Math.round(s.thisAmt - s.avg))} above normal.`,
         cta: "Review", icon: TrendingUp, reviewCategory: s.cat,
       });
     }
@@ -669,7 +672,7 @@ const generateActions = (
       items.push({
         id: `cc-overdue-${cc.id}`, priority: "urgent",
         title: `${shortName} payment overdue`,
-        detail: `Minimum payment of ${minPay ? fmtUSD(minPay) : "unknown"} is past due — pay immediately to avoid fees.`,
+        detail: `Minimum payment of ${minPay ? fmtUSD(minPay) : "unknown"} is past due. Pay immediately to avoid fees.`,
         cta: "Pay now", icon: CreditCard,
       });
     } else if (dueDate) {
@@ -687,7 +690,7 @@ const generateActions = (
       items.push({
         id: `cc-${cc.id}`, priority: "soon",
         title: `${shortName} balance due`,
-        detail: `${fmtUSD(bal)} balance — schedule payment before due date.`,
+        detail: `${fmtUSD(bal)} balance. Schedule payment before due date.`,
         cta: "Schedule payment", icon: CreditCard,
       });
     }
@@ -722,7 +725,7 @@ const generateActions = (
   if (lowYieldSavings.length > 0) items.push({
     id: "idle-savings", priority: "info",
     title: "Savings may have low yield",
-    detail: `${fmtUSD(lowYieldSavings.reduce((s, a) => s + (Number(a.current_balance) || 0), 0))} may be earning below market rate — consider a 4%+ APY account.`,
+    detail: `${fmtUSD(lowYieldSavings.reduce((s, a) => s + (Number(a.current_balance) || 0), 0))} may be earning below market rate. Consider a 4%+ APY account.`,
     cta: "Explore HYSA", icon: Coins,
   });
 
@@ -856,7 +859,6 @@ const BudgetPanel = ({ category, current, onSave, onRemove, onClose }: {
 };
 
 // ── Inline category picker (floating dropdown) ─────────────────
-type PickerState = { txn: PTxn; x: number; y: number };
 
 const InlineCategoryPicker = ({
   txn, current, existingRule, customCategories,
@@ -896,20 +898,14 @@ const InlineCategoryPicker = ({
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      {/* Picker card */}
-      <div className="fixed z-50 w-64 surface-elevated rounded-xl shadow-2xl overflow-hidden"
-        style={{ border:"1px solid var(--gold-border)" }}
-        onClick={e=>e.stopPropagation()}>
+    <div className="w-full surface-elevated overflow-hidden" onClick={e=>e.stopPropagation()}>
         {/* Search */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/30">
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <input ref={inputRef} value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="Search or create…"
             className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground" />
-          {search && <button onClick={()=>setSearch("")} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>}
+          {search && <button aria-label="Clear search" onClick={()=>setSearch("")} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>}
         </div>
         {/* Income / Expense tabs */}
         <div className="flex border-b border-border/30">
@@ -969,72 +965,36 @@ const InlineCategoryPicker = ({
           </label>
         )}
       </div>
-    </>
   );
 };
 
 // ── Transaction row ────────────────────────────────────────────
-const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPickerId, onOpenPicker, onClosePicker, onSelect, onAddCategory, onAddRule, onRemoveCustom, isInternal, nameOverride, onSetName, isManualInternal, onToggleInternal }: {
+const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, nameOverride, isManualInternal, onToggleInternal, onOpenDetail, onOpenDetailCat }: {
   t: PTxn; i: number;
   overrides: Record<string,string>;
   getRuleCategory: (m:string|null)=>string|null;
-  customCategories: { name:string; type:"income"|"expense" }[];
-  openPickerId: string|null;
-  onOpenPicker: (txn: PTxn, anchor: {x:number;y:number}) => void;
-  onClosePicker: () => void;
-  onSelect: (txnId:string, cat:string) => void;
-  onAddCategory: (name:string, type:"income"|"expense") => void;
-  onAddRule: (merchant:string, cat:string) => void;
-  onRemoveCustom: (name:string) => void;
   isInternal?: boolean;
+  isAutoInternal?: boolean;
   nameOverride?: string;
-  onSetName?: (id: string, name: string) => void;
   isManualInternal?: boolean;
   onToggleInternal?: (id: string) => void;
+  onOpenDetail: (txn: PTxn) => void;
+  onOpenDetailCat: (txn: PTxn) => void;
 }) => {
   const rawCat     = getEffectiveCategory(t, overrides, getRuleCategory);
   const displayCat = humanizeCategory(rawCat, Number(t.amount));
   const isIncome   = Number(t.amount) < 0;
   const Icon       = isIncome ? ArrowDownLeft : categoryIcon(rawCat);
   const isEdited   = !!overrides[t.id] || !!getRuleCategory(t.merchant_name ?? t.name ?? null);
-  const isOpen     = openPickerId === t.id;
   const displayName = nameOverride ?? t.merchant_name ?? t.name ?? "Transaction";
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState("");
-  const nameInputRef = useRef<HTMLInputElement>(null);
-
-  const handleCatClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isOpen) { onClosePicker(); return; }
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = Math.min(rect.left, window.innerWidth - 270);
-    const y = rect.bottom + 6;
-    onOpenPicker(t, { x, y });
-  };
-
-  const startNameEdit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNameDraft(displayName);
-    setEditingName(true);
-    setTimeout(() => nameInputRef.current?.select(), 0);
-  };
-
-  const commitName = () => {
-    const trimmed = nameDraft.trim();
-    if (trimmed && trimmed !== (t.merchant_name ?? t.name ?? "")) {
-      onSetName?.(t.id, trimmed);
-    } else if (!trimmed) {
-      onSetName?.(t.id, ""); // clear override
-    }
-    setEditingName(false);
-  };
 
   return (
     <div className={cn(
-      "group grid items-center gap-2 px-4 md:px-5 py-2.5 transition-colors hover:bg-surface-hover/30",
+      "group grid items-center gap-2 px-4 md:px-5 py-2.5 transition-colors hover:bg-surface-hover/30 cursor-pointer",
       i > 0 && "border-t border-border/20",
       isInternal && "opacity-60",
-    )} style={{gridTemplateColumns:"auto 1fr auto auto"}}>
+    )} style={{gridTemplateColumns:"auto 1fr auto auto"}}
+      onClick={() => onOpenDetail(t)}>
       {/* Category icon */}
       <div className={cn("h-7 w-7 rounded-lg grid place-items-center border shrink-0 transition-colors",
         isInternal ? "bg-secondary/40 border-border/30 text-muted-foreground/50"
@@ -1046,21 +1006,10 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
       {/* Name + meta */}
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          {editingName ? (
-            <input ref={nameInputRef} autoFocus value={nameDraft}
-              onChange={e => setNameDraft(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={e => { if (e.key==="Enter"){e.preventDefault();commitName();} if(e.key==="Escape")setEditingName(false); }}
-              className="flex-1 min-w-0 bg-card border border-[hsl(var(--primary)/0.4)] rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary))]" />
-          ) : (
-            <span className={cn("text-[12.5px] font-medium truncate cursor-text select-none", isInternal?"line-through text-muted-foreground":"text-foreground")}
-              onDoubleClick={startNameEdit}
-              onTouchEnd={e=>{e.preventDefault();startNameEdit(e as unknown as React.MouseEvent);}}
-              title="Double-click to edit name">
-              {displayName}
-            </span>
-          )}
-          {nameOverride && !editingName && <span className="text-[8px] text-[hsl(var(--primary)/0.5)] shrink-0">edited</span>}
+          <span className={cn("text-[12.5px] font-medium truncate", isInternal ? "line-through text-muted-foreground" : "text-foreground")}>
+            {displayName}
+          </span>
+          {nameOverride && <span className="text-[8px] text-[hsl(var(--primary)/0.5)] shrink-0">edited</span>}
           {isManualInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Transfer</span>}
           {!isManualInternal && isInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Internal</span>}
           {t.pending && <span className="text-[8px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
@@ -1069,9 +1018,8 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
           <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
           {displayCat && !isInternal && <>
             <span className="text-muted-foreground/30">·</span>
-            <button onClick={handleCatClick}
-              className={cn("inline-flex items-center gap-0.5 rounded px-1 -mx-1 transition-colors",
-                isOpen?"bg-secondary/60 text-foreground":"hover:bg-secondary/40 hover:text-foreground",
+            <button onClick={e=>{e.stopPropagation();onOpenDetailCat(t);}}
+              className={cn("inline-flex items-center gap-0.5 rounded px-1 -mx-1 transition-colors hover:bg-secondary/40 hover:text-foreground",
                 isEdited&&"text-info")}
               title="Click to change category">
               {displayCat}
@@ -1087,13 +1035,13 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
         {isIncome?"+":"−"}{fmtUSD(Math.abs(Number(t.amount)),{cents:true})}
       </div>
 
-      {/* Mark-as-internal toggle — hover on desktop, always visible when active */}
+      {/* Transfer toggle — hover on desktop, always visible when active */}
       <button
         onClick={e=>{e.stopPropagation();onToggleInternal?.(t.id);}}
-        title={isManualInternal?"Remove internal transfer mark":"Mark as internal transfer"}
+        title={isManualInternal ? "Remove transfer mark" : isAutoInternal && !isInternal ? "Auto-detected as transfer (un-flagged, click to re-flag)" : isAutoInternal ? "Auto-detected as transfer, click to un-flag" : "Mark as internal transfer"}
         className={cn(
           "h-6 w-6 grid place-items-center rounded transition-all shrink-0",
-          isManualInternal
+          isManualInternal || isAutoInternal
             ? "text-info bg-info/10"
             : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         )}>
@@ -1103,39 +1051,194 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, customCategories, openPicker
   );
 };
 
-// ── Positioned picker — rendered at root level of each view ───
-const PositionedPicker = ({ txn, pos, overrides, getRuleCategory, customCategories, onSelect, onAddCategory, onAddRule, onRemoveCustom, onClose }: {
-  txn: PTxn; pos:{x:number;y:number};
-  overrides:Record<string,string>; getRuleCategory:(m:string|null)=>string|null;
-  customCategories:{name:string;type:"income"|"expense"}[];
-  onSelect:(id:string,cat:string)=>void; onAddCategory:(n:string,t:"income"|"expense")=>void;
-  onAddRule:(m:string,c:string)=>void; onRemoveCustom:(n:string)=>void; onClose:()=>void;
+// ── Transaction detail modal ──────────────────────────────────────────
+type RenameRequest = { txnId: string; merchant: string | null; newName: string; matchingCount: number };
+
+const TxnDetailModal = ({
+  txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, allTxns,
+  initialCatOpen, onClose, onSaveNameOverride, onBulkRename, onSaveNameRule,
+  onAddCategory, onAddRule, onRemoveCustom, onSelect, onToggleInternal, isManualInternal, isAutoInternal, isManualExternal,
+}: {
+  txn: PTxn; overrides: Record<string,string>; getRuleCategory: (m:string|null)=>string|null;
+  nameOverride?: string; nameRules: Record<string,string>;
+  customCategories: {name:string;type:"income"|"expense"}[];
+  allTxns: PTxn[];
+  initialCatOpen?: boolean;
+  onClose: () => void;
+  onSaveNameOverride: (id: string, name: string) => void;
+  onBulkRename: (ids: string[], name: string) => void;
+  onSaveNameRule: (merchant: string, name: string) => void;
+  onAddCategory: (name: string, type: "income"|"expense") => void;
+  onAddRule: (merchant: string, cat: string) => void;
+  onRemoveCustom: (name: string) => void;
+  onSelect: (id: string, cat: string) => void;
+  onToggleInternal: (id: string) => void;
+  isManualInternal: boolean;
+  isAutoInternal: boolean;
+  isManualExternal: boolean;
 }) => {
+  const merchant = txn.merchant_name ?? txn.name ?? null;
   const rawCat = getEffectiveCategory(txn, overrides, getRuleCategory);
+  const isIncome = Number(txn.amount) < 0;
+  const Icon = isIncome ? ArrowDownLeft : categoryIcon(rawCat);
+  const color = isIncome ? "hsl(var(--positive))" : catColor(rawCat);
+  const currentDisplayName = nameOverride ?? (merchant ? (nameRules[merchant] ?? merchant) : "Transaction");
+
+  const [nameDraft, setNameDraft] = useState(currentDisplayName);
+  const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
+  const [renameReq, setRenameReq] = useState<RenameRequest | null>(null);
+  const [applyAll, setApplyAll] = useState(true);
+  const [createRule, setCreateRule] = useState(true);
+
+  const matchingTxns = merchant
+    ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant)
+    : [];
+
+  const handleCommitName = () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === currentDisplayName) return;
+    setRenameReq({ txnId: txn.id, merchant, newName: trimmed, matchingCount: matchingTxns.length });
+  };
+
+  const applyRename = (all: boolean, rule: boolean) => {
+    if (!renameReq) return;
+    onSaveNameOverride(txn.id, renameReq.newName);
+    if (all && matchingTxns.length > 0) onBulkRename(matchingTxns.map(t => t.id), renameReq.newName);
+    if (rule && renameReq.merchant) onSaveNameRule(renameReq.merchant, renameReq.newName);
+    setRenameReq(null);
+    toast.success("Renamed" + (rule ? " + rule created" : ""));
+  };
+
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[80vh] flex flex-col">
-        <DialogTitle className="sr-only">Edit category</DialogTitle>
-        <DialogDescription className="sr-only">Choose a category for this transaction.</DialogDescription>
-        <div className="px-4 py-3 border-b border-border/40 shrink-0">
-          <div className="text-[13px] font-medium text-foreground truncate">
-            {txn.merchant_name ?? txn.name ?? "Transaction"}
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
+        <DialogTitle className="sr-only">Transaction details</DialogTitle>
+        <DialogDescription className="sr-only">Edit transaction name or category.</DialogDescription>
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-border/30 flex items-start gap-3 shrink-0">
+          <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+            <Icon className="h-5 w-5" />
           </div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">
-            {new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} · {Number(txn.amount) < 0 ? "Income" : "Expense"}
+          <div className="flex-1 min-w-0">
+            <input value={nameDraft} onChange={e => setNameDraft(e.target.value)}
+              onBlur={handleCommitName}
+              onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+              className="w-full bg-transparent text-[14.5px] font-semibold text-foreground outline-none border-b border-transparent focus:border-[hsl(var(--primary)/0.5)] pb-0.5" />
+            <div className="text-[10.5px] text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+              <span>{new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+              <span className="text-muted-foreground/30">·</span>
+              <span>{isIncome ? "Income" : "Expense"}</span>
+              {txn.payment_channel && <><span className="text-muted-foreground/30">·</span><span className="capitalize">{txn.payment_channel}</span></>}
+              {txn.pending && <><span className="text-muted-foreground/30">·</span><span className="text-warning">Pending</span></>}
+            </div>
+            <div className="text-[10px] text-muted-foreground/50 mt-0.5">Tap name to edit</div>
+          </div>
+          <div className={cn("text-[16px] font-display tabular shrink-0 font-bold mt-1", isIncome ? "text-positive" : "text-foreground")}>
+            {isIncome ? "+" : "−"}{fmtUSD(Math.abs(Number(txn.amount)), { cents: true })}
           </div>
         </div>
+
+        {/* Rename confirmation */}
+        {renameReq && (
+          <div className="px-5 py-4 border-b border-border/20 bg-[hsl(var(--primary)/0.04)] space-y-3 shrink-0">
+            <div className="text-[12.5px] font-semibold text-foreground">Apply rename to:</div>
+            <div className="space-y-2.5">
+              {matchingTxns.length > 0 && (
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={applyAll} onChange={e => setApplyAll(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]" />
+                  <span className="text-[12px] text-foreground leading-snug">
+                    All {matchingTxns.length} other transaction{matchingTxns.length !== 1 ? "s" : ""} from <span className="font-medium">"{merchant}"</span>
+                  </span>
+                </label>
+              )}
+              {renameReq.merchant && (
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={createRule} onChange={e => setCreateRule(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))]" />
+                  <span className="text-[12px] text-foreground leading-snug">
+                    Create rule: future transactions from this merchant will show as <span className="font-medium">"{renameReq.newName}"</span>
+                  </span>
+                </label>
+              )}
+            </div>
+            <div className="flex gap-2 pt-0.5">
+              <button onClick={() => applyRename(applyAll, createRule)}
+                className="flex-1 h-8 rounded-lg bg-gold text-[12px] font-semibold hover:opacity-90 transition-opacity">Apply</button>
+              <button onClick={() => applyRename(false, false)}
+                className="h-8 px-3 rounded-lg border border-border text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">Just this</button>
+              <button onClick={() => { setRenameReq(null); setNameDraft(currentDisplayName); }}
+                className="h-8 w-8 rounded-lg border border-border grid place-items-center text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Category row */}
         <div className="flex-1 overflow-y-auto min-h-0">
-          <InlineCategoryPicker txn={txn} current={rawCat??"Other"}
-            existingRule={getRuleCategory(txn.merchant_name??txn.name??null)??undefined}
-            customCategories={customCategories}
-            onSelect={cat=>{ onSelect(txn.id,cat); onClose(); }}
-            onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom} onClose={onClose} />
+          <button onClick={() => setShowCatPicker(s => !s)}
+            className="w-full px-5 py-3.5 flex items-center justify-between border-b border-border/15 hover:bg-surface-hover/20 transition-colors">
+            <div className="flex items-center gap-2.5">
+              <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                <Icon className="h-3.5 w-3.5" />
+              </div>
+              <div className="text-left">
+                <div className="text-[12px] font-medium text-foreground">{humanizeCategory(rawCat, Number(txn.amount))}</div>
+                <div className="text-[10px] text-muted-foreground">Category · tap to change</div>
+              </div>
+            </div>
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform shrink-0", showCatPicker && "rotate-180")} />
+          </button>
+
+          {showCatPicker && (
+            <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
+              existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
+              customCategories={customCategories}
+              onSelect={cat => { onSelect(txn.id, cat); setShowCatPicker(false); }}
+              onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
+              onClose={() => setShowCatPicker(false)} />
+          )}
+
+          {/* Details */}
+          <div className="px-5 py-4 space-y-3">
+            {merchant && merchant !== currentDisplayName && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-[11px] text-muted-foreground shrink-0">Original name</span>
+                <span className="text-[11.5px] text-foreground text-right truncate">{merchant}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted-foreground shrink-0">Internal transfer</span>
+                {isAutoInternal && !isManualExternal && (
+                  <span className="text-[9.5px] text-muted-foreground/50">Auto-detected</span>
+                )}
+              </div>
+              <button onClick={() => onToggleInternal(txn.id)}
+                className={cn("h-6 px-2.5 rounded-full text-[10.5px] font-medium transition-colors shrink-0 flex items-center gap-1",
+                  isManualInternal ? "bg-info/15 text-info"
+                  : isAutoInternal && !isManualExternal ? "bg-warning/10 text-warning border border-warning/30"
+                  : isManualExternal ? "bg-secondary/60 text-muted-foreground border border-border"
+                  : "border border-border text-muted-foreground hover:text-foreground"
+                )}>
+                {isManualInternal ? "✓ Transfer" : isAutoInternal && !isManualExternal ? "Un-flag transfer" : isManualExternal ? "Re-flag transfer" : "Mark as transfer"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-border/20 shrink-0">
+          <button onClick={onClose}
+            className="w-full h-9 rounded-lg bg-secondary text-[12.5px] font-medium text-foreground hover:bg-secondary/80 transition-colors">Done</button>
         </div>
       </DialogContent>
     </Dialog>
   );
 };
+
+// ── Positioned picker — rendered at root level of each view ───
 
 // ── Sortable panel card ──────────────────────────────────────────
 const SortableCard = ({ id, children }: { id: string; children: (handleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode }) => {
@@ -1393,7 +1496,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
       )}
       {isPromo && promoExpired && (
         <div className="inline-flex items-center gap-1.5 chip chip-negative text-[11px]">
-          0% APR promo expired — interest now applies
+          0% APR promo expired. Interest now applies.
         </div>
       )}
 
@@ -1662,7 +1765,7 @@ const CARD_INFO: { match: RegExp; info: CardInfo }[] = [
     annualCredits: [
       { label: "$300 travel credit", amount: 300, howTo: "Automatically applied to any travel purchase" },
       { label: "Priority Pass lounge", amount: 0, howTo: "Activate membership via Chase benefits portal" },
-      { label: "$5/mo DoorDash DashPass", amount: 60, howTo: "Activate via Chase offers — $5/mo DashPass credit" },
+      { label: "$5/mo DoorDash DashPass", amount: 60, howTo: "Activate via Chase offers. $5/mo DashPass credit." },
     ]} },
   { match: /sapphire preferred/i,   info: { purpose: "Travel & dining card", rewards: "3x dining, 2x travel, 5x Chase travel portal", bestFor: "Travel & restaurants", annualFee: 95,
     annualCredits: [
@@ -1674,7 +1777,7 @@ const CARD_INFO: { match: RegExp; info: CardInfo }[] = [
   { match: /freedom/i,              info: { purpose: "Rotating cashback", rewards: "5% quarterly rotating categories, 1% all else", bestFor: "Category maximizers", annualFee: 0 } },
   { match: /amex.*(platinum|plat)/i,info: { purpose: "Premium travel & perks", rewards: "5x flights (direct/Amex Travel), 5x hotels (Amex Travel)", bestFor: "Frequent flyers", annualFee: 695,
     annualCredits: [
-      { label: "$200 airline fee credit", amount: 200, howTo: "Select one airline — applies to incidental fees" },
+      { label: "$200 airline fee credit", amount: 200, howTo: "Select one airline. Applies to incidental fees." },
       { label: "$200 hotel credit", amount: 200, howTo: "Prepaid Fine Hotels + Resorts or Hotel Collection (2-night min)" },
       { label: "$240 digital entertainment", amount: 240, howTo: "$20/mo: Disney+, Hulu, ESPN+, Peacock, NYT, WSJ" },
       { label: "$155 Walmart+ credit", amount: 155, howTo: "$12.95/mo credit on Walmart+ membership" },
@@ -1924,7 +2027,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                 {!credit && itemId && (
                   <div className="surface-card p-3">
                     <div className="text-[11px] text-muted-foreground mb-2">
-                      This card was linked before statement balance, due date, and APR tracking existed — grant a bit of extra access to unlock it.
+                      This card was linked before statement balance, due date, and APR tracking existed. Grant a bit of extra access to unlock it.
                     </div>
                     <GrantConsentButton itemId={itemId} onGranted={onGranted} />
                   </div>
@@ -1941,7 +2044,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                 )}
                 {isPromo && promoExpired && (
                   <div className="inline-flex items-center gap-1.5 chip chip-negative text-[11px]">
-                    0% promo APR expired — regular APR now applies
+                    0% promo APR expired. Regular APR now applies.
                   </div>
                 )}
                 {!isPromo && aprRate != null && (
@@ -2155,7 +2258,7 @@ export const LivePlaidDashboard = ({
   const [txnAcctTypeFilter, setTxnAcctTypeFilter] = useState<string>("all");     // all | depository | credit | investment | loan
   const [txnFlowFilter, setTxnFlowFilter] = useState<"all"|"expense"|"income">("all");
   const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc">("date-desc");
-  const [hideInternal, setHideInternal] = useState(false);
+  const [hideInternal, setHideInternal] = useState(true);
   const [txnLimit, setTxnLimit] = useState(150);
   // Drill-down: clicking a bar in the spend-trend chart narrows the txn list to that exact day/month
   const [chartDrillDate, setChartDrillDate] = useState<string|null>(null);   // exact "YYYY-MM-DD" (day/week/month granularity)
@@ -2174,8 +2277,6 @@ export const LivePlaidDashboard = ({
   const [refreshingAccounts, setRefreshingAccounts] = useState(false);
   const [refreshingTxns, setRefreshingTxns] = useState(false);
   // Inline category picker — tracks which txn has the picker open + anchor position
-  const [openPickerTxn, setOpenPickerTxn] = useState<PTxn|null>(null);
-  const [pickerPos, setPickerPos]         = useState<{x:number;y:number}>({x:0,y:0});
 
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_insights")??"[]")); } catch { return new Set(); }
@@ -2201,6 +2302,33 @@ export const LivePlaidDashboard = ({
     const next = name ? { ...nameOverrides, [id]: name } : (() => { const n={...nameOverrides}; delete n[id]; return n; })();
     setNameOverrides(next);
     localStorage.setItem("sentryfi_name_overrides", JSON.stringify(next));
+  };
+  const bulkSetNameOverride = (ids: string[], name: string) => {
+    const next = { ...nameOverrides };
+    ids.forEach(id => { if (name) next[id] = name; else delete next[id]; });
+    setNameOverrides(next);
+    localStorage.setItem("sentryfi_name_overrides", JSON.stringify(next));
+  };
+
+  const [nameRules, setNameRules] = useState<Record<string,string>>(() => {
+    try { return JSON.parse(localStorage.getItem("sentryfi_name_rules") ?? "{}"); } catch { return {}; }
+  });
+  const saveNameRule = (merchant: string, name: string) => {
+    const next = { ...nameRules, [merchant]: name };
+    setNameRules(next);
+    localStorage.setItem("sentryfi_name_rules", JSON.stringify(next));
+  };
+
+  const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
+  const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
+  const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
+
+  // Resolve display name: per-txn override → merchant rule → merchant name
+  const getDisplayName = (t: PTxn) => {
+    if (nameOverrides[t.id]) return nameOverrides[t.id];
+    const m = t.merchant_name ?? t.name ?? null;
+    if (m && nameRules[m]) return nameRules[m];
+    return m ?? "Transaction";
   };
 
   // Panel order for overall dashboard (drag-and-drop)
@@ -2248,7 +2376,6 @@ export const LivePlaidDashboard = ({
       if (txnsRes.error) console.error("[load] transactions:", txnsRes.error.message);
       if (itsRes.error)  console.error("[load] items:", itsRes.error.message);
       if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
-      console.log("[load] accounts:", accsRes.data?.length ?? 0, "txns:", txnsRes.data?.length ?? 0, "items:", itsRes.data?.length ?? 0);
       // Apply whatever succeeded — one failing table shouldn't blank the rest
       setAccounts((accsRes.data ?? []) as PAccount[]);
       setTxns((txnsRes.data ?? []) as PTxn[]);
@@ -2421,13 +2548,40 @@ export const LivePlaidDashboard = ({
   const [manualInternalIds, setManualInternalIds] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem("sentryfi_manual_internal") ?? "[]")); } catch { return new Set(); }
   });
+  // Whitelist: user explicitly un-flagged an auto-detected transfer
+  const [manualExternalIds, setManualExternalIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_manual_external") ?? "[]")); } catch { return new Set(); }
+  });
   const toggleManualInternal = (id: string) => {
-    const n = new Set(manualInternalIds);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    setManualInternalIds(n);
-    localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
+    const isAutoInternal = autoInternalIds.has(id);
+    const isManualInt = manualInternalIds.has(id);
+    const isManualExt = manualExternalIds.has(id);
+    if (isManualExt) {
+      // Revert whitelist → auto-detection applies again
+      const n = new Set(manualExternalIds); n.delete(id);
+      setManualExternalIds(n);
+      localStorage.setItem("sentryfi_manual_external", JSON.stringify([...n]));
+    } else if (isAutoInternal && !isManualInt) {
+      // Auto-detected → user says "not a transfer"
+      const n = new Set(manualExternalIds); n.add(id);
+      setManualExternalIds(n);
+      localStorage.setItem("sentryfi_manual_external", JSON.stringify([...n]));
+    } else if (isManualInt) {
+      // Manually marked internal → remove
+      const n = new Set(manualInternalIds); n.delete(id);
+      setManualInternalIds(n);
+      localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
+    } else {
+      // Not internal → mark as internal
+      const n = new Set(manualInternalIds); n.add(id);
+      setManualInternalIds(n);
+      localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
+    }
   };
-  const internalTxnIds = useMemo(() => new Set([...autoInternalIds, ...manualInternalIds]), [autoInternalIds, manualInternalIds]);
+  const internalTxnIds = useMemo(
+    () => new Set([...autoInternalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
+    [autoInternalIds, manualInternalIds, manualExternalIds]
+  );
 
   // nwData must be computed after internalTxnIds so internal transfers are excluded from the chart
   const nwData   = buildNWByPeriod(netWorth, txns, period, internalTxnIds);
@@ -2800,8 +2954,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {/* ── 2-col on xl+: left = insights, right = accounts ── */}
-      <div className="xl:grid xl:grid-cols-[1.4fr_1fr] xl:gap-4 xl:items-start space-y-3 xl:space-y-0">
+      {/* ── Insights — full width ── */}
       <div className="space-y-3 min-w-0">
       {/* ═══ Insights into your spending ═══════════════════════ */}
       {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
@@ -2937,7 +3090,7 @@ export const LivePlaidDashboard = ({
                     <h3 className="font-display text-[13px] text-primary">Top Spending</h3>
                     <div className="text-[10px] text-muted-foreground mt-0.5">{new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})} · {fmtUSD(totalSpend)}</div>
                   </div>
-                  <button onClick={()=>onCategorySelect?.("")}
+                  <button onClick={()=>onCategorySelect?.("__spending__")}
                     className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-lg border border-border/50 hover:border-border transition-colors shrink-0">
                     View all <ArrowRight className="h-3 w-3" />
                   </button>
@@ -2975,7 +3128,7 @@ export const LivePlaidDashboard = ({
                               </div>
                             </div>
                             <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                              {topTxns[0] ? `${nameOverrides[topTxns[0].id]??topTxns[0].merchant_name??topTxns[0].name??"—"} · ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
+                              {topTxns[0] ? `${nameOverrides[topTxns[0].id]??topTxns[0].merchant_name??topTxns[0].name??"Unknown"} · ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
                             </div>
                             {!!budget && (
                               <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden">
@@ -3105,13 +3258,13 @@ export const LivePlaidDashboard = ({
         </section>
       )}
 
-      </div>{/* end left col */}
-      <div className="min-w-0 space-y-2">
-      {/* Accounts — grouped by type, banks shown within each type, all collapsed by default */}
+      </div>{/* end insights */}
+
+      {/* ── Accounts — full-width section below insights ── */}
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-lg md:text-xl text-primary">Accounts</h2>
+            <h2 className="font-display text-base text-primary">Accounts</h2>
             {lastSyncedAt && (
               <span className="text-[10px] text-muted-foreground/50">
                 synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
@@ -3128,7 +3281,7 @@ export const LivePlaidDashboard = ({
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-2 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
               {bucketOrder.map(bucket => (
                 <BucketGroup
                   key={bucket}
@@ -3152,9 +3305,6 @@ export const LivePlaidDashboard = ({
           </div>
         )}
       </section>
-
-      </div>{/* end right col */}
-      </div>{/* end 2-col grid */}
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
@@ -3292,7 +3442,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} />}
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
@@ -3425,7 +3575,7 @@ export const LivePlaidDashboard = ({
         return (
           <Dialog open onOpenChange={(o)=>{ if(!o){setSpendingPopup(null);setSpendPopupLimit(5);} }}>
             <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
-              <DialogTitle className="sr-only">{formatCat(cat)} — current month</DialogTitle>
+              <DialogTitle className="sr-only">{formatCat(cat)}: current month</DialogTitle>
               <DialogDescription className="sr-only">Top charges in {formatCat(cat)} this month.</DialogDescription>
               <div className="relative p-5 pb-4 shrink-0">
                 <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);}}
@@ -3469,7 +3619,7 @@ export const LivePlaidDashboard = ({
                 {catTxns.length>0 && (
                   <div>
                     <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-2">
-                      Top charges — sorted highest to lowest ({shownTxns.length} of {catTxns.length})
+                      Top charges, highest to lowest ({shownTxns.length} of {catTxns.length})
                     </div>
                     <div className="surface-card overflow-hidden divide-y divide-border/20">
                       {shownTxns.map(t=>(
@@ -3521,7 +3671,7 @@ export const LivePlaidDashboard = ({
   if (view==="monthly") return (
     <div className="space-y-4 animate-fade-up">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="font-display text-xl text-primary">Monthly</h2>
+        <h2 className="font-display text-xl text-primary">Transactions</h2>
         <PeriodNav state={monthlyPeriod} onChange={setMonthlyPeriod} />
       </div>
       {/* 2-col on xl+: left = stats+chart+categories, right = txn list */}
@@ -3626,30 +3776,56 @@ export const LivePlaidDashboard = ({
       </div>{/* end left col */}
       <div className="min-w-0">
       <section className="space-y-2">
-        <div className="flex items-baseline justify-between px-1">
-          <h2 className="font-display text-lg md:text-xl text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
-          <span className="text-[11px] text-muted-foreground">{monthlyPeriodTxns.length} transactions</span>
-        </div>
-        {monthlyPeriodTxns.length===0 ? (
-          <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">No transactions for this period.</div>
-        ) : (
-          <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px] xl:max-h-[calc(100dvh-240px)]">
-            {monthlyPeriodTxns.map((t,i)=><TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories}
-              openPickerId={openPickerTxn?.id??null}
-              onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
-              onClosePicker={()=>setOpenPickerTxn(null)}
-              onSelect={(id,cat)=>setOverride(id,cat)}
-              onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory}
-              isInternal={internalTxnIds.has(t.id)}
-              isManualInternal={manualInternalIds.has(t.id)}
-              onToggleInternal={toggleManualInternal}
-              nameOverride={nameOverrides[t.id]} onSetName={setNameOverride} />)}
-          </div></div>
-        )}
+        {(() => {
+          const [mFlow, setMFlow] = React.useState<"all"|"expense"|"income">("all");
+          const filtered = monthlyPeriodTxns.filter(t => {
+            if (hideInternal && internalTxnIds.has(t.id)) return false;
+            if (mFlow === "expense") return Number(t.amount) > 0;
+            if (mFlow === "income") return Number(t.amount) < 0;
+            return true;
+          });
+          return (
+            <>
+              <div className="flex items-center justify-between gap-2 px-1 flex-wrap">
+                <div className="flex items-baseline gap-2">
+                  <h2 className="font-display text-[13px] text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
+                  <span className="text-[11px] text-muted-foreground">{filtered.length} shown</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {(["all","expense","income"] as const).map(f => (
+                    <button key={f} onClick={()=>setMFlow(f)}
+                      className={cn("px-2.5 py-1 rounded-full text-[10.5px] font-medium transition-colors capitalize",
+                        mFlow===f?"bg-foreground text-background":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
+                      {f === "all" ? "All" : f === "expense" ? "Expenses" : "Income"}
+                    </button>
+                  ))}
+                  <button onClick={()=>setHideInternal(v=>!v)}
+                    className={cn("px-2.5 py-1 rounded-full text-[10.5px] font-medium transition-colors border",
+                      hideInternal ? "border-border/50 text-muted-foreground" : "border-info/40 bg-info/10 text-info")}>
+                    {hideInternal ? "Transfers hidden" : "Showing transfers"}
+                  </button>
+                </div>
+              </div>
+              {filtered.length===0 ? (
+                <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">No transactions for this filter.</div>
+              ) : (
+                <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px] xl:max-h-[calc(100dvh-240px)]">
+                  {filtered.map((t,i)=><TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory}
+                    isInternal={internalTxnIds.has(t.id)}
+                    isAutoInternal={autoInternalIds.has(t.id)}
+                    isManualInternal={manualInternalIds.has(t.id)}
+                    onToggleInternal={toggleManualInternal}
+                    nameOverride={getDisplayName(t)}
+                    onOpenDetail={txn=>openDetail(txn)} onOpenDetailCat={txn=>openDetail(txn,true)} />)}
+                </div></div>
+              )}
+            </>
+          );
+        })()}
       </section>
       </div>{/* end right col */}
       </div>{/* end 2-col grid */}
-      {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} />}
     </div>
   );
 
@@ -3768,33 +3944,12 @@ export const LivePlaidDashboard = ({
           }
         }
 
-        // Build pie slices (top 6 + "Other")
-        const TOP_N = 6;
-        const pieSlices = spendingPeriodByCategory.slice(0, TOP_N).map(c=>({
-          name: formatCat(c.category), value: c.total, color: catColor(c.category),
-        }));
-        if (spendingPeriodByCategory.length > TOP_N) {
-          const rest = spendingPeriodByCategory.slice(TOP_N).reduce((s,c)=>s+c.total,0);
-          pieSlices.push({ name:"Other", value: rest, color:"hsl(var(--muted-foreground))" });
-        }
-
         const TrendTip = ({ active, payload, label }: any) => {
           if (!active || !payload?.length) return null;
           return (
             <div className="surface-elevated border border-border/60 rounded-lg px-3 py-2 shadow-xl text-[11px]">
               <div className="text-muted-foreground mb-0.5">{label}</div>
               <div className="text-foreground font-semibold tabular">{fmtUSD(payload[0].value)}</div>
-            </div>
-          );
-        };
-        const PieTip = ({ active, payload }: any) => {
-          if (!active || !payload?.length) return null;
-          const p = payload[0];
-          return (
-            <div className="surface-elevated border border-border/60 rounded-lg px-3 py-2 shadow-xl text-[11px]">
-              <div className="text-muted-foreground mb-0.5">{p.name}</div>
-              <div className="text-foreground font-semibold tabular">{fmtUSD(p.value)}</div>
-              <div className="text-muted-foreground">{spendingPeriodTotal>0?Math.round((p.value/spendingPeriodTotal)*100):0}%</div>
             </div>
           );
         };
@@ -3858,44 +4013,55 @@ export const LivePlaidDashboard = ({
             <div className="border-t border-border/20" />
 
             {/* Category pie — larger on mobile, side by side with legend */}
+            {/* Category horizontal bars — clickable to filter transaction list */}
             <div>
-              <div className="text-[11px] font-semibold text-foreground mb-3">By category · {spendingPeriodByCategory.length}</div>
-              <div className="flex items-center gap-4">
-                {/* Bigger pie on mobile */}
-                <div className="shrink-0 sm:hidden" style={{width:120,height:120}}>
-                  <PieChart width={120} height={120}>
-                    <Pie data={pieSlices} cx={58} cy={58} innerRadius={30} outerRadius={54}
-                      dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
-                      {pieSlices.map((s,idx)=>(
-                        <Cell key={idx} fill={s.color}
-                          opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
-                      ))}
-                    </Pie>
-                    <Tooltip content={<PieTip />} />
-                  </PieChart>
-                </div>
-                {/* Normal pie on desktop */}
-                <div className="hidden sm:block shrink-0" style={{width:100,height:100}}>
-                  <PieChart width={100} height={100}>
-                    <Pie data={pieSlices} cx={48} cy={48} innerRadius={26} outerRadius={44}
-                      dataKey="value" paddingAngle={2} animationDuration={500} animationBegin={0}>
-                      {pieSlices.map((s,idx)=>(
-                        <Cell key={idx} fill={s.color}
-                          opacity={selectedCategory && s.name!==formatCat(selectedCategory??"")?0.4:1}/>
-                      ))}
-                    </Pie>
-                    <Tooltip content={<PieTip />} />
-                  </PieChart>
-                </div>
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  {pieSlices.map(s=>(
-                    <div key={s.name} className="flex items-center gap-2 text-[11px]">
-                      <div className="h-2 w-2 rounded-full shrink-0" style={{background:s.color}}/>
-                      <span className="truncate text-muted-foreground flex-1">{s.name}</span>
-                      <span className="tabular text-foreground font-medium shrink-0">{spendingPeriodTotal>0?Math.round((s.value/spendingPeriodTotal)*100):0}%</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[11px] font-semibold text-foreground">By category · {spendingPeriodByCategory.length}</div>
+                {selectedCategory && (
+                  <button onClick={()=>onCategorySelect?.("")} className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                    Clear <X className="h-2.5 w-2.5"/>
+                  </button>
+                )}
+              </div>
+              <div className="space-y-0.5 max-h-[420px] overflow-y-auto">
+                {spendingPeriodByCategory.map(c=>{
+                  const Icon = categoryIcon(c.category);
+                  const color = catColor(c.category);
+                  const maxSpend = spendingPeriodByCategory[0]?.total ?? 1;
+                  const barPct = Math.min((c.total / maxSpend) * 100, 100);
+                  const sharePct = spendingPeriodTotal > 0 ? Math.round((c.total / spendingPeriodTotal) * 100) : 0;
+                  const budget = budgets[c.category];
+                  const budgetBarPct = budget ? Math.min((budget / maxSpend) * 100, 100) : null;
+                  const over = budget && c.total > budget;
+                  const isActive = selectedCategory === c.category;
+                  return (
+                    <button key={c.category}
+                      onClick={()=>{ onCategorySelect?.(isActive ? "" : c.category); setTxnFlowFilter("expense"); }}
+                      className={cn("group w-full text-left rounded-lg px-3 py-2 transition-colors",
+                        isActive ? "bg-secondary/70" : "hover:bg-secondary/40")}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="h-5 w-5 rounded grid place-items-center shrink-0 transition-transform group-hover:scale-105"
+                          style={{backgroundColor:`${color}20`,color}}>
+                          <Icon className="h-3 w-3"/>
+                        </div>
+                        <span className={cn("text-[12px] font-medium flex-1 truncate", isActive?"text-foreground":"text-foreground/80")}>
+                          {formatCat(c.category)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground tabular shrink-0">{sharePct}%</span>
+                        <span className={cn("text-[12.5px] font-semibold tabular shrink-0", over?"text-negative":"text-foreground")}>
+                          {fmtUSD(c.total)}
+                        </span>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-border/25 relative overflow-hidden">
+                        {budgetBarPct !== null && (
+                          <div className="absolute inset-y-0 w-px bg-foreground/30 z-10" style={{left:`${budgetBarPct}%`}}/>
+                        )}
+                        <div className="h-full rounded-full transition-all duration-300"
+                          style={{width:`${barPct}%`, backgroundColor: over ? "hsl(var(--negative))" : color}}/>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -3914,7 +4080,7 @@ export const LivePlaidDashboard = ({
                 <input value={txnSearch} onChange={e=>{setTxnSearch(e.target.value);setTxnLimit(150);}}
                   placeholder="Search transactions…"
                   className="w-full h-8 pl-7 pr-7 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors" />
-                {txnSearch && <button onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"><X className="h-3 w-3" /></button>}
+                {txnSearch && <button aria-label="Clear search" onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground"><X className="h-3 w-3" /></button>}
               </div>
               <div className="relative shrink-0">
                 <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
@@ -4033,16 +4199,13 @@ export const LivePlaidDashboard = ({
               return d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
             };
             const renderRow=(t:PTxn,i:number)=>(
-              <TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories}
-                openPickerId={openPickerTxn?.id??null}
-                onOpenPicker={(txn,pos)=>{setOpenPickerTxn(txn);setPickerPos(pos);}}
-                onClosePicker={()=>setOpenPickerTxn(null)}
-                onSelect={(id,cat)=>setOverride(id,cat)}
-                onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory}
+              <TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory}
                 isInternal={internalTxnIds.has(t.id)}
+                isAutoInternal={autoInternalIds.has(t.id)}
                 isManualInternal={manualInternalIds.has(t.id)}
                 onToggleInternal={toggleManualInternal}
-                nameOverride={nameOverrides[t.id]} onSetName={setNameOverride} />
+                nameOverride={getDisplayName(t)}
+                onOpenDetail={txn=>openDetail(txn)} onOpenDetailCat={txn=>openDetail(txn,true)} />
             );
             let content:React.ReactNode;
             if(isDateSort){
@@ -4078,7 +4241,7 @@ export const LivePlaidDashboard = ({
 
       </div>
 
-      {openPickerTxn && <PositionedPicker txn={openPickerTxn} pos={pickerPos} overrides={overrides} getRuleCategory={getRuleCategory} customCategories={customCategories} onSelect={(id,cat)=>setOverride(id,cat)} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onClose={()=>setOpenPickerTxn(null)} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} />}
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
         txns={txns} overrides={overrides} rules={rules} budgets={budgets}
@@ -4132,93 +4295,24 @@ export const LivePlaidDashboard = ({
     const actualRemaining = budgetIncomeTotal - totalSpendAllCats;
     const overallPct = totalAllocated>0 ? (totalSpentOfBudgeted/totalAllocated)*100 : 0;
 
-    const BudgetCard = ({ c }: { c: { category: string; total: number; count: number } }) => {
-      const Icon = categoryIcon(c.category); const color = catColor(c.category);
-      const budget = budgets[c.category] ?? 0;
-      const pct = budget ? (c.total/budget)*100 : 0;
-      const over = budget>0 && c.total>budget;
-      const near = budget>0 && !over && pct>=80;
-      const isEditing = editingBudgetCat === c.category;
-      const isSelected = selectedCategory === c.category;
-      return (
-        <div className={cn(
-          "surface-card p-4 flex flex-col gap-3 transition-colors cursor-pointer",
-          isSelected && "ring-1 ring-[hsl(var(--primary)/0.5)]"
-        )} onClick={() => !isEditing && onCategorySelect?.(isSelected ? "" : c.category)}>
-          <div className="flex items-center gap-2.5">
-            <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor: `${color}1f`, color }}>
-              <Icon className="h-5 w-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-foreground truncate">{formatCat(c.category)}</div>
-              <div className="text-[10px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""}</div>
-            </div>
-            {over && (
-              <span className="text-[9.5px] font-medium px-1.5 py-0.5 rounded-full bg-negative/15 text-negative shrink-0">Over</span>
-            )}
-            {near && (
-              <span className="text-[9.5px] font-medium px-1.5 py-0.5 rounded-full bg-warning/15 text-warning shrink-0">Near limit</span>
-            )}
-          </div>
+    // All categories combined (budgeted + unbudgeted with spend), sorted by actual spend desc
+    const allCombined = [
+      ...allBudgetedCats,
+      ...allCats.filter(c => !budgets[c.category]),
+    ].sort((a, b) => b.total - a.total);
 
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Spent</div>
-              <div className="font-display text-xl tabular text-foreground leading-tight">{fmtUSD(c.total)}</div>
-            </div>
-            {isEditing ? (
-              <form onClick={e=>e.stopPropagation()} className="flex items-center gap-1" onSubmit={e=>{
-                e.preventDefault();
-                const n = parseFloat(budgetDraft);
-                if (!isNaN(n) && n>=0) setBudget(c.category, n);
-                setEditingBudgetCat(null); setBudgetDraft("");
-              }}>
-                <div className="relative">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[11px]">$</span>
-                  <input
-                    autoFocus type="number" min={0} step={10}
-                    value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)}
-                    onKeyDown={e=>{ if(e.key==="Escape"){ setEditingBudgetCat(null); setBudgetDraft(""); } }}
-                    placeholder="e.g. 200"
-                    className="w-20 h-7 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none focus:border-[hsl(var(--primary))]"
-                  />
-                </div>
-                <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium hover:opacity-90">Save</button>
-              </form>
-            ) : (
-              <button onClick={e=>{ e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(budget?String(budget):""); }}
-                className="text-right group">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wide group-hover:text-foreground transition-colors">Budget</div>
-                <div className="text-[13px] tabular font-medium text-foreground">{budget ? fmtUSD(budget) : <span className="text-muted-foreground/60">Set</span>}<span className="opacity-0 group-hover:opacity-100 text-[9px] text-muted-foreground ml-1">edit</span></div>
-              </button>
-            )}
-          </div>
-
-          {budget > 0 && (
-            <div>
-              <div className="h-1.5 rounded-full bg-border/40 overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(pct,100)}%`, backgroundColor: over?"hsl(var(--negative))":near?"hsl(var(--warning))":color }} />
-              </div>
-              <div className={cn("text-[10.5px] mt-1 tabular", over?"text-negative font-medium":"text-muted-foreground")}>
-                {over ? `${fmtUSD(c.total-budget)} over budget` : `${fmtUSD(budget-c.total)} left · ${Math.round(pct)}%`}
-              </div>
-            </div>
-          )}
-
-          {budget > 0 && (
-            <button onClick={e=>{ e.stopPropagation(); removeBudget(c.category); }}
-              className="text-[10px] text-muted-foreground/50 hover:text-negative transition-colors self-start">Remove budget</button>
-          )}
-        </div>
-      );
-    };
+    // Bar scale: use income as 100% reference; fall back to max spend if no income data
+    const barRef = Math.max(budgetIncomeTotal, totalAllocated, totalSpendAllCats, 1);
+    // Per-row scale: the wider of budget or actual so bars are comparable within each row
+    const rowRef = (cat: string, actual: number) => Math.max(budgets[cat] ?? 0, actual, 1);
 
     return (
-      <div className="space-y-4 animate-fade-up">
-        <div className="flex items-center justify-between">
+      <div className="space-y-3 animate-fade-up">
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h2 className="font-display text-xl text-primary">Budget</h2>
-            <div className="text-[11px] text-muted-foreground mt-0.5">Monthly limits by category</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">{getPeriodLabel(budgetPeriodState)}</div>
           </div>
           <div className="flex items-center gap-1">
             <button onClick={()=>setBudgetMonthOffset(o=>o-1)} className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground transition-colors">
@@ -4231,146 +4325,211 @@ export const LivePlaidDashboard = ({
           </div>
         </div>
 
-        {/* Top summary strip — Income / Budgeted / Spent / Remaining */}
+        {/* ── 4-metric strip ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="surface-card p-3.5">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Income</div>
-            <div className="font-display text-lg tabular text-positive mt-0.5">+{fmtUSD(budgetIncomeTotal)}</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">{incomeSources.length} source{incomeSources.length!==1?"s":""}</div>
-          </div>
-          <div className="surface-card p-3.5">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Budgeted</div>
-            <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalAllocated)}</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">{allBudgetedCats.length} categor{allBudgetedCats.length===1?"y":"ies"}</div>
-          </div>
-          <div className="surface-card p-3.5">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Spent</div>
-            <div className={cn("font-display text-lg tabular mt-0.5", totalSpentOfBudgeted>totalAllocated && totalAllocated>0 ? "text-negative" : "text-foreground")}>{fmtUSD(totalSpentOfBudgeted)}</div>
-            <div className={cn("text-[10px] mt-0.5", overCount>0 ? "text-negative font-medium" : "text-muted-foreground")}>{overCount>0 ? `${overCount} over budget` : "On track"}</div>
-          </div>
-          <div className="surface-card p-3.5">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Remaining</div>
-            <div className={cn("font-display text-lg tabular mt-0.5", actualRemaining>=0 ? "text-foreground" : "text-negative")}>{actualRemaining>=0?"":"−"}{fmtUSD(Math.abs(actualRemaining))}</div>
-            <div className="text-[10px] text-muted-foreground mt-0.5">after all spending</div>
-          </div>
+          {[
+            { label: "Income", value: fmtUSD(budgetIncomeTotal), sub: `${incomeSources.length} source${incomeSources.length!==1?"s":""}`, color: "text-positive" },
+            { label: "Budgeted", value: fmtUSD(totalAllocated), sub: `${allBudgetedCats.length} categor${allBudgetedCats.length===1?"y":"ies"}`, color: "text-foreground" },
+            { label: "Actual spend", value: fmtUSD(totalSpentOfBudgeted), sub: overCount>0?`${overCount} over`:"On track", color: overCount>0?"text-negative":"text-foreground" },
+            { label: "Net saved", value: (actualRemaining>=0?"":"-")+fmtUSD(Math.abs(actualRemaining)), sub: "income − all spend", color: actualRemaining>=0?"text-positive":"text-negative" },
+          ].map(m => (
+            <div key={m.label} className="surface-card px-3.5 py-3">
+              <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">{m.label}</div>
+              <div className={cn("font-display text-[17px] tabular mt-0.5 leading-tight", m.color)}>{m.value}</div>
+              <div className="text-[9.5px] text-muted-foreground mt-0.5">{m.sub}</div>
+            </div>
+          ))}
         </div>
 
-        {totalAllocated > 0 && (
-          <div className="surface-card p-4">
-            <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="text-muted-foreground">Overall budget used</span>
-              <span className="tabular font-medium text-foreground">{Math.round(overallPct)}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-border/40 overflow-hidden">
-              <div className="h-full rounded-full transition-all" style={{
-                width: `${Math.min(overallPct,100)}%`,
-                backgroundColor: overallPct>100 ? "hsl(var(--negative))" : overallPct>80 ? "hsl(var(--warning))" : "hsl(var(--positive))",
-              }} />
-            </div>
-          </div>
-        )}
+        {/* ── Visual income bucket ── */}
+        {budgetIncomeTotal > 0 && allBudgetedCats.length > 0 && (
+          <div className="surface-card px-4 py-3.5 space-y-2.5">
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Income bucket: how your {fmtUSD(budgetIncomeTotal)} is allocated vs spent</div>
 
-        {/* Income breakdown — collapsible, same pattern as before */}
-        {incomeSources.length > 0 && (
-          <div className="surface-card overflow-hidden">
-            <button onClick={()=>setIncomeExpanded(v=>!v)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover/30 transition-colors">
-              <div className="flex items-center gap-2">
-                <h3 className="font-display text-[13px] text-primary">Income sources</h3>
+            {/* Row 1: Budget allocation */}
+            <div>
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-1">Budgeted plan</div>
+              <div className="flex h-4 rounded-full overflow-hidden gap-px">
+                {allBudgetedCats.map(c => {
+                  const w = (budgets[c.category] / barRef) * 100;
+                  if (w < 0.5) return null;
+                  return <div key={c.category} style={{ width: `${w}%`, backgroundColor: catColor(c.category) }} title={`${formatCat(c.category)}: ${fmtUSD(budgets[c.category])}`} />;
+                })}
+                {remainingToBudget > 0 && (
+                  <div style={{ flex: 1, background: "hsl(var(--border))", opacity: 0.3 }} title={`Unallocated: ${fmtUSD(remainingToBudget)}`} />
+                )}
               </div>
-              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", incomeExpanded && "rotate-180")} />
-            </button>
-            {incomeExpanded && (
-              <div className="divide-y divide-border/20 border-t border-border/20 max-h-[220px] overflow-y-auto">
-                {incomeSources.map(s=>{
-                  const Icon=categoryIcon(s.category); const color=catColor(s.category);
+            </div>
+
+            {/* Row 2: Actual spend */}
+            <div>
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-1">Actual spend</div>
+              <div className="flex h-4 rounded-full overflow-hidden gap-px">
+                {allBudgetedCats.map(c => {
+                  const slotW = (budgets[c.category] / barRef) * 100;
+                  if (slotW < 0.5) return null;
+                  const fillPct = budgets[c.category] > 0 ? Math.min((c.total / budgets[c.category]) * 100, 100) : 0;
+                  const over = c.total > budgets[c.category];
                   return (
-                    <div key={s.category} className="flex items-center gap-2.5 px-3.5 py-2">
-                      <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}1f`,color}}>
-                        <Icon className="h-3 w-3" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[11.5px] text-foreground font-medium truncate">{formatCat(s.category)}</div>
-                        <div className="text-[9.5px] text-muted-foreground">{s.count} txn{s.count!==1?"s":""}</div>
-                      </div>
-                      <span className="text-[12px] tabular font-semibold text-positive shrink-0">+{fmtUSD(s.total)}</span>
+                    <div key={c.category} style={{ width: `${slotW}%` }} className="relative bg-border/20">
+                      <div style={{ width: `${fillPct}%`, backgroundColor: over ? "hsl(var(--negative))" : catColor(c.category) }}
+                        className="absolute inset-y-0 left-0 transition-all"
+                        title={`${formatCat(c.category)}: ${fmtUSD(c.total)} spent`} />
                     </div>
                   );
                 })}
+                {remainingToBudget > 0 && <div style={{ flex: 1 }} className="bg-border/10" />}
               </div>
-            )}
+            </div>
+
+            {/* Row 3: Net delta */}
+            <div>
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-1">Saved / Over</div>
+              <div className="flex h-4 rounded-full overflow-hidden gap-px">
+                {allBudgetedCats.map(c => {
+                  const slotW = (budgets[c.category] / barRef) * 100;
+                  if (slotW < 0.5) return null;
+                  const delta = budgets[c.category] - c.total;
+                  return (
+                    <div key={c.category} style={{ width: `${slotW}%`, backgroundColor: delta >= 0 ? "hsl(var(--positive))" : "hsl(var(--negative))", opacity: Math.min(Math.abs(delta) / budgets[c.category] + 0.2, 1) }}
+                      title={`${formatCat(c.category)}: ${delta>=0?"+":""}${fmtUSD(delta)}`} />
+                  );
+                })}
+                {remainingToBudget > 0 && (
+                  <div style={{ flex: 1, backgroundColor: "hsl(var(--positive))", opacity: 0.2 }} title={`Unallocated: ${fmtUSD(remainingToBudget)}`} />
+                )}
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {allBudgetedCats.slice(0,8).map(c => (
+                <div key={c.category} className="flex items-center gap-1">
+                  <div className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: catColor(c.category) }} />
+                  <span className="text-[9px] text-muted-foreground">{formatCat(c.category)}</span>
+                </div>
+              ))}
+              {allBudgetedCats.length > 8 && <span className="text-[9px] text-muted-foreground">+{allBudgetedCats.length-8} more</span>}
+            </div>
           </div>
         )}
 
-        {/* Two-column layout: all spending categories (left) vs budgeted categories (right) */}
-        {allCats.length === 0 ? (
+        {/* ── Aligned category table ── */}
+        {allCombined.length === 0 ? (
           <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">No spending this period.</div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-            {/* LEFT — all categories this month */}
-            <div className="surface-card overflow-hidden">
-              <div className="px-4 py-3 border-b border-border/20 flex items-center justify-between">
-                <h3 className="font-display text-[13px] text-primary">All categories this month</h3>
-                <span className="text-[10px] text-muted-foreground">{allCats.length} · {fmtUSD(totalSpendAllCats)}</span>
-              </div>
-              <div className="divide-y divide-border/15 max-h-[520px] overflow-y-auto">
-                {allCats.map(c => {
-                  const Icon = categoryIcon(c.category); const color = catColor(c.category);
-                  const budget = budgets[c.category];
-                  const isEditing = editingBudgetCat === c.category;
-                  const sharePct = totalSpendAllCats>0 ? (c.total/totalSpendAllCats)*100 : 0;
-                  return (
-                    <div key={c.category} className="flex items-center gap-2.5 px-4 py-2.5 relative overflow-hidden">
-                      <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`,background:`${color}0a`}} />
-                      <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0 relative" style={{ backgroundColor: `${color}1f`, color }}>
-                        <Icon className="h-3.5 w-3.5" />
+          <div className="surface-card overflow-hidden">
+            {/* Column headers */}
+            <div className="grid grid-cols-[1fr_1fr_1fr_72px] px-4 py-2 border-b border-border/20 gap-x-4">
+              <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Category</div>
+              <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Budgeted</div>
+              <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Actual</div>
+              <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground text-right">Saved / Over</div>
+            </div>
+
+            <div className="divide-y divide-border/10 overflow-y-auto max-h-[calc(100dvh-340px)]">
+              {allCombined.map(c => {
+                const Icon = categoryIcon(c.category); const color = catColor(c.category);
+                const budget = budgets[c.category] ?? 0;
+                const actual = c.total;
+                const delta = budget > 0 ? budget - actual : 0;
+                const isEditing = editingBudgetCat === c.category;
+                const isSelected = selectedCategory === c.category;
+                const scale = rowRef(c.category, actual);
+                const budgetPct = (budget / scale) * 100;
+                const actualPct = (actual / scale) * 100;
+                const over = budget > 0 && actual > budget;
+                const near = budget > 0 && !over && actual / budget >= 0.8;
+
+                return (
+                  <div key={c.category}
+                    className={cn("grid grid-cols-[1fr_1fr_1fr_72px] px-4 py-2.5 gap-x-4 items-center hover:bg-surface-hover/20 transition-colors cursor-pointer", isSelected && "bg-surface-hover/30")}
+                    onClick={() => !isEditing && onCategorySelect?.(isSelected ? "" : c.category)}>
+
+                    {/* Col 1 — category */}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                        <Icon className="h-3 w-3" />
                       </div>
-                      <button onClick={()=>onCategorySelect?.(selectedCategory===c.category?"":c.category)} className="flex-1 min-w-0 text-left relative">
+                      <div className="min-w-0">
                         <div className="text-[12px] text-foreground font-medium truncate">{formatCat(c.category)}</div>
-                        <div className="text-[10px] text-muted-foreground">{fmtUSD(c.total)} · {c.count} txn{c.count!==1?"s":""}</div>
-                      </button>
+                        <div className="text-[9.5px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""}</div>
+                      </div>
+                    </div>
+
+                    {/* Col 2 — budgeted bar */}
+                    <div className="min-w-0">
                       {isEditing ? (
-                        <form className="flex items-center gap-1 shrink-0 relative" onSubmit={e=>{
+                        <form onClick={e=>e.stopPropagation()} className="flex items-center gap-1" onSubmit={e=>{
                           e.preventDefault();
-                          const n = parseFloat(budgetDraft);
-                          if (!isNaN(n) && n>=0) setBudget(c.category, n);
+                          const n=parseFloat(budgetDraft);
+                          if (!isNaN(n)&&n>=0) setBudget(c.category,n);
                           setEditingBudgetCat(null); setBudgetDraft("");
                         }}>
                           <div className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[11px]">$</span>
-                            <input
-                              autoFocus type="number" min={0} step={10}
-                              value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)}
+                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">$</span>
+                            <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)}
                               onKeyDown={e=>{ if(e.key==="Escape"){ setEditingBudgetCat(null); setBudgetDraft(""); } }}
-                              placeholder="e.g. 200"
-                              className="w-20 h-7 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none focus:border-[hsl(var(--primary))]"
-                            />
+                              className="w-20 h-6 pl-4 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none" />
                           </div>
-                          <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium hover:opacity-90">Save</button>
+                          <button type="submit" className="h-6 px-2 rounded-md bg-gold text-[10px] font-medium">OK</button>
                         </form>
-                      ) : budget ? (
-                        <span className="text-[10.5px] tabular text-muted-foreground shrink-0 relative">Budgeted {fmtUSD(budget)}</span>
+                      ) : budget > 0 ? (
+                        <button onClick={e=>{ e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }} className="w-full group text-left">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] tabular text-foreground">{fmtUSD(budget)}</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-border/30 overflow-hidden">
+                            <div style={{ width: `${budgetPct}%`, backgroundColor: color }} className="h-full rounded-full" />
+                          </div>
+                        </button>
                       ) : (
-                        <button onClick={()=>{ setEditingBudgetCat(c.category); setBudgetDraft(""); }}
-                          className="text-[11px] font-medium text-[hsl(var(--primary))] hover:underline shrink-0 relative">+ Set budget</button>
+                        <button onClick={e=>{ e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(""); }}
+                          className="text-[10.5px] text-[hsl(var(--primary))] hover:underline">+ Set budget</button>
                       )}
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Col 3 — actual bar */}
+                    <div className="min-w-0">
+                      <div className="flex items-center justify-between mb-1 gap-1">
+                        <span className="text-[11px] tabular text-foreground">{fmtUSD(actual)}</span>
+                        {over && <span className="text-[8.5px] font-semibold px-1 py-px rounded bg-negative/15 text-negative shrink-0">Over</span>}
+                        {near && <span className="text-[8.5px] font-semibold px-1 py-px rounded bg-warning/15 text-warning shrink-0">Near</span>}
+                      </div>
+                      <div className="h-1.5 rounded-full bg-border/30 overflow-hidden relative">
+                        {budget > 0 && (
+                          <div style={{ left: `${budgetPct}%` }} className="absolute inset-y-0 w-px bg-foreground/25 z-10" />
+                        )}
+                        <div style={{ width: `${actualPct}%`, backgroundColor: over ? "hsl(var(--negative))" : near ? "hsl(var(--warning))" : color }}
+                          className="h-full rounded-full transition-all" />
+                      </div>
+                    </div>
+
+                    {/* Col 4 — delta */}
+                    <div className="text-right">
+                      {budget > 0 ? (
+                        <div>
+                          <div className={cn("text-[11px] tabular font-semibold", delta>=0?"text-positive":"text-negative")}>
+                            {delta>=0?"+":""}{fmtUSD(delta)}
+                          </div>
+                          {budget > 0 && <div className="text-[9px] text-muted-foreground">{delta>=0?"saved":"over"}</div>}
+                        </div>
+                      ) : (
+                        <span className="text-[9.5px] text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* RIGHT — budgeted categories */}
-            <div>
-              {allBudgetedCats.length > 0 ? (
-                <div className="space-y-3">
-                  {allBudgetedCats.map(c => <BudgetCard key={c.category} c={c} />)}
-                </div>
-              ) : (
-                <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">
-                  No budgets set yet — pick "+ Set budget" on a category to the left.
-                </div>
-              )}
-            </div>
+            {/* Unbudgeted-spend footer, if any */}
+            {allCats.some(c=>!budgets[c.category]) && (
+              <div className="px-4 py-2 border-t border-border/20 flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">{allCats.filter(c=>!budgets[c.category]).length} categories without a budget</span>
+                <span className="text-[10px] tabular text-muted-foreground">{fmtUSD(allCats.filter(c=>!budgets[c.category]).reduce((s,c)=>s+c.total,0))} untracked</span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -4443,7 +4602,7 @@ export const LivePlaidDashboard = ({
         id, kind: "overage",
         title: `${formatCat(cat)} is ${fmtUSD(over)} over budget`,
         detail: match
-          ? `Move ${fmtUSD(over)} from "${match.acc.name}" to cover it — that account looks earmarked for this.`
+          ? `Move ${fmtUSD(over)} from "${match.acc.name}" to cover it. That account looks earmarked for this.`
           : `No matching reserve account found. Tag a savings account for "${formatCat(cat)}" below so this can suggest covering it automatically.`,
         amount: over,
         matchAccount: match?.acc.account_id,
@@ -4458,9 +4617,58 @@ export const LivePlaidDashboard = ({
       if (daysOut < 0 || daysOut > 21) continue; // only surface genuinely near-term ones here
       suggestions.push({
         id, kind: "upcoming",
-        title: `${r.merchant} — ~${fmtUSD(r.avgAmount)} expected ${daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`}`,
+        title: `${r.merchant}: ~${fmtUSD(r.avgAmount)} expected ${daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`}`,
         detail: `Based on ${r.monthsActive} months of history (${r.intervalLabel.toLowerCase()}). Make sure your spending account can cover it.`,
         amount: r.avgAmount,
+      });
+    }
+
+    // ── Suggestion 3: autopay / credit-card payment risk ──
+    // Find transactions that look like credit-card or bill payments
+    const PAYMENT_RE = /\bpayment\b|autopay|bill\s*pay|online\s*payment|e-?pay/i;
+    const paymentTxns = txns.filter(t =>
+      Number(t.amount) > 0 && // positive = debit from source account
+      (PAYMENT_RE.test(t.merchant_name ?? t.name ?? "") ||
+       (t.category?.[0] ?? "").toLowerCase().includes("credit card"))
+    );
+    // Group by source account
+    const payByAcct: Record<string, PTxn[]> = {};
+    for (const t of paymentTxns) {
+      if (!payByAcct[t.account_id]) payByAcct[t.account_id] = [];
+      payByAcct[t.account_id].push(t);
+    }
+    for (const [acctId, acctPays] of Object.entries(payByAcct)) {
+      const acct = accounts.find(a => a.account_id === acctId);
+      if (!acct || acct.type !== "depository") continue;
+      const sorted = [...acctPays].sort((a, b) => b.date.localeCompare(a.date));
+      if (sorted.length < 2) continue;
+      // Compute average interval and amount from last 3 payments
+      const recent = sorted.slice(0, 3);
+      const avgAmt = recent.reduce((s, t) => s + Number(t.amount), 0) / recent.length;
+      const lastDate = new Date(sorted[0].date + "T00:00:00");
+      // Estimate interval from spacing between most recent payments
+      const intervals: number[] = [];
+      for (let j = 0; j < Math.min(sorted.length - 1, 3); j++) {
+        const d1 = new Date(sorted[j].date + "T00:00:00").getTime();
+        const d2 = new Date(sorted[j + 1].date + "T00:00:00").getTime();
+        intervals.push(Math.round((d1 - d2) / 86400000));
+      }
+      const avgInterval = intervals.reduce((s, v) => s + v, 0) / intervals.length;
+      const predictedDate = new Date(lastDate.getTime() + avgInterval * 86400000);
+      const daysOut = Math.round((predictedDate.getTime() - Date.now()) / 86400000);
+      if (daysOut < -3 || daysOut > 10) continue; // not due in next ~10 days
+      const balance = Number(acct.current_balance) ?? 0;
+      const isSufficient = balance >= avgAmt * 0.9; // 10% tolerance
+      if (isSufficient) continue;
+      const paymentName = sorted[0].merchant_name ?? sorted[0].name ?? "payment";
+      const shortfall = avgAmt - balance;
+      const dueTxt = daysOut <= 0 ? "overdue" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`;
+      const sid = `autopay-risk:${acctId}:${predictedDate.toISOString().slice(0, 10)}`;
+      suggestions.push({
+        id: sid, kind: "upcoming",
+        title: `Low balance for upcoming payment`,
+        detail: `${acct.name} has ${fmtUSD(balance)} but "${paymentName}" (~${fmtUSD(avgAmt)}) is due ${dueTxt}. You may be short by ~${fmtUSD(shortfall)}.`,
+        amount: shortfall,
       });
     }
 
@@ -4556,7 +4764,7 @@ export const LivePlaidDashboard = ({
                 <button key={role} onClick={() => assign(role)}
                   className="flex flex-col items-center gap-1 rounded-lg border border-border/40 py-2 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
                   <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-[10px] text-foreground text-center leading-tight">{ROLE_META[role].name}</span>
+                  <span className="text-[10px] text-foreground text-center leading-tight">{ROLE_META[role].short}</span>
                 </button>
               ))}
             </div>
@@ -4612,7 +4820,7 @@ export const LivePlaidDashboard = ({
       <div className="space-y-4 animate-fade-up">
         <div>
           <h2 className="font-display text-xl text-primary flex items-center gap-2"><Compass className="h-5 w-5" /> Money Map</h2>
-          <div className="text-[11px] text-muted-foreground mt-0.5">What you actually have available — separate from buffers and reserves</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">What you actually have available, separate from buffers and reserves</div>
         </div>
 
         {/* ── The headline number ── */}
@@ -4620,7 +4828,7 @@ export const LivePlaidDashboard = ({
           <div className="text-[11px] text-muted-foreground uppercase tracking-wide">In hand right now</div>
           <div className="font-display text-4xl tabular text-foreground mt-1">{fmtUSD(trueAvailable)}</div>
           <div className="text-[11px] text-muted-foreground mt-1.5">
-            Sum of accounts tagged <span className="text-foreground font-medium">Spending</span> only — buffers and reserves below are excluded on purpose.
+            Sum of accounts tagged <span className="text-foreground font-medium">Everyday Expenses</span> only. Emergency fund, savings, and investments are excluded.
           </div>
           <div className={cn("text-[12px] mt-2 tabular font-medium", projectedRemaining >= 0 ? "text-positive" : "text-negative")}>
             {projectedRemaining >= 0 ? "+" : "−"}{fmtUSD(Math.abs(projectedRemaining))} net this month so far
@@ -4630,10 +4838,10 @@ export const LivePlaidDashboard = ({
         {/* ── Bucket breakdown ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { label: "Emergency Buffer", value: bufferBalance, icon: ShieldAlert, color: "hsl(var(--info))", count: bufferAccts.length },
-            { label: "Reserves & Goals", value: reserveBalance, icon: Target, color: "hsl(var(--gold))", count: reserveAccts.length },
-            { label: "Investments", value: investmentBalance, icon: TrendingUp, color: "hsl(var(--positive))", count: investmentAccts.length },
-            { label: "Debt", value: debtBalance, icon: CreditCard, color: "hsl(var(--negative))", count: debtAccts.length },
+            { label: ROLE_META.buffer.name,       value: bufferBalance,     icon: ShieldAlert, color: "hsl(var(--info))",     count: bufferAccts.length },
+            { label: "Savings",                    value: reserveBalance,    icon: Target,      color: "hsl(var(--gold))",     count: reserveAccts.length },
+            { label: ROLE_META.investment.name,    value: investmentBalance, icon: TrendingUp,  color: "hsl(var(--positive))", count: investmentAccts.length },
+            { label: ROLE_META.debt.name,          value: debtBalance,       icon: CreditCard,  color: "hsl(var(--negative))", count: debtAccts.length },
           ].map(b => (
             <div key={b.label} className="surface-card p-3.5">
               <div className="flex items-center gap-1.5">
@@ -4690,34 +4898,51 @@ export const LivePlaidDashboard = ({
         {/* ── Account role assignment: only unassigned accounts need action ── */}
         {unassignedAccts.length > 0 && <AccountTagStack list={unassignedAccts} />}
 
-        {/* ── Already-tagged accounts: collapsed by default so they don't eat space ── */}
-        {accountsWithRole.length > unassignedAccts.length && (
-          <details className="surface-card overflow-hidden group">
-            <summary className="px-4 py-3 flex items-center justify-between cursor-pointer list-none">
-              <div className="flex items-center gap-2">
-                <Check className="h-3.5 w-3.5 text-positive" />
-                <span className="text-[12.5px] text-foreground font-medium">
-                  {accountsWithRole.length - unassignedAccts.length} account{accountsWithRole.length - unassignedAccts.length !== 1 ? "s" : ""} tagged
-                </span>
-              </div>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="divide-y divide-border/15 border-t border-border/20">
-              {accountsWithRole.filter(x => x.info.role !== "unassigned").map(({ acc }) => (
-                <div key={acc.account_id} className="px-4 py-2.5 flex items-center gap-2.5">
-                  <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
-                    <Landmark className="h-3.5 w-3.5 text-muted-foreground" />
+        {/* ── Tagged accounts grouped by role ── */}
+        {accountsWithRole.length > unassignedAccts.length && (() => {
+          const ROLE_ICON: Record<AccountRole, React.ElementType> = {
+            spending: Wallet, buffer: ShieldAlert, reserve: Target,
+            savings_goal: PiggyBank, investment: TrendingUp, debt: CreditCard, unassigned: Landmark,
+          };
+          const ROLE_COLOR: Record<AccountRole, string> = {
+            spending: "hsl(var(--positive))", buffer: "hsl(var(--info))", reserve: "hsl(var(--gold))",
+            savings_goal: "hsl(var(--gold))", investment: "hsl(var(--positive))", debt: "hsl(var(--negative))", unassigned: "hsl(var(--muted-foreground))",
+          };
+          const roleOrder: AccountRole[] = ["spending","buffer","reserve","savings_goal","investment","debt"];
+          return (
+            <div className="space-y-2">
+              {roleOrder.map(role => {
+                const roleAccts = accountsWithRole.filter(x => x.info.role === role);
+                if (roleAccts.length === 0) return null;
+                const RIcon = ROLE_ICON[role];
+                const rColor = ROLE_COLOR[role];
+                const roleTotal = roleAccts.reduce((s,x) => s + (Number(x.acc.current_balance)||0), 0);
+                return (
+                  <div key={role} className="surface-card overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-border/20 flex items-center gap-2">
+                      <RIcon className="h-3.5 w-3.5 shrink-0" style={{color: rColor}} />
+                      <span className="text-[11px] font-semibold text-foreground flex-1">{ROLE_META[role].name}</span>
+                      <span className="text-[11px] tabular text-muted-foreground">{fmtUSD(roleTotal)}</span>
+                    </div>
+                    <div className="divide-y divide-border/10">
+                      {roleAccts.map(({ acc }) => (
+                        <div key={acc.account_id} className="px-4 py-2.5 flex items-center gap-2.5">
+                          <Landmark className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                            {acc.mask && <div className="text-[10px] text-muted-foreground">ending {acc.mask}</div>}
+                          </div>
+                          <span className="text-[12px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(acc.current_balance)||0)}</span>
+                          <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
-                    <div className="text-[10px] text-muted-foreground tabular">{fmtUSD(Number(acc.current_balance) || 0)}</div>
-                  </div>
-                  <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </details>
-        )}
+          );
+        })()}
 
         {/* ── Acted-on suggestions, collapsed reference ── */}
         {actedSuggestions.length > 0 && (

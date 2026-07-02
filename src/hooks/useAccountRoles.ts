@@ -13,14 +13,14 @@ export interface AccountRoleInfo {
 
 export type AccountRoles = Record<string, AccountRoleInfo>; // account_id -> role info
 
-export const ROLE_META: Record<AccountRole, { name: string; description: string }> = {
-  spending:      { name: "Spending",       description: "Counts toward what you can actually spend right now" },
-  buffer:        { name: "Emergency Buffer", description: "Untouchable safety net — never counted as available" },
-  reserve:       { name: "Reserve",        description: "Earmarked for something specific (escrow, a trip, a bill)" },
-  savings_goal:  { name: "Savings Goal",   description: "Saving toward a target — not available for daily spending" },
-  investment:    { name: "Investment",     description: "Brokerage, 401k, etc. — tracked but not spendable" },
-  debt:          { name: "Debt",           description: "Credit cards, loans — tracked separately from available funds" },
-  unassigned:    { name: "Unassigned",     description: "Not yet categorized" },
+export const ROLE_META: Record<AccountRole, { name: string; description: string; short: string }> = {
+  spending:      { name: "Everyday Expenses",    short: "Expenses",    description: "Checking or debit accounts you pay from day-to-day" },
+  buffer:        { name: "Emergency Fund",       short: "Emergency",   description: "3–6 month safety net — never counted as spendable" },
+  reserve:       { name: "Short-Term Savings",   short: "Near-Term",   description: "Earmarked for specific upcoming needs (escrow, a trip, a bill)" },
+  savings_goal:  { name: "Long-Term Savings",    short: "Long-Term",   description: "Working toward a target that is months or years away" },
+  investment:    { name: "Investments",          short: "Invest",      description: "Brokerage, 401k, IRA — tracked but not liquid spending money" },
+  debt:          { name: "Debt & Credit",        short: "Debt",        description: "Credit cards and loans — balances tracked, not available funds" },
+  unassigned:    { name: "Unassigned",           short: "?",           description: "Not yet categorized — tag this account to unlock insights" },
 };
 
 export const useAccountRoles = () => {

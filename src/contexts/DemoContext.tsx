@@ -8,7 +8,6 @@ const keyFor = (uid: string | undefined) => `sentryfi.demoMode.${uid ?? "anon"}`
 
 export const DemoProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
-  // New users default to FALSE — start with no data.
   const [demo, setDemoState] = useState<boolean>(false);
 
   useEffect(() => {
