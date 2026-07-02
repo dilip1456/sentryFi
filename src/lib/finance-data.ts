@@ -10,7 +10,7 @@ export type AccountGroup = "cash" | "credit" | "investments" | "liabilities";
 /**
  * Bucket: how this account participates in monthly cash flow
  *  - "liquid"     → counted in "What you have" (spendable now)
- *  - "longterm"   → assets, but locked / illiquid (retirement, etc.) — shown separately
+ *  - "longterm"   → assets, but locked / illiquid (retirement, etc.) - shown separately
  *  - "revolving"  → credit cards: full statement balance paid every month
  *  - "term"       → mortgage / auto / student loans: only the EMI affects monthly view
  */
@@ -42,28 +42,28 @@ export interface Account {
 }
 
 export const accounts: Account[] = [
-  // CASH — liquid
+  // CASH - liquid
   { id: "chk-1", name: "Everyday Checking", institution: "Chase", group: "cash", bucket: "liquid", balance: 8420.55, apr: 0.01, trend30d: -2.4, icon: Wallet, accent: "sky", last4: "4421", isPayingAccount: true },
   { id: "chk-2", name: "Joint Checking", institution: "Bank of America", group: "cash", bucket: "liquid", balance: 3120.10, apr: 0.01, trend30d: 1.1, icon: Wallet, accent: "sky", last4: "8830" },
   { id: "hys-1", name: "High-Yield Savings", institution: "Marcus", group: "cash", bucket: "liquid", balance: 42800.00, apr: 4.40, trend30d: 3.2, icon: PiggyBank, accent: "mint", last4: "1102" },
   { id: "hys-2", name: "Emergency Fund", institution: "Ally", group: "cash", bucket: "liquid", balance: 18500.00, apr: 4.20, trend30d: 0.9, icon: PiggyBank, accent: "mint", last4: "7745" },
   { id: "sav-1", name: "Local Savings", institution: "Wells Fargo", group: "cash", bucket: "liquid", balance: 6200.00, apr: 0.05, trend30d: 0.0, icon: Banknote, accent: "amber", last4: "3301" },
 
-  // BROKERAGE — liquid investments (can be sold quickly)
+  // BROKERAGE - liquid investments (can be sold quickly)
   { id: "inv-3", name: "Brokerage", institution: "Schwab", group: "investments", bucket: "liquid", balance: 38420.50, apr: 7.2, trend30d: -0.8, icon: TrendingUp, accent: "sky", last4: "BRK1" },
 
-  // INVESTMENTS — long-term / locked (not part of "what you have")
+  // INVESTMENTS - long-term / locked (not part of "what you have")
   { id: "inv-1", name: "401(k)", institution: "Fidelity", group: "investments", bucket: "longterm", balance: 184320.00, apr: 8.4, trend30d: 2.1, icon: TrendingUp, accent: "mint", last4: "K401" },
   { id: "inv-2", name: "Roth IRA", institution: "Vanguard", group: "investments", bucket: "longterm", balance: 62150.00, apr: 9.1, trend30d: 1.8, icon: TrendingUp, accent: "mint", last4: "ROTH" },
   { id: "inv-4", name: "HSA", institution: "Lively", group: "investments", bucket: "longterm", balance: 14200.00, apr: 6.5, trend30d: 1.3, icon: Landmark, accent: "amber", last4: "HSA0" },
 
-  // CREDIT — revolving (paid in full monthly)
+  // CREDIT - revolving (paid in full monthly)
   { id: "cc-1", name: "Sapphire Reserve", institution: "Chase", group: "credit", bucket: "revolving", balance: -2840.22, apr: 22.49, limit: 25000, trend30d: 18.0, icon: CreditCard, accent: "violet", last4: "9921", statementDue: 2840.22, dueDay: 15 },
   { id: "cc-2", name: "Amex Gold", institution: "American Express", group: "credit", bucket: "revolving", balance: -1120.40, apr: 24.99, limit: 15000, trend30d: -12.0, icon: CreditCard, accent: "amber", last4: "1004", statementDue: 1120.40, dueDay: 22 },
   { id: "cc-3", name: "Citi Custom Cash", institution: "Citi", group: "credit", bucket: "revolving", balance: -480.10, apr: 0, limit: 8000, promo: "0% APR until Aug 2026", trend30d: 6.0, icon: CreditCard, accent: "mint", last4: "5520", statementDue: 25.00, dueDay: 8 },
   { id: "cc-4", name: "Apple Card", institution: "Goldman Sachs", group: "credit", bucket: "revolving", balance: -210.55, apr: 19.24, limit: 10000, trend30d: -3.0, icon: CreditCard, accent: "sky", last4: "8801", statementDue: 210.55, dueDay: 30 },
 
-  // LIABILITIES — term loans (only EMI shows in monthly)
+  // LIABILITIES - term loans (only EMI shows in monthly)
   { id: "lo-1", name: "Mortgage", institution: "Rocket", group: "liabilities", bucket: "term", balance: -312400.00, apr: 6.75, trend30d: -0.2, icon: Home, accent: "coral", last4: "MTG0", emi: 2480, termMonthsLeft: 322, originalBalance: 360000 },
   { id: "lo-2", name: "Student Loan", institution: "Nelnet", group: "liabilities", bucket: "term", balance: -18420.00, apr: 5.50, trend30d: -1.1, icon: Landmark, accent: "coral", last4: "EDU2", emi: 320, termMonthsLeft: 68, originalBalance: 42000 },
   { id: "lo-3", name: "Auto Loan", institution: "Ally", group: "liabilities", bucket: "term", balance: -9200.00, apr: 7.90, trend30d: -2.0, icon: Car, accent: "amber", last4: "AUTO", emi: 415, termMonthsLeft: 24, originalBalance: 24000 },
@@ -104,7 +104,7 @@ export const insights: Insight[] = [
     category: "Idle Cash",
     title: "$6,200 sitting in 0.05% APY savings",
     what: "Your Wells Fargo savings holds $6,200 earning effectively nothing while Marcus pays 4.40% APY.",
-    why: "At current rates, that's $269/yr in foregone interest — fully risk-free, FDIC insured either way.",
+    why: "At current rates, that's $269/yr in foregone interest - fully risk-free, FDIC insured either way.",
     action: "Move $6,200 from Wells Fargo Savings → Marcus HYSA. Keep checking buffer untouched.",
     impact: "+$269 / yr",
     impactValue: 269,
@@ -126,7 +126,7 @@ export const insights: Insight[] = [
     category: "Rewards",
     title: "Wrong card used for 38% of dining spend",
     what: "You spent $612 on dining last month on Sapphire Reserve (3x) but $387 went to Apple Card (1x).",
-    why: "Amex Gold earns 4x on dining — switching that $387 nets ~$15/mo, $180/yr in extra rewards.",
+    why: "Amex Gold earns 4x on dining - switching that $387 nets ~$15/mo, $180/yr in extra rewards.",
     action: "Set Amex Gold as default for restaurants & food delivery. Update Apple Pay default.",
     impact: "+$180 / yr",
     impactValue: 180,
@@ -138,7 +138,7 @@ export const insights: Insight[] = [
     title: "Auto loan APR (7.90%) exceeds your HYSA yield",
     what: "You hold $18,500 in emergency fund at 4.20% while paying 7.90% on a $9,200 auto loan.",
     why: "The spread costs ~$340/yr. Keeping 6 months of expenses ($28k) is prudent; excess cash isn't.",
-    action: "Consider an extra $300/mo principal payment on auto loan — payoff accelerates by 14 months.",
+    action: "Consider an extra $300/mo principal payment on auto loan - payoff accelerates by 14 months.",
     impact: "Save $890 in interest",
     impactValue: 890,
   },
@@ -147,7 +147,7 @@ export const insights: Insight[] = [
     severity: "low",
     category: "Rewards",
     title: "Grocery category not optimized",
-    what: "$420/mo on groceries is split across 3 cards — none earn elevated grocery rewards.",
+    what: "$420/mo on groceries is split across 3 cards - none earn elevated grocery rewards.",
     why: "Amex Gold earns 4x at US supermarkets (up to $25k/yr). That's $200+/yr left on the table.",
     action: "Route all grocery spend to Amex Gold.",
     impact: "+$200 / yr",
@@ -185,7 +185,7 @@ export const monthlySpendSeries = [
 
 export const recentTransactions = [
   { id: "t1", merchant: "Whole Foods Market", category: "Groceries", card: "Amex Gold", amount: -84.20, date: "Today" },
-  { id: "t2", merchant: "Salary — Acme Corp", category: "Income", card: "Chase Checking", amount: 6420.00, date: "Today" },
+  { id: "t2", merchant: "Salary - Acme Corp", category: "Income", card: "Chase Checking", amount: 6420.00, date: "Today" },
   { id: "t3", merchant: "Blue Bottle Coffee", category: "Dining", card: "Sapphire Reserve", amount: -7.50, date: "Yesterday" },
   { id: "t4", merchant: "Shell Gas Station", category: "Transport", card: "Citi Custom Cash", amount: -52.10, date: "Yesterday" },
   { id: "t5", merchant: "Amazon", category: "Shopping", card: "Apple Card", amount: -134.99, date: "2d ago" },
@@ -202,7 +202,7 @@ export const groupMeta: Record<AccountGroup, { label: string; description: strin
 
 export const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive" | "negative" | "info" | "warning" }> = {
   liquid:    { label: "Accounts & Savings",    sub: "Available cash and brokerage",          tone: "positive" },
-  longterm:  { label: "Long-term Investments", sub: "Retirement & HSA — held for the future", tone: "info" },
+  longterm:  { label: "Long-term Investments", sub: "Retirement & HSA - held for the future", tone: "info" },
   revolving: { label: "Credit Cards",          sub: "Statements paid in full each month",    tone: "warning" },
   term:      { label: "Loans & Mortgages",     sub: "Only the monthly payment affects cash flow", tone: "negative" },
 };
@@ -222,14 +222,14 @@ export const subscriptions: Subscription[] = [
   { id: "s2", name: "Netflix", category: "Entertainment", amount: 22.99, card: "Apple Card", icon: Film },
   { id: "s3", name: "Spotify Family", category: "Entertainment", amount: 16.99, card: "Apple Card", icon: Film },
   { id: "s4", name: "PG&E (avg)", category: "Utilities", amount: 142, card: "Chase Checking", icon: Zap },
-  { id: "s5", name: "Internet — Xfinity", category: "Utilities", amount: 79, card: "Citi Custom Cash", icon: Zap },
-  { id: "s6", name: "Phone — T-Mobile", category: "Utilities", amount: 85, card: "Apple Card", icon: Zap },
+  { id: "s5", name: "Internet - Xfinity", category: "Utilities", amount: 79, card: "Citi Custom Cash", icon: Zap },
+  { id: "s6", name: "Phone - T-Mobile", category: "Utilities", amount: 85, card: "Apple Card", icon: Zap },
   { id: "s7", name: "Gym membership", category: "Health", amount: 45, card: "Amex Gold", icon: Heart },
   { id: "s8", name: "iCloud + ChatGPT", category: "Software", amount: 32, card: "Apple Card", icon: Sparkles },
 ];
 
 /* =================================================================
- * BENEFITS — credit-card perks tracking
+ * BENEFITS - credit-card perks tracking
  * ================================================================= */
 export type BenefitStatus = "unused" | "partial" | "used" | "expiring";
 export interface CardBenefit {
@@ -248,11 +248,11 @@ export interface CardBenefit {
 }
 
 export const cardBenefits: CardBenefit[] = [
-  { id: "b1",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "TSA PreCheck / Global Entry", category: "Travel",       value: 100, cycle: "annual",    used: 0,   resetDate: "Renews Jul 2027", status: "unused",   icon: ShieldCheck, how: "Pay $100 application fee with card — auto-reimbursed in 1-2 cycles." },
+  { id: "b1",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "TSA PreCheck / Global Entry", category: "Travel",       value: 100, cycle: "annual",    used: 0,   resetDate: "Renews Jul 2027", status: "unused",   icon: ShieldCheck, how: "Pay $100 application fee with card - auto-reimbursed in 1-2 cycles." },
   { id: "b2",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "DoorDash DashPass + $5/mo credit", category: "Dining",   value: 5,   cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "unused",   icon: Utensils,    how: "Auto-applied to next DoorDash order. Activate DashPass in Chase portal." },
   { id: "b3",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "Travel credit",            category: "Travel",       value: 300, cycle: "annual",    used: 180, resetDate: "Renews Sep 2026", status: "partial",  icon: Plane,       how: "Auto-applied to first $300 of travel charges per cardmember year." },
   { id: "b4",  cardId: "cc-1", cardName: "Sapphire Reserve", name: "Priority Pass lounges",     category: "Travel",       value: 469, cycle: "annual",    used: 469, resetDate: "Active",          status: "used",     icon: Globe,       how: "Enroll in Priority Pass via Chase. Use at 1,300+ lounges worldwide." },
-  { id: "b5",  cardId: "cc-2", cardName: "Amex Gold",        name: "Uber Cash",                 category: "Travel",       value: 10,  cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "expiring", icon: Car,         how: "Add Amex Gold to Uber wallet — credit auto-applies to next ride/Eats." },
+  { id: "b5",  cardId: "cc-2", cardName: "Amex Gold",        name: "Uber Cash",                 category: "Travel",       value: 10,  cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "expiring", icon: Car,         how: "Add Amex Gold to Uber wallet - credit auto-applies to next ride/Eats." },
   { id: "b6",  cardId: "cc-2", cardName: "Amex Gold",        name: "Dining credit (Grubhub, Resy)", category: "Dining",  value: 10,  cycle: "monthly",   used: 0,   resetDate: "Resets May 1",    status: "expiring", icon: Utensils,    how: "Enroll once in Amex Offers. Use card at Grubhub, Resy, Goldbelly, Cheesecake Factory, etc." },
   { id: "b7",  cardId: "cc-2", cardName: "Amex Gold",        name: "Resy dining credit",        category: "Dining",       value: 50,  cycle: "quarterly", used: 25,  resetDate: "Resets Jun 30",   status: "partial",  icon: Utensils,    how: "Use Amex Gold at any Resy-listed restaurant." },
   { id: "b8",  cardId: "cc-4", cardName: "Apple Card",       name: "Daily Cash on Apple Pay",   category: "Shopping",     value: 0,   cycle: "monthly",   used: 0,   resetDate: "Always on",       status: "used",     icon: ShoppingBag, how: "Get 2% back on every Apple Pay purchase, 3% on Apple/select merchants." },
@@ -261,7 +261,7 @@ export const cardBenefits: CardBenefit[] = [
 ];
 
 /* =================================================================
- * REFINANCE — opportunity analysis
+ * REFINANCE - opportunity analysis
  * ================================================================= */
 export interface RefinanceOption {
   id: string;
@@ -279,13 +279,13 @@ export interface RefinanceOption {
 }
 
 export const refinanceOptions: RefinanceOption[] = [
-  { id: "rf1", loanId: "lo-1", loanName: "Mortgage",     currentRate: 6.75, offeredRate: 5.85, lender: "Better.com",      closingCost: 4200, monthsToBreakeven: 22, monthlySavings: 188, lifetimeSavings: 38600, recommendation: "strong",   notes: "Rate has dropped 0.9pp since origination. Breakeven inside 2 years — strong refinance candidate." },
+  { id: "rf1", loanId: "lo-1", loanName: "Mortgage",     currentRate: 6.75, offeredRate: 5.85, lender: "Better.com",      closingCost: 4200, monthsToBreakeven: 22, monthlySavings: 188, lifetimeSavings: 38600, recommendation: "strong",   notes: "Rate has dropped 0.9pp since origination. Breakeven inside 2 years - strong refinance candidate." },
   { id: "rf2", loanId: "lo-3", loanName: "Auto Loan",    currentRate: 7.90, offeredRate: 6.40, lender: "LightStream",     closingCost: 0,    monthsToBreakeven: 0,  monthlySavings: 24,  lifetimeSavings: 580,   recommendation: "consider", notes: "No closing cost. Modest monthly savings but instant payback." },
   { id: "rf3", loanId: "lo-2", loanName: "Student Loan", currentRate: 5.50, offeredRate: 5.20, lender: "SoFi",            closingCost: 0,    monthsToBreakeven: 0,  monthlySavings: 6,   lifetimeSavings: 410,   recommendation: "skip",     notes: "Refinancing federal loans forfeits IDR / forgiveness protections. Skip unless certain." },
 ];
 
 /* =================================================================
- * DEALS — cross-card cashback offers (Amex Offers, Chase Offers, etc.)
+ * DEALS - cross-card cashback offers (Amex Offers, Chase Offers, etc.)
  * ================================================================= */
 export type DealKind = "cashback" | "points" | "statement";
 export interface CardOffer {
@@ -324,14 +324,14 @@ export const bestCardByCategory: Record<string, { cardId: string; cardName: stri
   Dining:        { cardId: "cc-2", cardName: "Amex Gold",        rate: "4x points",   note: "Best at restaurants, takeout, delivery" },
   Groceries:     { cardId: "cc-2", cardName: "Amex Gold",        rate: "4x (≤ $25k/yr)", note: "US supermarkets only" },
   Travel:        { cardId: "cc-1", cardName: "Sapphire Reserve", rate: "3x + $300 cr", note: "Includes lounges + Global Entry" },
-  Gas:           { cardId: "cc-3", cardName: "Citi Custom Cash", rate: "5% back",     note: "Top 5% category — can target gas" },
+  Gas:           { cardId: "cc-3", cardName: "Citi Custom Cash", rate: "5% back",     note: "Top 5% category - can target gas" },
   Streaming:     { cardId: "cc-3", cardName: "Citi Custom Cash", rate: "5% back",     note: "If selected as monthly top category" },
   Shopping:      { cardId: "cc-4", cardName: "Apple Card",       rate: "2-3% back",   note: "Apple Pay everywhere" },
   Entertainment: { cardId: "cc-1", cardName: "Sapphire Reserve", rate: "3x points",   note: "Includes streaming + Peloton credit" },
 };
 
 /* =================================================================
- * UPCOMING — scheduled outflows in the next ~14 days
+ * UPCOMING - scheduled outflows in the next ~14 days
  * ================================================================= */
 export interface UpcomingTx {
   id: string;
@@ -356,7 +356,7 @@ export const upcomingTransactions: UpcomingTx[] = [
 ];
 
 /* =================================================================
- * ACTIONABLE ITEMS — things that need a decision now
+ * ACTIONABLE ITEMS - things that need a decision now
  * ================================================================= */
 export type ActionPriority = "urgent" | "soon" | "info";
 export interface ActionItem {
@@ -370,14 +370,14 @@ export interface ActionItem {
 
 export const actionItems: ActionItem[] = [
   { id: "a1", priority: "urgent", title: "Fund your paying account",          detail: "Chase Checking will fall short of next 14 days of bills. Move funds from Marcus HYSA.", cta: "Move $4,200", icon: Wallet },
-  { id: "a2", priority: "urgent", title: "Amex Gold credits expire May 1",   detail: "$10 Uber Cash + $10 dining credit reset in 1 day — use them before they're gone.",       cta: "Use credits",  icon: Sparkles },
-  { id: "a3", priority: "soon",   title: "Sapphire Reserve statement due",   detail: "$2,840 due May 15 — autopay set, but verify funds are available.",                       cta: "Verify",       icon: CreditCard },
+  { id: "a2", priority: "urgent", title: "Amex Gold credits expire May 1",   detail: "$10 Uber Cash + $10 dining credit reset in 1 day - use them before they're gone.",       cta: "Use credits",  icon: Sparkles },
+  { id: "a3", priority: "soon",   title: "Sapphire Reserve statement due",   detail: "$2,840 due May 15 - autopay set, but verify funds are available.",                       cta: "Verify",       icon: CreditCard },
   { id: "a4", priority: "soon",   title: "Refinance mortgage saves $188/mo", detail: "Better.com offers 5.85% vs your 6.75%. Breakeven in 22 months.",                          cta: "Review",       icon: Home },
   { id: "a5", priority: "info",   title: "Idle cash at 0.05% APY",           detail: "$6,200 in Wells Fargo Savings could earn $269/yr at Marcus.",                            cta: "Move funds",   icon: PiggyBank },
 ];
 
 /* =================================================================
- * DEMO DATA — Plaid-shaped accounts and transactions for demo mode
+ * DEMO DATA - Plaid-shaped accounts and transactions for demo mode
  * ================================================================= */
 export interface DemoPAccount {
   id: string; account_id: string; name: string | null; official_name: string | null;
