@@ -15,12 +15,12 @@ export type AccountRoles = Record<string, AccountRoleInfo>; // account_id -> rol
 
 export const ROLE_META: Record<AccountRole, { name: string; description: string; short: string }> = {
   spending:      { name: "Everyday Expenses",    short: "Expenses",    description: "Checking or debit accounts you pay from day-to-day" },
-  buffer:        { name: "Emergency Fund",       short: "Emergency",   description: "3–6 month safety net — never counted as spendable" },
+  buffer:        { name: "Emergency Fund",       short: "Emergency",   description: "3–6 month safety net, never counted as spendable" },
   reserve:       { name: "Short-Term Savings",   short: "Near-Term",   description: "Earmarked for specific upcoming needs (escrow, a trip, a bill)" },
   savings_goal:  { name: "Long-Term Savings",    short: "Long-Term",   description: "Working toward a target that is months or years away" },
-  investment:    { name: "Investments",          short: "Invest",      description: "Brokerage, 401k, IRA — tracked but not liquid spending money" },
-  debt:          { name: "Debt & Credit",        short: "Debt",        description: "Credit cards and loans — balances tracked, not available funds" },
-  unassigned:    { name: "Unassigned",           short: "?",           description: "Not yet categorized — tag this account to unlock insights" },
+  investment:    { name: "Investments",          short: "Invest",      description: "Brokerage, 401k, IRA: tracked but not liquid spending money" },
+  debt:          { name: "Debt & Credit",        short: "Debt",        description: "Credit cards and loans: balances tracked, not available funds" },
+  unassigned:    { name: "Unassigned",           short: "?",           description: "Not yet categorized. Tag this account to unlock insights." },
 };
 
 export const useAccountRoles = () => {
