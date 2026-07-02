@@ -182,7 +182,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
               </div>
             )}
             <div className="text-[10px] text-muted-foreground mt-2">
-              Disconnecting fully revokes access with your bank — it doesn't just remove it from this view.
+              Disconnecting fully revokes access with your bank. It doesn't just remove it from this view.
             </div>
           </div>
 
