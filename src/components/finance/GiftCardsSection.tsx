@@ -454,7 +454,7 @@ export const GiftCardsSection = () => {
         <div className="surface-card p-8 text-center">
           <Gift className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
           <div className="text-[13px] text-foreground font-medium">No gift cards yet</div>
-          <div className="text-[12px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands — or add any custom one.</div>
+          <div className="text-[12px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
           <button
             onClick={() => setAddOpen(true)}
             className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[12.5px] font-medium hover:opacity-90 transition-opacity"

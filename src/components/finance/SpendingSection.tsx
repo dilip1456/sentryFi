@@ -198,7 +198,7 @@ export const SpendingSection = () => {
 
       {view === "trend" && (
         <div className="surface-card p-6 animate-fade-up">
-          <div className="text-sm font-medium text-foreground mb-4">Last 6 months — actual vs. budget</div>
+          <div className="text-sm font-medium text-foreground mb-4">Last 6 months: actual vs. budget</div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlySpendSeries} barCategoryGap={20}>

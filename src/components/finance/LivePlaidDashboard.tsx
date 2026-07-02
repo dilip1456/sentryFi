@@ -3755,7 +3755,7 @@ export const LivePlaidDashboard = ({
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     {label:"Total",value:fmtUSD(total),color},
-                    {label:"vs last mo",value:trend?.pct!=null?`${trend.delta>0?"+":""}${trend.pct}%`:"—",color:trend?.delta!=null?(trend.delta>0?"hsl(var(--negative))":"hsl(var(--positive))"):"hsl(var(--muted-foreground))"},
+                    {label:"vs last mo",value:trend?.pct!=null?`${trend.delta>0?"+":""}${trend.pct}%`:"n/a",color:trend?.delta!=null?(trend.delta>0?"hsl(var(--negative))":"hsl(var(--positive))"):"hsl(var(--muted-foreground))"},
                     {label:"Avg charge",value:fmtUSD(avgTxn),color:"hsl(var(--foreground))"},
                   ].map(s=>(
                     <div key={s.label} className="surface-card p-2.5 text-center">
@@ -4690,7 +4690,7 @@ export const LivePlaidDashboard = ({
                           {budget > 0 && <div className="text-[9px] text-muted-foreground">{delta>=0?"saved":"over"}</div>}
                         </div>
                       ) : (
-                        <span className="text-[9.5px] text-muted-foreground">—</span>
+                        <span className="text-[9.5px] text-muted-foreground">no budget</span>
                       )}
                     </div>
                   </div>

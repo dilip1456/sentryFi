@@ -112,7 +112,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
           </div>
           <div className="mt-3 font-display text-lg text-foreground">Link your accounts</div>
           <div className="mt-1 text-[11.5px] text-muted-foreground">
-            Securely connect via <span className="text-gold font-medium">Plaid</span> — read-only access.
+            Securely connect via <span className="text-gold font-medium">Plaid</span>, read-only access.
           </div>
         </div>
 

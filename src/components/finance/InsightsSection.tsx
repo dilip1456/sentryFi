@@ -155,7 +155,7 @@ export const InsightsSection = ({ compact = false }: { compact?: boolean } = {})
       {visible.length === 0 ? (
         <div className="surface-card p-8 text-center">
           <AlertCircle className="h-6 w-6 mx-auto text-muted-foreground" />
-          <p className="mt-3 text-sm text-muted-foreground">All caught up — no active suggestions.</p>
+          <p className="mt-3 text-sm text-muted-foreground">All caught up. No active suggestions.</p>
           <button
             onClick={() => setDismissed(new Set())}
             className="mt-3 text-xs text-foreground underline-offset-4 hover:underline"

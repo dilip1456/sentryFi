@@ -187,7 +187,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
         {!showEmpty && (
           <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
-            SentryFi · {demo ? "Demo data" : "Live data"} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+            SentryFi · {effectiveDemo ? "Demo data" : "Live data"} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
           </footer>
         )}
       </main>
