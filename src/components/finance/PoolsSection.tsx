@@ -204,7 +204,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
           <div>
             <h2 className="font-display text-xl md:text-2xl text-primary">Virtual savings pools</h2>
             <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
-              Slice one HYSA into named pools. Rules move money on payday — what's left is yours to spend.
+              Slice one HYSA into named pools. Rules move money on payday, and what's left is yours to spend.
             </p>
           </div>
           <button className="hidden md:inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
