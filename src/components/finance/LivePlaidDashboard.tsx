@@ -3014,22 +3014,30 @@ export const LivePlaidDashboard = ({
               <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
               <div className="text-[9px] text-muted-foreground mt-0.5">excl. transfers</div>
             </button>
-            <div className="surface-card p-3 relative overflow-hidden">
+            <button type="button" onClick={()=>{
+                setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+              }}
+              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
               <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
                 {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
               </div>
               <div className="text-[9px] text-muted-foreground mt-0.5">income − spend</div>
-            </div>
-            <div className="surface-card p-3 relative overflow-hidden">
+            </button>
+            <button type="button" onClick={()=>{
+                setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+              }}
+              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
               <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
               <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
                 {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
               <div className="text-[9px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
-            </div>
+            </button>
           </div>
         );
       })()}
@@ -3797,13 +3805,13 @@ export const LivePlaidDashboard = ({
                       <div className="flex gap-2 mt-2">
                         {spendPopupLimit===5 && catTxns.length>5 && (
                           <button onClick={()=>setSpendPopupLimit(10)}
-                            className="flex-1 h-8 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+                            className="flex-1 h-8 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-border-strong hover:bg-surface-hover/40 transition-colors">
                             Show top 10
                           </button>
                         )}
                         {catTxns.length > (spendPopupLimit===5?5:10) && (
                           <button onClick={()=>setSpendPopupLimit("all")}
-                            className="flex-1 h-8 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+                            className="flex-1 h-8 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-border-strong hover:bg-surface-hover/40 transition-colors">
                             Show all {catTxns.length}
                           </button>
                         )}
