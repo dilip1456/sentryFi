@@ -14,13 +14,13 @@ const Pricing = () => {
   const choose = async (planKey: string) => {
     if (!user) { navigate("/auth"); return; }
     if (planKey === "free") {
-      toast("You're already on a plan — downgrades take effect at period end.");
+      toast("You're already on a plan. Downgrades take effect at period end.");
       return;
     }
     setBusy(planKey);
     // Stripe checkout hook — once Stripe is enabled, this calls the create-checkout edge function.
     try {
-      toast.info("Checkout coming online — Stripe configuration in progress.");
+      toast.info("Checkout coming online. Stripe configuration in progress.");
     } finally {
       setBusy(null);
     }

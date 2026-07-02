@@ -13,7 +13,7 @@ import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
 import { useBudgets } from "@/hooks/useBudgets";
-import { useAccountRoles, ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
+import { useAccountRoles, ROLE_META, type AccountRole, type AccountRoleInfo } from "@/hooks/useAccountRoles";
 import { useMoneyMapFeedback } from "@/hooks/useMoneyMapFeedback";
 import { useCategoryOverrides } from "@/hooks/useCategoryOverrides";
 import { useCategoryRules } from "@/hooks/useCategoryRules";
@@ -2198,6 +2198,162 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
         </div>
       </DialogContent>
     </Dialog>
+  );
+};
+
+// ── Money Map subcomponents (module-level to preserve React identity) ──────────
+type AccountEntry = { acc: PAccount; info: AccountRoleInfo };
+
+const ROLE_OPTIONS: { role: AccountRole; icon: typeof Wallet }[] = [
+  { role: "spending",     icon: Wallet },
+  { role: "buffer",       icon: ShieldAlert },
+  { role: "reserve",      icon: Target },
+  { role: "savings_goal", icon: PiggyBank },
+  { role: "investment",   icon: TrendingUp },
+  { role: "debt",         icon: CreditCard },
+];
+
+const AccountTagStack = ({
+  list,
+  onAssign,
+}: {
+  list: AccountEntry[];
+  onAssign: (accountId: string, role: AccountRole) => void;
+}) => {
+  const [index, setIndex] = useState(0);
+  const [dragX, setDragX] = useState(0);
+  const draggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const clamped = Math.min(index, Math.max(0, list.length - 1));
+
+  if (list.length === 0) return null;
+  const current = list[clamped];
+
+  const goNext = () => setIndex(i => Math.min(list.length - 1, i + 1));
+  const goPrev = () => setIndex(i => Math.max(0, i - 1));
+  const onPointerDown = (e: React.PointerEvent) => {
+    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    e.preventDefault();
+    setDragX(e.clientX - startXRef.current);
+  };
+  const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (dragX < -60) goNext(); else if (dragX > 60) goPrev();
+    setDragX(0);
+  };
+  const assign = (role: AccountRole) => {
+    onAssign(current.acc.account_id, role);
+    setDragX(0);
+    setIndex(i => Math.min(i, Math.max(0, list.length - 2)));
+  };
+
+  return (
+    <div className="surface-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
+        <div>
+          <h3 className="font-display text-[13px] text-primary">Quick-tag accounts</h3>
+          <div className="text-[10.5px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
+        </div>
+        <span className="text-[10px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
+      </div>
+      <div className="p-4">
+        <div className="relative h-[126px] select-none" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerLeave={endDrag} style={{ touchAction: "none" }}>
+          {list.map(({ acc }, i) => {
+            const offset = i - clamped;
+            if (Math.abs(offset) > 2) return null;
+            const isActive = offset === 0;
+            const liveDrag = isActive ? dragX : 0;
+            const translate = offset * 22 + liveDrag / 3;
+            const scale = 1 - Math.min(Math.abs(offset), 2) * 0.06;
+            const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.4;
+            return (
+              <div key={acc.account_id}
+                className="absolute inset-0 max-w-md mx-auto rounded-xl border border-border/50 bg-surface-elevated px-4 py-3.5 flex items-center gap-3 cursor-grab active:cursor-grabbing"
+                style={{
+                  transform: `translateX(${translate}%) scale(${scale})`, opacity, zIndex: 10 - Math.abs(offset),
+                  transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
+                  pointerEvents: isActive ? "auto" : "none",
+                }}>
+                <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                  <Landmark className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                  <div className="text-[11px] text-muted-foreground tabular mt-0.5">{fmtUSD(Number(acc.current_balance) || 0)}</div>
+                  <div className="text-[10.5px] text-muted-foreground mt-1">What's this account for?</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-3 gap-1.5 mt-3">
+          {ROLE_OPTIONS.map(({ role, icon: Icon }) => (
+            <button key={role} onClick={() => assign(role)}
+              className="flex flex-col items-center gap-1 rounded-lg border border-border/40 py-2 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
+              <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[10px] text-foreground text-center leading-tight">{ROLE_META[role].short}</span>
+            </button>
+          ))}
+        </div>
+        {list.length > 1 && (
+          <div className="flex justify-center gap-1.5 mt-3">
+            {list.map((_, i) => (
+              <div key={i} className={cn("h-1.5 rounded-full transition-all", i === clamped ? "w-4 bg-gold" : "w-1.5 bg-border/50")} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const RoleBadgeSelect = ({
+  accountId, accType, accSubtype, getRole, setRole,
+}: {
+  accountId: string;
+  accType: string | null;
+  accSubtype: string | null;
+  getRole: (id: string, type: string | null, subtype: string | null) => AccountRoleInfo;
+  setRole: (id: string, info: AccountRoleInfo) => void;
+}) => {
+  const current = getRole(accountId, accType, accSubtype);
+  const [editing, setEditing] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(current.label ?? "");
+  if (editing) {
+    return (
+      <form className="flex items-center gap-1.5" onSubmit={e => {
+        e.preventDefault();
+        setRole(accountId, { role: current.role, label: labelDraft.trim() || undefined });
+        setEditing(false);
+      }}>
+        <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+          placeholder="e.g. Travel" onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
+          className="h-7 w-24 px-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none" />
+        <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
+      </form>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <select value={current.role} onChange={e => setRole(accountId, { role: e.target.value as AccountRole, label: current.label })}
+        className="h-7 px-2 rounded-md bg-surface/60 border border-border/50 text-[11px] text-foreground outline-none cursor-pointer">
+        {(Object.keys(ROLE_META) as AccountRole[]).filter(r => r !== "unassigned").map(r => (
+          <option key={r} value={r}>{ROLE_META[r].name}</option>
+        ))}
+      </select>
+      {(current.role === "reserve" || current.role === "savings_goal") && (
+        <button onClick={() => { setLabelDraft(current.label ?? ""); setEditing(true); }}
+          className="text-[10.5px] text-muted-foreground hover:text-foreground">
+          {current.label ? `"${current.label}"` : "+ label"}
+        </button>
+      )}
+    </div>
   );
 };
 
@@ -4694,147 +4850,6 @@ export const LivePlaidDashboard = ({
     const visibleSuggestions = suggestions.filter(s => !getFeedback(s.id));
     const actedSuggestions = suggestions.filter(s => !!getFeedback(s.id));
 
-    const ROLE_OPTIONS: { role: AccountRole; icon: typeof Wallet }[] = [
-      { role: "spending", icon: Wallet },
-      { role: "buffer", icon: ShieldAlert },
-      { role: "reserve", icon: Target },
-      { role: "savings_goal", icon: PiggyBank },
-      { role: "investment", icon: TrendingUp },
-      { role: "debt", icon: CreditCard },
-    ];
-
-    const AccountTagStack = ({ list }: { list: typeof unassignedAccts }) => {
-      const [index, setIndex] = useState(0);
-      const [dragX, setDragX] = useState(0);
-      const draggingRef = useRef(false);
-      const startXRef = useRef(0);
-      const clamped = Math.min(index, Math.max(0, list.length - 1));
-
-      if (list.length === 0) return null;
-      const current = list[clamped];
-
-      const goNext = () => setIndex(i => Math.min(list.length - 1, i + 1));
-      const goPrev = () => setIndex(i => Math.max(0, i - 1));
-      const onPointerDown = (e: React.PointerEvent) => {
-        draggingRef.current = true;
-        startXRef.current = e.clientX;
-        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-      };
-      const onPointerMove = (e: React.PointerEvent) => {
-        if (!draggingRef.current) return;
-        e.preventDefault();
-        setDragX(e.clientX - startXRef.current);
-      };
-      const endDrag = () => {
-        if (!draggingRef.current) return;
-        draggingRef.current = false;
-        if (dragX < -60) goNext(); else if (dragX > 60) goPrev();
-        setDragX(0);
-      };
-      const assign = (role: AccountRole) => {
-        setRole(current.acc.account_id, { role });
-        setDragX(0);
-        // List shrinks by one once tagged — keep the index pinned so the next
-        // untagged account slides into view in the same spot.
-        setIndex(i => Math.min(i, Math.max(0, list.length - 2)));
-      };
-
-      return (
-        <div className="surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
-            <div>
-              <h3 className="font-display text-[13px] text-primary">Quick-tag accounts</h3>
-              <div className="text-[10.5px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
-            </div>
-            <span className="text-[10px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
-          </div>
-          <div className="p-4">
-            <div className="relative h-[126px] select-none" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerLeave={endDrag} style={{ touchAction: "none" }}>
-              {list.map(({ acc }, i) => {
-                const offset = i - clamped;
-                if (Math.abs(offset) > 2) return null;
-                const isActive = offset === 0;
-                const liveDrag = isActive ? dragX : 0;
-                const translate = offset * 22 + liveDrag / 3;
-                const scale = 1 - Math.min(Math.abs(offset), 2) * 0.06;
-                const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.4;
-                return (
-                  <div key={acc.account_id}
-                    className="absolute inset-0 max-w-md mx-auto rounded-xl border border-border/50 bg-surface-elevated px-4 py-3.5 flex items-center gap-3 cursor-grab active:cursor-grabbing"
-                    style={{
-                      transform: `translateX(${translate}%) scale(${scale})`, opacity, zIndex: 10 - Math.abs(offset),
-                      transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
-                      pointerEvents: isActive ? "auto" : "none",
-                    }}>
-                    <div className="h-9 w-9 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
-                      <Landmark className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
-                      <div className="text-[11px] text-muted-foreground tabular mt-0.5">{fmtUSD(Number(acc.current_balance) || 0)}</div>
-                      <div className="text-[10.5px] text-muted-foreground mt-1">What's this account for?</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="grid grid-cols-3 gap-1.5 mt-3">
-              {ROLE_OPTIONS.map(({ role, icon: Icon }) => (
-                <button key={role} onClick={() => assign(role)}
-                  className="flex flex-col items-center gap-1 rounded-lg border border-border/40 py-2 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-[10px] text-foreground text-center leading-tight">{ROLE_META[role].short}</span>
-                </button>
-              ))}
-            </div>
-            {list.length > 1 && (
-              <div className="flex justify-center gap-1.5 mt-3">
-                {list.map((_, i) => (
-                  <div key={i} className={cn("h-1.5 rounded-full transition-all", i === clamped ? "w-4 bg-gold" : "w-1.5 bg-border/50")} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    };
-
-    const RoleBadgeSelect = ({ accountId, accType, accSubtype }: { accountId: string; accType: string | null; accSubtype: string | null }) => {
-      const current = getRole(accountId, accType, accSubtype);
-      const [editing, setEditing] = useState(false);
-      const [labelDraft, setLabelDraft] = useState(current.label ?? "");
-      if (editing) {
-        return (
-          <form className="flex items-center gap-1.5" onSubmit={e => {
-            e.preventDefault();
-            setRole(accountId, { role: current.role, label: labelDraft.trim() || undefined });
-            setEditing(false);
-          }}>
-            <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
-              placeholder="e.g. Travel" onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
-              className="h-7 w-24 px-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none" />
-            <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
-          </form>
-        );
-      }
-      return (
-        <div className="flex items-center gap-1.5">
-          <select value={current.role} onChange={e => setRole(accountId, { role: e.target.value as AccountRole, label: current.label })}
-            className="h-7 px-2 rounded-md bg-surface/60 border border-border/50 text-[11px] text-foreground outline-none cursor-pointer">
-            {(Object.keys(ROLE_META) as AccountRole[]).filter(r => r !== "unassigned").map(r => (
-              <option key={r} value={r}>{ROLE_META[r].name}</option>
-            ))}
-          </select>
-          {(current.role === "reserve" || current.role === "savings_goal") && (
-            <button onClick={() => { setLabelDraft(current.label ?? ""); setEditing(true); }}
-              className="text-[10.5px] text-muted-foreground hover:text-foreground">
-              {current.label ? `"${current.label}"` : "+ label"}
-            </button>
-          )}
-        </div>
-      );
-    };
-
     return (
       <div className="space-y-4 animate-fade-up">
         <div>
@@ -4915,7 +4930,7 @@ export const LivePlaidDashboard = ({
         </div>
 
         {/* ── Account role assignment: only unassigned accounts need action ── */}
-        {unassignedAccts.length > 0 && <AccountTagStack list={unassignedAccts} />}
+        {unassignedAccts.length > 0 && <AccountTagStack list={unassignedAccts} onAssign={(id, role) => setRole(id, { role })} />}
 
         {/* ── Tagged accounts grouped by role ── */}
         {accountsWithRole.length > unassignedAccts.length && (() => {
@@ -4952,7 +4967,7 @@ export const LivePlaidDashboard = ({
                             {acc.mask && <div className="text-[10px] text-muted-foreground">ending {acc.mask}</div>}
                           </div>
                           <span className="text-[12px] tabular font-semibold text-foreground shrink-0">{fmtUSD(Number(acc.current_balance)||0)}</span>
-                          <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} />
+                          <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} getRole={getRole} setRole={setRole} />
                         </div>
                       ))}
                     </div>
