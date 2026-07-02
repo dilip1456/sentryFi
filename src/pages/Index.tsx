@@ -99,7 +99,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       {guestDemo && (
         <div className="shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.2)] px-4 py-2 flex items-center gap-2.5">
           <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
-          <span className="text-[12px] text-foreground flex-1 min-w-0">You're in demo mode — sample data only.</span>
+          <span className="text-[12px] text-foreground flex-1 min-w-0">You're in demo mode, sample data only.</span>
           <button
             onClick={() => navigate("/auth")}
             className="text-[11.5px] font-medium px-3 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 hover:opacity-90 transition-opacity"
