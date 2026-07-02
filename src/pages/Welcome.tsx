@@ -8,12 +8,12 @@ const FEATURES = [
   {
     icon: "🗺️",
     title: "Money Map",
-    desc: "Tag every account with a purpose -Spending, Emergency Buffer, Reserve, Investment. Your emergency fund never bleeds into your spendable balance.",
+    desc: "Tag every account with a purpose: Spending, Emergency Buffer, Reserve, Investment. Your emergency fund never bleeds into your spendable balance.",
   },
   {
     icon: "💡",
     title: "True Available Funds",
-    desc: "See exactly what you can actually spend -income minus planned expenses minus committed savings. Not what your bank says your balance is.",
+    desc: "See exactly what you can actually spend: income minus planned expenses minus committed savings. Not what your bank says your balance is.",
   },
   {
     icon: "🔁",
@@ -23,12 +23,12 @@ const FEATURES = [
   {
     icon: "📅",
     title: "Upcoming Expense Forecasting",
-    desc: "Detects recurring bills and charges from your history and warns you before they hit -so you're never caught off guard by a predictable expense.",
+    desc: "Detects recurring bills and charges from your history and warns you before they hit, so you're never caught off guard by a predictable expense.",
   },
   {
     icon: "📊",
     title: "Budget by Category",
-    desc: "Set monthly limits for any spending category. Track real-time progress with a clear over/under view -all categories on the left, budgeted on the right.",
+    desc: "Set monthly limits for any spending category. Track real-time progress with a clear over/under view: all categories on the left, budgeted on the right.",
   },
   {
     icon: "🔍",
@@ -38,19 +38,19 @@ const FEATURES = [
   {
     icon: "🎁",
     title: "Gift Card Tracker",
-    desc: "Track balances across every gift card you own -with brand logos, expiry alerts, card numbers and PINs stored securely. Never forget about a card again.",
+    desc: "Track balances across every gift card you own, with brand logos, expiry alerts, card numbers and PINs stored securely. Never forget about a card again.",
   },
   {
     icon: "🏦",
     title: "Real Bank Data via Plaid",
-    desc: "Connect any US bank, credit card, loan, or investment account securely. Read-only access -SentryFi can never move or touch your money.",
+    desc: "Connect any US bank, credit card, loan, or investment account securely. Read-only access. SentryFi can never move or touch your money.",
   },
 ];
 
 const HOW = [
-  { step: "01", title: "Connect your accounts", body: "Link your banks, cards, and investments in under 2 minutes through Plaid's secure flow. Read-only -we can see, never touch." },
+  { step: "01", title: "Connect your accounts", body: "Link your banks, cards, and investments in under 2 minutes through Plaid's secure flow. Read-only: we can see, never touch." },
   { step: "02", title: "Tag your accounts", body: "Tell SentryFi what each account is for: Spending, Emergency Buffer, Reserve, or Investment. Takes 30 seconds." },
-  { step: "03", title: "Know your real number", body: "Your True Available balance is calculated instantly -and updated every time you sync." },
+  { step: "03", title: "Know your real number", body: "Your True Available balance is calculated instantly and updated every time you sync." },
 ];
 
 export default function Welcome() {
@@ -114,7 +114,7 @@ export default function Welcome() {
 
         <p style={{ fontSize: "clamp(15px, 2.2vw, 18px)", color: "#8FA3BA", lineHeight: 1.65, maxWidth: 560, margin: "0 auto 36px" }}>
           Your bank shows you a balance. SentryFi shows you what that balance{" "}
-          <em>actually means</em> -after your emergency fund, reserved savings, and upcoming expenses are accounted for.
+          <em>actually means</em>: after your emergency fund, reserved savings, and upcoming expenses are accounted for.
         </p>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
@@ -141,7 +141,7 @@ export default function Welcome() {
             <div style={{ fontSize: 11, color: "#D4920E", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>What banks show you</div>
             <div style={{ fontSize: 38, fontWeight: 800, color: "#fff", letterSpacing: "-0.02em", marginBottom: 10 }}>$12,480</div>
             <p style={{ fontSize: 14, color: "#7A8EA8", lineHeight: 1.6 }}>
-              Your combined account balances -including your $8,000 emergency fund, $2,000 earmarked for next month's rent, and $500 in a travel savings account.
+              Your combined account balances, including your $8,000 emergency fund, $2,000 earmarked for next month's rent, and $500 in a travel savings account.
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "#4B5C70" }}>→</div>
@@ -149,7 +149,7 @@ export default function Welcome() {
             <div style={{ fontSize: 11, color: "#D4920E", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>What SentryFi shows you</div>
             <div style={{ fontSize: 38, fontWeight: 800, color: "#D4920E", letterSpacing: "-0.02em", marginBottom: 10 }}>$1,980</div>
             <p style={{ fontSize: 14, color: "#7A8EA8", lineHeight: 1.6 }}>
-              Your True Available balance -what's actually in your Spending accounts, with buffers and reserves excluded on purpose. This is what you can actually use.
+              Your True Available balance: what's actually in your Spending accounts, with buffers and reserves excluded on purpose. This is what you can actually use.
             </p>
           </div>
         </div>
@@ -197,7 +197,7 @@ export default function Welcome() {
         <div style={{ fontSize: 36, marginBottom: 20 }}>🔒</div>
         <h2 style={{ fontSize: "clamp(24px, 3.5vw, 36px)", fontWeight: 800, letterSpacing: "-0.025em", margin: "0 0 16px" }}>Your data stays yours</h2>
         <p style={{ fontSize: 15, color: "#7A8EA8", lineHeight: 1.7, marginBottom: 36 }}>
-          Bank connections are powered by Plaid -the same infrastructure used by Venmo, Robinhood, and thousands of financial apps. Access is strictly read-only: SentryFi can see your transactions and balances but cannot initiate transfers, payments, or any account changes. Your credentials never touch our servers.
+          Bank connections are powered by Plaid, the same infrastructure used by Venmo, Robinhood, and thousands of financial apps. Access is strictly read-only: SentryFi can see your transactions and balances but cannot initiate transfers, payments, or any account changes. Your credentials never touch our servers.
         </p>
         <div style={{ display: "flex", justifyContent: "center", gap: 28, flexWrap: "wrap" }}>
           {["Read-only access", "Encrypted in transit", "No credential storage", "Powered by Plaid"].map(t => (
