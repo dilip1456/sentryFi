@@ -2341,6 +2341,8 @@ export const LivePlaidDashboard = ({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
+  const txnListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { txnListRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }, [selectedCategory, txnFlowFilter, txnAccountFilter]);
   const handlePanelDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
@@ -2830,7 +2832,7 @@ export const LivePlaidDashboard = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("expense");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("");
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
@@ -2847,7 +2849,7 @@ export const LivePlaidDashboard = ({
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("income");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("");
+                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
@@ -4225,7 +4227,7 @@ export const LivePlaidDashboard = ({
               });
             }else{content=shown.map((t,i)=>renderRow(t,i));}
             return(
-              <div className="overflow-y-auto max-h-[680px] xl:max-h-[calc(100dvh-260px)]">
+              <div ref={txnListRef} className="overflow-y-auto max-h-[680px] xl:max-h-[calc(100dvh-260px)]">
                 {content}
                 {filteredSpendingTxns.length>txnLimit&&(
                   <button onClick={()=>setTxnLimit(l=>l+150)} className="w-full py-2.5 text-[11px] text-muted-foreground hover:text-foreground border-t border-border/20 transition-colors">
@@ -4472,6 +4474,20 @@ export const LivePlaidDashboard = ({
                               onKeyDown={e=>{ if(e.key==="Escape"){ setEditingBudgetCat(null); setBudgetDraft(""); } }}
                               className="w-20 h-6 pl-4 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] text-foreground outline-none" />
                           </div>
+                          {(() => {
+                            const avg = Math.round([0,1,2].map(i=>
+                              filterByPeriod(txns,{granularity:"month",offset:-(i+1)})
+                                .filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)>0&&(getEffectiveCategory(t,overrides,getRuleCategory)??"Other")===c.category)
+                                .reduce((s,t)=>s+Number(t.amount),0)
+                            ).reduce((s,m)=>s+m,0)/3);
+                            return avg > 0 ? (
+                              <button type="button" onClick={()=>setBudgetDraft(String(avg))}
+                                className="h-6 px-1.5 rounded-md border border-border/50 text-[9.5px] text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                title={`3-month average: ${fmtUSD(avg)}`}>
+                                ~{fmtUSD(avg,{compact:true})}
+                              </button>
+                            ) : null;
+                          })()}
                           <button type="submit" className="h-6 px-2 rounded-md bg-gold text-[10px] font-medium">OK</button>
                         </form>
                       ) : budget > 0 ? (
