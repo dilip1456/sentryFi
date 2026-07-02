@@ -288,7 +288,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
           <div className="relative mt-5 hairline pt-4 flex items-center justify-between">
             <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5" />
-              {unallocated >= 0 ? "Unassigned salary (lifestyle / spending)" : "Over-allocated — reduce a rule"}
+              {unallocated >= 0 ? "Unassigned salary (lifestyle / spending)" : "Over-allocated: reduce a rule"}
             </div>
             <div className={cn(
               "font-display text-2xl tabular",

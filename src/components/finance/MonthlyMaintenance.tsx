@@ -39,7 +39,7 @@ const toneBg: Record<FlowRow["tone"], string> = {
 };
 
 const sectionMeta: Record<Exclude<RowKind, "income">, { label: string; sub: string; icon: React.ReactNode }> = {
-  emi:          { label: "Loan EMIs",           sub: "Term loans — only the monthly hit", icon: <Home className="h-3.5 w-3.5" /> },
+  emi:          { label: "Loan EMIs",           sub: "Term loans: only the monthly hit", icon: <Home className="h-3.5 w-3.5" /> },
   statement:    { label: "Credit card bills",   sub: "Paid in full this cycle",           icon: <CreditCard className="h-3.5 w-3.5" /> },
   subscription: { label: "Recurring bills",     sub: "Utilities, subs, fixed costs",      icon: <Receipt className="h-3.5 w-3.5" /> },
   pool:         { label: "Saving rules",        sub: "Auto-allocations to virtual pools", icon: <Sparkles className="h-3.5 w-3.5" /> },
@@ -321,9 +321,9 @@ export const MonthlyMaintenance = () => {
             <div className="font-display text-2xl text-foreground mt-1">Monthly view ≠ Overall view</div>
             <ul className="mt-4 space-y-2.5 text-[12px] text-muted-foreground leading-relaxed">
               <li className="flex gap-2"><span className="text-positive">•</span><span><b className="text-foreground">EMIs</b> show the monthly payment, not the $312k mortgage total.</span></li>
-              <li className="flex gap-2"><span className="text-warning">•</span><span><b className="text-foreground">Credit cards</b> count this cycle's statement balance — assumed paid in full.</span></li>
+              <li className="flex gap-2"><span className="text-warning">•</span><span><b className="text-foreground">Credit cards</b> count this cycle's statement balance, assumed paid in full.</span></li>
               <li className="flex gap-2"><span className="text-info">•</span><span><b className="text-foreground">Pools</b> auto-divert salary into named buckets in your HYSA.</span></li>
-              <li className="flex gap-2"><span className="text-muted-foreground">•</span><span><b className="text-foreground">Variable</b> is your discretionary spend budget — adjust it to see free cash.</span></li>
+              <li className="flex gap-2"><span className="text-muted-foreground">•</span><span><b className="text-foreground">Variable</b> is your discretionary spend budget. Adjust it to see free cash.</span></li>
             </ul>
           </div>
         </DialogContent>
