@@ -175,6 +175,9 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                       <div className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">{n.body}</div>
                       <div className="text-[11px] text-muted-foreground mt-1">{n.time} ago</div>
                     </div>
+                    <button onClick={() => clearOne(n.id)} className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition shrink-0">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>
