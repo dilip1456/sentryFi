@@ -3840,7 +3840,7 @@ export const LivePlaidDashboard = ({
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <PeriodNav state={spendingPeriod} granularities={["day","week","month","year"]}
-            onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);}} />
+            onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);onCategorySelect?.("");}} />
           <button onClick={()=>{
             const rows = [["Date","Name","Category","Amount","Account","Pending"]];
             for (const t of filteredSpendingTxns) {
@@ -4052,7 +4052,7 @@ export const LivePlaidDashboard = ({
                           {fmtUSD(c.total)}
                         </span>
                       </div>
-                      <div className="h-2.5 rounded-full bg-border/25 relative overflow-hidden">
+                      <div className="h-3.5 rounded-full bg-border/25 relative overflow-hidden">
                         {budgetBarPct !== null && (
                           <div className="absolute inset-y-0 w-px bg-foreground/30 z-10" style={{left:`${budgetBarPct}%`}}/>
                         )}
