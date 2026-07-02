@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { TopBar } from "@/components/finance/TopBar";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
@@ -18,52 +19,55 @@ import {
 
 type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
-  { k: "overall",   label: "Home",               icon: LayoutDashboard, sub: "What needs attention today" },
-  { k: "moneymap",  label: "Money Map",          icon: Compass,         sub: "What you actually have available" },
-  { k: "spending",  label: "Spending",           icon: PieChart,        sub: "Transactions & breakdowns" },
-  { k: "budget",    label: "Budget",             icon: Wallet,          sub: "Monthly limits by category" },
-  { k: "monthly",   label: "Monthly",             icon: CalendarClock,   sub: "Cash flow by period" },
-  { k: "benefits",  label: "Benefits",            icon: Sparkles,        sub: "Card perks & refinancing" },
-  { k: "giftcards", label: "Gift Cards",          icon: Gift,            sub: "Track balances across brands" },
+  { k: "overall",   label: "Home",         icon: LayoutDashboard, sub: "What needs attention today" },
+  { k: "spending",  label: "Spending",     icon: PieChart,        sub: "Transactions & category breakdowns" },
+  { k: "budget",    label: "Budget",       icon: Wallet,          sub: "Monthly limits by category" },
+  { k: "moneymap",  label: "Money Map",    icon: Compass,         sub: "What you actually have available" },
+  { k: "monthly",   label: "Transactions", icon: CalendarClock,   sub: "Cash flow by period" },
+  { k: "benefits",  label: "Benefits",     icon: Sparkles,        sub: "Card perks & refinancing" },
+  { k: "giftcards", label: "Gift Cards",   icon: Gift,            sub: "Track balances across brands" },
 ];
 
-const Index = () => {
+const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [view, setView] = useState<View>("overall");
   const [linkOpen, setLinkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const { isAdmin, user } = useAuth();
+  const navigate = useNavigate();
 
   const handleCategorySelect = (cat: string) => {
-    setSelectedCategory(cat);
-    setView("spending");
+    if (cat === "__spending__") { setView("spending"); return; }
+    setSelectedCategory(cat || null);
+    if (cat) setView("spending"); // don't navigate away when clearing the filter
   };
   const { demo } = useDemo();
+  // Guest demo: treat as demo mode, no admin tab, no real items
+  const effectiveDemo = demo || guestDemo;
   const TABS = useMemo(
-    () => isAdmin ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
-    [isAdmin]
+    () => (!guestDemo && isAdmin) ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
+    [isAdmin, guestDemo]
   );
-  // Bottom nav shows a focused set of primary tabs directly; everything else
-  // (Monthly, Benefits, Admin) lives behind "More" so it never needs to
-  // horizontally scroll on a phone-width screen.
-  const PRIMARY_KEYS: View[] = ["overall", "moneymap", "spending", "giftcards"];
+  const PRIMARY_KEYS: View[] = ["overall", "spending", "budget", "moneymap"];
   const primaryTabs = TABS.filter(t => PRIMARY_KEYS.includes(t.k));
   const overflowTabs = TABS.filter(t => !PRIMARY_KEYS.includes(t.k));
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const [hasItems, setHasItems] = useState<boolean | null>(null);
+  // Guest demo: skip Supabase check, items are always "none" (demo data takes over)
+  const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const [showAppBanner, setShowAppBanner] = useState(false);
   useEffect(() => {
     const isAndroidWeb = /Android/i.test(navigator.userAgent) && !isNative();
     const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
-    setShowAppBanner(isAndroidWeb && !dismissed);
-  }, []);
+    setShowAppBanner(isAndroidWeb && !dismissed && !guestDemo);
+  }, [guestDemo]);
   const dismissAppBanner = () => {
     localStorage.setItem("sentryfi_app_banner_dismissed", "1");
     setShowAppBanner(false);
   };
   const checkItems = useCallback(async () => {
+    if (guestDemo) return; // guest demo never checks Supabase
     if (!user) { setHasItems(false); return; }
     const { count } = await supabase
       .from("plaid_items")
@@ -71,13 +75,13 @@ const Index = () => {
       .eq("user_id", user.id)
       .eq("status", "active");
     setHasItems((count ?? 0) > 0);
-  }, [user]);
+  }, [user, guestDemo]);
   useEffect(() => { checkItems(); }, [checkItems]);
 
   // Routing: demo uses LivePlaidDashboard with no real data (same UI, sample-less)
   // Live: LivePlaidDashboard with real Plaid data
-  const showLive = !demo && hasItems === true && view !== "admin" && view !== "giftcards";
-  const showEmpty = !demo && hasItems === false && view !== "admin" && view !== "giftcards";
+  const showLive = !effectiveDemo && hasItems === true && view !== "admin" && view !== "giftcards";
+  const showEmpty = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   return (
     <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
@@ -90,6 +94,20 @@ const Index = () => {
         syncing={syncing}
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
+
+      {/* Guest demo conversion banner */}
+      {guestDemo && (
+        <div className="shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.2)] px-4 py-2 flex items-center gap-2.5">
+          <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
+          <span className="text-[12px] text-foreground flex-1 min-w-0">You're in demo mode — sample data only.</span>
+          <button
+            onClick={() => navigate("/auth")}
+            className="text-[11.5px] font-medium px-3 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 hover:opacity-90 transition-opacity"
+          >
+            Create free account
+          </button>
+        </div>
+      )}
 
       {showAppBanner && (
         <div className="shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-2 flex items-center gap-2.5">
@@ -131,7 +149,7 @@ const Index = () => {
           </div>
         )}
 
-        {!demo && hasItems === null && (
+        {!effectiveDemo && hasItems === null && (
           <div className="min-h-[40vh] grid place-items-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
@@ -153,19 +171,19 @@ const Index = () => {
           />
         )}
 
-        {demo && view !== "giftcards" && view !== "admin" && (
+        {effectiveDemo && view !== "giftcards" && view !== "admin" && (
           <LivePlaidDashboard
             demo
             hasItems={false}
-            onAddAccount={() => setLinkOpen(true)}
+            onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
             view={view}
             syncTrigger={0}
             selectedCategory={selectedCategory}
             onCategorySelect={handleCategorySelect}
           />
         )}
-        {view === "giftcards" && <GiftCardsSection />}
-        {view === "admin" && isAdmin && <AdminUsersSection />}
+        {view === "giftcards" && !guestDemo && <GiftCardsSection />}
+        {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
         {!showEmpty && (
           <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
@@ -175,10 +193,9 @@ const Index = () => {
       </main>
 
       {/* Mobile bottom tab bar — fixed set of primary tabs, no horizontal scroll */}
-      {hasItems !== null && (
+      {(hasItems !== null || effectiveDemo) && (
         <nav
           className="md:hidden shrink-0 relative border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-[0_-2px_12px_-4px_rgba(0,0,0,0.12)]"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           {moreOpen && (
