@@ -127,7 +127,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       )}
 
 
-      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4 flex flex-col">
+      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4 flex flex-col" style={{WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain"}}>
         {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
         {showLive && (
           <div className="md:hidden flex items-center gap-2">
