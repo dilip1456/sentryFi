@@ -488,3 +488,21 @@ button:focus-visible,
 .animate-count-in,
 .animate-pop-in,
 .shimmer { transition: none; }
+
+/* ── Android WebView scroll fix ─────────────────────────────────
+   Without this, touch events on cards/buttons get consumed and the
+   parent scroll container never sees the gesture. */
+* { -webkit-tap-highlight-color: transparent; }
+
+button, [role="button"], a {
+  touch-action: manipulation;
+}
+
+main {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.surface-card, .surface-elevated {
+  touch-action: pan-y;
+}
