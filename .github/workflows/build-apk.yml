@@ -48,11 +48,12 @@ jobs:
 
       - name: Copy APK to public/downloads
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*arm64*.apk" | head -n1)
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n1)
           if [ -z "$APK_PATH" ]; then
             echo "No release APK produced — failing the build"
             exit 1
           fi
+          echo "Found APK: $APK_PATH"
           mkdir -p public/downloads
           cp "$APK_PATH" public/downloads/SentryFi.apk
           ls -lh public/downloads/SentryFi.apk
