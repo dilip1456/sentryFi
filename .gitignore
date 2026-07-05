@@ -38,3 +38,6 @@ android/local.properties
 # Misc build caches
 tsconfig.app.tsbuildinfo
 supabase/.temp
+-e 
+# APK builds — stored as GitHub Release assets, not in repo
+public/downloads/*.apk

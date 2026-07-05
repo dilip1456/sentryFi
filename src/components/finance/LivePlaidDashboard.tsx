@@ -12,12 +12,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
-import { useBudgets } from "@/hooks/useBudgets";
-import { useAccountRoles, ROLE_META, type AccountRole, type AccountRoleInfo } from "@/hooks/useAccountRoles";
-import { useMoneyMapFeedback } from "@/hooks/useMoneyMapFeedback";
-import { useCategoryOverrides } from "@/hooks/useCategoryOverrides";
-import { useCategoryRules, type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
-import { useCustomCategories } from "@/hooks/useCustomCategories";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
+import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
 import { CategoryManager } from "@/components/finance/CategoryManager";
 import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
 import { fmtUSD } from "@/lib/format";
@@ -2583,12 +2580,92 @@ export const LivePlaidDashboard = ({
   selectedCategory, onCategorySelect,
 }: Props) => {
   const { user } = useAuth();
-  const { budgets, setBudget, removeBudget } = useBudgets();
-  const { roles, setRole, getRole } = useAccountRoles();
-  const { feedback, recordFeedback, getFeedback } = useMoneyMapFeedback();
-  const { overrides, setOverride, bulkSetOverride, bulkSetOverrideMap, reassignCategory } = useCategoryOverrides();
-  const { rules, addRule, updateRule, removeRule, toggleRule, getRuleCategory, getMatchCount } = useCategoryRules();
-  const { custom: customCategories, addCategory, removeCategory } = useCustomCategories();
+
+  // ── All user preferences — synced to Supabase ──────────────────
+  const S = useUserSettings(user?.id);
+  const { settings, loaded: settingsLoaded } = S;
+
+  // Destructure for ergonomic use throughout the component
+  const budgets = settings.budgets;
+  const setBudget = S.setBudget;
+  const removeBudget = S.removeBudget;
+  const roles = settings.accountRoles;
+  const setRole = S.setAccountRole;
+  const overrides = settings.catOverrides;
+  const setOverride = S.setCatOverride;
+  const bulkSetOverride = (ids: string[], cat: string) => S.bulkSetCatOverride(ids, cat);
+  const bulkSetOverrideMap = S.bulkSetCatOverrideMap;
+  const reassignCategory = (oldCat: string, newCat: string) => {
+    const map: Record<string,string> = {};
+    txns.forEach(t => { if ((getEffectiveCategory(t, settings.catOverrides, getRuleCategory) ?? "Other") === oldCat) map[t.id] = newCat; });
+    S.bulkSetCatOverrideMap(map);
+  };
+  const rules = settings.catRules;
+  const addRule = S.addCatRule;
+  const updateRule = S.updateCatRule;
+  const removeRule = S.removeCatRule;
+  const toggleRule = S.toggleCatRule;
+  const customCategories = settings.customCats;
+  const addCategory = S.addCustomCat;
+  const removeCategory = S.removeCustomCat;
+  const nameOverrides = settings.nameOverrides;
+  const setNameOverride = S.setNameOverride;
+  const bulkSetNameOverride = S.bulkSetNameOverride;
+  const nameRules = settings.nameRules;
+  const saveNameRule = S.saveNameRule;
+  const manualIncome = settings.manualIncome;
+  const addManualIncome = (item: { id: string; label: string; amount: number }) => S.addManualIncome(item);
+  const removeManualIncome = (id: string) => S.removeManualIncome(id);
+  const benefitsUsed = settings.benefitsUsed;
+  const feedback = settings.moneyMapFeedback;
+  const getFeedback = (id: string) => settings.moneyMapFeedback[id];
+  const recordFeedback = S.recordFeedback;
+
+  const dismissedInsights = new Set(settings.dismissedInsights);
+  const dismissedActions = new Set(settings.dismissedActions);
+  const dismissedRecurring = new Set(settings.dismissedRecurring);
+  const dismissInsight = S.dismissInsight;
+  const dismissAction = S.dismissAction;
+  const dismissRecurring = (merchant: string) => S.dismissRecurring(merchant);
+  const restoreAllRecurring = () => S.update({ dismissedRecurring: [] });
+
+  // getRuleCategory — derived from rules (memoized)
+  const getRuleCategory = useCallback((merchantName: string | null): string | null => {
+    if (!merchantName) return null;
+    const m = merchantName.toLowerCase();
+    const ordered = [...rules.filter(r => r.source === "user"), ...rules.filter(r => r.source === "system")];
+    const match = ordered.find(r => {
+      if (!r.enabled) return false;
+      const p = r.pattern.toLowerCase();
+      if (p.length < 2) return false;
+      switch (r.matchType) {
+        case "exact": return m === p;
+        case "starts_with": return m.startsWith(p);
+        default: return m.includes(p);
+      }
+    });
+    return match?.category ?? null;
+  }, [rules]);
+
+  const getMatchCount = (rule: (typeof rules)[0], txnList: { merchant_name: string | null; name: string | null }[]) => {
+    const p = rule.pattern.toLowerCase();
+    return txnList.filter(t => {
+      const m = (t.merchant_name ?? t.name ?? "").toLowerCase();
+      switch (rule.matchType) {
+        case "exact": return m === p;
+        case "starts_with": return m.startsWith(p);
+        default: return m.includes(p);
+      }
+    }).length;
+  };
+
+  const getRole = (accountId: string, accountType?: string | null, accountSubtype?: string | null) => {
+    if (roles[accountId]) return roles[accountId];
+    if (accountType === "credit" || accountType === "loan") return { role: "debt" as const };
+    if (accountType === "investment") return { role: "investment" as const };
+    if (accountSubtype === "checking") return { role: "spending" as const };
+    return { role: "unassigned" as const };
+  };
 
   const [loading, setLoading]       = useState(true);
   const [syncing, setSyncing]       = useState(false);
@@ -2597,7 +2674,7 @@ export const LivePlaidDashboard = ({
   const [items, setItems]           = useState<PItem[]>([]);
   const [creditDetails, setCreditDetails] = useState<CreditDetail[]>([]);
   const [txns, setTxns]             = useState<PTxn[]>([]);
-  const [accountMeta, setAccountMeta] = useState<Record<string, AccountMeta>>(loadAllMeta);
+  const [accountMeta, setAccountMetaState] = useState<Record<string, AccountMeta>>(loadAllMeta);
   const [editingAccount, setEditingAccount] = useState<PAccount | null>(null);
   const [detailAccount, setDetailAccount] = useState<PAccount | null>(null);
   const [removingAccount, setRemovingAccount] = useState<PAccount | null>(null);
@@ -2619,9 +2696,7 @@ export const LivePlaidDashboard = ({
   const [monthlyPeriod, setMonthlyPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
-  const [manualIncome, setManualIncome] = useState<{id:string;label:string;amount:number}[]>(() => {
-    try { return JSON.parse(localStorage.getItem("sentryfi_manual_income")??"[]"); } catch { return []; }
-  });
+  // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
   const [incomeDraftAmt, setIncomeDraftAmt] = useState("");
@@ -2644,55 +2719,18 @@ export const LivePlaidDashboard = ({
   const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
   const [incomeExpanded, setIncomeExpanded] = useState(false);
   const [monthlyFlowFilter, setMonthlyFlowFilter] = useState<"all"|"expense"|"income">("all");
-  const BENEFITS_KEY = "sentryfi_benefits_used";
-  const [benefitsUsed, setBenefitsUsed] = useState<Record<string,boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem(BENEFITS_KEY) ?? "{}"); } catch { return {}; }
-  });
+  const setBenefitsUsed = (updater: ((prev: Record<string,boolean>) => Record<string,boolean>) | Record<string,boolean>) => {
+    const next = typeof updater === "function" ? updater(settings.benefitsUsed) : updater;
+    S.update({ benefitsUsed: next });
+  };
   // Per-section loading states for selective refresh
   const [refreshingAccounts, setRefreshingAccounts] = useState(false);
   const [refreshingTxns, setRefreshingTxns] = useState(false);
   // Inline category picker — tracks which txn has the picker open + anchor position
 
-  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_insights")??"[]")); } catch { return new Set(); }
-  });
-  const [dismissedActions, setDismissedActions] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_actions")??"[]")); } catch { return new Set(); }
-  });
+  // dismissedXxx are computed from settings (Supabase-backed)
 
-  const [dismissedRecurring, setDismissedRecurring] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_dismissed_recurring")??"[]")); } catch { return new Set(); }
-  });
-
-  const dismissInsight = (id:string) => { const n=new Set([...dismissedInsights,id]); setDismissedInsights(n); localStorage.setItem("sentryfi_dismissed_insights",JSON.stringify([...n])); };
-  const dismissAction  = (id:string) => { const n=new Set([...dismissedActions,id]);  setDismissedActions(n);  localStorage.setItem("sentryfi_dismissed_actions",JSON.stringify([...n])); };
-  const dismissRecurring = (merchant: string) => { const n=new Set([...dismissedRecurring,merchant.toLowerCase()]); setDismissedRecurring(n); localStorage.setItem("sentryfi_dismissed_recurring",JSON.stringify([...n])); };
-  const restoreAllRecurring = () => { setDismissedRecurring(new Set()); localStorage.removeItem("sentryfi_dismissed_recurring"); };
-
-  // Transaction name overrides (fix Plaid merchant name mangling)
-  const [nameOverrides, setNameOverrides] = useState<Record<string,string>>(() => {
-    try { return JSON.parse(localStorage.getItem("sentryfi_name_overrides") ?? "{}"); } catch { return {}; }
-  });
-  const setNameOverride = (id: string, name: string) => {
-    const next = name ? { ...nameOverrides, [id]: name } : (() => { const n={...nameOverrides}; delete n[id]; return n; })();
-    setNameOverrides(next);
-    localStorage.setItem("sentryfi_name_overrides", JSON.stringify(next));
-  };
-  const bulkSetNameOverride = (ids: string[], name: string) => {
-    const next = { ...nameOverrides };
-    ids.forEach(id => { if (name) next[id] = name; else delete next[id]; });
-    setNameOverrides(next);
-    localStorage.setItem("sentryfi_name_overrides", JSON.stringify(next));
-  };
-
-  const [nameRules, setNameRules] = useState<Record<string,string>>(() => {
-    try { return JSON.parse(localStorage.getItem("sentryfi_name_rules") ?? "{}"); } catch { return {}; }
-  });
-  const saveNameRule = (merchant: string, name: string) => {
-    const next = { ...nameRules, [merchant]: name };
-    setNameRules(next);
-    localStorage.setItem("sentryfi_name_rules", JSON.stringify(next));
-  };
+  // nameOverrides, nameRules, setNameOverride, bulkSetNameOverride, saveNameRule — all from useUserSettings above
 
   const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
@@ -2708,10 +2746,7 @@ export const LivePlaidDashboard = ({
 
   // Panel order for overall dashboard (drag-and-drop)
   const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "top-spending", "upcoming-charges"];
-  const [panelOrder, setPanelOrder] = useState<string[]>(() => {
-    try { const s=JSON.parse(localStorage.getItem("sentryfi_panel_order")??"null"); return Array.isArray(s)&&s.length===4&&DEFAULT_PANEL_ORDER.every(id=>s.includes(id))?s:DEFAULT_PANEL_ORDER; }
-    catch { return DEFAULT_PANEL_ORDER; }
-  });
+  const panelOrder = settings.panelOrder.length === 4 && DEFAULT_PANEL_ORDER.every(id => settings.panelOrder.includes(id)) ? settings.panelOrder : DEFAULT_PANEL_ORDER;
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
@@ -2725,7 +2760,7 @@ export const LivePlaidDashboard = ({
       const newIdx = panelOrder.indexOf(String(over.id));
       const next = arrayMove(panelOrder, oldIdx, newIdx);
       setPanelOrder(next);
-      localStorage.setItem("sentryfi_panel_order", JSON.stringify(next));
+      S.setPanelOrder(next);
     }
   };
 
@@ -5282,7 +5317,7 @@ export const LivePlaidDashboard = ({
   const toggleBenefit = (key: string) => {
     setBenefitsUsed(prev => {
       const next = { ...prev, [key]: !prev[key] };
-      localStorage.setItem(BENEFITS_KEY, JSON.stringify(next));
+      // persisted via setBenefitsUsed above
       return next;
     });
   };
