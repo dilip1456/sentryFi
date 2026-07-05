@@ -21,13 +21,13 @@ import { fmtUSD } from "@/lib/format";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home,
-  ShoppingBag, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
+  ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
   ArrowDownLeft, ArrowUpRight, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
   Pencil, Search, Trash2, ExternalLink, Tag, Calendar, Unlink,
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
   Compass, ShieldAlert, Target, ThumbsUp, ThumbsDown,
-  ArrowRightLeft, CalendarClock, Info,
+  ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -235,30 +235,44 @@ const humanizeCategory = (cat: string|null, amount: number): string => {
 const categoryIcon = (cat: string|null) => {
   if (!cat) return ShoppingBag;
   const c = cat.toLowerCase();
-  if (c.includes("food") || c.includes("restaurant") || c.includes("dining") || c.includes("groceries")) return Utensils;
-  if (c.includes("travel") || c.includes("airline") || c.includes("hotel")) return Plane;
+  if (c.includes("groceries")) return ShoppingCart;
+  if (c.includes("food") || c.includes("restaurant") || c.includes("dining")) return Utensils;
   if (c.includes("coffee") || c.includes("cafe")) return Coffee;
+  if (c.includes("travel") || c.includes("airline") || c.includes("hotel") || c.includes("lodging")) return Plane;
   if (c.includes("car") || c.includes("auto") || c.includes("gas") || c.includes("transport")) return Car;
-  if (c.includes("utilities") || c.includes("electric") || c.includes("internet") || c.includes("bills")) return Zap;
-  if (c.includes("entertainment") || c.includes("streaming")) return Film;
+  if (c.includes("utilities") || c.includes("electric") || c.includes("internet") || c.includes("bills") || c.includes("telecom")) return Zap;
+  if (c.includes("entertainment") || c.includes("streaming") || c.includes("subscription")) return Film;
   if (c.includes("health") || c.includes("medical") || c.includes("pharmacy")) return Heart;
-  if (c.includes("shops") || c.includes("shopping")) return ShoppingBag;
-  if (c.includes("transfer")) return ArrowDownLeft;
+  if (c.includes("shops") || c.includes("shopping") || c.includes("merchandise")) return ShoppingBag;
+  if (c.includes("transfer") || c.includes("payroll") || c.includes("debit") || c.includes("credit")) return ArrowDownLeft;
+  if (c.includes("salary") || c.includes("income") || c.includes("paycheck")) return DollarSign;
+  if (c.includes("service") || c.includes("fee") || c.includes("bank")) return Landmark;
+  if (c.includes("personal")) return User;
+  if (c.includes("home") || c.includes("rent")) return Home;
+  if (c.includes("education")) return BookOpen;
+  if (c.includes("charity") || c.includes("giving") || c.includes("non-profit")) return Heart;
   return ShoppingBag;
 };
 
 const catColor = (cat: string): string => {
   const c = cat.toLowerCase();
-  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(38 92% 60%)";
-  if (c.includes("groceries")) return "hsl(156 72% 55%)";
-  if (c.includes("travel") || c.includes("airline")) return "hsl(210 90% 65%)";
-  if (c.includes("transport") || c.includes("car") || c.includes("auto")) return "hsl(280 70% 65%)";
-  if (c.includes("utilities") || c.includes("bills") || c.includes("electric")) return "hsl(50 90% 60%)";
-  if (c.includes("entertainment") || c.includes("streaming")) return "hsl(330 70% 65%)";
-  if (c.includes("health") || c.includes("medical")) return "hsl(152 60% 50%)";
-  if (c.includes("shops") || c.includes("shopping")) return "hsl(4 78% 64%)";
-  if (c.includes("education")) return "hsl(190 80% 60%)";
-  if (c.includes("personal")) return "hsl(260 70% 65%)";
+  if (c.includes("groceries")) return "hsl(156 72% 45%)";
+  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(38 92% 55%)";
+  if (c.includes("coffee")) return "hsl(25 80% 50%)";
+  if (c.includes("travel") || c.includes("airline") || c.includes("lodging")) return "hsl(210 90% 60%)";
+  if (c.includes("transport") || c.includes("car") || c.includes("auto") || c.includes("gas")) return "hsl(280 70% 60%)";
+  if (c.includes("utilities") || c.includes("bills") || c.includes("electric") || c.includes("telecom")) return "hsl(50 85% 55%)";
+  if (c.includes("entertainment") || c.includes("streaming")) return "hsl(330 70% 60%)";
+  if (c.includes("subscription")) return "hsl(295 60% 60%)";
+  if (c.includes("health") || c.includes("medical")) return "hsl(152 60% 45%)";
+  if (c.includes("shopping") || c.includes("merchandise")) return "hsl(4 78% 58%)";
+  if (c.includes("home") || c.includes("rent")) return "hsl(28 80% 55%)";
+  if (c.includes("education")) return "hsl(190 80% 55%)";
+  if (c.includes("personal")) return "hsl(260 70% 60%)";
+  if (c.includes("salary") || c.includes("income") || c.includes("payroll")) return "hsl(145 60% 45%)";
+  if (c.includes("transfer")) return "hsl(210 20% 55%)";
+  if (c.includes("service") || c.includes("fee")) return "hsl(220 30% 55%)";
+  if (c.includes("charity") || c.includes("giving")) return "hsl(340 60% 55%)";
   return "hsl(var(--primary))";
 };
 
@@ -2752,7 +2766,14 @@ export const LivePlaidDashboard = ({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
   const txnListRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { txnListRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }, [selectedCategory, txnFlowFilter, txnAccountFilter]);
+  // Fire daily alerts check silently (once per day per device)
+  useEffect(() => {
+    if (!user || demo || guestDemo) return;
+    const key = `sentryfi_alerts_checked_${new Date().toISOString().slice(0,10)}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    supabase.functions.invoke("send-alerts").catch(() => {}); // fire and forget
+  }, [user, demo, guestDemo]);
   const handlePanelDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
@@ -3137,6 +3158,13 @@ export const LivePlaidDashboard = ({
   // ── Tick thinning for dense charts ────────────────────────
   const nwTickEvery = { "1W":1,"1M":5,"3M":2,"1Y":1,"ALL":1 }[period];
 
+  if (!demo && !guestDemo && user && !settingsLoaded) return (
+    <div className="min-h-[40vh] grid place-items-center">
+      <div className="flex items-center gap-2 text-muted-foreground text-[12px]">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading your settings…
+      </div>
+    </div>
+  );
   if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
