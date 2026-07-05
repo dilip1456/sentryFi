@@ -120,16 +120,12 @@ const getInstitutionUrl = (name: string | null, customUrl?: string): string | nu
   return `https://www.google.com/search?q=${encodeURIComponent(name + " bank login")}`;
 };
 
-// ── Account metadata localStorage helpers ─────────────────────
-const META_KEY = "sentryfi_account_meta";
+// ── Account metadata helpers (Supabase-backed via useUserSettings) ──
+const META_KEY = "sentryfi_account_meta"; // kept for migration reference only
 const loadAllMeta = (): Record<string, AccountMeta> => {
   try { return JSON.parse(localStorage.getItem(META_KEY) ?? "{}"); } catch { return {}; }
 };
-const saveMeta = (accountId: string, meta: AccountMeta) => {
-  const all = loadAllMeta();
-  all[accountId] = { ...all[accountId], ...meta };
-  localStorage.setItem(META_KEY, JSON.stringify(all));
-};
+// saveMeta is now a thin wrapper over S.setAccountMeta — defined inside the component
 
 // ── Constants ──────────────────────────────────────────────────
 const PERIODS: Period[] = ["1W", "1M", "3M", "1Y", "ALL"];
@@ -2681,6 +2677,8 @@ export const LivePlaidDashboard = ({
     return { role: "unassigned" as const };
   };
 
+  const saveMeta = (accountId: string, meta: Partial<AccountMeta>) => S.setAccountMeta(accountId, meta);
+
   const [loading, setLoading]       = useState(true);
   const [syncing, setSyncing]       = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date|null>(null);
@@ -2688,7 +2686,8 @@ export const LivePlaidDashboard = ({
   const [items, setItems]           = useState<PItem[]>([]);
   const [creditDetails, setCreditDetails] = useState<CreditDetail[]>([]);
   const [txns, setTxns]             = useState<PTxn[]>([]);
-  const [accountMeta, setAccountMetaState] = useState<Record<string, AccountMeta>>(loadAllMeta);
+  // accountMeta from Supabase settings
+  const accountMeta = settings.accountMeta as Record<string, AccountMeta>;
   const [editingAccount, setEditingAccount] = useState<PAccount | null>(null);
   const [detailAccount, setDetailAccount] = useState<PAccount | null>(null);
   const [removingAccount, setRemovingAccount] = useState<PAccount | null>(null);
@@ -2814,7 +2813,7 @@ export const LivePlaidDashboard = ({
       setTxns((txnsRes.data ?? []) as PTxn[]);
       setItems((itsRes.data ?? []) as PItem[]);
       setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
-      setAccountMeta(loadAllMeta());
+      // accountMeta auto-updates from settings
       setLastSyncedAt(new Date());
       if (accsRes.error && txnsRes.error) {
         toast.error("Failed to load financial data", { description: accsRes.error.message });
@@ -2865,7 +2864,7 @@ export const LivePlaidDashboard = ({
           .order("date", { ascending: false })
           .limit(synced + 20);
         if (freshTxns?.length) {
-          const currentOverrides: Record<string,string> = JSON.parse(localStorage.getItem("sentryfi_cat_overrides") ?? "{}");
+          const currentOverrides = overrides;
           const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
             .filter(t => !currentOverrides[t.id]);
           if (toCateg.length > 0) {
@@ -2873,11 +2872,11 @@ export const LivePlaidDashboard = ({
               body: { transactions: toCateg, rules: [], userExamples: [] },
             });
             if (catResult?.results?.length) {
-              const newOverrides = { ...currentOverrides };
+              const newMap: Record<string,string> = {};
               for (const r of catResult.results as { id:string; category:string }[]) {
-                if (r.id && r.category) newOverrides[r.id] = r.category;
+                if (r.id && r.category) newMap[r.id] = r.category;
               }
-              localStorage.setItem("sentryfi_cat_overrides", JSON.stringify(newOverrides));
+              S.bulkSetCatOverrideMap(newMap);
             }
           }
         }
@@ -2943,7 +2942,7 @@ export const LivePlaidDashboard = ({
     setRefreshingAccounts(true);
     const { data } = await supabase.from("plaid_accounts").select("*").eq("user_id", user.id).order("type");
     if (data) setAccounts(data as PAccount[]);
-    setAccountMeta(loadAllMeta());
+    // accountMeta auto-updates from settings
     setRefreshingAccounts(false);
   }, [user]);
 
@@ -2977,39 +2976,13 @@ export const LivePlaidDashboard = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const autoInternalIds = useMemo(() => detectInternalTransfers(txns), [txns]);
 
-  // User-marked internal transfers (persisted)
-  const [manualInternalIds, setManualInternalIds] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_manual_internal") ?? "[]")); } catch { return new Set(); }
-  });
+  // User-marked internal transfers — from Supabase settings
+  const manualInternalIds = new Set<string>(settings.manualInternal ?? []);
   // Whitelist: user explicitly un-flagged an auto-detected transfer
-  const [manualExternalIds, setManualExternalIds] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("sentryfi_manual_external") ?? "[]")); } catch { return new Set(); }
-  });
+  const manualExternalIds = new Set<string>(settings.manualExternal ?? []);
+
   const toggleManualInternal = (id: string) => {
-    const isAutoInternal = autoInternalIds.has(id);
-    const isManualInt = manualInternalIds.has(id);
-    const isManualExt = manualExternalIds.has(id);
-    if (isManualExt) {
-      // Revert whitelist → auto-detection applies again
-      const n = new Set(manualExternalIds); n.delete(id);
-      setManualExternalIds(n);
-      localStorage.setItem("sentryfi_manual_external", JSON.stringify([...n]));
-    } else if (isAutoInternal && !isManualInt) {
-      // Auto-detected → user says "not a transfer"
-      const n = new Set(manualExternalIds); n.add(id);
-      setManualExternalIds(n);
-      localStorage.setItem("sentryfi_manual_external", JSON.stringify([...n]));
-    } else if (isManualInt) {
-      // Manually marked internal → remove
-      const n = new Set(manualInternalIds); n.delete(id);
-      setManualInternalIds(n);
-      localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
-    } else {
-      // Not internal → mark as internal
-      const n = new Set(manualInternalIds); n.add(id);
-      setManualInternalIds(n);
-      localStorage.setItem("sentryfi_manual_internal", JSON.stringify([...n]));
-    }
+    S.toggleManualInternal(id);
   };
   const internalTxnIds = useMemo(
     () => new Set([...autoInternalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
@@ -3352,7 +3325,7 @@ export const LivePlaidDashboard = ({
             items.find(it => it.id === (editingAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
             accountMeta[editingAccount.id]?.customUrl
           )}
-          onSave={m => { saveMeta(editingAccount.id, m); setAccountMeta(loadAllMeta()); }}
+          onSave={m => { saveMeta(editingAccount.id, m); // accountMeta auto-updates from settings }}
           onClose={() => setEditingAccount(null)}
         />
       )}
@@ -4671,15 +4644,11 @@ export const LivePlaidDashboard = ({
     const addManualIncome = () => {
       const amt = parseFloat(incomeDraftAmt);
       if (!incomeDraftLabel.trim() || isNaN(amt) || amt <= 0) return;
-      const next = [...manualIncome, { id: `mi_${Date.now()}`, label: incomeDraftLabel.trim(), amount: amt }];
-      setManualIncome(next);
-      localStorage.setItem("sentryfi_manual_income", JSON.stringify(next));
+      S.addManualIncome({ id: `mi_${Date.now()}`, label: incomeDraftLabel.trim(), amount: amt });
       setIncomeDraftLabel(""); setIncomeDraftAmt(""); setShowAddIncome(false);
     };
     const removeManualIncome = (id: string) => {
-      const next = manualIncome.filter(m=>m.id!==id);
-      setManualIncome(next);
-      localStorage.setItem("sentryfi_manual_income", JSON.stringify(next));
+      S.removeManualIncome(id);
     };
 
     const detectedIncomeThisMonth = budgetIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
