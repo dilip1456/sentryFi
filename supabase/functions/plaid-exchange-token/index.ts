@@ -15,15 +15,21 @@ const PFC_PRIMARY_MAP: Record<string, string> = {
   BANK_FEES: "Bills & Utilities",
   ENTERTAINMENT: "Entertainment",
   FOOD_AND_DRINK: "Food & Drink",
+  GROCERIES: "Groceries",
+  GROCERY_AND_SPECIALTY_FOOD_STORES: "Groceries",
   GENERAL_MERCHANDISE: "Shopping",
-  HOME_IMPROVEMENT: "Shopping",
+  HOME_IMPROVEMENT: "Home",
   MEDICAL: "Healthcare",
   PERSONAL_CARE: "Personal Care",
-  GENERAL_SERVICES: "Other",
+  GENERAL_SERVICES: "Bills & Utilities",
   GOVERNMENT_AND_NON_PROFIT: "Charitable Giving",
   TRANSPORTATION: "Transportation",
+  GAS_STATIONS: "Transportation",
+  AUTOMOTIVE: "Transportation",
   TRAVEL: "Travel",
   RENT_AND_UTILITIES: "Bills & Utilities",
+  SUBSCRIPTION: "Subscriptions",
+  FINANCIAL: "Bills & Utilities",
 };
 
 function resolveCategory(t: any): string[] | null {
