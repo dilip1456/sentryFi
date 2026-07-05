@@ -3325,7 +3325,7 @@ export const LivePlaidDashboard = ({
             items.find(it => it.id === (editingAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
             accountMeta[editingAccount.id]?.customUrl
           )}
-          onSave={m => { saveMeta(editingAccount.id, m); // accountMeta auto-updates from settings }}
+          onSave={m => { saveMeta(editingAccount.id, m); }}
           onClose={() => setEditingAccount(null)}
         />
       )}
