@@ -120,7 +120,7 @@ export const useUserSettings = (userId: string | undefined) => {
 
   // Load from Supabase on mount
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) { setLoaded(true); return; }  // demo/guest — use defaults immediately
     (async () => {
       const { data, error } = await supabase
         .from("user_settings")

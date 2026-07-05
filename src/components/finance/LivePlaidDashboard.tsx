@@ -16,7 +16,6 @@ import { useUserSettings } from "@/hooks/useUserSettings";
 import { ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
 import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
 import { CategoryManager } from "@/components/finance/CategoryManager";
-import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
 import { fmtUSD } from "@/lib/format";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
@@ -2779,7 +2778,6 @@ export const LivePlaidDashboard = ({
       const oldIdx = panelOrder.indexOf(String(active.id));
       const newIdx = panelOrder.indexOf(String(over.id));
       const next = arrayMove(panelOrder, oldIdx, newIdx);
-      setPanelOrder(next);
       S.setPanelOrder(next);
     }
   };
