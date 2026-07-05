@@ -64,15 +64,27 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   };
 
   const checkItems = useCallback(async () => {
-    if (guestDemo || !user) { setHasItems(false); return; }
-    const { count } = await supabase
-      .from("plaid_items")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("status", "active");
-    const has = (count ?? 0) > 0;
-    setHasItems(has);
-    if (has) onHasItemsResolved(true);
+    if (guestDemo) { setHasItems(false); return; }
+    if (!user) { setHasItems(null); return; }
+    // Retry up to 3 times — on mobile OAuth the session can take a moment to fully propagate
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const { count, error } = await supabase
+          .from("plaid_items")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("status", "active");
+        if (error) throw error;
+        const has = (count ?? 0) > 0;
+        setHasItems(has);
+        if (has) onHasItemsResolved(true);
+        return;
+      } catch (e) {
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+    // After 3 fails, default to showing empty dashboard rather than loading forever
+    setHasItems(false);
   }, [user, guestDemo, onHasItemsResolved]);
 
   useEffect(() => { checkItems(); }, [checkItems]);
