@@ -95,29 +95,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let handle: { remove: () => void } | undefined;
     App.addListener("appUrlOpen", async ({ url }) => {
       if (!url.startsWith(OAUTH_REDIRECT_URL)) return;
+      console.log("[auth] deep link received:", url.substring(0, 80));
       try {
-        // PKCE flow (what the client now explicitly requests): "...?code=xxx"
         const queryPart = url.split("#")[0].split("?")[1] ?? "";
-        const code = new URLSearchParams(queryPart).get("code");
-        // Fallback in case Supabase ever hands back an implicit-flow style URL instead:
-        // "...#access_token=xxx&refresh_token=yyy"
+        const params = new URLSearchParams(queryPart);
+        const code = params.get("code");
+        const errorDesc = params.get("error_description") ?? params.get("error");
+
+        if (errorDesc) {
+          throw new Error(errorDesc);
+        }
+
         const hashPart = url.split("#")[1] ?? "";
         const hashParams = new URLSearchParams(hashPart);
         const access_token = hashParams.get("access_token");
         const refresh_token = hashParams.get("refresh_token");
 
         if (code) {
+          console.log("[auth] exchanging PKCE code...");
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
+          console.log("[auth] PKCE exchange success");
         } else if (access_token && refresh_token) {
           const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) throw error;
         } else {
-          throw new Error(`OAuth callback had neither a code nor tokens: ${url}`);
+          throw new Error(`No auth code or tokens in callback URL`);
         }
       } catch (err) {
-        console.error("[auth] failed to complete native OAuth callback:", err);
-        toast.error("Google sign-in didn't complete", { description: err instanceof Error ? err.message : String(err) });
+        console.error("[auth] native OAuth callback failed:", err);
+        toast.error("Sign-in failed", { description: err instanceof Error ? err.message : String(err) });
       } finally {
         Browser.close().catch(() => {});
       }
