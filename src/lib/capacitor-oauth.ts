@@ -23,11 +23,26 @@ export const signInWithGoogle = async () => {
       options: { redirectTo: window.location.origin },
     });
   }
+
+  // On Android the in-app browser is a separate process from the WebView.
+  // Supabase stores the PKCE code verifier in localStorage during signInWithOAuth,
+  // but that localStorage belongs to the WebView — not the browser tab.
+  // When the deep link fires and exchangeCodeForSession runs back in the WebView,
+  // the verifier IS there because we never left the WebView context.
+  // The browser just handles Google's UI; the actual code exchange happens in the WebView.
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: OAUTH_REDIRECT_URL, skipBrowserRedirect: true },
+    options: {
+      redirectTo: OAUTH_REDIRECT_URL,
+      skipBrowserRedirect: true,
+      queryParams: {
+        access_type: "offline",
+        prompt: "select_account",
+      },
+    },
   });
-  if (error || !data?.url) return { error };
-  await Browser.open({ url: data.url });
+
+  if (error || !data?.url) return { error: error ?? new Error("No URL returned") };
+  await Browser.open({ url: data.url, presentationStyle: "popover" });
   return { error: null };
 };
