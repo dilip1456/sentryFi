@@ -19,13 +19,13 @@ import {
 
 type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
-  { k: "overall",   label: "Home",         icon: LayoutDashboard, sub: "What needs attention today" },
-  { k: "spending",  label: "Spending",     icon: PieChart,        sub: "Transactions & category breakdowns" },
-  { k: "budget",    label: "Budget",       icon: Wallet,          sub: "Monthly limits by category" },
-  { k: "moneymap",  label: "Money Map",    icon: Compass,         sub: "What you actually have available" },
-  { k: "monthly",   label: "Transactions", icon: CalendarClock,   sub: "Cash flow by period" },
-  { k: "benefits",  label: "Benefits",     icon: Sparkles,        sub: "Card perks & refinancing" },
-  { k: "giftcards", label: "Gift Cards",   icon: Gift,            sub: "Track balances across brands" },
+  { k: "overall",   label: "Home",       icon: LayoutDashboard, sub: "Am I OK this month?" },
+  { k: "moneymap",  label: "Money Map",  icon: Compass,         sub: "What you actually have" },
+  { k: "spending",  label: "Spending",   icon: PieChart,        sub: "Where your money goes" },
+  { k: "budget",    label: "Budget",     icon: Wallet,          sub: "Monthly plan vs reality" },
+  { k: "giftcards", label: "Gift Cards", icon: Gift,            sub: "Track gift card balances" },
+  { k: "benefits",  label: "Benefits",   icon: Sparkles,        sub: "Card perks & refinancing" },
+  { k: "monthly",   label: "Cash Flow",  icon: CalendarClock,   sub: "Income vs spending by period" },
 ];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
@@ -49,7 +49,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     () => (!guestDemo && isAdmin) ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
     [isAdmin, guestDemo]
   );
-  const PRIMARY_KEYS: View[] = ["overall", "spending", "budget", "moneymap"];
+  const PRIMARY_KEYS: View[] = ["overall", "moneymap", "spending", "budget"];
   const primaryTabs = TABS.filter(t => PRIMARY_KEYS.includes(t.k));
   const overflowTabs = TABS.filter(t => !PRIMARY_KEYS.includes(t.k));
   const [moreOpen, setMoreOpen] = useState(false);
