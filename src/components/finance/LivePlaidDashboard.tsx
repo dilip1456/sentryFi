@@ -2619,6 +2619,13 @@ export const LivePlaidDashboard = ({
   const [monthlyPeriod, setMonthlyPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
+  const [manualIncome, setManualIncome] = useState<{id:string;label:string;amount:number}[]>(() => {
+    try { return JSON.parse(localStorage.getItem("sentryfi_manual_income")??"[]"); } catch { return []; }
+  });
+  const [showAddIncome, setShowAddIncome] = useState(false);
+  const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
+  const [incomeDraftAmt, setIncomeDraftAmt] = useState("");
+  const [fundAllocations, setFundAllocations] = useState<Record<string,string>>({});
   // Transaction explorer (spending tab) — search / filter / sort
   const [txnSearch, setTxnSearch] = useState("");
   const [txnAccountFilter, setTxnAccountFilter] = useState<string>("all");       // account_id or "all"
@@ -3820,7 +3827,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setSearch(pattern); setView("spending"); }} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
@@ -4204,7 +4211,7 @@ export const LivePlaidDashboard = ({
       </section>
       </div>{/* end right col */}
       </div>{/* end 2-col grid */}
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setSearch(pattern); setView("spending"); }} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
     </div>
   );
 
@@ -4445,10 +4452,10 @@ export const LivePlaidDashboard = ({
               </div>
               <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
                 className="h-8 rounded-lg bg-secondary/40 border border-border/40 text-[11px] text-foreground px-2 focus:outline-none cursor-pointer">
-                <option value="date_desc">Newest</option>
-                <option value="date_asc">Oldest</option>
-                <option value="amount_desc">Largest</option>
-                <option value="amount_asc">Smallest</option>
+                <option value="date-desc">Newest</option>
+                <option value="date-asc">Oldest</option>
+                <option value="amount-desc">Largest</option>
+                <option value="amount-asc">Smallest</option>
               </select>
             </div>
 
@@ -4551,7 +4558,7 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setSearch(pattern); setView("spending"); }} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
       {showRulesManager && <RulesManager rules={rules} allTxns={txns} onRemove={removeRule} onToggle={toggleRule} onUpdate={updateRule} onClose={() => setShowRulesManager(false)} />}
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
@@ -4598,13 +4605,6 @@ export const LivePlaidDashboard = ({
       return recurring.sort((a,b)=>b.avgAmount-a.avgAmount).slice(0,5);
     };
     const recurringIncomeSources = detectRecurringIncome();
-    const [manualIncome, setManualIncome] = useState<{id:string;label:string;amount:number}[]>(() => {
-      try { return JSON.parse(localStorage.getItem("sentryfi_manual_income")??"[]"); } catch { return []; }
-    });
-    const [showAddIncome, setShowAddIncome] = useState(false);
-    const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
-    const [incomeDraftAmt, setIncomeDraftAmt] = useState("");
-
     const addManualIncome = () => {
       const amt = parseFloat(incomeDraftAmt);
       if (!incomeDraftLabel.trim() || isNaN(amt) || amt <= 0) return;
@@ -4645,7 +4645,6 @@ export const LivePlaidDashboard = ({
     const totalOverage = overCategories.reduce((s,c)=>s+(c.total-(budgets[c.category]??0)),0);
 
     // Fund allocation for overages
-    const [fundAllocations, setFundAllocations] = useState<Record<string,string>>({}); // catName -> accountId
     const spendingRoleAccounts = accounts.filter(a => {
       const role = getRole(a.account_id, a.type, a.subtype);
       return role.role !== "spending";
