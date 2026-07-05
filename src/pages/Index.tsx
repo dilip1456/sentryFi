@@ -284,6 +284,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {effectiveDemo && view !== "giftcards" && view !== "admin" && (
               <LivePlaidDashboard
                 demo
+                guestDemo={guestDemo}
                 hasItems={false}
                 onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
                 view={view}

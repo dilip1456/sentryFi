@@ -2576,6 +2576,7 @@ interface Props {
   onAddAccount: ()=>void;
   hasItems: boolean;
   demo?: boolean;
+  guestDemo?: boolean;
   view?: string;
   syncTrigger?: number;
   onSyncingChange?: (v:boolean)=>void;
@@ -2584,7 +2585,7 @@ interface Props {
 }
 
 export const LivePlaidDashboard = ({
-  onAddAccount, hasItems, demo=false, view="overall",
+  onAddAccount, hasItems, demo=false, guestDemo=false, view="overall",
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
 }: Props) => {
