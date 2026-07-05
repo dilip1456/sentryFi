@@ -120,7 +120,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   };
 
   return (
-    <div className="h-screen h-[100dvh] bg-background flex overflow-hidden">
+    <div className="h-[100dvh] bg-background flex overflow-hidden">
 
       {/* ── Desktop sidebar ─────────────────────────────────── */}
       <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))]"
@@ -184,7 +184,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       </aside>
 
       {/* ── Content area ────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
         {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
