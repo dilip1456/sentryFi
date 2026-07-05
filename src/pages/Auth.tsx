@@ -114,7 +114,7 @@ const Auth = () => {
         <div className="w-full max-w-sm bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.25)] rounded-xl px-4 py-3 flex items-center gap-2.5">
           <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
           <span className="text-[12px] text-foreground flex-1">Get the SentryFi app for the best experience.</span>
-          <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release-20260705-0558.apk" download
+          <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download
             className="text-[11.5px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 no-min-h">
             Download
           </a>

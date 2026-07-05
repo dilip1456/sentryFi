@@ -42,9 +42,8 @@ android {
         }
     }
     applicationVariants.all { variant ->
-        def buildTimestamp = new Date().format('yyyyMMdd-HHmm')
         variant.outputs.all { output ->
-            outputFileName = "SentryFi-${variant.name}-${buildTimestamp}.apk"
+            outputFileName = "SentryFi-${variant.name}.apk"
         }
     }
 }

@@ -122,7 +122,7 @@ const navigate = useNavigate();
             Try the demo
           </button>
           {isAndroid && (
-            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release-20260705-0558.apk" download style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
+            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
               ↓ Download Android app
             </a>
           )}
@@ -227,7 +227,7 @@ const navigate = useNavigate();
           </div>
           {isAndroid && (
             <div style={{ marginTop: 24 }}>
-              <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release-20260705-0558.apk" download style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
+              <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
                 ↓ Download the Android app instead
               </a>
             </div>
