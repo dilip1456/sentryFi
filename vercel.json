@@ -5,7 +5,7 @@
   "redirects": [
     {
       "source": "/downloads/SentryFi.apk",
-      "destination": "https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release-20260705-0558.apk",
+      "destination": "https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk",
       "permanent": false
     }
   ],
