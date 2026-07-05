@@ -779,7 +779,7 @@ const RightPanel = ({ open, onClose, children, footer }: {
     )} style={{ borderColor: "var(--gold-border)" }}>
       <div className="flex-1 overflow-y-auto min-h-0">{children}</div>
       {footer && (
-        <div className="shrink-0 px-4 py-3 border-t flex gap-2" style={{ borderColor: "var(--gold-border)" }}>
+        <div className="shrink-0 px-5 py-4 border-t flex gap-2" style={{ borderColor: "var(--gold-border)" }}>
           {footer}
         </div>
       )}
@@ -797,7 +797,7 @@ const PanelHeader = ({ icon, iconColor, title, subtitle, badge, badgeClass, onCl
       {icon}
     </div>
     <div className="flex-1 min-w-0">
-      {badge && <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border mb-1 inline-block", badgeClass)}>{badge}</span>}
+      {badge && <span className={cn("text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border mb-1 inline-block", badgeClass)}>{badge}</span>}
       <div className="font-display text-lg text-foreground leading-snug">{title}</div>
       {subtitle && <div className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</div>}
     </div>
@@ -1021,10 +1021,10 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, 
           <span className={cn("text-[12.5px] font-medium truncate", isInternal ? "line-through text-muted-foreground" : "text-foreground")}>
             {displayName}
           </span>
-          {nameOverride && <span className="text-[8px] text-[hsl(var(--primary)/0.5)] shrink-0">edited</span>}
-          {isManualInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Transfer</span>}
-          {!isManualInternal && isInternal && <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Internal</span>}
-          {t.pending && <span className="text-[8px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
+          {nameOverride && <span className="text-[10px] text-[hsl(var(--primary)/0.5)] shrink-0">edited</span>}
+          {isManualInternal && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Transfer</span>}
+          {!isManualInternal && isInternal && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border border-muted-foreground/20 bg-secondary/50 text-muted-foreground/60 shrink-0">Internal</span>}
+          {t.pending && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
         </div>
         <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
           <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
@@ -1115,7 +1115,7 @@ const RulesManager = ({
     const Icon = categoryIcon(r.category);
     const color = catColor(r.category);
     return (
-      <div className={cn("px-4 py-3 space-y-2", !r.enabled && "opacity-50")}>
+      <div className={cn("px-5 py-4 space-y-2", !r.enabled && "opacity-50")}>
         {isEditing ? (
           <div className="space-y-2">
             <div className="flex gap-2">
@@ -1171,7 +1171,7 @@ const RulesManager = ({
       <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
         <DialogTitle className="sr-only">Rules</DialogTitle>
         <DialogDescription className="sr-only">Manage categorization rules.</DialogDescription>
-        <div className="px-4 py-3 border-b border-border/30 shrink-0">
+        <div className="px-5 py-4 border-b border-border/30 shrink-0">
           <div className="font-display text-[14px] text-foreground">Categorization rules</div>
           <div className="text-[10.5px] text-muted-foreground mt-0.5">Rules automatically categorize matching transactions</div>
         </div>
@@ -1182,13 +1182,13 @@ const RulesManager = ({
             <>
               {userRules.length > 0 && (
                 <div className="divide-y divide-border/10">
-                  <div className="px-4 py-2 text-[9.5px] uppercase tracking-wider text-muted-foreground">Your rules</div>
+                  <div className="px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground">Your rules</div>
                   {userRules.map(r => <RuleRow key={r.id} r={r} />)}
                 </div>
               )}
               {sysRules.length > 0 && (
                 <div className="divide-y divide-border/10 border-t border-border/20">
-                  <div className="px-4 py-2 text-[9.5px] uppercase tracking-wider text-muted-foreground">System rules</div>
+                  <div className="px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground">System rules</div>
                   {sysRules.map(r => <RuleRow key={r.id} r={r} />)}
                 </div>
               )}
@@ -1298,7 +1298,7 @@ const TxnDetailModal = ({
     ["Channel", txn.payment_channel ? txn.payment_channel.replace(/_/g," ") : "—"],
     ["Status", txn.pending ? "Pending" : "Posted"],
     ...(originalPlaidCat ? [["Original category", originalPlaidCat] as [string, string]] : []),
-    ...(txn.transaction_id ? [["Reference", <span className="font-mono text-[9.5px] text-muted-foreground/70 break-all">{txn.transaction_id}</span>] as [string, React.ReactNode]] : []),
+    ...(txn.transaction_id ? [["Reference", <span className="font-mono text-[10.5px] text-muted-foreground/70 break-all">{txn.transaction_id}</span>] as [string, React.ReactNode]] : []),
   ];
 
   return (
@@ -1334,7 +1334,7 @@ const TxnDetailModal = ({
         <div className="flex-1 overflow-y-auto min-h-0">
           {/* Rename confirmation */}
           {renameReq && (
-            <div className="px-4 py-3 border-b border-border/20 bg-[hsl(var(--primary)/0.04)] space-y-2.5 shrink-0">
+            <div className="px-5 py-4 border-b border-border/20 bg-[hsl(var(--primary)/0.04)] space-y-2.5 shrink-0">
               <div className="text-[12px] font-semibold text-foreground">Apply rename to:</div>
               <div className="space-y-2">
                 {samemerchantTxns.length > 0 && (
@@ -1360,7 +1360,7 @@ const TxnDetailModal = ({
 
           {/* Category row */}
           <button onClick={() => setShowCatPicker(s => !s)}
-            className="w-full px-4 py-3 flex items-center justify-between border-b border-border/15 hover:bg-surface-hover/20 transition-colors">
+            className="w-full px-5 py-4 flex items-center justify-between border-b border-border/15 hover:bg-surface-hover/20 transition-colors">
             <div className="flex items-center gap-2.5">
               <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
                 <Icon className="h-3.5 w-3.5" />
@@ -1368,7 +1368,7 @@ const TxnDetailModal = ({
               <div className="text-left">
                 <div className="text-[12.5px] font-medium text-foreground">{humanizeCategory(rawCat, Number(txn.amount))}</div>
                 {originalPlaidCat && rawCat !== originalPlaidCat && (
-                  <div className="text-[9.5px] text-muted-foreground/60">Plaid: {originalPlaidCat}</div>
+                  <div className="text-[10.5px] text-muted-foreground/60">Plaid: {originalPlaidCat}</div>
                 )}
               </div>
             </div>
@@ -1381,7 +1381,7 @@ const TxnDetailModal = ({
           {showCatPicker && (
             <div>
               {samemerchantTxns.length > 0 && (
-                <label className="flex items-center gap-2 px-4 py-2.5 bg-[hsl(var(--primary)/0.04)] border-b border-border/15 cursor-pointer select-none">
+                <label className="flex items-center gap-2 px-5 py-3 bg-[hsl(var(--primary)/0.04)] border-b border-border/15 cursor-pointer select-none">
                   <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-[hsl(var(--primary))]" />
                   <span className="text-[11.5px] text-foreground">Apply to all {samemerchantTxns.length + 1} "{merchant}" transactions + create rule</span>
                 </label>
@@ -1396,7 +1396,7 @@ const TxnDetailModal = ({
           )}
 
           {/* Compact info grid */}
-          <div className="px-4 py-3 space-y-0 divide-y divide-border/10">
+          <div className="px-5 py-4 space-y-0 divide-y divide-border/10">
             {info.map(([label, value]) => (
               <div key={label as string} className="flex items-start justify-between gap-3 py-2">
                 <span className="text-[10.5px] text-muted-foreground shrink-0">{label}</span>
@@ -1406,7 +1406,7 @@ const TxnDetailModal = ({
           </div>
 
           {/* Action strip */}
-          <div className="px-4 py-3 border-t border-border/15 grid grid-cols-2 gap-2">
+          <div className="px-5 py-4 border-t border-border/15 grid grid-cols-2 gap-2">
             <button
               onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
               disabled={!merchant}
@@ -1493,13 +1493,13 @@ const SpendTile = ({ category, total, count, budget, delta, deltaPct, onSetBudge
         <div className="flex items-center gap-1">
           {/* MoM trend badge */}
           {deltaPct != null && deltaPct !== 0 && (
-            <span className={cn("text-[9px] tabular px-1.5 py-0.5 rounded-full font-medium",
+            <span className={cn("text-[10px] tabular px-1.5 py-0.5 rounded-full font-medium",
               up?"bg-negative/12 text-negative":"bg-positive/12 text-positive")}>
               {up?"+":""}{deltaPct}%
             </span>
           )}
           {!!budget && (
-            <span className={cn("text-[9px] tabular px-1.5 py-0.5 rounded-full",
+            <span className={cn("text-[10px] tabular px-1.5 py-0.5 rounded-full",
               overBudget?"bg-negative/15 text-negative":nearBudget?"bg-warning/15 text-warning":"bg-secondary text-muted-foreground")}>
               {pct.toFixed(0)}%
             </span>
@@ -1629,7 +1629,7 @@ const Mini = ({ label, value, tone }: { label: string; value: string; tone: "pos
   const toneText: Record<string,string> = { positive:"text-positive", negative:"text-negative", info:"text-info", warning:"text-warning", neutral:"text-muted-foreground" };
   return (
     <div>
-      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className={cn("text-[12.5px] tabular font-medium mt-0.5", toneText[tone])}>{value}</div>
     </div>
   );
@@ -1788,13 +1788,13 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[13px] text-foreground font-medium truncate">{displayName}</span>
           {isPromo && (
-            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
           )}
           {a.subtype === "savings" && isHYSA(a, instName, meta.apr) && (
-            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">High Yield</span>
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">High Yield</span>
           )}
           {dueDaysAway != null && dueDaysAway <= 7 && (
-            <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",
+            <span className={cn("text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",
               dueDaysAway <= 0 ? "border-negative/30 bg-negative/10 text-negative" : "border-warning/30 bg-warning/10 text-warning")}>
               {dueDaysAway <= 0 ? "overdue" : `due ${dueDaysAway}d`}
             </span>
@@ -1936,7 +1936,7 @@ const BucketGroup = ({
                 <div key={g.label}>
                   {multi && (
                     <div className="px-4 pt-2 pb-0.5 flex items-center gap-2">
-                      <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-medium">{g.label}</span>
+                      <span className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-medium">{g.label}</span>
                     </div>
                   )}
                   <div className={cn("divide-y divide-border/20", multi && "ml-2 border-l border-border/20")}>
@@ -2154,8 +2154,8 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-display text-lg text-foreground leading-snug">{displayName}</span>
-              {hysa && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 text-positive bg-positive/10">High Yield</span>}
-              {isCredit && credit?.is_overdue && <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-negative/30 text-negative bg-negative/10">Overdue</span>}
+              {hysa && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 text-positive bg-positive/10">High Yield</span>}
+              {isCredit && credit?.is_overdue && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-negative/30 text-negative bg-negative/10">Overdue</span>}
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
               {smartSubtypeLabel(a, instName, meta.apr)} · {instName}{a.mask ? ` ··${a.mask}` : ""}
@@ -2216,28 +2216,28 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                   <div className="grid grid-cols-2 gap-2">
                     {credit?.last_statement_balance != null && (
                       <div className="surface-card p-3">
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Statement balance</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Statement balance</div>
                         <div className="font-display text-[15px] mt-1 tabular text-warning">{fmtUSD(credit.last_statement_balance)}</div>
                       </div>
                     )}
                     {dueDate && (
                       <div className={cn("surface-card p-3", credit?.is_overdue && "border border-negative/30")}>
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Payment due</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Payment due</div>
                         <div className={cn("font-display text-[15px] mt-1", credit.is_overdue ? "text-negative" : dueSoon ? "text-warning" : "text-foreground")}>
                           {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                          {dueSoon && !credit?.is_overdue && <span className="ml-1 text-[9px] text-warning font-normal">soon</span>}
+                          {dueSoon && !credit?.is_overdue && <span className="ml-1 text-[10px] text-warning font-normal">soon</span>}
                         </div>
                       </div>
                     )}
                     {credit?.minimum_payment_amount != null && (
                       <div className="surface-card p-3">
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Min payment</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Min payment</div>
                         <div className="font-display text-[15px] mt-1 tabular">{fmtUSD(credit.minimum_payment_amount)}</div>
                       </div>
                     )}
                     {credit?.last_payment_amount != null && (
                       <div className="surface-card p-3">
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Last payment</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Last payment</div>
                         <div className="font-display text-[15px] mt-1 tabular text-positive">{fmtUSD(credit.last_payment_amount)}</div>
                       </div>
                     )}
@@ -2279,16 +2279,16 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                     <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</div>
                     <div className="surface-card p-3 space-y-2.5">
                       <div>
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Best used for</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Best used for</div>
                         <div className="text-[12.5px] text-foreground">{cardInfo.bestFor}</div>
                       </div>
                       <div>
-                        <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Rewards</div>
+                        <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Rewards</div>
                         <div className="text-[12.5px] text-foreground leading-relaxed">{cardInfo.rewards}</div>
                       </div>
                       {cardInfo.notes && (
                         <div>
-                          <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Special perks</div>
+                          <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground mb-0.5">Special perks</div>
                           <div className="text-[12.5px] text-foreground leading-relaxed">{cardInfo.notes}</div>
                         </div>
                       )}
@@ -2304,7 +2304,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                 <div className="grid grid-cols-2 gap-2">
                   {Math.abs(netFlow30) > 1 && (
                     <div className="surface-card p-3">
-                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">30-day flow</div>
+                      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">30-day flow</div>
                       <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
                         {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
                         {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
@@ -2313,13 +2313,13 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                   )}
                   {aprRate != null && (
                     <div className="surface-card p-3">
-                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">APY</div>
+                      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">APY</div>
                       <div className="font-display text-[15px] mt-1 tabular text-positive">{aprRate.toFixed(2)}%</div>
                     </div>
                   )}
                   {aprRate != null && (
                     <div className="surface-card p-3">
-                      <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">Est. annual yield</div>
+                      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Est. annual yield</div>
                       <div className="font-display text-[15px] mt-1 tabular text-positive">+{fmtUSD(yearlyAmount, { compact: true })}</div>
                     </div>
                   )}
@@ -2350,7 +2350,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
             {/* Investment specifics */}
             {isInvestment && Math.abs(netFlow30) > 1 && (
               <div className="surface-card p-3">
-                <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">30-day change</div>
+                <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">30-day change</div>
                 <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
                   {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
                   {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
@@ -2474,7 +2474,7 @@ const AccountTagStack = ({
 
   return (
     <div className="surface-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
         <div>
           <h3 className="font-display text-[13px] text-primary">Quick-tag accounts</h3>
           <div className="text-[10.5px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
@@ -2493,7 +2493,7 @@ const AccountTagStack = ({
             const opacity = 1 - Math.min(Math.abs(offset), 2) * 0.4;
             return (
               <div key={acc.account_id}
-                className="absolute inset-0 max-w-md mx-auto rounded-xl border border-border/50 bg-surface-elevated px-4 py-3.5 flex items-center gap-3 cursor-grab active:cursor-grabbing"
+                className="absolute inset-0 max-w-md mx-auto rounded-xl border border-border/50 bg-surface-elevated px-5 py-4.5 flex items-center gap-3 cursor-grab active:cursor-grabbing"
                 style={{
                   transform: `translateX(${translate}%) scale(${scale})`, opacity, zIndex: 10 - Math.abs(offset),
                   transition: draggingRef.current && isActive ? "none" : "transform 280ms cubic-bezier(0.22,1,0.36,1), opacity 280ms",
@@ -3199,7 +3199,7 @@ export const LivePlaidDashboard = ({
     <div className="space-y-3 animate-fade-up">
 
       {/* Net worth hero — left: numbers, right: chart */}
-      <section className="surface-elevated relative overflow-hidden px-4 py-3 md:px-5 md:py-4">
+      <section className="surface-elevated relative overflow-hidden px-5 py-4 md:px-5 md:py-4">
         <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-positive/8 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-12 -left-12 h-32 w-32 rounded-full bg-[hsl(var(--primary)/0.06)] blur-3xl" />
         <div className="relative flex gap-4 items-stretch min-h-[100px] flex-col sm:flex-row">
@@ -3221,11 +3221,11 @@ export const LivePlaidDashboard = ({
             </div>
             <div className="flex gap-4 mt-2">
               <div>
-                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Assets</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Assets</div>
                 <div className="font-display text-base tabular text-positive">{fmtUSD(animatedAss,{compact:true})}</div>
               </div>
               <div>
-                <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
                 <div className="font-display text-base tabular text-negative">−{fmtUSD(animatedLiab,{compact:true})}</div>
               </div>
             </div>
@@ -3274,12 +3274,12 @@ export const LivePlaidDashboard = ({
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
-              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
               <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalSpend)}</div>
               {spendTrends.length > 0 && (() => {
                 const delta = spendTrends.reduce((s,c)=>s+c.delta,0);
                 return delta !== 0 ? (
-                  <div className={cn("text-[9px] tabular mt-0.5", delta > 0 ? "text-negative" : "text-positive")}>
+                  <div className={cn("text-[10px] tabular mt-0.5", delta > 0 ? "text-negative" : "text-positive")}>
                     {delta > 0 ? "+" : ""}{fmtUSD(Math.abs(delta))} vs last mo
                   </div>
                 ) : null;
@@ -3291,9 +3291,9 @@ export const LivePlaidDashboard = ({
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
-              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Income this month</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Income this month</div>
               <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
-              <div className="text-[9px] text-muted-foreground mt-0.5">excl. transfers</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">excl. transfers</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
@@ -3301,11 +3301,11 @@ export const LivePlaidDashboard = ({
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
-              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
               <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
                 {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
               </div>
-              <div className="text-[9px] text-muted-foreground mt-0.5">income − spend</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">income − spend</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
@@ -3313,11 +3313,11 @@ export const LivePlaidDashboard = ({
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
-              <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
               <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
                 {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
-              <div className="text-[9px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
             </button>
           </div>
         );
@@ -3420,7 +3420,7 @@ export const LivePlaidDashboard = ({
           {(() => {
             const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
-                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
                   <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
@@ -3438,7 +3438,7 @@ export const LivePlaidDashboard = ({
                       const borderColor = item.priority==="urgent" ? "hsl(var(--negative))" : item.priority==="soon" ? "hsl(var(--warning))" : "hsl(var(--info))";
                       return (
                         <button key={item.id} onClick={()=>setOpenActionItem(item)}
-                          className="group w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-surface-hover/40 transition-colors"
+                          className="group w-full px-5 py-4 text-left flex items-center gap-3 hover:bg-surface-hover/40 transition-colors"
                           style={{borderLeft:`3px solid ${borderColor}`}}>
                           <div className={cn("h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105",m.text)}
                             style={{background:`${borderColor}18`, border:`1px solid ${borderColor}30`}}>
@@ -3447,7 +3447,7 @@ export const LivePlaidDashboard = ({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-[13px] text-foreground font-medium truncate">{item.title}</span>
-                              <span className={cn("text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",m.chip)}>{m.label}</span>
+                              <span className={cn("text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",m.chip)}>{m.label}</span>
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 truncate">{item.detail}</p>
                           </div>
@@ -3462,7 +3462,7 @@ export const LivePlaidDashboard = ({
 
             const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
-                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
                   <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
@@ -3530,7 +3530,7 @@ export const LivePlaidDashboard = ({
 
             const panelTopSpending = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden h-full">
-                <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+                <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
                   <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
@@ -3556,7 +3556,7 @@ export const LivePlaidDashboard = ({
                       const sharePct = totalSpend > 0 ? (c.total / totalSpend) * 100 : 0;
                       return (
                         <button key={c.category} onClick={()=>{setSpendingPopup(c.category);setSpendPopupLimit(5);}}
-                          className="group relative w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/40 transition-colors overflow-hidden">
+                          className="group relative w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-surface-hover/40 transition-colors overflow-hidden">
                           <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`, background:`${color}09`}} />
                           <div className="relative h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105"
                             style={{backgroundColor:`${color}1f`,color}}>
@@ -3567,7 +3567,7 @@ export const LivePlaidDashboard = ({
                               <span className="text-[12.5px] text-foreground font-medium truncate">{formatCat(c.category)}</span>
                               <div className="flex items-center gap-2 shrink-0">
                                 {trend?.pct!=null&&trend.pct!==0&&(
-                                  <span className={cn("text-[9px] tabular px-1.5 py-0.5 rounded-full font-medium",
+                                  <span className={cn("text-[10px] tabular px-1.5 py-0.5 rounded-full font-medium",
                                     trend.delta>0?"bg-negative/10 text-negative":"bg-positive/10 text-positive")}>
                                     {trend.delta>0?"+":""}{trend.pct}%
                                   </span>
@@ -3595,7 +3595,7 @@ export const LivePlaidDashboard = ({
 
             const panelUpcomingCharges = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden h-full">
-                <div className="px-4 py-2.5 border-b border-border/30 flex items-center gap-2">
+                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
                   <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
@@ -3631,10 +3631,10 @@ export const LivePlaidDashboard = ({
                       const showBalCheck = !isDebtAcc && availBal !== null;
                       const hasSufficient = availBal !== null && availBal >= r.avgAmount;
                       return (
-                        <div key={idx} className="group flex items-center gap-3 px-4 py-2.5">
+                        <div key={idx} className="group flex items-center gap-3 px-5 py-3">
                           <div className={cn("shrink-0 w-9 text-center rounded-lg py-1 border",
                             daysAway<=3?"bg-negative/10 border-negative/20":isThisWeek?"bg-warning/10 border-warning/20":"bg-secondary/50 border-border/40")}>
-                            <div className="text-[8px] uppercase tracking-wide text-muted-foreground leading-none">
+                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground leading-none">
                               {r.predictedDate.toLocaleDateString("en-US",{month:"short"})}
                             </div>
                             <div className={cn("text-[14px] font-bold tabular leading-tight",
@@ -3646,20 +3646,20 @@ export const LivePlaidDashboard = ({
                             <div className="flex items-center gap-1.5">
                               <span className="text-[12px] text-foreground font-medium truncate">{r.merchant}</span>
                               {daysAway<=1 && (
-                                <span className="text-[8px] px-1.5 py-0.5 rounded-full border border-negative/30 bg-negative/10 text-negative shrink-0 font-medium">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-negative/30 bg-negative/10 text-negative shrink-0 font-medium">
                                   {daysAway===0?"Today":"Tomorrow"}
                                 </span>
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                              <span className="text-[9.5px] text-muted-foreground/60">{r.intervalLabel}</span>
+                              <span className="text-[10.5px] text-muted-foreground/60">{r.intervalLabel}</span>
                               {sourceAcc && <><span className="text-muted-foreground/30">·</span>
-                                <span className="text-[9.5px] text-muted-foreground truncate">
+                                <span className="text-[10.5px] text-muted-foreground truncate">
                                   {sourceAcc.name??""}{sourceAcc.mask?` ··${sourceAcc.mask}`:""}
                                 </span></>}
                               {showBalCheck && !hasSufficient && (
                                 <><span className="text-muted-foreground/30">·</span>
-                                <span className="text-[9.5px] text-negative flex items-center gap-0.5">
+                                <span className="text-[10.5px] text-negative flex items-center gap-0.5">
                                   <AlertTriangle className="h-2.5 w-2.5" />Low funds
                                 </span></>
                               )}
@@ -3667,7 +3667,7 @@ export const LivePlaidDashboard = ({
                           </div>
                           <div className="text-right shrink-0">
                             <div className="text-[13px] tabular font-semibold text-foreground">{fmtUSD(r.avgAmount)}</div>
-                            {daysAway>1 && <div className="text-[9px] text-muted-foreground tabular">{daysAway}d</div>}
+                            {daysAway>1 && <div className="text-[10px] text-muted-foreground tabular">{daysAway}d</div>}
                           </div>
                           <button onClick={()=>dismissRecurring(r.merchant)} title="Remove from recurring list"
                             className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all shrink-0">
@@ -3841,7 +3841,7 @@ export const LivePlaidDashboard = ({
                             <Receipt className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                             <div className="flex-1 min-w-0">
                               <div className="text-[11.5px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                              <div className="text-[9.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                              <div className="text-[10.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                             </div>
                             <span className="text-[11.5px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
                           </div>
@@ -4048,7 +4048,7 @@ export const LivePlaidDashboard = ({
                     {label:"Avg charge",value:fmtUSD(avgTxn),color:"hsl(var(--foreground))"},
                   ].map(s=>(
                     <div key={s.label} className="surface-card p-2.5 text-center">
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{s.label}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</div>
                       <div className="font-display text-base mt-0.5 tabular" style={{color:s.color}}>{s.value}</div>
                     </div>
                   ))}
@@ -4066,7 +4066,7 @@ export const LivePlaidDashboard = ({
                 )}
                 {catTxns.length>0 && (
                   <div>
-                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
                       Top charges, highest to lowest ({shownTxns.length} of {catTxns.length})
                     </div>
                     <div className="surface-card overflow-hidden divide-y divide-border/20">
@@ -4104,7 +4104,7 @@ export const LivePlaidDashboard = ({
               </div>
               <div className="hairline p-4 shrink-0">
                 <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);onCategorySelect?.(cat);}}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground text-background px-4 py-2.5 text-xs font-medium hover:opacity-90 transition-opacity">
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground text-background px-5 py-3 text-xs font-medium hover:opacity-90 transition-opacity">
                   View all in Spending & Budget <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -4197,7 +4197,7 @@ export const LivePlaidDashboard = ({
         if (cats.length === 0) return null;
         return (
           <div className="surface-card overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="px-5 py-3 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
               Spending by category
             </div>
             <div className="divide-y divide-border/15">
@@ -4205,7 +4205,7 @@ export const LivePlaidDashboard = ({
                 const Icon = categoryIcon(cat); const color = catColor(cat);
                 const pct = total > 0 ? (amt/total)*100 : 0;
                 return (
-                  <div key={cat} className="flex items-center gap-3 px-4 py-2.5 relative overflow-hidden">
+                  <div key={cat} className="flex items-center gap-3 px-5 py-3 relative overflow-hidden">
                     <div className="pointer-events-none absolute inset-y-0 left-0 opacity-60" style={{width:`${pct}%`,background:`${color}10`}}/>
                     <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                       <Icon className="h-3 w-3"/>
@@ -4335,7 +4335,7 @@ export const LivePlaidDashboard = ({
         <div className="flex items-center gap-1.5">
           <button onClick={()=>setShowCatManager(true)} className="h-7 px-2.5 rounded-md border border-border/50 text-[11px] text-muted-foreground hover:text-foreground transition-colors">Manage</button>
           <button onClick={()=>setShowRulesManager(true)} className="h-7 px-2.5 rounded-md border border-border/50 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-            Rules{rules.length>0&&<span className="ml-1 px-1 rounded bg-primary/15 text-[hsl(var(--primary))] text-[9px]">{rules.length}</span>}
+            Rules{rules.length>0&&<span className="ml-1 px-1 rounded bg-primary/15 text-[hsl(var(--primary))] text-[10px]">{rules.length}</span>}
           </button>
           <button onClick={()=>{
             const rows=[["Date","Name","Category","Amount","Account","Pending"]];
@@ -4377,18 +4377,18 @@ export const LivePlaidDashboard = ({
                   {/* Center label */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <div className="text-[11px] tabular font-bold text-foreground">{fmtUSD(spendingPeriodTotal,{compact:true})}</div>
-                    <div className="text-[8.5px] text-muted-foreground">spent</div>
+                    <div className="text-[10px] text-muted-foreground">spent</div>
                   </div>
                 </div>
 
                 {/* Right stats */}
                 <div className="flex-1 min-w-0 space-y-2.5">
                   <div>
-                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Income</div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Income</div>
                     <div className="text-[15px] font-display tabular text-positive">{fmtUSD(spendingPeriodIncome)}</div>
                   </div>
                   <div>
-                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Net</div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Net</div>
                     <div className={cn("text-[15px] font-display tabular", net>=0?"text-positive":"text-negative")}>
                       {net>=0?"+":"−"}{fmtUSD(Math.abs(net))}
                     </div>
@@ -4400,12 +4400,12 @@ export const LivePlaidDashboard = ({
                   </div>
                   <div className="flex gap-3">
                     <div>
-                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Daily avg</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Daily avg</div>
                       <div className="text-[13px] tabular text-foreground font-semibold">{fmtUSD(spendingDailyAvg)}</div>
                     </div>
                     {spendDeltaPct!==null&&(
                       <div>
-                        <div className="text-[9px] uppercase tracking-wider text-muted-foreground">vs prior</div>
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">vs prior</div>
                         <div className={cn("text-[13px] tabular font-semibold", spendDeltaPct>0?"text-negative":"text-positive")}>
                           {spendDeltaPct>0?"+":""}{spendDeltaPct}%
                         </div>
@@ -4420,7 +4420,7 @@ export const LivePlaidDashboard = ({
           {/* Category breakdown — compact rows with overflow bars */}
           {spendingPeriodByCategory.length > 0 && (
             <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/15 flex items-center justify-between">
+              <div className="px-5 py-3 border-b border-border/15 flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-foreground">By category</span>
                 {selectedCategory&&<button onClick={()=>onCategorySelect?.("")} className="text-[10px] text-[hsl(var(--primary))]">Clear ×</button>}
               </div>
@@ -4438,7 +4438,7 @@ export const LivePlaidDashboard = ({
                   return (
                     <button key={c.category}
                       onClick={()=>{onCategorySelect?.(isActive?"":c.category);setTxnFlowFilter("expense");}}
-                      className={cn("w-full text-left px-4 py-2.5 transition-colors",isActive?"bg-[hsl(var(--primary)/0.07)]":"hover:bg-surface-hover/30",selectedCategory&&!isActive?"opacity-40 hover:opacity-70":"")}>
+                      className={cn("w-full text-left px-5 py-3 transition-colors",isActive?"bg-[hsl(var(--primary)/0.07)]":"hover:bg-surface-hover/30",selectedCategory&&!isActive?"opacity-40 hover:opacity-70":"")}>
                       <div className="flex items-center gap-2.5 mb-1.5">
                         <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                           <Icon className="h-3 w-3"/>
@@ -4504,7 +4504,7 @@ export const LivePlaidDashboard = ({
         {/* ── RIGHT: transaction list ── */}
         <div className="surface-card overflow-hidden">
           {/* Toolbar */}
-          <div className="px-3.5 py-2.5 border-b border-border/20 space-y-2">
+          <div className="px-5 py-3 border-b border-border/20 space-y-2">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/40"/>
@@ -4600,8 +4600,8 @@ export const LivePlaidDashboard = ({
                 const daySpend=g.txns.filter(t=>Number(t.amount)>0&&!internalTxnIds.has(t.id)).reduce((s,t)=>s+Number(t.amount),0);
                 return(<Fragment key={g.date}>
                   <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-1 bg-card/96 backdrop-blur-sm border-b border-border/20">
-                    <span className="text-[9.5px] uppercase tracking-widest text-muted-foreground font-semibold">{dayLabel(g.date)}</span>
-                    {daySpend>0&&<span className="text-[9.5px] tabular text-muted-foreground">−{fmtUSD(daySpend)}</span>}
+                    <span className="text-[10.5px] uppercase tracking-widest text-muted-foreground font-semibold">{dayLabel(g.date)}</span>
+                    {daySpend>0&&<span className="text-[10.5px] tabular text-muted-foreground">−{fmtUSD(daySpend)}</span>}
                   </div>
                   {g.txns.map((t,i)=>renderRow(t,i))}
                 </Fragment>);
@@ -4724,7 +4724,7 @@ export const LivePlaidDashboard = ({
         {/* ── LEFT SIDEBAR — sticky summary ── */}
         <div className="lg:sticky lg:top-4 space-y-3 mb-3 lg:mb-0">
           {/* Month nav */}
-          <div className="surface-card px-4 py-3">
+          <div className="surface-card px-5 py-4">
             <div className="flex items-center justify-between mb-3">
               <button onClick={()=>setBudgetMonthOffset(o=>o-1)} className="h-7 w-7 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
                 <ChevronLeft className="h-3.5 w-3.5"/>
@@ -4747,7 +4747,7 @@ export const LivePlaidDashboard = ({
                   <span className="text-[11px] text-muted-foreground">{m.label}</span>
                   <div className="text-right">
                     <span className={cn("text-[14px] font-display tabular font-bold", m.color)}>{left<0&&m.label==="Left"?"−":""}{fmtUSD(m.val)}</span>
-                    <div className="text-[9px] text-muted-foreground">{m.sub}</div>
+                    <div className="text-[10px] text-muted-foreground">{m.sub}</div>
                   </div>
                 </div>
               ))}
@@ -4762,7 +4762,7 @@ export const LivePlaidDashboard = ({
                     backgroundColor:totalSpent>anticipatedIncome?"hsl(var(--negative))":totalSpent/anticipatedIncome>0.9?"hsl(var(--warning))":"hsl(var(--positive))"
                   }}/>
                 </div>
-                <div className="flex justify-between text-[9px] text-muted-foreground">
+                <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>{Math.round((totalSpent/anticipatedIncome)*100)}% of income spent</span>
                   <span>{fmtUSD(Math.max(anticipatedIncome-totalSpent,0))} left</span>
                 </div>
@@ -4772,12 +4772,12 @@ export const LivePlaidDashboard = ({
 
           {/* Income sources */}
           <div className="surface-card overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border/15 flex items-center justify-between">
+            <div className="px-5 py-3 border-b border-border/15 flex items-center justify-between">
               <span className="text-[11px] font-semibold text-foreground">Income</span>
               <button onClick={()=>setShowAddIncome(s=>!s)} className="text-[10px] text-[hsl(var(--primary))]">+ Add</button>
             </div>
             {showAddIncome && (
-              <div className="px-4 py-3 border-b border-border/15 space-y-2">
+              <div className="px-5 py-4 border-b border-border/15 space-y-2">
                 <input value={incomeDraftLabel} onChange={e=>setIncomeDraftLabel(e.target.value)} placeholder="Label (e.g. Rental income)"
                   className="w-full h-7 px-2.5 rounded-md bg-surface/60 border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.4)]"/>
                 <div className="flex gap-2">
@@ -4808,7 +4808,7 @@ export const LivePlaidDashboard = ({
               ))}
               {recurringIncomeSources.length > 0 && budgetMonthOffset < 0 && (
                 <div className="px-4 py-2">
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1.5">Anticipated (recurring)</div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Anticipated (recurring)</div>
                   {recurringIncomeSources.slice(0,3).map(r=>(
                     <div key={r.merchant} className="flex items-center justify-between py-1">
                       <span className="text-[10.5px] text-muted-foreground truncate flex-1">{r.merchant}</span>
@@ -4823,9 +4823,9 @@ export const LivePlaidDashboard = ({
           {/* Overage fund allocation */}
           {overCategories.length > 0 && (
             <div className="surface-card overflow-hidden border border-negative/20">
-              <div className="px-4 py-2.5 border-b border-border/15">
+              <div className="px-5 py-3 border-b border-border/15">
                 <div className="text-[11px] font-semibold text-negative">{overCategories.length} categor{overCategories.length===1?"y":"ies"} over budget</div>
-                <div className="text-[9.5px] text-muted-foreground mt-0.5">Total overage: {fmtUSD(totalOverage)}</div>
+                <div className="text-[10.5px] text-muted-foreground mt-0.5">Total overage: {fmtUSD(totalOverage)}</div>
               </div>
               <div className="divide-y divide-border/10">
                 {overCategories.map(c=>{
@@ -4833,7 +4833,7 @@ export const LivePlaidDashboard = ({
                   const Icon = categoryIcon(c.category);
                   const color = catColor(c.category);
                   return (
-                    <div key={c.category} className="px-4 py-2.5 space-y-1.5">
+                    <div key={c.category} className="px-5 py-3 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="h-5 w-5 rounded grid place-items-center" style={{backgroundColor:`${color}20`,color}}>
@@ -4861,7 +4861,7 @@ export const LivePlaidDashboard = ({
                 })}
               </div>
               {Object.values(fundAllocations).some(v=>!!v) && (
-                <div className="px-4 py-3 border-t border-border/20 bg-surface/40 space-y-2">
+                <div className="px-5 py-4 border-t border-border/20 bg-surface/40 space-y-2">
                   <div className="text-[10px] font-semibold text-foreground uppercase tracking-wider">Transfer summary</div>
                   {Object.entries(fundAllocations).filter(([,aid])=>!!aid).map(([cat,aid])=>{
                     const over=Math.max((catMap[cat]?.total??0)-(budgets[cat]??0),0);
@@ -4879,7 +4879,7 @@ export const LivePlaidDashboard = ({
                       </div>
                     );
                   })}
-                  <div className="text-[9.5px] text-muted-foreground">These are suggestions — transfers must be done manually in your bank.</div>
+                  <div className="text-[10.5px] text-muted-foreground">These are suggestions — transfers must be done manually in your bank.</div>
                 </div>
               )}
             </div>
@@ -4890,7 +4890,7 @@ export const LivePlaidDashboard = ({
         <div className="space-y-3">
           {/* Unset budget CTA if any spending categories have no budget */}
           {unbudgetedCats.length > 0 && (
-            <div className="surface-card px-4 py-3 flex items-center justify-between gap-3">
+            <div className="surface-card px-5 py-4 flex items-center justify-between gap-3">
               <div>
                 <div className="text-[12px] font-medium text-foreground">{unbudgetedCats.length} unbudgeted categor{unbudgetedCats.length===1?"y":"ies"}</div>
                 <div className="text-[10px] text-muted-foreground">{fmtUSD(unbudgetedCats.reduce((s,c)=>s+c.total,0))} spent outside your plan</div>
@@ -4914,9 +4914,9 @@ export const LivePlaidDashboard = ({
             </div>
           ) : (
             <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/20 flex items-center gap-2">
+              <div className="px-5 py-3 border-b border-border/20 flex items-center gap-2">
                 <span className="text-[11px] font-semibold text-foreground">Budget vs actual</span>
-                <span className="text-[9.5px] text-muted-foreground ml-auto">{allBudgetedCats.length} categories · {fmtUSD(totalAllocated)} budgeted</span>
+                <span className="text-[10.5px] text-muted-foreground ml-auto">{allBudgetedCats.length} categories · {fmtUSD(totalAllocated)} budgeted</span>
               </div>
               <div className="divide-y divide-border/10">
                 {allBudgetedCats.map(c=>{
@@ -4930,7 +4930,7 @@ export const LivePlaidDashboard = ({
                   const isEditing=editingBudgetCat===c.category;
                   const isSelected=selectedCategory===c.category;
                   return (
-                    <div key={c.category} className={cn("px-4 py-3", isSelected&&"bg-[hsl(var(--primary)/0.05)]")}>
+                    <div key={c.category} className={cn("px-5 py-4", isSelected&&"bg-[hsl(var(--primary)/0.05)]")}>
                       <div className="flex items-center gap-2.5 mb-2">
                         <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                           <Icon className="h-3 w-3"/>
@@ -4940,23 +4940,23 @@ export const LivePlaidDashboard = ({
                           {formatCat(c.category)}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""}</span>
-                        {over&&<span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
+                        {over&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
                       </div>
 
                       {/* Aligned bars — both on the same scale */}
                       <div className="space-y-1">
                         {/* Budget bar */}
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] text-muted-foreground w-10 text-right shrink-0">Budget</span>
+                          <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">Budget</span>
                           <div className="flex-1 h-4 rounded bg-border/15 relative overflow-hidden">
                             <div className="h-full rounded transition-all duration-300"
                               style={{width:`${budgetPct}%`,backgroundColor:`${color}40`}}/>
-                            <span className="absolute right-1.5 top-0 bottom-0 flex items-center text-[9.5px] text-muted-foreground tabular">{fmtUSD(budget)}</span>
+                            <span className="absolute right-1.5 top-0 bottom-0 flex items-center text-[10.5px] text-muted-foreground tabular">{fmtUSD(budget)}</span>
                           </div>
                         </div>
                         {/* Actual bar — can overflow budget */}
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] text-muted-foreground w-10 text-right shrink-0">Actual</span>
+                          <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">Actual</span>
                           <div className="flex-1 h-4 rounded bg-border/15 relative overflow-visible">
                             <div className="h-full rounded transition-all duration-300 relative"
                               style={{
@@ -4968,7 +4968,7 @@ export const LivePlaidDashboard = ({
                                   style={{width:`${Math.min(((actual-budget)/maxBar)*100,30)}%`,backgroundColor:"hsl(var(--negative))",opacity:0.5,borderRadius:"0 4px 4px 0"}}/>
                               )}
                             </div>
-                            <span className={cn("absolute right-1.5 top-0 bottom-0 flex items-center text-[9.5px] tabular font-medium",over?"text-negative":"text-foreground")}>{fmtUSD(actual)}</span>
+                            <span className={cn("absolute right-1.5 top-0 bottom-0 flex items-center text-[10.5px] tabular font-medium",over?"text-negative":"text-foreground")}>{fmtUSD(actual)}</span>
                           </div>
                         </div>
                       </div>
@@ -5007,12 +5007,12 @@ export const LivePlaidDashboard = ({
                               className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-secondary/50 transition-colors border-b border-border/10 last:border-0">
                               <div className="min-w-0">
                                 <div className="text-[11.5px] font-medium text-foreground truncate">{t.merchant_name??t.name}</div>
-                                <div className="text-[9.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                                <div className="text-[10.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                               </div>
                               <span className="text-[12px] tabular font-semibold text-foreground ml-2">{fmtUSD(Number(t.amount))}</span>
                             </button>
                           ))}
-                          {c.txns.length>5&&<div className="px-3 py-1.5 text-[9.5px] text-muted-foreground">+{c.txns.length-5} more</div>}
+                          {c.txns.length>5&&<div className="px-3 py-1.5 text-[10.5px] text-muted-foreground">+{c.txns.length-5} more</div>}
                         </div>
                       )}
                     </div>
@@ -5025,9 +5025,9 @@ export const LivePlaidDashboard = ({
           {/* Unbudgeted spending */}
           {unbudgetedCats.length > 0 && (
             <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/15">
+              <div className="px-5 py-3 border-b border-border/15">
                 <span className="text-[11px] font-semibold text-foreground">Outside your budget</span>
-                <span className="text-[9.5px] text-muted-foreground ml-2">{fmtUSD(unbudgetedCats.reduce((s,c)=>s+c.total,0))} untracked</span>
+                <span className="text-[10.5px] text-muted-foreground ml-2">{fmtUSD(unbudgetedCats.reduce((s,c)=>s+c.total,0))} untracked</span>
               </div>
               <div className="divide-y divide-border/10">
                 {unbudgetedCats.map(c=>{
@@ -5035,7 +5035,7 @@ export const LivePlaidDashboard = ({
                   const color=catColor(c.category);
                   const isEditing=editingBudgetCat===c.category;
                   return (
-                    <div key={c.category} className="flex items-center gap-3 px-4 py-2.5">
+                    <div key={c.category} className="flex items-center gap-3 px-5 py-3">
                       <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                         <Icon className="h-3 w-3"/>
                       </div>
@@ -5246,7 +5246,7 @@ export const LivePlaidDashboard = ({
 
         {/* ── Suggestions ── */}
         <div className="surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+          <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
             <Info className="h-3.5 w-3.5 text-muted-foreground" />
             <h3 className="font-display text-[13px] text-primary">Suggestions</h3>
             <span className="text-[10px] text-muted-foreground ml-auto">{visibleSuggestions.length} active</span>
@@ -5258,7 +5258,7 @@ export const LivePlaidDashboard = ({
           ) : (
             <div className="divide-y divide-border/15">
               {visibleSuggestions.map(s => (
-                <div key={s.id} className="px-4 py-3 flex items-start gap-3">
+                <div key={s.id} className="px-5 py-4 flex items-start gap-3">
                   <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{
                     backgroundColor: s.kind === "overage" ? "hsl(var(--negative)/0.12)" : "hsl(var(--info)/0.12)",
                     color: s.kind === "overage" ? "hsl(var(--negative))" : "hsl(var(--info))",
@@ -5297,7 +5297,7 @@ export const LivePlaidDashboard = ({
           const tagged = accountsWithRole.filter(x => x.info.role !== "unassigned");
           return (
             <div className="surface-card overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-border/20 flex items-center justify-between">
+              <div className="px-5 py-3 border-b border-border/20 flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-foreground">All accounts</span>
                 <span className="text-[10px] text-muted-foreground">{tagged.length} tagged</span>
               </div>
@@ -5307,7 +5307,7 @@ export const LivePlaidDashboard = ({
                   const bal = Number(acc.current_balance) || 0;
                   const isDebt = info.role === "debt";
                   return (
-                    <div key={acc.account_id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div key={acc.account_id} className="flex items-center gap-3 px-5 py-3">
                       <div className="flex-1 min-w-0 flex items-center gap-2">
                         <Landmark className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <div className="min-w-0">
@@ -5412,7 +5412,7 @@ export const LivePlaidDashboard = ({
             return (
               <div key={a.account_id} className="surface-card overflow-hidden">
                 {/* Card header */}
-                <div className="px-4 py-3 border-b border-border/20 flex items-start gap-3">
+                <div className="px-5 py-4 border-b border-border/20 flex items-start gap-3">
                   <div className="h-9 w-9 rounded-xl bg-[hsl(var(--primary)/0.1)] grid place-items-center shrink-0">
                     <CreditCard className="h-4 w-4 text-gold" />
                   </div>
@@ -5430,13 +5430,13 @@ export const LivePlaidDashboard = ({
                   {cardTotalCredits > 0 && (
                     <div className="text-right shrink-0">
                       <div className="text-[12px] font-semibold text-positive tabular">{fmtUSD(cardUsed)}</div>
-                      <div className="text-[9.5px] text-muted-foreground">/ {fmtUSD(cardTotalCredits)}</div>
+                      <div className="text-[10.5px] text-muted-foreground">/ {fmtUSD(cardTotalCredits)}</div>
                     </div>
                   )}
                 </div>
 
                 {/* Rewards summary */}
-                <div className="px-4 py-2.5 border-b border-border/15 bg-surface/30">
+                <div className="px-5 py-3 border-b border-border/15 bg-surface/30">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Rewards</div>
                   <div className="text-[11.5px] text-foreground">{info.rewards}</div>
                   <div className="text-[10.5px] text-muted-foreground mt-0.5">Best for: {info.bestFor}</div>
@@ -5450,7 +5450,7 @@ export const LivePlaidDashboard = ({
                       const used = !!benefitsUsed[key];
                       return (
                         <button key={key} onClick={() => toggleBenefit(key)}
-                          className={cn("w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover/30",
+                          className={cn("w-full flex items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-surface-hover/30",
                             used && "opacity-60")}>
                           <div className={cn("mt-0.5 h-4 w-4 rounded border-2 shrink-0 grid place-items-center transition-colors",
                             used ? "bg-positive border-positive" : "border-border/60")}>

@@ -1,508 +1,471 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================================
-   SentriFi — Gold & Black professional finance theme
+   Sentry Finance — Dark premium finance theme
+   Inspired by the best in class: clean, spacious, trustworthy.
    ============================================================ */
 
 @layer base {
-  /* ---------- DARK (default) ---------- */
-  :root,
-  .dark {
-    /* Black canvas */
-    --background: 0 0% 5%;
-    --foreground: 45 25% 94%;
+  :root, .dark {
+    /* Deep navy canvas — warmer than pure black, more premium */
+    --background: 222 25% 8%;
+    --foreground: 210 20% 95%;
 
-    --surface: 0 0% 8%;
-    --surface-elevated: 0 0% 11%;
-    --surface-hover: 0 0% 14%;
+    --surface: 222 22% 11%;
+    --surface-elevated: 222 20% 14%;
+    --surface-hover: 222 18% 17%;
 
-    --card: 0 0% 8%;
-    --card-foreground: 45 25% 94%;
+    --card: 222 22% 11%;
+    --card-foreground: 210 20% 95%;
 
-    --popover: 0 0% 9%;
-    --popover-foreground: 45 25% 94%;
+    --popover: 222 22% 12%;
+    --popover-foreground: 210 20% 95%;
 
-    /* Gold — the brand accent */
-    --primary: 42 78% 58%;
-    --primary-foreground: 0 0% 6%;
-    --primary-glow: 45 90% 65%;
+    /* Gold accent — restrained, only where it matters */
+    --primary: 43 80% 58%;
+    --primary-foreground: 222 25% 8%;
+    --primary-glow: 43 90% 68%;
 
-    --secondary: 0 0% 14%;
-    --secondary-foreground: 45 25% 94%;
+    --secondary: 222 18% 17%;
+    --secondary-foreground: 210 15% 80%;
 
-    --muted: 0 0% 12%;
-    --muted-foreground: 40 6% 60%;
+    --muted: 222 20% 15%;
+    --muted-foreground: 215 12% 52%;
 
-    --accent: 42 78% 58%;
-    --accent-foreground: 0 0% 6%;
+    --accent: 43 80% 58%;
+    --accent-foreground: 222 25% 8%;
 
-    /* Signals — tuned to complement gold */
-    --positive: 152 55% 52%;
-    --positive-foreground: 152 80% 8%;
-    --negative: 4 72% 60%;
-    --negative-foreground: 0 0% 98%;
-    --warning: 38 92% 60%;
-    --warning-foreground: 38 80% 10%;
-    --info: 210 70% 65%;
+    /* Signal colors — clear, not garish */
+    --positive: 158 55% 48%;
+    --negative: 5 72% 58%;
+    --warning: 38 88% 56%;
+    --info: 212 72% 62%;
 
-    --destructive: 4 72% 56%;
+    --destructive: 5 72% 54%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 0 0% 16%;
-    --border-strong: 42 30% 24%;
-    --input: 0 0% 14%;
-    --ring: 42 78% 58%;
+    --border: 222 18% 19%;
+    --border-strong: 222 18% 26%;
+    --input: 222 20% 15%;
+    --ring: 43 80% 58%;
 
-    --radius: 0.875rem;
+    --radius: 0.75rem;
 
-    --gradient-gold: linear-gradient(135deg, hsl(42 78% 58%) 0%, hsl(45 90% 65%) 100%);
-    --gradient-surface: linear-gradient(180deg, hsl(0 0% 11%) 0%, hsl(0 0% 6%) 100%);
-    --gradient-glow: radial-gradient(80% 60% at 50% 0%, hsl(42 78% 58% / 0.10) 0%, transparent 70%);
+    /* Gradients */
+    --gradient-gold: linear-gradient(135deg, hsl(43 80% 58%) 0%, hsl(43 90% 68%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(222 20% 14%) 0%, hsl(222 22% 10%) 100%);
+    --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -10%, hsl(43 80% 58% / 0.07) 0%, transparent 60%);
 
-    --shadow-card: 0 1px 0 hsl(42 60% 70% / 0.06) inset, 0 8px 24px -12px hsl(0 0% 0% / 0.6);
-    --shadow-elevated: 0 1px 0 hsl(42 60% 70% / 0.1) inset, 0 24px 48px -20px hsl(0 0% 0% / 0.7);
-    --shadow-glow: 0 0 0 1px hsl(42 78% 58% / 0.4), 0 8px 32px -8px hsl(42 78% 58% / 0.3);
+    /* Shadows */
+    --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.3);
+    --shadow-card: 0 1px 0 hsl(210 30% 100% / 0.04) inset, 0 4px 16px -4px hsl(0 0% 0% / 0.35);
+    --shadow-elevated: 0 1px 0 hsl(210 30% 100% / 0.06) inset, 0 16px 40px -12px hsl(0 0% 0% / 0.5);
 
-    --gold-border: hsl(42 78% 58% / 0.2);
-    --gold-top-line: linear-gradient(90deg, transparent 0%, hsl(42 78% 58% / 0.55) 50%, transparent 100%);
-    --gold-panel-glow: 0 0 40px -10px hsl(42 78% 58% / 0.12);
-
-    --sidebar-background: 0 0% 4%;
-    --sidebar-foreground: 45 15% 80%;
-    --sidebar-primary: 42 78% 58%;
-    --sidebar-primary-foreground: 0 0% 6%;
-    --sidebar-accent: 0 0% 10%;
-    --sidebar-accent-foreground: 45 25% 94%;
-    --sidebar-border: 0 0% 12%;
-    --sidebar-ring: 42 78% 58%;
+    /* Borders */
+    --gold-border: hsl(43 80% 58% / 0.15);
+    --card-border: hsl(222 18% 19%);
 
     --transition-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+    /* Sidebar */
+    --sidebar-background: 222 28% 7%;
+    --sidebar-foreground: 215 12% 52%;
+    --sidebar-primary: 43 80% 58%;
+    --sidebar-primary-foreground: 222 25% 8%;
+    --sidebar-accent: 222 22% 11%;
+    --sidebar-accent-foreground: 210 20% 95%;
+    --sidebar-border: 222 20% 13%;
+    --sidebar-ring: 43 80% 58%;
   }
 
-  /* ---------- LIGHT ---------- */
   .light {
-    --background: 40 25% 97%;
-    --foreground: 0 0% 8%;
+    --background: 210 20% 97%;
+    --foreground: 222 25% 12%;
 
     --surface: 0 0% 100%;
-    --surface-elevated: 40 20% 99%;
-    --surface-hover: 40 15% 94%;
+    --surface-elevated: 210 20% 99%;
+    --surface-hover: 210 15% 94%;
 
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 8%;
+    --card-foreground: 222 25% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 8%;
+    --popover-foreground: 222 25% 12%;
 
-    --primary: 38 72% 42%;
+    --primary: 38 72% 40%;
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 42 85% 55%;
+    --primary-glow: 43 85% 52%;
 
-    --secondary: 40 15% 92%;
-    --secondary-foreground: 0 0% 8%;
+    --secondary: 210 15% 93%;
+    --secondary-foreground: 222 20% 20%;
 
-    --muted: 40 12% 94%;
-    --muted-foreground: 0 0% 42%;
+    --muted: 210 12% 94%;
+    --muted-foreground: 215 14% 46%;
 
-    --accent: 38 72% 42%;
+    --accent: 38 72% 40%;
     --accent-foreground: 0 0% 100%;
 
-    --positive: 152 60% 38%;
-    --positive-foreground: 0 0% 100%;
-    --negative: 4 72% 50%;
-    --negative-foreground: 0 0% 100%;
-    --warning: 32 90% 48%;
-    --warning-foreground: 0 0% 100%;
-    --info: 210 80% 48%;
+    --positive: 158 55% 36%;
+    --negative: 5 72% 46%;
+    --warning: 32 88% 42%;
+    --info: 212 72% 46%;
 
-    --destructive: 4 72% 50%;
+    --destructive: 5 72% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 40 10% 88%;
-    --border-strong: 38 30% 70%;
-    --input: 40 10% 90%;
-    --ring: 38 72% 42%;
+    --border: 210 15% 87%;
+    --border-strong: 210 15% 76%;
+    --input: 210 12% 92%;
+    --ring: 38 72% 40%;
 
-    --gradient-gold: linear-gradient(135deg, hsl(38 72% 42%) 0%, hsl(42 85% 55%) 100%);
-    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(40 20% 96%) 100%);
-    --gradient-glow: radial-gradient(80% 60% at 50% 0%, hsl(38 72% 42% / 0.08) 0%, transparent 70%);
+    --gradient-gold: linear-gradient(135deg, hsl(38 72% 40%) 0%, hsl(43 85% 52%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(210 15% 97%) 100%);
+    --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -10%, hsl(38 72% 40% / 0.05) 0%, transparent 60%);
 
-    --shadow-card: 0 1px 0 hsl(0 0% 100%) inset, 0 4px 16px -8px hsl(0 0% 0% / 0.08);
-    --shadow-elevated: 0 1px 0 hsl(0 0% 100%) inset, 0 16px 40px -16px hsl(0 0% 0% / 0.14);
+    --shadow-sm: 0 1px 3px hsl(0 0% 0% / 0.06);
+    --shadow-card: 0 1px 0 hsl(0 0% 100%) inset, 0 2px 8px -2px hsl(0 0% 0% / 0.07);
+    --shadow-elevated: 0 1px 0 hsl(0 0% 100%) inset, 0 8px 24px -8px hsl(0 0% 0% / 0.12);
 
-    --gold-border: hsl(38 72% 42% / 0.25);
-    --gold-top-line: linear-gradient(90deg, transparent 0%, hsl(38 72% 42% / 0.5) 50%, transparent 100%);
-    --gold-panel-glow: 0 0 40px -10px hsl(38 72% 42% / 0.1);
+    --gold-border: hsl(38 72% 40% / 0.2);
+    --card-border: hsl(210 15% 87%);
 
-    --sidebar-background: 40 20% 96%;
-    --sidebar-foreground: 0 0% 20%;
-    --sidebar-primary: 38 72% 42%;
+    --sidebar-background: 210 18% 95%;
+    --sidebar-foreground: 215 14% 46%;
+    --sidebar-primary: 38 72% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 40 15% 92%;
-    --sidebar-accent-foreground: 0 0% 8%;
-    --sidebar-border: 40 10% 86%;
-    --sidebar-ring: 38 72% 42%;
+    --sidebar-accent: 0 0% 100%;
+    --sidebar-accent-foreground: 222 25% 12%;
+    --sidebar-border: 210 15% 88%;
+    --sidebar-ring: 38 72% 40%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; box-sizing: border-box; }
+
   html, body, #root {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01';
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
   }
-  body {
-    background-image: var(--gradient-glow);
-    background-attachment: scroll;
-    transition: background-color 200ms var(--transition-smooth), color 200ms var(--transition-smooth);
-  }
+
+  body { background-image: var(--gradient-bg); }
+
+  /* Display type — Fraunces for headlines only */
   .font-display {
-    font-family: 'Fraunces', serif;
-    font-feature-settings: 'ss01';
-    letter-spacing: -0.02em;
+    font-family: 'Fraunces', Georgia, serif;
+    font-optical-sizing: auto;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
   }
+
   .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-feature-settings: 'tnum', 'zero';
   }
-  .tabular {
-    font-variant-numeric: tabular-nums;
-  }
+
+  /* Tabular nums for all financial figures */
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Remove browser button defaults */
+  button { cursor: pointer; }
+
+  /* Smooth scroll on scrollable containers */
+  [data-scroll] { -webkit-overflow-scrolling: touch; }
 }
 
 @layer components {
+
+  /* ── Cards ──────────────────────────────────────────────────── */
   .surface-card {
-    @apply rounded-[var(--radius)] bg-card;
-    border: 1px solid var(--gold-border);
-    box-shadow: var(--shadow-card), var(--gold-panel-glow);
+    background: hsl(var(--card));
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
   }
+
   .surface-elevated {
-    @apply rounded-[var(--radius)] relative overflow-hidden;
-    border: 1px solid var(--gold-border);
     background: var(--gradient-surface);
-    box-shadow: var(--shadow-elevated), var(--gold-panel-glow);
+    border: 1px solid var(--gold-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevated);
+    position: relative;
+    overflow: hidden;
   }
-  /* Gold shimmer line at the top of elevated panels */
+
+  /* Subtle gold shimmer at top of elevated panels */
   .surface-elevated::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 1px;
-    background: var(--gold-top-line);
+    background: linear-gradient(90deg,
+      transparent 0%,
+      hsl(var(--primary) / 0.5) 50%,
+      transparent 100%
+    );
     pointer-events: none;
-    z-index: 1;
   }
-  .hairline {
-    @apply border-t border-border;
+
+  /* ── Stat cards ─────────────────────────────────────────────── */
+  .stat-card {
+    @apply surface-card px-5 py-4;
   }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: hsl(var(--foreground));
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-sub {
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    margin-top: 5px;
+  }
+
+  /* ── Chips ──────────────────────────────────────────────────── */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs font-medium text-muted-foreground;
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--secondary));
+    color: hsl(var(--muted-foreground));
   }
   .chip-positive {
-    @apply border-[hsl(var(--positive)/0.3)] bg-[hsl(var(--positive)/0.1)] text-[hsl(var(--positive))];
+    border-color: hsl(var(--positive) / 0.3);
+    background: hsl(var(--positive) / 0.1);
+    color: hsl(var(--positive));
   }
   .chip-negative {
-    @apply border-[hsl(var(--negative)/0.3)] bg-[hsl(var(--negative)/0.1)] text-[hsl(var(--negative))];
+    border-color: hsl(var(--negative) / 0.3);
+    background: hsl(var(--negative) / 0.1);
+    color: hsl(var(--negative));
   }
   .chip-warning {
-    @apply border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))];
+    border-color: hsl(var(--warning) / 0.3);
+    background: hsl(var(--warning) / 0.1);
+    color: hsl(var(--warning));
   }
   .chip-gold {
-    @apply border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))];
-    box-shadow: 0 0 10px -2px hsl(var(--primary) / 0.2);
-  }
-  .text-gold {
+    border-color: hsl(var(--primary) / 0.4);
+    background: hsl(var(--primary) / 0.12);
     color: hsl(var(--primary));
   }
+
+  /* ── Gold CTA button ────────────────────────────────────────── */
   .bg-gold {
     background: var(--gradient-gold);
     color: hsl(var(--primary-foreground));
-    box-shadow: 0 2px 16px -4px hsl(var(--primary) / 0.5);
+    box-shadow: 0 2px 12px -3px hsl(var(--primary) / 0.45);
+    font-weight: 600;
+    transition: opacity 150ms, box-shadow 150ms;
   }
-  /* Gold divider line */
-  .gold-line {
-    height: 1px;
-    background: var(--gold-top-line);
+  .bg-gold:hover { opacity: 0.92; box-shadow: 0 4px 20px -4px hsl(var(--primary) / 0.6); }
+
+  /* ── Sidebar nav item ───────────────────────────────────────── */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: hsl(var(--sidebar-foreground));
+    transition: background 120ms, color 120ms;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
   }
-  /* Gold stat value */
-  .stat-gold {
+  .nav-item:hover {
+    background: hsl(var(--sidebar-accent));
+    color: hsl(var(--sidebar-accent-foreground));
+  }
+  .nav-item.active {
+    background: hsl(var(--primary) / 0.14);
     color: hsl(var(--primary));
-    text-shadow: 0 0 24px hsl(var(--primary) / 0.35);
+    font-weight: 600;
   }
-}
+  .nav-item.active svg { opacity: 1; }
+  .nav-item svg { opacity: 0.65; transition: opacity 120ms; }
+  .nav-item:hover svg { opacity: 0.9; }
 
-/* ── Readable type floor ──────────────────────────────────────
-   Lifts tiny arbitrary sizes to comfortable reading scale.
-   Mobile gets even larger sizes via the @media override below. */
-.text-\[8px\]    { font-size: 10px   !important; }
-.text-\[9px\]    { font-size: 11px   !important; }
-.text-\[9\.5px\] { font-size: 11px   !important; }
-.text-\[10px\]   { font-size: 12px   !important; }
-.text-\[10\.5px\]{ font-size: 12.5px !important; }
-.text-\[11px\]   { font-size: 13px   !important; }
-.text-\[11\.5px\]{ font-size: 13.5px !important; }
-.text-\[12px\]   { font-size: 14px   !important; }
-.text-\[12\.5px\]{ font-size: 14.5px !important; }
-.text-\[13px\]   { font-size: 15px   !important; }
-.text-\[13\.5px\]{ font-size: 15.5px !important; }
-.text-\[14px\]   { font-size: 16px   !important; }
-.text-\[15px\]   { font-size: 16.5px !important; }
-.text-\[17px\]   { font-size: 18px   !important; }
-
-/* ── Mobile-first UI fixes ────────────────────────────────────
-   Everything below only applies on phone-width screens.
-   Goal: feel like a native iOS/Android app, not a small website. */
-@media (max-width: 768px) {
-  /* --- Touch: remove tap highlight; DO NOT set touch-action on buttons —
-        that's what was blocking scroll when dragging through button-dense areas.
-        Browsers handle scroll vs tap discrimination fine on their own. --- */
-  button, [role="button"], a, select {
-    -webkit-tap-highlight-color: transparent;
+  /* ── Section divider ────────────────────────────────────────── */
+  .section-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.6);
+    padding: 0 12px;
+    margin-bottom: 4px;
+    margin-top: 16px;
   }
 
-  /* --- 44px minimum touch target on primary buttons --- */
-  button:not(.no-min-h):not(.icon-btn), [role="button"]:not(.no-min-h) {
-    min-height: 44px;
+  /* ── Transaction row ────────────────────────────────────────── */
+  .txn-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    transition: background 100ms;
+    cursor: pointer;
+  }
+  .txn-row:hover { background: hsl(var(--surface-hover) / 0.5); }
+
+  /* ── Progress bars ──────────────────────────────────────────── */
+  .progress-bar {
+    height: 6px;
+    border-radius: 99px;
+    background: hsl(var(--border));
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 400ms var(--transition-smooth);
   }
 
-  /* --- Ensure scroll containers never block vertical pan --- */
-  .overflow-y-auto, .overflow-auto, .overflow-y-scroll, main {
-    touch-action: pan-y;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+  /* ── Icon chip ──────────────────────────────────────────────── */
+  .icon-chip {
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    flex-shrink: 0;
   }
 
-  /* --- Type: bump the floor further on mobile so nothing reads as footnote --- */
-  .text-\[8px\]    { font-size: 11px   !important; }
-  .text-\[9px\]    { font-size: 12px   !important; }
-  .text-\[9\.5px\] { font-size: 12px   !important; }
-  .text-\[10px\]   { font-size: 13px   !important; }
-  .text-\[10\.5px\]{ font-size: 13px   !important; }
-  .text-\[11px\]   { font-size: 14px   !important; }
-  .text-\[11\.5px\]{ font-size: 14px   !important; }
-  .text-\[12px\]   { font-size: 15px   !important; }
-  .text-\[12\.5px\]{ font-size: 15px   !important; }
-  .text-\[13px\]   { font-size: 15.5px !important; }
-  .text-\[14px\]   { font-size: 16.5px !important; }
+  /* ── Positive / negative text ───────────────────────────────── */
+  .text-positive { color: hsl(var(--positive)); }
+  .text-negative { color: hsl(var(--negative)); }
+  .text-warning  { color: hsl(var(--warning)); }
+  .text-info     { color: hsl(var(--info)); }
+  .text-gold     { color: hsl(var(--primary)); }
 
-  /* --- Scrollbar: hide on mobile, it just looks bad --- */
-  ::-webkit-scrollbar { display: none !important; }
-  * { scrollbar-width: none !important; }
+  /* ── Utility: hide scrollbar but keep scroll ────────────────── */
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 
-  /* --- Cards: slightly more padding and a taller minimum for row items --- */
-  .surface-card { border-radius: 14px; }
-
-  /* --- Main scroll area: breathe, don't pack --- */
-  main { padding-left: 12px !important; padding-right: 12px !important; }
-
-  /* --- Section + card spacing --- */
-  .space-y-3 { gap: 10px; }
-  .space-y-4 { gap: 14px; }
-  .space-y-2 { gap: 8px; }
-  .gap-2     { gap: 8px; }
-  .gap-3     { gap: 10px; }
-
-  /* --- Divider rows: make sure list rows are at least 52px tall --- */
-  .divide-y > * { min-height: 52px; }
-
-  /* --- Hero numbers: bigger on phone so they actually command attention --- */
-  .stat-gold { font-size: 2.4rem !important; }
-
-  /* --- Grid: 2-column stat grids stay 2 columns on phone, not 4 --- */
-  .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
-  .sm\:grid-cols-4 { grid-template-columns: repeat(2, 1fr); }
-
-  /* --- Remove hover card lift on touch (it triggers on tap, looks odd) --- */
-  .surface-card.card-hover:hover {
-    transform: none;
-    box-shadow: var(--shadow-card), var(--gold-panel-glow);
-    border-color: var(--gold-border);
-  }
-
-  /* --- Scale down fancy hover row borders (they fire on tap) --- */
-  .row-hover::before { display: none; }
-  .row-hover:hover { background-color: transparent; }
-  .row-hover:active { background-color: hsl(var(--surface-hover) / 0.4); }
-
-  /* --- Overflow smoothness --- */
-  .overflow-y-auto, .overflow-auto {
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-  }
+  /* ── Max content width on large screens ─────────────────────── */
+  .content-max { max-width: 1200px; margin: 0 auto; width: 100%; }
 }
 
-/* Safe area insets for notched phones */
-.safe-top    { padding-top:    env(safe-area-inset-top); }
-.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(var(--border-strong)); border-radius: 8px; border: 2px solid hsl(var(--background)); }
-::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
-
-/* ── Micro-interactions ──────────────────────────────────────── */
-
-/* Cards smoothly lift on hover */
-.surface-card {
-  transition: box-shadow 220ms var(--transition-smooth),
-              transform  220ms var(--transition-smooth),
-              border-color 220ms var(--transition-smooth);
-}
-.surface-card.card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-elevated), var(--gold-panel-glow), 0 0 0 1px hsl(var(--primary) / 0.25);
-  border-color: hsl(var(--primary) / 0.35);
-}
-
-/* Elevated panels pulse glow on hover */
-.surface-elevated {
-  transition: box-shadow 220ms var(--transition-smooth);
-}
-
-/* Row hover: gold left-border accent slides in */
-.row-hover {
-  position: relative;
-  transition: background-color 150ms var(--transition-smooth);
-}
-.row-hover::before {
-  content: '';
-  position: absolute;
-  inset-y: 0;
-  left: 0;
-  width: 2px;
-  background: hsl(var(--primary));
-  border-radius: 0 2px 2px 0;
-  transform: scaleY(0);
-  transform-origin: center;
-  transition: transform 180ms var(--transition-smooth);
-}
-.row-hover:hover::before { transform: scaleY(1); }
-.row-hover:hover { background-color: hsl(var(--surface-hover) / 0.35); }
-
-/* Number count-up fade-slide */
-@keyframes count-in {
-  from { opacity: 0; transform: translateY(6px); }
+/* ── Animations ─────────────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.animate-count-in { animation: count-in 500ms var(--transition-smooth) both; }
-
-/* Shimmer skeleton (better than plain pulse) */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes count-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
 @keyframes shimmer {
-  from { background-position: 200% center; }
-  to   { background-position: -200% center; }
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
 }
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--secondary) / 0.4) 25%,
-    hsl(var(--secondary) / 0.7) 50%,
-    hsl(var(--secondary) / 0.4) 75%
-  );
-  background-size: 200% auto;
-  animation: shimmer 1.6s linear infinite;
-}
-
-/* Stat chip bounce-in */
 @keyframes pop-in {
-  0%   { opacity: 0; transform: scale(0.85); }
-  70%  { transform: scale(1.04); }
-  100% { opacity: 1; transform: scale(1); }
+  0%  { opacity: 0; transform: scale(0.88); }
+  70% { transform: scale(1.03); }
+  100%{ opacity: 1; transform: scale(1); }
 }
-.animate-pop-in { animation: pop-in 380ms var(--transition-smooth) both; }
 
-/* ── Splash screen shield glow ──────────────────────────────────
-   Breathing gold aura behind the logo + a slow rotating shimmer ring,
-   for a "powering up" feel on the splash screen. */
+.animate-fade-up    { animation: fade-up 320ms var(--transition-smooth) both; }
+.animate-fade-in    { animation: fade-in 200ms ease both; }
+.animate-count-in   { animation: count-in 400ms var(--transition-smooth) both; }
+.animate-pop-in     { animation: pop-in 360ms var(--transition-smooth) both; }
+
+/* ── Shield glow (splash / logo) ───────────────────────────────── */
 @keyframes shield-pulse {
-  0%, 100% { opacity: 0.55; transform: scale(0.92); }
-  50%      { opacity: 1;    transform: scale(1.08); }
+  0%, 100% { opacity: 0.5; transform: scale(0.9); }
+  50%       { opacity: 1;   transform: scale(1.1); }
 }
 @keyframes shield-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 @keyframes shield-float {
-  0%, 100% { transform: translateY(0px); }
-  50%      { transform: translateY(-4px); }
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
 }
+
 .shield-glow-wrap {
   position: relative;
   display: grid;
   place-items: center;
 }
 .shield-glow-wrap::before {
-  content: "";
+  content: '';
   position: absolute;
-  inset: -28%;
+  inset: -30%;
   border-radius: 9999px;
-  background: radial-gradient(circle, hsl(var(--primary) / 0.55) 0%, hsl(var(--primary) / 0.18) 45%, transparent 72%);
-  filter: blur(14px);
-  animation: shield-pulse 2.6s ease-in-out infinite;
-  z-index: 0;
+  background: radial-gradient(circle, hsl(var(--primary) / 0.5) 0%, transparent 70%);
+  filter: blur(16px);
+  animation: shield-pulse 2.8s ease-in-out infinite;
+  pointer-events: none;
 }
 .shield-glow-wrap::after {
-  content: "";
+  content: '';
   position: absolute;
-  inset: -14%;
+  inset: -12%;
   border-radius: 9999px;
   border: 1.5px solid transparent;
-  border-top-color: hsl(var(--primary) / 0.7);
-  border-right-color: hsl(var(--primary) / 0.25);
-  animation: shield-spin 3.2s linear infinite;
-  z-index: 0;
+  border-top-color: hsl(var(--primary) / 0.65);
+  border-right-color: hsl(var(--primary) / 0.2);
+  animation: shield-spin 3.5s linear infinite;
+  pointer-events: none;
 }
 .shield-glow-img {
   position: relative;
   z-index: 1;
-  animation: shield-float 2.8s ease-in-out infinite;
-  filter: drop-shadow(0 0 18px hsl(var(--primary) / 0.65));
+  animation: shield-float 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 16px hsl(var(--primary) / 0.5));
 }
 
-/* Subtle gold glow on focused interactive elements */
-button:focus-visible,
-[role="button"]:focus-visible {
-  outline: 2px solid hsl(var(--primary) / 0.6);
-  outline-offset: 2px;
-  border-radius: var(--radius);
-}
-
-/* Smooth color transitions on all text/bg */
-* { transition-property: color, background-color, border-color, opacity;
-    transition-duration: 120ms;
-    transition-timing-function: var(--transition-smooth); }
-
-/* But don't let that override explicit animations */
-.animate-fade-up,
-.animate-count-in,
-.animate-pop-in,
-.shimmer { transition: none; }
-
-/* ── Android WebView scroll fix ─────────────────────────────────
-   Without this, touch events on cards/buttons get consumed and the
-   parent scroll container never sees the gesture. */
+/* ── Android WebView scroll fix ─────────────────────────────────── */
 * { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], a { touch-action: manipulation; }
+main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+.surface-card, .surface-elevated { touch-action: pan-y; }
 
-button, [role="button"], a {
-  touch-action: manipulation;
+/* ── Reduce motion ──────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-fade-in, .animate-count-in, .animate-pop-in,
+  .shield-glow-img, .shield-glow-wrap::before, .shield-glow-wrap::after {
+    animation: none;
+  }
 }
 
-main {
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-}
+/* ── No min-h override (for small buttons) ──────────────────────── */
+.no-min-h { min-height: 0 !important; }
 
-.surface-card, .surface-elevated {
-  touch-action: pan-y;
+/* ── Focus visible ──────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.7);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

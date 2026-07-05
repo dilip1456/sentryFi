@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TopBar } from "@/components/finance/TopBar";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
@@ -14,19 +13,23 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
+  LogOut, Settings, ChevronsUpDown,
   type LucideIcon,
 } from "lucide-react";
 
 type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
-const BASE_TABS: { k: View; label: string; icon: LucideIcon; sub: string }[] = [
-  { k: "overall",   label: "Home",       icon: LayoutDashboard, sub: "Am I OK this month?" },
-  { k: "moneymap",  label: "Money Map",  icon: Compass,         sub: "What you actually have" },
-  { k: "spending",  label: "Spending",   icon: PieChart,        sub: "Where your money goes" },
-  { k: "budget",    label: "Budget",     icon: Wallet,          sub: "Monthly plan vs reality" },
-  { k: "giftcards", label: "Gift Cards", icon: Gift,            sub: "Track gift card balances" },
-  { k: "benefits",  label: "Benefits",   icon: Sparkles,        sub: "Card perks & refinancing" },
-  { k: "monthly",   label: "Cash Flow",  icon: CalendarClock,   sub: "Income vs spending by period" },
+
+const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
+  { k: "overall",   label: "Home",       icon: LayoutDashboard },
+  { k: "moneymap",  label: "Money Map",  icon: Compass         },
+  { k: "spending",  label: "Spending",   icon: PieChart        },
+  { k: "budget",    label: "Budget",     icon: Wallet          },
+  { k: "giftcards", label: "Gift Cards", icon: Gift            },
+  { k: "benefits",  label: "Benefits",   icon: Sparkles        },
+  { k: "monthly",   label: "Cash Flow",  icon: CalendarClock   },
 ];
+
+const MOBILE_PRIMARY: View[] = ["overall", "moneymap", "spending", "budget"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [view, setView] = useState<View>("overall");
@@ -34,236 +37,313 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showAppBanner, setShowAppBanner] = useState(false);
+  const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const { isAdmin, user } = useAuth();
+  const { demo, onHasItemsResolved } = useDemo();
   const navigate = useNavigate();
 
-  const handleCategorySelect = (cat: string) => {
-    if (cat === "__spending__") { setView("spending"); return; }
-    setSelectedCategory(cat || null);
-    if (cat) setView("spending"); // don't navigate away when clearing the filter
-  };
-  const { demo } = useDemo();
-  // Guest demo: treat as demo mode, no admin tab, no real items
   const effectiveDemo = demo || guestDemo;
-  const TABS = useMemo(
-    () => (!guestDemo && isAdmin) ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users, sub: "User management" }] : BASE_TABS,
-    [isAdmin, guestDemo]
-  );
-  const PRIMARY_KEYS: View[] = ["overall", "moneymap", "spending", "budget"];
-  const primaryTabs = TABS.filter(t => PRIMARY_KEYS.includes(t.k));
-  const overflowTabs = TABS.filter(t => !PRIMARY_KEYS.includes(t.k));
-  const [moreOpen, setMoreOpen] = useState(false);
 
-  // Guest demo: skip Supabase check, items are always "none" (demo data takes over)
-  const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
-  const [showAppBanner, setShowAppBanner] = useState(false);
+  const TABS = isAdmin && !guestDemo
+    ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users }]
+    : BASE_TABS;
+  const mobilePrimary = TABS.filter(t => MOBILE_PRIMARY.includes(t.k));
+  const mobileOverflow = TABS.filter(t => !MOBILE_PRIMARY.includes(t.k));
+
   useEffect(() => {
     const isAndroidWeb = /Android/i.test(navigator.userAgent) && !isNative();
     const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
     setShowAppBanner(isAndroidWeb && !dismissed && !guestDemo);
   }, [guestDemo]);
+
   const dismissAppBanner = () => {
     localStorage.setItem("sentryfi_app_banner_dismissed", "1");
     setShowAppBanner(false);
   };
+
   const checkItems = useCallback(async () => {
-    if (guestDemo) return; // guest demo never checks Supabase
-    if (!user) { setHasItems(false); return; }
+    if (guestDemo || !user) { setHasItems(false); return; }
     const { count } = await supabase
       .from("plaid_items")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id)
       .eq("status", "active");
-    setHasItems((count ?? 0) > 0);
-  }, [user, guestDemo]);
+    const has = (count ?? 0) > 0;
+    setHasItems(has);
+    if (has) onHasItemsResolved(true);
+  }, [user, guestDemo, onHasItemsResolved]);
+
   useEffect(() => { checkItems(); }, [checkItems]);
 
-  // Routing: demo uses LivePlaidDashboard with no real data (same UI, sample-less)
-  // Live: LivePlaidDashboard with real Plaid data
-  const showLive = !effectiveDemo && hasItems === true && view !== "admin" && view !== "giftcards";
+  const handleCategorySelect = (cat: string) => {
+    if (cat === "__spending__") { setView("spending"); return; }
+    setSelectedCategory(cat || null);
+    if (cat) setView("spending");
+  };
+
+  const go = (v: View) => {
+    setView(v);
+    setSelectedCategory(null);
+    setMoreOpen(false);
+  };
+
+  const showLive  = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards";
   const showEmpty = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
+  // Sidebar nav item
+  const NavItem = ({ tab }: { tab: typeof TABS[0] }) => {
+    const Icon = tab.icon;
+    const active = view === tab.k;
+    return (
+      <button
+        onClick={() => go(tab.k)}
+        className={cn("nav-item w-full text-left", active && "active")}
+      >
+        <Icon className="h-4 w-4 flex-shrink-0" />
+        <span>{tab.label}</span>
+      </button>
+    );
+  };
+
   return (
-    <div className="h-screen h-[100dvh] bg-background flex flex-col overflow-hidden">
-      <TopBar
-        active={view}
-        onChange={(v) => { setView(v as View); setSelectedCategory(null); }}
-        tabs={TABS.map((t) => ({ k: t.k, label: t.label }))}
-        onAddAccount={() => setLinkOpen(true)}
-        onSync={() => setSyncTrigger(t => t + 1)}
-        syncing={syncing}
-      />
-      <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
+    <div className="h-screen h-[100dvh] bg-background flex overflow-hidden">
 
-      {/* Guest demo conversion banner */}
-      {guestDemo && (
-        <div className="shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.2)] px-4 py-2 flex items-center gap-2.5">
-          <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
-          <span className="text-[12px] text-foreground flex-1 min-w-0">You're in demo mode, sample data only.</span>
-          <button
-            onClick={() => navigate("/auth")}
-            className="text-[11.5px] font-medium px-3 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 hover:opacity-90 transition-opacity"
-          >
-            Create free account
-          </button>
+      {/* ── Desktop sidebar ─────────────────────────────────── */}
+      <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))]"
+        style={{ WebkitOverflowScrolling: "touch" }}>
+
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))]">
+          <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
+            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
+          </div>
+          <div>
+            <div className="text-[13.5px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
+            {guestDemo && <div className="text-[10px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
+          </div>
         </div>
-      )}
 
-      {showAppBanner && (
-        <div className="shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-2 flex items-center gap-2.5">
-          <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-          <span className="text-[12px] text-foreground flex-1 min-w-0">Get the SentryFi app for a faster, full-screen experience.</span>
-          <a
-            href="/downloads/SentryFi.apk"
-            download
-            className="text-[11.5px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0"
-          >
-            Download
-          </a>
-          <button onClick={dismissAppBanner} aria-label="Dismiss" className="h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 scrollbar-none">
+          <div className="section-label">Overview</div>
+          {TABS.filter(t => ["overall","moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
+          <div className="section-label">Money</div>
+          {TABS.filter(t => ["spending","budget","monthly"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
-      <main className="w-full flex-1 overflow-y-auto px-4 md:px-8 pt-5 md:pt-6 pb-6 md:pb-6 space-y-4 flex flex-col" style={{WebkitOverflowScrolling:"touch",overscrollBehaviorY:"contain"}}>
-        {/* Mobile action bar — Sync + Link account, hidden on md+ where TopBar shows them */}
-        {showLive && (
-          <div className="md:hidden flex items-center gap-2">
+          <div className="section-label">More</div>
+          {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+
+          {isAdmin && !guestDemo && (
+            <>
+              <div className="section-label">Admin</div>
+              {TABS.filter(t => t.k === "admin").map(t => <NavItem key={t.k} tab={t} />)}
+            </>
+          )}
+        </nav>
+
+        {/* Bottom actions */}
+        <div className="px-2 py-3 border-t border-[hsl(var(--sidebar-border))] space-y-0.5">
+          {!effectiveDemo && hasItems === true && (
             <button
               onClick={() => setSyncTrigger(t => t + 1)}
               disabled={syncing}
-              className="no-min-h inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border-strong text-muted-foreground text-[11px] disabled:opacity-50"
+              className="nav-item w-full"
             >
-              <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
-              {syncing ? "Syncing…" : "Sync"}
+              <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+              {syncing ? "Syncing…" : "Sync data"}
             </button>
-            <button
-              onClick={() => setLinkOpen(true)}
-              className="no-min-h inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gold text-[11px] font-medium"
-            >
-              <Plus className="h-3 w-3" />
+          )}
+          {!effectiveDemo && (
+            <button onClick={() => setLinkOpen(true)} className="nav-item w-full">
+              <Plus className="h-4 w-4" />
               Link account
             </button>
-          </div>
-        )}
-
-        {!effectiveDemo && hasItems === null && (
-          <div className="min-h-[40vh] grid place-items-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
-        {showEmpty && (
-          <EmptyDashboard onLink={() => { setLinkOpen(true); }} />
-        )}
-
-        {showLive && (
-          <LivePlaidDashboard
-            hasItems={hasItems === true}
-            onAddAccount={() => setLinkOpen(true)}
-            view={view}
-            syncTrigger={syncTrigger}
-            onSyncingChange={setSyncing}
-            selectedCategory={selectedCategory}
-            onCategorySelect={handleCategorySelect}
-          />
-        )}
-
-        {effectiveDemo && view !== "giftcards" && view !== "admin" && (
-          <LivePlaidDashboard
-            demo
-            hasItems={false}
-            onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
-            view={view}
-            syncTrigger={0}
-            selectedCategory={selectedCategory}
-            onCategorySelect={handleCategorySelect}
-          />
-        )}
-        {view === "giftcards" && !guestDemo && <GiftCardsSection />}
-        {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
-
-        {!showEmpty && (
-          <footer className="pt-6 pb-4 text-center text-[11px] text-muted-foreground">
-            SentryFi · {effectiveDemo ? "Demo data" : "Live data"} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-          </footer>
-        )}
-      </main>
-
-      {/* Mobile bottom tab bar — fixed set of primary tabs, no horizontal scroll */}
-      {(hasItems !== null || effectiveDemo) && (
-        <nav
-          className="md:hidden shrink-0 relative border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-[0_-2px_12px_-4px_rgba(0,0,0,0.12)]"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-        >
-          {moreOpen && (
-            <>
-              <button
-                aria-label="Close menu"
-                onClick={() => setMoreOpen(false)}
-                className="fixed inset-0 z-40 bg-black/20"
-              />
-              <div className="absolute bottom-full right-2 mb-2 z-50 w-48 rounded-xl border border-border bg-surface-elevated shadow-lg overflow-hidden">
-                {overflowTabs.map((t) => {
-                  const Icon = t.icon;
-                  const isActive = view === t.k;
-                  return (
-                    <button
-                      key={t.k}
-                      onClick={() => { setView(t.k); setSelectedCategory(null); setMoreOpen(false); }}
-                      className={cn(
-                        "w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[13px] transition-colors text-left",
-                        isActive ? "bg-secondary/60 text-foreground font-medium" : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground"
-                      )}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
           )}
+          {guestDemo && (
+            <button onClick={() => navigate("/auth")} className="nav-item w-full">
+              <LogOut className="h-4 w-4" />
+              Create free account
+            </button>
+          )}
+        </div>
+      </aside>
 
-          <div className="flex items-stretch">
-            {primaryTabs.map((t) => {
-              const Icon = t.icon;
-              const active = view === t.k;
-              return (
-                <button
-                  key={t.k}
-                  onClick={() => { setView(t.k); setSelectedCategory(null); setMoreOpen(false); }}
-                  className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[10.5px] font-medium transition-colors"
-                >
-                  <span className={cn(
-                    "h-7 w-10 rounded-full grid place-items-center transition-colors",
-                    active ? "bg-[hsl(var(--primary)/0.14)]" : ""
-                  )}>
-                    <Icon className={cn("h-[19px] w-[19px]", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
-                  </span>
-                  <span className={active ? "text-foreground" : "text-muted-foreground"}>{t.label}</span>
-                </button>
-              );
-            })}
-            {overflowTabs.length > 0 && (
-              <button
-                onClick={() => setMoreOpen(v => !v)}
-                className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[10.5px] font-medium transition-colors"
-              >
-                <span className={cn(
-                  "h-7 w-10 rounded-full grid place-items-center transition-colors",
-                  moreOpen || overflowTabs.some(t => t.k === view) ? "bg-[hsl(var(--primary)/0.14)]" : ""
-                )}>
-                  <MoreHorizontal className={cn("h-[19px] w-[19px]", moreOpen || overflowTabs.some(t => t.k === view) ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
-                </span>
-                <span className={moreOpen || overflowTabs.some(t => t.k === view) ? "text-foreground" : "text-muted-foreground"}>More</span>
+      {/* ── Content area ────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+        {/* Mobile header */}
+        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
+            <span className="text-[14px] font-semibold text-foreground">
+              {TABS.find(t => t.k === view)?.label ?? "Sentry Finance"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {!effectiveDemo && hasItems === true && (
+              <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
+                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground disabled:opacity-40">
+                <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+              </button>
+            )}
+            {!effectiveDemo && (
+              <button onClick={() => setLinkOpen(true)}
+                className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold flex items-center gap-1">
+                <Plus className="h-3 w-3" /> Link
               </button>
             )}
           </div>
+        </header>
+
+        {/* Banners */}
+        {guestDemo && (
+          <div className="shrink-0 bg-[hsl(var(--warning)/0.1)] border-b border-[hsl(var(--warning)/0.2)] px-4 py-2 flex items-center gap-2.5">
+            <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
+            <span className="text-[12px] text-foreground flex-1">Demo mode — sample data only.</span>
+            <button onClick={() => navigate("/auth")}
+              className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
+              Create free account
+            </button>
+          </div>
+        )}
+        {showAppBanner && (
+          <div className="shrink-0 bg-[hsl(var(--primary)/0.08)] border-b border-[hsl(var(--primary)/0.15)] px-4 py-2 flex items-center gap-2.5">
+            <Download className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
+            <span className="text-[12px] text-foreground flex-1">Get the Android app for the best experience.</span>
+            <a href="/downloads/SentryFi.apk" download
+              className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
+              Download
+            </a>
+            <button onClick={dismissAppBanner} className="h-6 w-6 grid place-items-center text-muted-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Main scroll area */}
+        <main
+          className="flex-1 overflow-y-auto"
+          style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
+        >
+          <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
+
+            {/* Page header on desktop */}
+            <div className="hidden md:flex items-center justify-between">
+              <div>
+                <h1 className="font-display text-2xl text-foreground">
+                  {TABS.find(t => t.k === view)?.label ?? "Dashboard"}
+                </h1>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                </p>
+              </div>
+              {!effectiveDemo && guestDemo && (
+                <button onClick={() => navigate("/auth")}
+                  className="bg-gold h-9 px-4 rounded-lg text-[13px]">
+                  Create free account
+                </button>
+              )}
+            </div>
+
+            {/* Loading state */}
+            {!effectiveDemo && hasItems === null && (
+              <div className="min-h-[50vh] grid place-items-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
+            {showEmpty && <EmptyDashboard onLink={() => setLinkOpen(true)} />}
+
+            {showLive && (
+              <LivePlaidDashboard
+                hasItems
+                onAddAccount={() => setLinkOpen(true)}
+                view={view}
+                syncTrigger={syncTrigger}
+                onSyncingChange={setSyncing}
+                selectedCategory={selectedCategory}
+                onCategorySelect={handleCategorySelect}
+              />
+            )}
+
+            {effectiveDemo && view !== "giftcards" && view !== "admin" && (
+              <LivePlaidDashboard
+                demo
+                hasItems={false}
+                onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
+                view={view}
+                syncTrigger={0}
+                selectedCategory={selectedCategory}
+                onCategorySelect={handleCategorySelect}
+              />
+            )}
+
+            {view === "giftcards" && !guestDemo && <GiftCardsSection />}
+            {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
+
+            <div className="text-center text-[10.5px] text-muted-foreground/40 pt-4">
+              Sentry Finance · {effectiveDemo ? "Demo data" : "Live data"}
+            </div>
+          </div>
+        </main>
+
+        {/* Mobile bottom tabs */}
+        <nav
+          className="md:hidden shrink-0 border-t border-border bg-background/95 backdrop-blur grid"
+          style={{
+            gridTemplateColumns: `repeat(${mobilePrimary.length + 1}, 1fr)`,
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          {mobilePrimary.map(t => {
+            const Icon = t.icon;
+            const active = view === t.k;
+            return (
+              <button key={t.k} onClick={() => go(t.k)}
+                className="flex flex-col items-center gap-0.5 py-2 px-1 relative">
+                {active && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-[hsl(var(--primary))]" />
+                )}
+                <Icon className={cn("h-5 w-5 transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
+                <span className={cn("text-[9.5px] font-medium transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>
+                  {t.label}
+                </span>
+              </button>
+            );
+          })}
+          {/* More button */}
+          <div className="relative">
+            <button onClick={() => setMoreOpen(m => !m)}
+              className="w-full flex flex-col items-center gap-0.5 py-2 px-1">
+              <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
+              <span className="text-[9.5px] font-medium text-muted-foreground">More</span>
+            </button>
+            {moreOpen && (
+              <>
+                <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+                <div className="absolute bottom-full right-0 mb-2 z-50 w-44 rounded-xl border border-border bg-[hsl(var(--popover))] shadow-xl overflow-hidden">
+                  {mobileOverflow.map(t => {
+                    const Icon = t.icon;
+                    return (
+                      <button key={t.k} onClick={() => go(t.k)}
+                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] hover:bg-[hsl(var(--surface-hover))] transition-colors",
+                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
         </nav>
-      )}
+      </div>
+
+      <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
     </div>
   );
 };
