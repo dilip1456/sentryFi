@@ -1,9 +1,5 @@
 name: Build Android APK
 
-# Keeps public/downloads/SentryFi.apk in sync with main automatically.
-# Without this, the APK is a frozen snapshot from whenever someone last
-# built it locally -- it never reflects subsequent web/app fixes.
-
 on:
   push:
     branches: [main]
@@ -24,7 +20,7 @@ jobs:
           cache: npm
 
       - name: Install deps
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build web bundle
         run: npm run build
@@ -34,37 +30,42 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Sync Capacitor Android project with latest web build
-        run: npx cap sync android
+      - name: Sync Capacitor
+        run: npx cap sync android --inline
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build release APK (arm64-only, minified, shrunk -- not debug)
+      - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
 
-      - name: Copy APK to public/downloads
+      - name: Find and copy APK
         run: |
+          echo "=== APK files produced ==="
+          find android/app/build/outputs/apk -name "*.apk" 2>/dev/null || echo "No APKs found"
           APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n1)
           if [ -z "$APK_PATH" ]; then
-            echo "No release APK produced — failing the build"
+            echo "ERROR: No release APK found"
             exit 1
           fi
-          echo "Found APK: $APK_PATH"
+          echo "Using: $APK_PATH"
           mkdir -p public/downloads
           cp "$APK_PATH" public/downloads/SentryFi.apk
           ls -lh public/downloads/SentryFi.apk
 
-      - name: Commit updated APK back to main
+      - name: Commit APK
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/downloads/SentryFi.apk
           if git diff --cached --quiet; then
-            echo "APK unchanged, nothing to commit"
+            echo "APK unchanged"
           else
             git commit -m "chore: auto-rebuild Android APK [skip ci]"
             git push
