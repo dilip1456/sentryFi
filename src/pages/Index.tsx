@@ -213,7 +213,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="shrink-0 bg-[hsl(var(--primary)/0.08)] border-b border-[hsl(var(--primary)/0.15)] px-4 py-2 flex items-center gap-2.5">
             <Download className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
             <span className="text-[12px] text-foreground flex-1">Get the Android app for the best experience.</span>
-            <a href="/downloads/SentryFi.apk" download
+            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release-20260705-0558.apk" download
               className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
               Download
             </a>
