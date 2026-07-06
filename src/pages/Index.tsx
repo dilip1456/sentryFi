@@ -241,8 +241,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 </button>
                 {headerMenuOpen && (
                   <>
-                    <button className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                    <div className="absolute top-full right-0 mt-1.5 z-50 w-52 rounded-xl border border-border bg-[hsl(var(--popover))] shadow-xl overflow-hidden">
+                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
+                    <div className="absolute top-full right-0 mt-1.5 z-50 w-52 rounded-xl border border-border/60 shadow-xl overflow-hidden"
+                      style={{ background: "hsl(var(--surface-elevated))" }}>
                       {user && !effectiveDemo && (
                         <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
                           className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))]">
