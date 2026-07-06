@@ -368,7 +368,7 @@
   .scrollbar-none::-webkit-scrollbar { display: none; }
 
   /* ── Max content width on large screens ─────────────────────── */
-  .content-max { max-width: 1200px; margin: 0 auto; width: 100%; }
+  .content-max { max-width: 1600px; margin: 0 auto; width: 100%; }
 }
 
 /* ── Animations ─────────────────────────────────────────────────── */

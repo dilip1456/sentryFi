@@ -133,7 +133,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const refresh = async () => { if (user) await loadExtras(user.id); };
-  const signOut = async () => { await supabase.auth.signOut(); };
+
+  const signOut = async () => {
+    // Clear all non-user-scoped localStorage keys so the next user on this
+    // device does not inherit this user's settings via migrateFromLocalStorage()
+    const keysToWipe = [
+      "sentryfi_budgets", "sentryfi_account_roles", "sentryfi_cat_overrides",
+      "sentryfi_cat_rules", "sentryfi_custom_categories", "sentryfi_name_overrides",
+      "sentryfi_name_rules", "sentryfi_manual_income", "sentryfi_manual_internal",
+      "sentryfi_manual_external", "sentryfi_dismissed_insights", "sentryfi_dismissed_actions",
+      "sentryfi_dismissed_recurring", "sentryfi_panel_order", "sentryfi_account_meta",
+      "sentryfi_benefits_used", "sentryfi_money_map_feedback",
+    ];
+    keysToWipe.forEach(k => localStorage.removeItem(k));
+    await supabase.auth.signOut();
+  };
 
   return (
     <Ctx.Provider value={{

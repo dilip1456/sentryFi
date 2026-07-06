@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Loader2, Landmark, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { NotificationPreferences } from "@/components/NotificationPreferences";
 
 const schema = z.object({
   display_name: z.string().trim().min(1, "Name required").max(80),
@@ -37,6 +38,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [activeTab, setActiveTab] = useState<"profile" | "notifications">("profile");
 
   const loadItems = async () => {
     if (!user) return;
@@ -57,6 +59,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
       setAvatarUrl(profile?.avatar_url ?? "");
       setShowDeleteAccount(false);
       setDeleteConfirmText("");
+      setActiveTab("profile");
       loadItems();
     }
   }, [open, profile]);
@@ -121,11 +124,22 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
         <DialogTitle className="sr-only">Profile</DialogTitle>
         <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
         <div className="p-5 border-b border-border/40 shrink-0">
-          <div className="font-display text-base text-foreground">Your profile</div>
+          <div className="font-display text-base text-foreground">Settings</div>
           <div className="text-[11.5px] text-muted-foreground mt-0.5">{user?.email}</div>
+          <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[12px] w-fit">
+            {(["profile", "notifications"] as const).map(tab => (
+              <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+                className={`px-4 py-1 rounded-full capitalize transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
+                {tab === "profile" ? "Profile" : "Notifications"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="overflow-y-auto flex-1">
-          <div className="p-5 space-y-3">
+          {activeTab === "notifications" && (
+            <NotificationPreferences onClose={() => onOpenChange(false)} />
+          )}
+          {activeTab === "profile" && <div className="p-5 space-y-3">
             {[
               { label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
               { label: "Phone", value: phone, set: setPhone, ph: "+1 555 123 4567", max: 30 },
@@ -220,7 +234,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
       </DialogContent>
     </Dialog>
