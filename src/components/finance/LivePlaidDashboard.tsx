@@ -2582,12 +2582,16 @@ interface Props {
   onSyncingChange?: (v:boolean)=>void;
   selectedCategory?: string|null;
   onCategorySelect?: (cat:string)=>void;
+  manualAccounts?: import("@/hooks/useManualAccounts").ManualAccount[];
+  onEditManual?: (acct: import("@/hooks/useManualAccounts").ManualAccount) => void;
+  onDeleteManual?: (id: string) => void;
 }
 
 export const LivePlaidDashboard = ({
   onAddAccount, hasItems, demo=false, guestDemo=false, view="overall",
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
+  manualAccounts = [], onEditManual, onDeleteManual,
 }: Props) => {
   const { user } = useAuth();
 
@@ -2961,8 +2965,10 @@ export const LivePlaidDashboard = ({
   useEffect(()=>{ setOpenPickerTxn(null); setEditingBudgetCat(null); },[view]);
 
   // ── Computed (before any early return) ────────────────────
-  const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0);
-  const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0);
+  const manualAssets = manualAccounts.filter(a => a.role !== "debt").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
+  const manualLiab   = manualAccounts.filter(a => a.role === "debt").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
+  const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualAssets;
+  const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualLiab;
   const netWorth    = assets-liabilities;
   const monthlyFlow = buildMonthlyFlow(txns);
 
@@ -3723,6 +3729,69 @@ export const LivePlaidDashboard = ({
             >
               <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
             </button>
+          </div>
+        )}
+
+        {/* Manual accounts */}
+        {manualAccounts.length > 0 && (
+          <div className="space-y-2 pt-2">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground px-1">Manually added</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {manualAccounts.map(acct => {
+                const isLoan = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
+                const equity = acct.property_value && acct.current_balance
+                  ? acct.property_value - acct.current_balance : null;
+                return (
+                  <div key={acct.id} className="surface-card p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-foreground truncate">{acct.name}</div>
+                        {acct.institution_name && (
+                          <div className="text-[11px] text-muted-foreground truncate">{acct.institution_name}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {onEditManual && (
+                          <button onClick={() => onEditManual(acct)}
+                            className="h-6 w-6 rounded grid place-items-center text-muted-foreground hover:text-foreground">
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                        )}
+                        {onDeleteManual && (
+                          <button onClick={() => onDeleteManual(acct.id)}
+                            className="h-6 w-6 rounded grid place-items-center text-muted-foreground hover:text-negative">
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] text-muted-foreground">{isLoan ? "Balance owed" : "Balance"}</div>
+                        <div className={`text-[17px] font-bold ${isLoan ? "text-negative/80" : "text-foreground"}`}>
+                          {isLoan ? "-" : ""}${(acct.current_balance ?? 0).toLocaleString()}
+                        </div>
+                      </div>
+                      {equity !== null && (
+                        <div className="text-right">
+                          <div className="text-[10px] text-muted-foreground">Equity</div>
+                          <div className="text-[14px] font-semibold text-positive">${equity.toLocaleString()}</div>
+                        </div>
+                      )}
+                    </div>
+                    {acct.interest_rate && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {acct.interest_rate}% rate
+                        {acct.monthly_payment ? ` · $${acct.monthly_payment.toLocaleString()}/mo` : ""}
+                      </div>
+                    )}
+                    {acct.property_address && (
+                      <div className="text-[11px] text-muted-foreground truncate">{acct.property_address}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </section>

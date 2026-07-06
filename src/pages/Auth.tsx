@@ -24,6 +24,8 @@ const Auth = () => {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
 
   const [showBanner, setShowBanner] = useState(false);
   useEffect(() => {
@@ -62,7 +64,6 @@ const Auth = () => {
             <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
           </div>
           <div className="font-display text-xl text-foreground">SentryFi</div>
-          <div className="text-[11px] text-muted-foreground/70 -mt-2">SentryFi</div>
           <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
           <div className="text-[10px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
         </div>
@@ -100,6 +101,19 @@ const Auth = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const sendReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+      redirectTo: `${window.location.origin}/auth`,
+    });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Password reset email sent. Check your inbox.");
+    setShowForgot(false);
   };
 
   const google = async () => {
@@ -172,7 +186,36 @@ const Auth = () => {
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === "signin" ? "Sign in" : "Create account"}
           </button>
+          {mode === "signin" && (
+            <div className="text-center mt-1">
+              <button type="button" onClick={() => { setShowForgot(true); setForgotEmail(email); }}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                Forgot password?
+              </button>
+            </div>
+          )}
         </form>
+
+        {showForgot && (
+          <div className="mt-4 rounded-xl border border-border bg-surface/40 p-4 space-y-3">
+            <div className="text-[13px] font-medium text-foreground">Reset your password</div>
+            <form onSubmit={sendReset} className="space-y-2">
+              <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+              <div className="flex gap-2">
+                <button type="submit" disabled={busy}
+                  className="flex-1 py-2 rounded-md bg-foreground text-background text-[12px] font-medium disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                  {busy && <Loader2 className="h-3 w-3 animate-spin" />} Send reset email
+                </button>
+                <button type="button" onClick={() => setShowForgot(false)}
+                  className="px-3 py-2 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 my-4 text-[10px] text-muted-foreground">
           <div className="flex-1 h-px bg-border/60" /> OR <div className="flex-1 h-px bg-border/60" />

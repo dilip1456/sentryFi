@@ -7,6 +7,7 @@ import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -45,14 +46,16 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const [manualOpen, setManualOpen] = useState(false);
+  const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const { isAdmin, user } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
-  const { accounts: manualAccounts, save: saveManual } = useManualAccounts(guestDemo ? undefined : user?.id);
+  const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
@@ -198,6 +201,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Notifications
             </button>
           )}
+          {user && !guestDemo && (
+            <button onClick={() => setShowProfile(true)} className="nav-item w-full">
+              <Settings className="h-4 w-4" />
+              Profile &amp; settings
+            </button>
+          )}
           {demo && !guestDemo && (
             <button onClick={() => setDemo(false)} className="nav-item w-full text-warning">
               <Sparkles className="h-4 w-4" />
@@ -277,6 +286,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
                         <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
+                      </button>
+                    )}
+                    {user && !guestDemo && (
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
+                        <Settings className="h-4 w-4 text-muted-foreground" /> Profile &amp; settings
                       </button>
                     )}
                     <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
@@ -380,6 +395,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 onSyncingChange={setSyncing}
                 selectedCategory={selectedCategory}
                 onCategorySelect={handleCategorySelect}
+                manualAccounts={manualAccounts}
+                onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
+                onDeleteManual={removeManual}
               />
             )}
 
@@ -482,12 +500,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </Dialog>
       )}
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
+      <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
 
       <ManualAccountDialog
         open={manualOpen}
-        onOpenChange={setManualOpen}
+        onOpenChange={o => { setManualOpen(o); if (!o) setEditingManual(null); }}
         onSave={async (input, id) => { const ok = await saveManual(input, id); if (ok) checkItems(); return ok; }}
-        editing={null}
+        editing={editingManual}
       />
 
       {showOnboarding && user && (
