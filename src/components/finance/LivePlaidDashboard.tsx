@@ -2709,6 +2709,7 @@ export const LivePlaidDashboard = ({
   const [monthlyPeriod, setMonthlyPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
+  const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null); // category name → show txns popup
   // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
@@ -4685,10 +4686,10 @@ export const LivePlaidDashboard = ({
     const maxBar = Math.max(...allBudgetedCats.map(c=>Math.max(budgets[c.category]??0, c.total)), 1);
 
     return (
+    <>
     <div className="animate-fade-up">
       {/* ── Two-col: sticky sidebar left, content right ── */}
       <div className="lg:grid lg:grid-cols-[280px_1fr] gap-4 items-start">
-
         {/* ── LEFT SIDEBAR — sticky summary ── */}
         <div className="lg:sticky lg:top-4 space-y-3 mb-3 lg:mb-0">
           {/* Month nav */}
@@ -4899,16 +4900,17 @@ export const LivePlaidDashboard = ({
                   const isSelected=selectedCategory===c.category;
                   return (
                     <div key={c.category} className={cn("px-5 py-4", isSelected&&"bg-[hsl(var(--primary)/0.05)]")}>
-                      <div className="flex items-center gap-2.5 mb-2">
+                      <div className="flex items-center gap-2.5 mb-2 cursor-pointer"
+                        onClick={()=>{ if (!isEditing) setBudgetCatPopup(c.category); }}>
                         <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                           <Icon className="h-3 w-3"/>
                         </div>
-                        <span className="text-[12.5px] font-medium text-foreground flex-1 truncate cursor-pointer"
-                          onClick={()=>onCategorySelect?.(isSelected?"":c.category)}>
+                        <span className="text-[12.5px] font-medium text-foreground flex-1 truncate">
                           {formatCat(c.category)}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""}</span>
                         {over&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0"/>
                       </div>
 
                       {/* Aligned bars — both on the same scale */}
@@ -5030,6 +5032,77 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
     </div>
+
+    {/* Budget category txn popup */}
+    {budgetCatPopup && (() => {
+      const catTxns = budgetTxns.filter(t => Number(t.amount) > 0 && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === budgetCatPopup).sort((a,b)=>b.date.localeCompare(a.date));
+      const catBudget = budgets[budgetCatPopup] ?? 0;
+      const catTotal = catTxns.reduce((s,t)=>s+Number(t.amount),0);
+      const over = catBudget > 0 && catTotal > catBudget;
+      const Icon = categoryIcon(budgetCatPopup);
+      const color = catColor(budgetCatPopup);
+      return (
+        <Dialog open onOpenChange={o=>{ if(!o) setBudgetCatPopup(null); }}>
+          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+            <DialogTitle className="sr-only">{formatCat(budgetCatPopup)} transactions</DialogTitle>
+            <DialogDescription className="sr-only">Transactions for {formatCat(budgetCatPopup)}</DialogDescription>
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-border/30 flex items-center gap-3 shrink-0">
+              <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
+                <Icon className="h-5 w-5"/>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[15px] font-semibold text-foreground">{formatCat(budgetCatPopup)}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {fmtUSD(catTotal)} spent
+                  {catBudget > 0 && <span className={cn("ml-1.5 font-medium", over?"text-negative":"text-positive")}>
+                    {over ? `(${fmtUSD(catTotal-catBudget)} over)` : `(${fmtUSD(catBudget-catTotal)} left of ${fmtUSD(catBudget)})`}
+                  </span>}
+                </div>
+              </div>
+              {catBudget > 0 && (
+                <div className="shrink-0 text-right">
+                  <div className="text-[11px] text-muted-foreground">Budget</div>
+                  <div className="text-[13px] font-semibold tabular text-foreground">{fmtUSD(catBudget)}</div>
+                </div>
+              )}
+            </div>
+            {/* Txn list */}
+            <div className="flex-1 overflow-y-auto divide-y divide-border/10">
+              {catTxns.length === 0 ? (
+                <div className="px-5 py-10 text-center text-[12px] text-muted-foreground">No transactions this period.</div>
+              ) : catTxns.map(t => {
+                const acc = accounts.find(a=>a.account_id===t.account_id);
+                return (
+                  <button key={t.id} onClick={()=>{ setBudgetCatPopup(null); openDetail(t); }}
+                    className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-surface-hover/30 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-foreground truncate">{nameOverrides[t.id] ?? t.merchant_name ?? t.name}</div>
+                      <div className="text-[10.5px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                        <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                        {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
+                        {t.pending && <span className="text-warning font-medium">· Pending</span>}
+                      </div>
+                    </div>
+                    <span className="text-[14px] font-semibold tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0"/>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-border/20 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-muted-foreground">{catTxns.length} transaction{catTxns.length!==1?"s":""}</span>
+              <button onClick={()=>{ setBudgetCatPopup(null); setEditingBudgetCat(budgetCatPopup); setBudgetDraft(String(catBudget||"")); }}
+                className="text-[11.5px] text-[hsl(var(--primary))] font-medium flex items-center gap-1">
+                <Pencil className="h-3 w-3"/> Edit budget
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      );
+    })()}
+    </>
     );
   }
 

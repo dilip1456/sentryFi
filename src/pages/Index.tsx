@@ -5,15 +5,18 @@ import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
+import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown,
+  LogOut, Settings, ChevronsUpDown, Bell,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,9 +41,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [showPrefs, setShowPrefs] = useState(false);
   const [showAppBanner, setShowAppBanner] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const { isAdmin, user } = useAuth();
+  usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const navigate = useNavigate();
 
@@ -172,6 +177,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <button onClick={() => setLinkOpen(true)} className="nav-item w-full">
               <Plus className="h-4 w-4" />
               Link account
+            </button>
+          )}
+          {user && (
+            <button onClick={() => setShowPrefs(true)} className="nav-item w-full">
+              <Bell className="h-4 w-4" />
+              Notifications
             </button>
           )}
           {guestDemo && (
@@ -376,6 +387,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     );
                   })}
+                  {user && (
+                    <button onClick={() => { setMoreOpen(false); setShowPrefs(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
+                      <Bell className="h-4 w-4 text-muted-foreground" />
+                      Notifications
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -383,6 +401,21 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </nav>
       </div>
 
+      {showPrefs && (
+        <Dialog open onOpenChange={o => { if (!o) setShowPrefs(false); }}>
+          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+            <DialogTitle className="sr-only">Notification preferences</DialogTitle>
+            <DialogDescription className="sr-only">Configure alerts</DialogDescription>
+            <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center gap-2">
+              <Bell className="h-4 w-4 text-[hsl(var(--primary))]" />
+              <span className="font-display text-[15px] text-foreground font-semibold">Notifications & Alerts</span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <NotificationPreferences onClose={() => setShowPrefs(false)} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
     </div>
   );
