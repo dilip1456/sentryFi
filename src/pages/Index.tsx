@@ -43,7 +43,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [showAppBanner, setShowAppBanner] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const { isAdmin, user } = useAuth();
   usePushNotifications(user?.id);
@@ -58,16 +57,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const mobilePrimary = TABS.filter(t => MOBILE_PRIMARY.includes(t.k));
   const mobileOverflow = TABS.filter(t => !MOBILE_PRIMARY.includes(t.k));
 
-  useEffect(() => {
-    const isMobileWeb = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && !isNative();
-    const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
-    setShowAppBanner(isMobileWeb && !dismissed && !guestDemo);
-  }, [guestDemo]);
 
-  const dismissAppBanner = () => {
-    localStorage.setItem("sentryfi_app_banner_dismissed", "1");
-    setShowAppBanner(false);
-  };
 
   const checkItems = useCallback(async () => {
     if (guestDemo) { setHasItems(false); return; }
@@ -421,7 +411,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {moreOpen && (
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div className="absolute bottom-full right-0 mb-2 z-50 w-44 rounded-xl border border-border bg-[hsl(var(--popover))] shadow-xl overflow-hidden">
+                <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
+                  style={{ background: "hsl(222, 22%, 14%)" }}>
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
