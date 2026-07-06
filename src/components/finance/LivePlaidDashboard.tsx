@@ -1063,131 +1063,336 @@ type RenameRequest = { txnId: string; merchant: string | null; newName: string; 
 
 // ── Rules Manager ──────────────────────────────────────────────
 const RulesManager = ({
-  rules, allTxns, onRemove, onToggle, onUpdate, onClose,
+  rules, nameRules, allTxns, onRemoveCatRule, onToggleCatRule, onUpdateCatRule,
+  onAddCatRule, onSaveNameRule, onRemoveNameRule, onClose,
 }: {
   rules: CategoryRule[];
+  nameRules: Record<string, string>;
   allTxns: { merchant_name: string | null; name: string | null }[];
-  onRemove: (id: string) => void;
-  onToggle: (id: string) => void;
-  onUpdate: (id: string, updates: Partial<Pick<CategoryRule, "pattern" | "category" | "matchType" | "enabled">>) => void;
+  onRemoveCatRule: (id: string) => void;
+  onToggleCatRule: (id: string) => void;
+  onUpdateCatRule: (id: string, updates: Partial<Pick<CategoryRule, "pattern" | "category" | "matchType" | "enabled">>) => void;
+  onAddCatRule: (pattern: string, category: string, matchType?: RuleMatchType) => void;
+  onSaveNameRule: (merchant: string, name: string) => void;
+  onRemoveNameRule: (merchant: string) => void;
   onClose: () => void;
 }) => {
+  const [tab, setTab] = useState<"category" | "names">("category");
   const [editId, setEditId] = useState<string | null>(null);
   const [editPattern, setEditPattern] = useState("");
   const [editMatchType, setEditMatchType] = useState<RuleMatchType>("contains");
   const [editCategory, setEditCategory] = useState("");
+  const [editNameKey, setEditNameKey] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newPattern, setNewPattern] = useState("");
+  const [newMatchType, setNewMatchType] = useState<RuleMatchType>("contains");
+  const [newCategory, setNewCategory] = useState("");
+  const [showNewName, setShowNewName] = useState(false);
+  const [newNameMerchant, setNewNameMerchant] = useState("");
+  const [newNameDisplay, setNewNameDisplay] = useState("");
 
-  const startEdit = (r: CategoryRule) => {
-    setEditId(r.id);
-    setEditPattern(r.pattern);
-    setEditMatchType(r.matchType);
-    setEditCategory(r.category);
-  };
-
-  const commitEdit = () => {
-    if (!editId) return;
-    onUpdate(editId, { pattern: editPattern, matchType: editMatchType, category: editCategory });
-    setEditId(null);
-  };
-
-  const countMatches = (r: CategoryRule) =>
+  const countMatches = (pattern: string, matchType: RuleMatchType) =>
     allTxns.filter(t => {
       const m = (t.merchant_name ?? t.name ?? "").toLowerCase();
-      const p = r.pattern.toLowerCase();
-      switch (r.matchType) {
+      const p = pattern.toLowerCase();
+      switch (matchType) {
         case "exact": return m === p;
         case "starts_with": return m.startsWith(p);
         default: return m.includes(p);
       }
     }).length;
 
+  const matchLabel = (mt: RuleMatchType) =>
+    mt === "exact" ? "is exactly" : mt === "starts_with" ? "starts with" : "contains";
+
   const userRules = rules.filter(r => r.source !== "system");
   const sysRules  = rules.filter(r => r.source === "system");
-
-  const RuleRow = ({ r }: { r: CategoryRule }) => {
-    const count = countMatches(r);
-    const isEditing = editId === r.id;
-    const Icon = categoryIcon(r.category);
-    const color = catColor(r.category);
-    return (
-      <div className={cn("px-5 py-4 space-y-2", !r.enabled && "opacity-50")}>
-        {isEditing ? (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
-                className="h-8 px-2 rounded-md bg-surface/60 border border-border/60 text-[11px] outline-none shrink-0">
-                <option value="contains">contains</option>
-                <option value="exact">exact</option>
-                <option value="starts_with">starts with</option>
-              </select>
-              <input value={editPattern} onChange={e => setEditPattern(e.target.value)}
-                className="flex-1 h-8 px-2.5 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none" />
-            </div>
-            <input value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="Category…"
-              className="w-full h-8 px-2.5 rounded-md bg-surface/60 border border-border/60 text-[11px] outline-none" />
-            <div className="flex gap-2">
-              <button onClick={commitEdit} className="flex-1 h-7 rounded-md bg-gold text-[11px] font-semibold">Save</button>
-              <button onClick={() => setEditId(null)} className="h-7 px-3 rounded-md border border-border-strong text-[11px] text-muted-foreground">Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-              <Icon className="h-3.5 w-3.5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-medium text-foreground truncate">
-                <span className="text-[10px] text-muted-foreground mr-1">{r.matchType === "contains" ? "~" : r.matchType === "exact" ? "=" : "^"}</span>
-                {r.pattern} → {formatCat(r.category)}
-              </div>
-              <div className="text-[10px] text-muted-foreground">
-                {count} transaction{count !== 1 ? "s" : ""} match · {r.source === "system" ? "system" : "user"} rule
-              </div>
-            </div>
-            {r.source !== "system" && (
-              <button onClick={() => startEdit(r)} className="h-7 w-7 grid place-items-center text-muted-foreground hover:text-foreground">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-            )}
-            <button onClick={() => onToggle(r.id)} className={cn("h-7 w-7 grid place-items-center transition-colors", r.enabled ? "text-positive" : "text-muted-foreground")}>
-              {r.enabled ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-            </button>
-            <button onClick={() => onRemove(r.id)} className="h-7 w-7 grid place-items-center text-muted-foreground hover:text-negative transition-colors">
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
+  const nameEntries = Object.entries(nameRules);
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+      <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88dvh] flex flex-col">
         <DialogTitle className="sr-only">Rules</DialogTitle>
-        <DialogDescription className="sr-only">Manage categorization rules.</DialogDescription>
-        <div className="px-5 py-4 border-b border-border/30 shrink-0">
-          <div className="font-display text-[14px] text-foreground">Categorization rules</div>
-          <div className="text-[10.5px] text-muted-foreground mt-0.5">Rules automatically categorize matching transactions</div>
+        <DialogDescription className="sr-only">Manage transaction rules</DialogDescription>
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center justify-between">
+          <div>
+            <div className="font-display text-[15px] text-foreground font-semibold">Transaction Rules</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Automatically apply patterns to matching transactions</div>
+          </div>
+          <button onClick={() => { setShowNewCat(tab === "category"); setShowNewName(tab === "names"); setEditId(null); setEditNameKey(null); }}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0">
+            <Plus className="h-3.5 w-3.5" /> New Rule
+          </button>
         </div>
+
+        {/* Tabs */}
+        <div className="flex gap-0 border-b border-border/20 shrink-0">
+          {([["category", "Category Rules", rules.length], ["names", "Name Rules", nameEntries.length]] as const).map(([k, label, count]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={cn("flex-1 py-2.5 text-[12.5px] font-medium transition-colors border-b-2 -mb-px",
+                tab === k ? "border-[hsl(var(--primary))] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
+              {label}
+              {count > 0 && <span className={cn("ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]", tab === k ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]" : "bg-border/40 text-muted-foreground")}>{count}</span>}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1 overflow-y-auto min-h-0">
-          {userRules.length === 0 && sysRules.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[12px] text-muted-foreground">No rules yet. Open a transaction and tap "Add rule" to create one.</div>
-          ) : (
-            <>
-              {userRules.length > 0 && (
-                <div className="divide-y divide-border/10">
-                  <div className="px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground">Your rules</div>
-                  {userRules.map(r => <RuleRow key={r.id} r={r} />)}
+
+          {/* ── CATEGORY RULES TAB ── */}
+          {tab === "category" && (
+            <div className="divide-y divide-border/10">
+
+              {/* New category rule form */}
+              {showNewCat && (
+                <div className="p-4 bg-[hsl(var(--primary)/0.04)] border-b border-[hsl(var(--primary)/0.12)] space-y-3">
+                  <div className="text-[11.5px] font-semibold text-foreground">New category rule</div>
+                  <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+                    <span className="text-[11px] text-muted-foreground">When name</span>
+                    <select value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}
+                      className="h-8 px-2 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                      <option value="contains">contains</option>
+                      <option value="starts_with">starts with</option>
+                      <option value="exact">is exactly</option>
+                    </select>
+                    <span className="text-[11px] text-muted-foreground">Pattern</span>
+                    <input value={newPattern} onChange={e => setNewPattern(e.target.value)} placeholder="e.g. Amazon, Starbucks…"
+                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                    <span className="text-[11px] text-muted-foreground">Category</span>
+                    <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="e.g. Shopping, Food…"
+                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                  </div>
+                  {newPattern && newCategory && (
+                    <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
+                      When merchant name {matchLabel(newMatchType)} <strong className="text-foreground">"{newPattern}"</strong> → set category to <strong className="text-foreground">{formatCat(newCategory)}</strong>
+                      <span className="ml-2 text-[hsl(var(--primary))]">({countMatches(newPattern, newMatchType)} matches)</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      if (!newPattern.trim() || !newCategory.trim()) return;
+                      onAddCatRule(newPattern.trim(), newCategory.trim(), newMatchType);
+                      setNewPattern(""); setNewCategory(""); setNewMatchType("contains"); setShowNewCat(false);
+                    }} className="h-8 px-4 rounded-md bg-gold text-[11.5px] font-semibold">Save rule</button>
+                    <button onClick={() => { setShowNewCat(false); setNewPattern(""); setNewCategory(""); }} className="h-8 px-3 rounded-md border border-border-strong text-[11.5px] text-muted-foreground">Cancel</button>
+                  </div>
                 </div>
               )}
+
+              {userRules.length === 0 && !showNewCat && (
+                <div className="py-10 text-center space-y-2">
+                  <div className="text-[13px] text-foreground font-medium">No category rules yet</div>
+                  <div className="text-[11.5px] text-muted-foreground">Rules auto-categorize transactions based on merchant name patterns.</div>
+                  <button onClick={() => setShowNewCat(true)} className="mt-2 text-[11.5px] text-[hsl(var(--primary))] underline underline-offset-2">Create your first rule</button>
+                </div>
+              )}
+
+              {userRules.map(r => {
+                const isEditing = editId === r.id;
+                const Icon = categoryIcon(r.category);
+                const color = catColor(r.category);
+                const matches = countMatches(r.pattern, r.matchType);
+                return (
+                  <div key={r.id} className={cn("px-4 py-3.5 transition-colors", !r.enabled && "opacity-50", isEditing && "bg-[hsl(var(--primary)/0.04)]")}>
+                    {isEditing ? (
+                      <div className="space-y-2.5">
+                        <div className="text-[11px] font-semibold text-foreground mb-1">Edit rule</div>
+                        <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+                          <span className="text-[11px] text-muted-foreground">When name</span>
+                          <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
+                            className="h-8 px-2 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                            <option value="contains">contains</option>
+                            <option value="starts_with">starts with</option>
+                            <option value="exact">is exactly</option>
+                          </select>
+                          <span className="text-[11px] text-muted-foreground">Pattern</span>
+                          <input value={editPattern} onChange={e => setEditPattern(e.target.value)}
+                            className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
+                          <span className="text-[11px] text-muted-foreground">Category</span>
+                          <input value={editCategory} onChange={e => setEditCategory(e.target.value)}
+                            className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                        </div>
+                        {editPattern && editCategory && (
+                          <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
+                            When merchant {matchLabel(editMatchType)} <strong className="text-foreground">"{editPattern}"</strong> → <strong className="text-foreground">{formatCat(editCategory)}</strong>
+                            <span className="ml-2 text-[hsl(var(--primary))]">({countMatches(editPattern, editMatchType)} matches)</span>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <button onClick={() => { onUpdateCatRule(r.id, { pattern: editPattern, matchType: editMatchType, category: editCategory }); setEditId(null); }}
+                            className="h-8 px-4 rounded-md bg-gold text-[11.5px] font-semibold">Save changes</button>
+                          <button onClick={() => setEditId(null)} className="h-8 px-3 rounded-md border border-border-strong text-[11.5px] text-muted-foreground">Cancel</button>
+                          <button onClick={() => { onRemoveCatRule(r.id); setEditId(null); }}
+                            className="h-8 px-3 rounded-md text-[11.5px] text-negative hover:bg-negative/10 ml-auto">Delete</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-3">
+                        <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0 mt-0.5" style={{ backgroundColor: `${color}20`, color }}>
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12.5px] font-medium text-foreground">
+                            When name <span className="text-muted-foreground font-normal">{matchLabel(r.matchType)}</span> <span className="font-semibold">"{r.pattern}"</span>
+                          </div>
+                          <div className="text-[12px] text-muted-foreground mt-0.5">
+                            Category: <span className="text-foreground font-medium">{formatCat(r.category)}</span>
+                            <span className="mx-1.5 text-border">·</span>
+                            <span className={cn(matches > 0 ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>{matches} match{matches !== 1 ? "es" : ""}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => onToggleCatRule(r.id)}
+                            className={cn("h-7 px-2.5 rounded-full text-[10px] font-medium transition-colors border",
+                              r.enabled ? "bg-positive/10 text-positive border-positive/20 hover:bg-positive/20" : "bg-border/30 text-muted-foreground border-border/40 hover:bg-border/50")}>
+                            {r.enabled ? "On" : "Off"}
+                          </button>
+                          <button onClick={() => { setEditId(r.id); setEditPattern(r.pattern); setEditMatchType(r.matchType); setEditCategory(r.category); setShowNewCat(false); }}
+                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => onRemoveCatRule(r.id)}
+                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
               {sysRules.length > 0 && (
-                <div className="divide-y divide-border/10 border-t border-border/20">
-                  <div className="px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground">System rules</div>
-                  {sysRules.map(r => <RuleRow key={r.id} r={r} />)}
+                <>
+                  <div className="px-4 py-2 bg-border/10">
+                    <span className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-semibold">System rules</span>
+                    <span className="text-[10px] text-muted-foreground ml-2">(auto-generated, can be toggled)</span>
+                  </div>
+                  {sysRules.map(r => {
+                    const Icon = categoryIcon(r.category);
+                    const color = catColor(r.category);
+                    return (
+                      <div key={r.id} className={cn("px-4 py-3 flex items-center gap-3", !r.enabled && "opacity-40")}>
+                        <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                          <Icon className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12px] text-foreground">
+                            <span className="text-muted-foreground">{matchLabel(r.matchType)} </span>
+                            <span className="font-medium">"{r.pattern}"</span>
+                            <span className="text-muted-foreground"> → </span>
+                            <span className="font-medium">{formatCat(r.category)}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">{countMatches(r.pattern, r.matchType)} matches</div>
+                        </div>
+                        <button onClick={() => onToggleCatRule(r.id)}
+                          className={cn("h-7 px-2.5 rounded-full text-[10px] font-medium transition-colors border shrink-0",
+                            r.enabled ? "bg-positive/10 text-positive border-positive/20" : "bg-border/30 text-muted-foreground border-border/40")}>
+                          {r.enabled ? "On" : "Off"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── NAME RULES TAB ── */}
+          {tab === "names" && (
+            <div className="divide-y divide-border/10">
+
+              {/* New name rule form */}
+              {showNewName && (
+                <div className="p-4 bg-[hsl(var(--primary)/0.04)] border-b border-[hsl(var(--primary)/0.12)] space-y-3">
+                  <div className="text-[11.5px] font-semibold text-foreground">New name rule</div>
+                  <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+                    <span className="text-[11px] text-muted-foreground">Merchant name</span>
+                    <input value={newNameMerchant} onChange={e => setNewNameMerchant(e.target.value)} placeholder="e.g. AMZN Mktp US"
+                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                    <span className="text-[11px] text-muted-foreground">Show as</span>
+                    <input value={newNameDisplay} onChange={e => setNewNameDisplay(e.target.value)} placeholder="e.g. Amazon"
+                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                  </div>
+                  {newNameMerchant && newNameDisplay && (
+                    <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
+                      Display <strong className="text-foreground">"{newNameMerchant}"</strong> as <strong className="text-foreground">"{newNameDisplay}"</strong>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      if (!newNameMerchant.trim() || !newNameDisplay.trim()) return;
+                      onSaveNameRule(newNameMerchant.trim(), newNameDisplay.trim());
+                      setNewNameMerchant(""); setNewNameDisplay(""); setShowNewName(false);
+                    }} className="h-8 px-4 rounded-md bg-gold text-[11.5px] font-semibold">Save rule</button>
+                    <button onClick={() => { setShowNewName(false); setNewNameMerchant(""); setNewNameDisplay(""); }} className="h-8 px-3 rounded-md border border-border-strong text-[11.5px] text-muted-foreground">Cancel</button>
+                  </div>
                 </div>
               )}
-            </>
+
+              {nameEntries.length === 0 && !showNewName && (
+                <div className="py-10 text-center space-y-2">
+                  <div className="text-[13px] text-foreground font-medium">No name rules yet</div>
+                  <div className="text-[11.5px] text-muted-foreground">Name rules replace how merchant names display across the app.</div>
+                  <button onClick={() => setShowNewName(true)} className="mt-2 text-[11.5px] text-[hsl(var(--primary))] underline underline-offset-2">Create your first rule</button>
+                </div>
+              )}
+
+              {nameEntries.map(([merchant, display]) => {
+                const isEditing = editNameKey === merchant;
+                const matchCount = allTxns.filter(t => (t.merchant_name ?? t.name ?? "") === merchant).length;
+                return (
+                  <div key={merchant} className={cn("px-4 py-3.5 transition-colors", isEditing && "bg-[hsl(var(--primary)/0.04)]")}>
+                    {isEditing ? (
+                      <div className="space-y-2.5">
+                        <div className="text-[11px] font-semibold text-foreground mb-1">Edit name rule</div>
+                        <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+                          <span className="text-[11px] text-muted-foreground">Merchant name</span>
+                          <input value={merchant} readOnly className="h-8 px-2.5 rounded-md bg-border/20 border border-border/40 text-[11px] text-muted-foreground cursor-not-allowed" />
+                          <span className="text-[11px] text-muted-foreground">Show as</span>
+                          <input value={editNameValue} onChange={e => setEditNameValue(e.target.value)}
+                            className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { onSaveNameRule(merchant, editNameValue); setEditNameKey(null); }}
+                            className="h-8 px-4 rounded-md bg-gold text-[11.5px] font-semibold">Save changes</button>
+                          <button onClick={() => setEditNameKey(null)} className="h-8 px-3 rounded-md border border-border-strong text-[11.5px] text-muted-foreground">Cancel</button>
+                          <button onClick={() => { onRemoveNameRule(merchant); setEditNameKey(null); }}
+                            className="h-8 px-3 rounded-md text-[11.5px] text-negative hover:bg-negative/10 ml-auto">Delete</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                          <Tag className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12.5px] font-medium text-foreground">
+                            "{merchant}" <span className="text-muted-foreground font-normal mx-1">shown as</span> "{display}"
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            <span className={cn(matchCount > 0 ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>{matchCount} match{matchCount !== 1 ? "es" : ""}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => { setEditNameKey(merchant); setEditNameValue(display); setShowNewName(false); }}
+                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => onRemoveNameRule(merchant)}
+                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </DialogContent>
@@ -4666,7 +4871,18 @@ export const LivePlaidDashboard = ({
       </div>
 
       {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
-      {showRulesManager && <RulesManager rules={rules} allTxns={txns} onRemove={removeRule} onToggle={toggleRule} onUpdate={updateRule} onClose={() => setShowRulesManager(false)} />}
+      {showRulesManager && <RulesManager
+        rules={rules}
+        nameRules={nameRules}
+        allTxns={txns}
+        onRemoveCatRule={removeRule}
+        onToggleCatRule={toggleRule}
+        onUpdateCatRule={updateRule}
+        onAddCatRule={addRule}
+        onSaveNameRule={saveNameRule}
+        onRemoveNameRule={(merchant) => S.update({ nameRules: Object.fromEntries(Object.entries(nameRules).filter(([k]) => k !== merchant)) })}
+        onClose={() => setShowRulesManager(false)}
+      />}
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
         txns={txns} overrides={overrides} rules={rules} budgets={budgets}
