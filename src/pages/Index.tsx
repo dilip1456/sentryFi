@@ -230,75 +230,76 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
                 className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+            </button>
+            )}
+            {/* Settings gear — always visible on mobile */}
+            <div className="relative">
+              <button onClick={() => setHeaderMenuOpen(o => !o)}
+                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                <Settings className="h-3.5 w-3.5" />
               </button>
-            )}
-            {/* Header settings menu */}
-            {(user || effectiveDemo) && (
-              <div className="relative">
-                <button onClick={() => setHeaderMenuOpen(o => !o)}
-                  className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
-                {headerMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} />
-                    <div className="fixed top-14 right-2 z-[101] w-52 rounded-xl border border-border/60 shadow-xl overflow-hidden"
-                      style={{ background: "hsl(var(--surface-elevated))" }}>
-                      {user && !effectiveDemo && (
-                        <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))]">
-                          <Plus className="h-4 w-4 text-muted-foreground" /> Link account
-                        </button>
-                      )}
-                      {user && (
-                        <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))]">
-                          <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
-                        </button>
-                      )}
-                      <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))] border-t border-border/20"
-                        onClick={() => setHeaderMenuOpen(false)}>
-                        <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
-                      </a>
-                      {demo && !guestDemo && (
-                        <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-warning hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
-                          <Sparkles className="h-4 w-4" /> Exit demo
-                        </button>
-                      )}
-                      {guestDemo && (
-                        <button onClick={() => navigate("/auth")}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
-                          <LogOut className="h-4 w-4" /> Create free account
-                        </button>
-                      )}
-                      {user && !guestDemo && (
-                        <button onClick={() => { setHeaderMenuOpen(false); supabase.auth.signOut().then(() => navigate("/welcome")); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-negative hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
-                          <LogOut className="h-4 w-4" /> Sign out
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+              {headerMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} />
+                  <div className="fixed top-14 right-2 z-[101] w-56 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
+                    style={{ background: "hsl(222, 22%, 14%)" }}>
+                    {!user && (
+                      <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white/5">
+                        <LogOut className="h-4 w-4" /> Sign in / Create account
+                      </button>
+                    )}
+                    {user && !effectiveDemo && (
+                      <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
+                        <Plus className="h-4 w-4 text-muted-foreground" /> Link account
+                      </button>
+                    )}
+                    {user && (
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
+                        <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
+                      </button>
+                    )}
+                    <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5 border-t border-white/10"
+                      onClick={() => setHeaderMenuOpen(false)}>
+                      <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
+                    </a>
+                    {(demo && !guestDemo) && (
+                      <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-warning hover:bg-white/5 border-t border-white/10">
+                        <Sparkles className="h-4 w-4" /> Exit demo
+                      </button>
+                    )}
+                    {guestDemo && (
+                      <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-white/10">
+                        <LogOut className="h-4 w-4" /> Create free account
+                      </button>
+                    )}
+                    {user && !guestDemo && (
+                      <button onClick={() => { setHeaderMenuOpen(false); supabase.auth.signOut().then(() => navigate("/welcome")); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 hover:bg-white/5 border-t border-white/10">
+                        <LogOut className="h-4 w-4" /> Sign out
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
-        {/* APK download banner — show on any mobile browser (not just Android detection) */}
-        {showAppBanner && (
-          <div className="shrink-0 bg-[hsl(var(--primary)/0.1)] border-b border-[hsl(var(--primary)/0.2)] px-4 py-2.5 flex items-center gap-2.5 md:hidden">
+        {/* APK banner — always show on mobile web, ignore dismiss state */}
+        {!isNative() && (
+          <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12.5px] text-foreground flex-1 font-medium">Download the Android app</span>
+            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the Sentry Finance Android app</span>
             <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
-              className="text-[12px] font-semibold px-3 py-1.5 rounded-full bg-gold shrink-0">
+              className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
             </a>
-            <button onClick={dismissAppBanner} className="h-6 w-6 grid place-items-center text-muted-foreground shrink-0">
-              <X className="h-3.5 w-3.5" />
-            </button>
           </div>
         )}
 
