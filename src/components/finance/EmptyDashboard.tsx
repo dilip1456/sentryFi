@@ -1,10 +1,10 @@
-import { Sparkles, Link2, ShieldCheck, TrendingUp, Wallet, CreditCard } from "lucide-react";
+import { Sparkles, Link2, ShieldCheck, TrendingUp, Wallet, CreditCard, PenLine } from "lucide-react";
 import { useDemo } from "@/contexts/DemoContext";
 import { toast } from "sonner";
 
-interface Props { onLink: () => void }
+interface Props { onLink: () => void; onAddManual?: () => void }
 
-export const EmptyDashboard = ({ onLink }: Props) => {
+export const EmptyDashboard = ({ onLink, onAddManual }: Props) => {
   const { setDemo } = useDemo();
 
   return (
@@ -21,7 +21,7 @@ export const EmptyDashboard = ({ onLink }: Props) => {
           Your accounts, cards, and investments in one place.
         </p>
 
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-left">
           <button
             onClick={onLink}
             className="surface-elevated p-4 hover:border-[hsl(var(--primary)/0.4)] transition-all group text-left"
@@ -37,6 +37,24 @@ export const EmptyDashboard = ({ onLink }: Props) => {
               Connect via Plaid →
             </div>
           </button>
+
+          {onAddManual && (
+            <button
+              onClick={onAddManual}
+              className="surface-card p-4 hover:border-border-strong transition-all text-left group"
+            >
+              <div className="h-9 w-9 rounded-lg bg-surface-hover border border-border grid place-items-center text-muted-foreground">
+                <PenLine className="h-4 w-4" />
+              </div>
+              <div className="mt-3 text-[14px] font-medium text-foreground">Add manually</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">
+                Mortgage, loans, or any account Plaid can't reach.
+              </div>
+              <div className="mt-2.5 text-[12px] text-muted-foreground group-hover:text-foreground">
+                Add account →
+              </div>
+            </button>
+          )}
 
           <button
             onClick={() => { setDemo(true); toast.success("Demo mode enabled"); }}
