@@ -41,7 +41,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [showAppBanner, setShowAppBanner] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const { isAdmin, user } = useAuth();
-  const { demo, onHasItemsResolved } = useDemo();
+  const { demo, setDemo, onHasItemsResolved } = useDemo();
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
@@ -53,9 +53,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const mobileOverflow = TABS.filter(t => !MOBILE_PRIMARY.includes(t.k));
 
   useEffect(() => {
-    const isAndroidWeb = /Android/i.test(navigator.userAgent) && !isNative();
+    const isMobileWeb = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && !isNative();
     const dismissed = localStorage.getItem("sentryfi_app_banner_dismissed") === "1";
-    setShowAppBanner(isAndroidWeb && !dismissed && !guestDemo);
+    setShowAppBanner(isMobileWeb && !dismissed && !guestDemo);
   }, [guestDemo]);
 
   const dismissAppBanner = () => {
@@ -191,17 +191,38 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[14px] font-semibold text-foreground">
-              {TABS.find(t => t.k === view)?.label ?? "Sentry Finance"}
+              {effectiveDemo ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Not logged in at all — show sign in */}
+            {!user && !effectiveDemo && (
+              <button onClick={() => navigate("/auth")}
+                className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold">
+                Sign in
+              </button>
+            )}
+            {/* In demo mode — offer to sign in or exit */}
+            {effectiveDemo && (
+              <>
+                <button onClick={() => { setDemo(false); navigate("/welcome"); }}
+                  className="h-8 px-3 rounded-full border border-border text-[11px] text-muted-foreground">
+                  Exit demo
+                </button>
+                <button onClick={() => navigate("/auth")}
+                  className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold">
+                  Sign in
+                </button>
+              </>
+            )}
+            {/* Logged in with real data */}
             {!effectiveDemo && hasItems === true && (
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
                 className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground disabled:opacity-40">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
               </button>
             )}
-            {!effectiveDemo && (
+            {!effectiveDemo && user && (
               <button onClick={() => setLinkOpen(true)}
                 className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold flex items-center gap-1">
                 <Plus className="h-3 w-3" /> Link
@@ -210,27 +231,33 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </div>
         </header>
 
-        {/* Banners */}
-        {guestDemo && (
-          <div className="shrink-0 bg-[hsl(var(--warning)/0.1)] border-b border-[hsl(var(--warning)/0.2)] px-4 py-2 flex items-center gap-2.5">
-            <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
-            <span className="text-[12px] text-foreground flex-1">Demo mode — sample data only.</span>
-            <button onClick={() => navigate("/auth")}
-              className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
-              Create free account
+        {/* APK download banner — show on any mobile browser (not just Android detection) */}
+        {showAppBanner && (
+          <div className="shrink-0 bg-[hsl(var(--primary)/0.1)] border-b border-[hsl(var(--primary)/0.2)] px-4 py-2.5 flex items-center gap-2.5 md:hidden">
+            <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
+            <span className="text-[12.5px] text-foreground flex-1 font-medium">Download the Android app</span>
+            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
+              className="text-[12px] font-semibold px-3 py-1.5 rounded-full bg-gold shrink-0">
+              Download
+            </a>
+            <button onClick={dismissAppBanner} className="h-6 w-6 grid place-items-center text-muted-foreground shrink-0">
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         )}
-        {showAppBanner && (
-          <div className="shrink-0 bg-[hsl(var(--primary)/0.08)] border-b border-[hsl(var(--primary)/0.15)] px-4 py-2 flex items-center gap-2.5">
-            <Download className="h-3.5 w-3.5 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12px] text-foreground flex-1">Get the Android app for the best experience.</span>
-            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download
+
+        {/* Demo banner */}
+        {effectiveDemo && (
+          <div className="shrink-0 bg-[hsl(var(--warning)/0.08)] border-b border-[hsl(var(--warning)/0.15)] px-4 py-2 flex items-center gap-2.5">
+            <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
+            <span className="text-[12px] text-foreground flex-1">You're viewing demo data.</span>
+            <button onClick={() => navigate("/auth")}
               className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
-              Download
-            </a>
-            <button onClick={dismissAppBanner} className="h-6 w-6 grid place-items-center text-muted-foreground">
-              <X className="h-3.5 w-3.5" />
+              Create account
+            </button>
+            <button onClick={() => { setDemo(false); navigate("/welcome"); }}
+              className="text-[11px] text-muted-foreground shrink-0 underline underline-offset-2">
+              Exit
             </button>
           </div>
         )}
