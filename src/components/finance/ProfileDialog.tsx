@@ -139,7 +139,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
           {activeTab === "notifications" && (
             <NotificationPreferences onClose={() => onOpenChange(false)} />
           )}
-          {activeTab === "profile" && <div className="p-5 space-y-3">
+          {activeTab === "profile" && <>
+          <div className="p-5 space-y-3">
             {[
               { label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
               { label: "Phone", value: phone, set: setPhone, ph: "+1 555 123 4567", max: 30 },
@@ -159,7 +160,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             </button>
           </div>
 
-          {/* ── Connected banks ── */}
+          {/* Connected banks */}
           <div className="px-5 pb-5">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
             {items === null ? (
@@ -234,7 +235,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                 </div>
               )}
             </div>
-          </div>}
+          </div>
+          </>}
         </div>
       </DialogContent>
     </Dialog>
