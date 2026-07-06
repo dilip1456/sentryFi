@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { isNative } from "@/lib/capacitor-oauth";
+import { APK_DOWNLOAD_URL } from "@/lib/constants";
 
 const FEATURES = [
   {
@@ -122,7 +123,7 @@ const navigate = useNavigate();
             Try the demo
           </button>
           {isAndroid && (
-            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
+            <a href="{APK_DOWNLOAD_URL}" download style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
               ↓ Download Android app
             </a>
           )}
@@ -227,7 +228,7 @@ const navigate = useNavigate();
           </div>
           {isAndroid && (
             <div style={{ marginTop: 24 }}>
-              <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk" download style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
+              <a href="{APK_DOWNLOAD_URL}" download style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
                 ↓ Download the Android app instead
               </a>
             </div>
