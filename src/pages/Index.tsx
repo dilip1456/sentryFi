@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +43,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [showPrefs, setShowPrefs] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showAppBanner, setShowAppBanner] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const { isAdmin, user } = useAuth();
@@ -185,10 +187,22 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Notifications
             </button>
           )}
+          {demo && !guestDemo && (
+            <button onClick={() => setDemo(false)} className="nav-item w-full text-warning">
+              <Sparkles className="h-4 w-4" />
+              Exit demo
+            </button>
+          )}
           {guestDemo && (
             <button onClick={() => navigate("/auth")} className="nav-item w-full">
               <LogOut className="h-4 w-4" />
               Create free account
+            </button>
+          )}
+          {user && !guestDemo && (
+            <button onClick={() => supabase.auth.signOut().then(() => navigate("/welcome"))} className="nav-item w-full">
+              <LogOut className="h-4 w-4" />
+              Sign out
             </button>
           )}
         </div>
@@ -202,42 +216,73 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[14px] font-semibold text-foreground">
-              {effectiveDemo ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
+              {effectiveDemo ? "Demo" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Not logged in at all — show sign in */}
+          <div className="flex items-center gap-1.5">
+            {/* Not logged in */}
             {!user && !effectiveDemo && (
-              <button onClick={() => navigate("/auth")}
-                className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold">
+              <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[12px] font-semibold">
                 Sign in
               </button>
             )}
-            {/* In demo mode — offer to sign in or exit */}
-            {effectiveDemo && (
-              <>
-                <button onClick={() => { setDemo(false); navigate("/welcome"); }}
-                  className="h-8 px-3 rounded-full border border-border text-[11px] text-muted-foreground">
-                  Exit demo
-                </button>
-                <button onClick={() => navigate("/auth")}
-                  className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold">
-                  Sign in
-                </button>
-              </>
-            )}
-            {/* Logged in with real data */}
+            {/* Sync */}
             {!effectiveDemo && hasItems === true && (
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground disabled:opacity-40">
+                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
               </button>
             )}
-            {!effectiveDemo && user && (
-              <button onClick={() => setLinkOpen(true)}
-                className="h-8 px-3 rounded-full bg-gold text-[11.5px] font-semibold flex items-center gap-1">
-                <Plus className="h-3 w-3" /> Link
-              </button>
+            {/* Header settings menu */}
+            {(user || effectiveDemo) && (
+              <div className="relative">
+                <button onClick={() => setHeaderMenuOpen(o => !o)}
+                  className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
+                {headerMenuOpen && (
+                  <>
+                    <button className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
+                    <div className="absolute top-full right-0 mt-1.5 z-50 w-52 rounded-xl border border-border bg-[hsl(var(--popover))] shadow-xl overflow-hidden">
+                      {user && !effectiveDemo && (
+                        <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))]">
+                          <Plus className="h-4 w-4 text-muted-foreground" /> Link account
+                        </button>
+                      )}
+                      {user && (
+                        <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))]">
+                          <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
+                        </button>
+                      )}
+                      <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))] border-t border-border/20"
+                        onClick={() => setHeaderMenuOpen(false)}>
+                        <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
+                      </a>
+                      {demo && !guestDemo && (
+                        <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-warning hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
+                          <Sparkles className="h-4 w-4" /> Exit demo
+                        </button>
+                      )}
+                      {guestDemo && (
+                        <button onClick={() => navigate("/auth")}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
+                          <LogOut className="h-4 w-4" /> Create free account
+                        </button>
+                      )}
+                      {user && !guestDemo && (
+                        <button onClick={() => { setHeaderMenuOpen(false); supabase.auth.signOut().then(() => navigate("/welcome")); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-negative hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
+                          <LogOut className="h-4 w-4" /> Sign out
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </header>
