@@ -27,7 +27,7 @@ export const usePushNotifications = (userId: string | undefined) => {
 
       // Handle push received while app is open
       PushNotifications.addListener("pushNotificationReceived", (notification) => {
-        toast(notification.title ?? "Sentry Finance", {
+        toast(notification.title ?? "SentryFi", {
           description: notification.body,
         });
       });

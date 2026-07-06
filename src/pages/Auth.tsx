@@ -62,7 +62,7 @@ const Auth = () => {
             <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
           </div>
           <div className="font-display text-xl text-foreground">SentryFi</div>
-          <div className="text-[11px] text-muted-foreground/70 -mt-2">Sentry Finance</div>
+          <div className="text-[11px] text-muted-foreground/70 -mt-2">SentryFi</div>
           <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
           <div className="text-[10px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
         </div>

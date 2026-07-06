@@ -125,10 +125,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))]">
           <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
+            <img src="/logo.png" alt="SentryFi" className="h-6 w-6 object-contain" />
           </div>
           <div>
-            <div className="text-[13.5px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
+            <div className="text-[13.5px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">SentryFi</div>
             {guestDemo && <div className="text-[10px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
           </div>
         </div>
@@ -205,7 +205,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[14px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
+              {effectiveDemo ? "Demo" : (TABS.find(t => t.k === view)?.label ?? "SentryFi")}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -285,7 +285,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {!isNative() && (
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the Sentry Finance Android app</span>
+            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
             <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
               className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
@@ -372,7 +372,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
             <div className="text-center text-[10.5px] text-muted-foreground/40 pt-4">
-              Sentry Finance · {effectiveDemo ? "Demo data" : "Live data"}
+              SentryFi · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
         </main>
