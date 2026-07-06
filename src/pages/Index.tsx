@@ -241,8 +241,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 </button>
                 {headerMenuOpen && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                    <div className="absolute top-full right-0 mt-1.5 z-50 w-52 rounded-xl border border-border/60 shadow-xl overflow-hidden"
+                    <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} />
+                    <div className="fixed top-14 right-2 z-[101] w-52 rounded-xl border border-border/60 shadow-xl overflow-hidden"
                       style={{ background: "hsl(var(--surface-elevated))" }}>
                       {user && !effectiveDemo && (
                         <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
