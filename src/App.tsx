@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DemoProvider } from "@/contexts/DemoContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index.tsx";
 import Auth from "./pages/Auth.tsx";
 import Welcome from "./pages/Welcome.tsx";
@@ -19,6 +20,7 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 const queryClient = new QueryClient();
 
 const App = () => (
+  <ErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TooltipProvider>
@@ -44,6 +46,7 @@ const App = () => (
     </ThemeProvider>
     <Analytics />
   </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

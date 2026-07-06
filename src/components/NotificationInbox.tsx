@@ -40,17 +40,17 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
       .limit(30)
       .then(({ data, error }) => {
         if (error) {
-          // Table might not exist yet; show empty state
           setItems([]);
         } else {
           setItems((data ?? []) as Notification[]);
         }
-      });
+      })
+      .catch(() => setItems([]));
   }, [user]);
 
   const markRead = async (id: string) => {
     setItems(prev => prev?.map(n => n.id === id ? { ...n, read: true } : n) ?? prev);
-    await supabase.from("notifications" as any).update({ read: true }).eq("id", id);
+    supabase.from("notifications" as any).update({ read: true }).eq("id", id).then(() => {});
   };
 
   const timeAgo = (iso: string) => {

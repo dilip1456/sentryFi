@@ -29,11 +29,13 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
   useEffect(() => {
     if (!user) return;
     supabase.from("alert_preferences").select("*").eq("user_id", user.id).maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.warn("[notif-prefs] fetch error:", error.message);
         if (data) setPrefs({ ...DEFAULTS, ...data, email: data.email ?? user.email ?? "" });
         else setPrefs({ ...DEFAULTS, email: user.email ?? "" });
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, [user]);
 
   const save = async () => {

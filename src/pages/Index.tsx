@@ -17,6 +17,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
+import { APK_DOWNLOAD_URL } from "@/lib/constants";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
@@ -263,7 +264,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 <>
                   <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} />
                   <div className="fixed top-14 right-2 z-[101] w-56 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
-                    style={{ background: "hsl(222, 22%, 14%)" }}>
+                    style={{ background: "hsl(var(--surface-elevated, 222 22% 14%))" }}>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white/5">
@@ -294,7 +295,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                         <Settings className="h-4 w-4 text-muted-foreground" /> Profile &amp; settings
                       </button>
                     )}
-                    <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
+                    <a href="{APK_DOWNLOAD_URL}"
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5 border-t border-white/10"
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
@@ -329,7 +330,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
             <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
-            <a href="https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk"
+            <a href="{APK_DOWNLOAD_URL}"
               className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
             </a>
@@ -458,7 +459,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
                 <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
-                  style={{ background: "hsl(222, 22%, 14%)" }}>
+                  style={{ background: "hsl(var(--surface-elevated, 222 22% 14%))" }}>
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
