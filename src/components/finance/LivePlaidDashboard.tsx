@@ -2713,7 +2713,9 @@ export const LivePlaidDashboard = ({
   const [monthlyPeriod, setMonthlyPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
-  const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null); // category name → show txns popup
+  const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null);
+  const [addCatNameDraft, setAddCatNameDraft] = useState("");
+  const [addCatCustom, setAddCatCustom] = useState("");
   // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
@@ -4756,353 +4758,222 @@ export const LivePlaidDashboard = ({
 
     return (
     <>
-    <div className="animate-fade-up">
-      {/* ── Two-col: sticky sidebar left, content right ── */}
-      <div className="lg:grid lg:grid-cols-[280px_1fr] gap-4 items-start">
-        {/* ── LEFT SIDEBAR — sticky summary ── */}
-        <div className="lg:sticky lg:top-4 space-y-3 mb-3 lg:mb-0">
-          {/* Month nav */}
-          <div className="surface-card px-5 py-4">
-            <div className="flex items-center justify-between mb-3">
-              <button onClick={()=>setBudgetMonthOffset(o=>o-1)} className="h-7 w-7 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
-                <ChevronLeft className="h-3.5 w-3.5"/>
-              </button>
-              <span className="text-[13px] font-semibold text-foreground">{getPeriodLabel(budgetPeriodState)}</span>
-              <button onClick={()=>setBudgetMonthOffset(o=>Math.min(0,o+1))} disabled={budgetMonthOffset>=0} className="h-7 w-7 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
-                <ChevronRight className="h-3.5 w-3.5"/>
-              </button>
-            </div>
+    <div className="animate-fade-up space-y-4">
 
-            {/* Summary metrics */}
-            <div className="space-y-2.5">
-              {[
-                { label:"Income", val:anticipatedIncome, color:"text-positive", sub: detectedIncomeThisMonth>0?`${fmtUSD(detectedIncomeThisMonth)} detected`:"from transactions" },
-                { label:"Budgeted", val:totalAllocated, color:"text-foreground", sub:`${allBudgetedCats.length} categories` },
-                { label:"Spent", val:totalSpent, color:overCount>0?"text-negative":"text-foreground", sub:overCount>0?`${overCount} over budget`:"on track" },
-                { label:"Left", val:Math.abs(left), color:left>=0?"text-positive":"text-negative", sub:left>=0?"remaining":"over income" },
-              ].map(m=>(
-                <div key={m.label} className="flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground">{m.label}</span>
-                  <div className="text-right">
-                    <span className={cn("text-[14px] font-display tabular font-bold", m.color)}>{left<0&&m.label==="Left"?"−":""}{fmtUSD(m.val)}</span>
-                    <div className="text-[10px] text-muted-foreground">{m.sub}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Income vs spend bar */}
-            {anticipatedIncome > 0 && (
-              <div className="mt-3 space-y-1">
-                <div className="h-2 rounded-full bg-border/30 overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{
-                    width:`${Math.min((totalSpent/anticipatedIncome)*100,100)}%`,
-                    backgroundColor:totalSpent>anticipatedIncome?"hsl(var(--negative))":totalSpent/anticipatedIncome>0.9?"hsl(var(--warning))":"hsl(var(--positive))"
-                  }}/>
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>{Math.round((totalSpent/anticipatedIncome)*100)}% of income spent</span>
-                  <span>{fmtUSD(Math.max(anticipatedIncome-totalSpent,0))} left</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Income sources */}
-          <div className="surface-card overflow-hidden">
-            <div className="px-5 py-3 border-b border-border/15 flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-foreground">Income</span>
-              <button onClick={()=>setShowAddIncome(s=>!s)} className="text-[10px] text-[hsl(var(--primary))]">+ Add</button>
-            </div>
-            {showAddIncome && (
-              <div className="px-5 py-4 border-b border-border/15 space-y-2">
-                <input value={incomeDraftLabel} onChange={e=>setIncomeDraftLabel(e.target.value)} placeholder="Label (e.g. Rental income)"
-                  className="w-full h-7 px-2.5 rounded-md bg-surface/60 border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.4)]"/>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                    <input value={incomeDraftAmt} onChange={e=>setIncomeDraftAmt(e.target.value)} type="number" placeholder="Amount"
-                      className="w-full h-7 pl-5 pr-2 rounded-md bg-surface/60 border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.4)]"/>
-                  </div>
-                  <button onClick={addManualIncome} className="h-7 px-3 rounded-md bg-gold text-[11px] font-semibold">Add</button>
-                </div>
-              </div>
-            )}
-            <div className="divide-y divide-border/10">
-              {budgetIncomeTxns.slice(0,4).map(t=>(
-                <div key={t.id} className="flex items-center justify-between px-4 py-2">
-                  <span className="text-[11px] text-foreground truncate flex-1">{t.merchant_name??t.name}</span>
-                  <span className="text-[11px] tabular text-positive font-medium ml-2">+{fmtUSD(Math.abs(Number(t.amount)))}</span>
-                </div>
-              ))}
-              {manualIncome.map(m=>(
-                <div key={m.id} className="flex items-center justify-between px-4 py-2">
-                  <span className="text-[11px] text-foreground truncate flex-1">{m.label}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] tabular text-positive font-medium">+{fmtUSD(m.amount)}</span>
-                    <button onClick={()=>removeManualIncome(m.id)} className="text-muted-foreground hover:text-negative"><X className="h-3 w-3"/></button>
-                  </div>
-                </div>
-              ))}
-              {recurringIncomeSources.length > 0 && budgetMonthOffset < 0 && (
-                <div className="px-4 py-2">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Anticipated (recurring)</div>
-                  {recurringIncomeSources.slice(0,3).map(r=>(
-                    <div key={r.merchant} className="flex items-center justify-between py-1">
-                      <span className="text-[10.5px] text-muted-foreground truncate flex-1">{r.merchant}</span>
-                      <span className="text-[10.5px] tabular text-muted-foreground">~{fmtUSD(r.avgAmount)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Overage fund allocation */}
-          {overCategories.length > 0 && (
-            <div className="surface-card overflow-hidden border border-negative/20">
-              <div className="px-5 py-3 border-b border-border/15">
-                <div className="text-[11px] font-semibold text-negative">{overCategories.length} categor{overCategories.length===1?"y":"ies"} over budget</div>
-                <div className="text-[10.5px] text-muted-foreground mt-0.5">Total overage: {fmtUSD(totalOverage)}</div>
-              </div>
-              <div className="divide-y divide-border/10">
-                {overCategories.map(c=>{
-                  const over = c.total-(budgets[c.category]??0);
-                  const Icon = categoryIcon(c.category);
-                  const color = catColor(c.category);
-                  return (
-                    <div key={c.category} className="px-5 py-3 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-5 w-5 rounded grid place-items-center" style={{backgroundColor:`${color}20`,color}}>
-                            <Icon className="h-3 w-3"/>
-                          </div>
-                          <span className="text-[11.5px] font-medium text-foreground">{formatCat(c.category)}</span>
-                        </div>
-                        <span className="text-[11px] tabular text-negative font-semibold">+{fmtUSD(over)}</span>
-                      </div>
-                      {spendingRoleAccounts.length > 0 && (
-                        <select
-                          value={fundAllocations[c.category]??""}
-                          onChange={e=>setFundAllocations(p=>({...p,[c.category]:e.target.value}))}
-                          className="w-full h-7 rounded-md bg-surface/60 border border-border/60 text-[10.5px] text-foreground px-2 outline-none">
-                          <option value="">Cover from…</option>
-                          {spendingRoleAccounts.map(a=>(
-                            <option key={a.account_id} value={a.account_id}>
-                              {a.name} ({fmtUSD(Number(a.current_balance))})
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              {Object.values(fundAllocations).some(v=>!!v) && (
-                <div className="px-5 py-4 border-t border-border/20 bg-surface/40 space-y-2">
-                  <div className="text-[10px] font-semibold text-foreground uppercase tracking-wider">Transfer summary</div>
-                  {Object.entries(fundAllocations).filter(([,aid])=>!!aid).map(([cat,aid])=>{
-                    const over=Math.max((catMap[cat]?.total??0)-(budgets[cat]??0),0);
-                    const acc=accounts.find(a=>a.account_id===aid);
-                    const spendAcct=accounts.find(a=>getRole(a.account_id,a.type,a.subtype).role==="spending");
-                    if(!over||!acc)return null;
-                    return(
-                      <div key={cat} className="text-[10.5px] text-foreground flex items-center gap-1 flex-wrap">
-                        <span className="font-medium">{fmtUSD(over)}</span>
-                        <span className="text-muted-foreground">from</span>
-                        <span className="font-medium text-[hsl(var(--primary))]">{acc.name}</span>
-                        <span className="text-muted-foreground">→</span>
-                        <span className="font-medium">{spendAcct?.name??"Spending"}</span>
-                        <span className="text-muted-foreground">for {formatCat(cat)}</span>
-                      </div>
-                    );
-                  })}
-                  <div className="text-[10.5px] text-muted-foreground">These are suggestions — transfers must be done manually in your bank.</div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ── RIGHT — aligned budget vs actual bars ── */}
-        <div className="space-y-3">
-          {/* Unset budget CTA if any spending categories have no budget */}
-          {unbudgetedCats.length > 0 && (
-            <div className="surface-card px-5 py-4 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[12px] font-medium text-foreground">{unbudgetedCats.length} unbudgeted categor{unbudgetedCats.length===1?"y":"ies"}</div>
-                <div className="text-[10px] text-muted-foreground">{fmtUSD(unbudgetedCats.reduce((s,c)=>s+c.total,0))} spent outside your plan</div>
-              </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {unbudgetedCats.slice(0,3).map(c=>(
-                  <button key={c.category}
-                    onClick={()=>{setEditingBudgetCat(c.category);setBudgetDraft(String(Math.ceil(c.total/10)*10));}}
-                    className="text-[10px] px-2 py-0.5 rounded-full border border-[hsl(var(--primary)/0.3)] text-[hsl(var(--primary))] hover:bg-primary/10">
-                    {formatCat(c.category)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Aligned budget vs actual bars ── */}
-          {allBudgetedCats.length === 0 ? (
-            <div className="surface-card p-8 text-center text-[12.5px] text-muted-foreground">
-              No budgets set yet. Click a category below to set one.
-            </div>
-          ) : (
-            <div className="surface-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-border/20 flex items-center gap-2">
-                <span className="text-[11px] font-semibold text-foreground">Budget vs actual</span>
-                <span className="text-[10.5px] text-muted-foreground ml-auto">{allBudgetedCats.length} categories · {fmtUSD(totalAllocated)} budgeted</span>
-              </div>
-              <div className="divide-y divide-border/10">
-                {allBudgetedCats.map(c=>{
-                  const Icon=categoryIcon(c.category);
-                  const color=catColor(c.category);
-                  const budget=budgets[c.category]??0;
-                  const actual=c.total;
-                  const over=actual>budget;
-                  const budgetPct=(budget/maxBar)*100;
-                  const actualPct=(actual/maxBar)*100;
-                  const isEditing=editingBudgetCat===c.category;
-                  const isSelected=selectedCategory===c.category;
-                  return (
-                    <div key={c.category} className={cn("px-5 py-4", isSelected&&"bg-[hsl(var(--primary)/0.05)]")}>
-                      <div className="flex items-center gap-2.5 mb-2 cursor-pointer"
-                        onClick={()=>{ if (!isEditing) setBudgetCatPopup(c.category); }}>
-                        <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
-                          <Icon className="h-3 w-3"/>
-                        </div>
-                        <span className="text-[12.5px] font-medium text-foreground flex-1 truncate">
-                          {formatCat(c.category)}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">{c.count} txn{c.count!==1?"s":""}</span>
-                        {over&&<span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
-                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0"/>
-                      </div>
-
-                      {/* Aligned bars — both on the same scale */}
-                      <div className="space-y-1">
-                        {/* Budget bar */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">Budget</span>
-                          <div className="flex-1 h-4 rounded bg-border/15 relative overflow-hidden">
-                            <div className="h-full rounded transition-all duration-300"
-                              style={{width:`${budgetPct}%`,backgroundColor:`${color}40`}}/>
-                            <span className="absolute right-1.5 top-0 bottom-0 flex items-center text-[10.5px] text-muted-foreground tabular">{fmtUSD(budget)}</span>
-                          </div>
-                        </div>
-                        {/* Actual bar — can overflow budget */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground w-10 text-right shrink-0">Actual</span>
-                          <div className="flex-1 h-4 rounded bg-border/15 relative overflow-visible">
-                            <div className="h-full rounded transition-all duration-300 relative"
-                              style={{
-                                width:`${Math.min(actualPct,100)}%`,
-                                backgroundColor:over?"hsl(var(--negative))":color,
-                              }}>
-                              {over&&(
-                                <div className="absolute top-0 bottom-0 right-0 translate-x-full"
-                                  style={{width:`${Math.min(((actual-budget)/maxBar)*100,30)}%`,backgroundColor:"hsl(var(--negative))",opacity:0.5,borderRadius:"0 4px 4px 0"}}/>
-                              )}
-                            </div>
-                            <span className={cn("absolute right-1.5 top-0 bottom-0 flex items-center text-[10.5px] tabular font-medium",over?"text-negative":"text-foreground")}>{fmtUSD(actual)}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Delta + edit */}
-                      <div className="flex items-center justify-between mt-1.5">
-                        {isEditing ? (
-                          <form className="flex items-center gap-1.5 flex-1" onSubmit={e=>{e.preventDefault();const n=parseFloat(budgetDraft);if(!isNaN(n)&&n>=0)setBudget(c.category,n);setEditingBudgetCat(null);setBudgetDraft("");}}>
-                            <div className="relative">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                              <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)}
-                                onKeyDown={e=>{if(e.key==="Escape"){setEditingBudgetCat(null);setBudgetDraft("");}}}
-                                className="w-24 h-7 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none"/>
-                            </div>
-                            <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
-                            <button type="button" onClick={()=>{setEditingBudgetCat(null);setBudgetDraft("");}} className="h-7 px-2 rounded-md border border-border-strong text-[10px] text-muted-foreground">✕</button>
-                          </form>
-                        ) : (
-                          <>
-                            <span className={cn("text-[10.5px] tabular font-semibold",over?"text-negative":"text-positive")}>
-                              {over?`${fmtUSD(actual-budget)} over`:`${fmtUSD(budget-actual)} left`}
-                            </span>
-                            <button onClick={()=>{setEditingBudgetCat(c.category);setBudgetDraft(String(budget));}}
-                              className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                              <Pencil className="h-2.5 w-2.5"/> Edit
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Transactions for selected category inline */}
-                      {isSelected && c.txns.length > 0 && (
-                        <div className="mt-2 rounded-lg bg-secondary/30 overflow-hidden">
-                          {c.txns.slice(0,5).map(t=>(
-                            <button key={t.id} onClick={()=>openDetail(t)}
-                              className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-secondary/50 transition-colors border-b border-border/10 last:border-0">
-                              <div className="min-w-0">
-                                <div className="text-[11.5px] font-medium text-foreground truncate">{t.merchant_name??t.name}</div>
-                                <div className="text-[10.5px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                              </div>
-                              <span className="text-[12px] tabular font-semibold text-foreground ml-2">{fmtUSD(Number(t.amount))}</span>
-                            </button>
-                          ))}
-                          {c.txns.length>5&&<div className="px-3 py-1.5 text-[10.5px] text-muted-foreground">+{c.txns.length-5} more</div>}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Unbudgeted spending */}
-          {unbudgetedCats.length > 0 && (
-            <div className="surface-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-border/15">
-                <span className="text-[11px] font-semibold text-foreground">Outside your budget</span>
-                <span className="text-[10.5px] text-muted-foreground ml-2">{fmtUSD(unbudgetedCats.reduce((s,c)=>s+c.total,0))} untracked</span>
-              </div>
-              <div className="divide-y divide-border/10">
-                {unbudgetedCats.map(c=>{
-                  const Icon=categoryIcon(c.category);
-                  const color=catColor(c.category);
-                  const isEditing=editingBudgetCat===c.category;
-                  return (
-                    <div key={c.category} className="flex items-center gap-3 px-5 py-3">
-                      <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
-                        <Icon className="h-3 w-3"/>
-                      </div>
-                      <span className="text-[12px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
-                      <span className="text-[12px] tabular text-foreground">{fmtUSD(c.total)}</span>
-                      {isEditing ? (
-                        <form className="flex items-center gap-1" onSubmit={e=>{e.preventDefault();const n=parseFloat(budgetDraft);if(!isNaN(n)&&n>=0)setBudget(c.category,n);setEditingBudgetCat(null);setBudgetDraft("");}}>
-                          <div className="relative">
-                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                            <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)} className="w-20 h-6 pl-4 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none"/>
-                          </div>
-                          <button type="submit" className="h-6 px-2 rounded-md bg-gold text-[10px] font-medium">OK</button>
-                        </form>
-                      ) : (
-                        <button onClick={()=>{setEditingBudgetCat(c.category);setBudgetDraft(String(Math.ceil(c.total/10)*10));}}
-                          className="text-[10.5px] text-[hsl(var(--primary))] hover:underline shrink-0">+ Budget</button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Month nav */}
+      <div className="flex items-center justify-between px-1">
+        <button onClick={() => setBudgetMonthOffset(o => o - 1)}
+          className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-[14px] font-semibold text-foreground">{getPeriodLabel(budgetPeriodState)}</span>
+        <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
+          className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* Top tracker */}
+      {(() => {
+        const budgetPct = totalAllocated > 0 ? Math.min((totalSpent / totalAllocated) * 100, 100) : 0;
+        const leftVsBudget = totalAllocated - totalSpent;
+        return (
+        <div className="surface-card px-5 py-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Budgeted", val: totalAllocated, color: "text-foreground" },
+              { label: "Actual",   val: totalSpent,     color: overCount > 0 ? "text-negative" : "text-foreground" },
+              { label: leftVsBudget >= 0 ? "Left" : "Over", val: Math.abs(leftVsBudget), color: leftVsBudget >= 0 ? "text-positive" : "text-negative" },
+            ].map(m => (
+              <div key={m.label} className="text-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">{m.label}</div>
+                <div className={cn("text-[20px] font-display font-bold tabular leading-tight", m.color)}>{fmtUSD(m.val)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="h-1.5 rounded-full bg-border/30 overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${budgetPct}%`,
+              backgroundColor: budgetPct >= 100 ? "hsl(var(--negative))" : budgetPct >= 85 ? "hsl(var(--warning))" : "hsl(var(--positive))"
+            }} />
+          </div>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>{Math.round(budgetPct)}% of budget used</span>
+            <span>{allBudgetedCats.length} categor{allBudgetedCats.length !== 1 ? "ies" : "y"}</span>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Category list */}
+      <div className="surface-card overflow-hidden">
+        <div className="px-5 py-3 border-b border-border/20 flex items-center justify-between">
+          <span className="text-[12px] font-semibold text-foreground">Budgeted categories</span>
+          <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
+            className="text-[11.5px] text-[hsl(var(--primary))] font-medium flex items-center gap-1 hover:opacity-80">
+            <Plus className="h-3.5 w-3.5" /> Add
+          </button>
+        </div>
+
+        {/* Add form */}
+        {editingBudgetCat === "__add__" && (
+          <div className="px-5 py-4 border-b border-border/20 bg-surface/40 space-y-2.5">
+            <div className="text-[11px] font-semibold text-foreground mb-1">New budget</div>
+            <select value={addCatNameDraft} onChange={e => setAddCatNameDraft(e.target.value)}
+              className="w-full h-9 px-3 rounded-lg bg-surface/60 border border-border/60 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]">
+              <option value="">Select category...</option>
+              {unbudgetedCats.map(c => (
+                <option key={c.category} value={c.category}>{formatCat(c.category)} ({fmtUSD(c.total)} spent)</option>
+              ))}
+              <option value="__custom__">Custom name...</option>
+            </select>
+            {addCatNameDraft === "__custom__" && (
+              <input value={addCatCustom} onChange={e => setAddCatCustom(e.target.value)}
+                placeholder="Category name"
+                className="w-full h-9 px-3 rounded-lg bg-surface/60 border border-border/60 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+            )}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">$</span>
+                <input type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)}
+                  placeholder="Monthly amount"
+                  className="w-full h-9 pl-7 pr-3 rounded-lg bg-surface/60 border border-border/60 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+              </div>
+              <button onClick={() => {
+                const cat = addCatNameDraft === "__custom__" ? addCatCustom.trim() : addCatNameDraft;
+                const amt = parseFloat(budgetDraft);
+                if (!cat || isNaN(amt) || amt <= 0) return;
+                setBudget(cat, amt);
+                setEditingBudgetCat(null);
+                setBudgetDraft("");
+                setAddCatNameDraft("");
+                setAddCatCustom("");
+              }} className="h-9 px-4 rounded-lg bg-gold text-[12px] font-semibold shrink-0">Save</button>
+              <button onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); setAddCatNameDraft(""); }}
+                className="h-9 px-3 rounded-lg border border-border-strong text-[12px] text-muted-foreground shrink-0">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {allBudgetedCats.length === 0 && editingBudgetCat !== "__add__" ? (
+          <div className="p-10 text-center text-[12.5px] text-muted-foreground">
+            No budgets yet. Press <span className="text-[hsl(var(--primary))]">+ Add</span> to create one.
+          </div>
+        ) : (
+          <div className="divide-y divide-border/10">
+            {allBudgetedCats.map(c => {
+              const Icon = categoryIcon(c.category);
+              const color = catColor(c.category);
+              const budget = budgets[c.category] ?? 0;
+              const actual = c.total;
+              const over = actual > budget;
+              const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
+              const isEditing = editingBudgetCat === c.category;
+              return (
+                <div key={c.category} className="px-5 py-4">
+                  {/* Name row */}
+                  <div className="flex items-center gap-2.5 mb-2.5 cursor-pointer"
+                    onClick={() => { if (!isEditing) setBudgetCatPopup(c.category); }}>
+                    <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-[13px] font-semibold text-foreground flex-1">{formatCat(c.category)}</span>
+                    <span className="text-[10px] text-muted-foreground">{c.count} txn{c.count !== 1 ? "s" : ""}</span>
+                    {over && <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                  </div>
+
+                  {/* Budget / Actual aligned label-value rows */}
+                  <div className="ml-9 space-y-1">
+                    <div className="flex items-baseline">
+                      <span className="text-[11px] text-muted-foreground w-16 shrink-0">Budget</span>
+                      <span className="text-[13px] font-medium text-foreground tabular">{fmtUSD(budget)}</span>
+                    </div>
+                    <div className="flex items-baseline">
+                      <span className="text-[11px] text-muted-foreground w-16 shrink-0">Actual</span>
+                      <span className={cn("text-[13px] font-semibold tabular", over ? "text-negative" : "text-foreground")}>{fmtUSD(actual)}</span>
+                      <span className={cn("text-[10.5px] tabular ml-3 font-medium", over ? "text-negative" : "text-positive")}>
+                        {over ? `${fmtUSD(actual - budget)} over` : `${fmtUSD(budget - actual)} left`}
+                      </span>
+                    </div>
+                    <div className="h-1 rounded-full bg-border/30 mt-2 overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-300" style={{
+                        width: `${pct}%`,
+                        backgroundColor: over ? "hsl(var(--negative))" : pct >= 85 ? "hsl(var(--warning))" : color
+                      }} />
+                    </div>
+                    {isEditing ? (
+                      <form className="flex items-center gap-1.5 mt-2"
+                        onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                          <input autoFocus type="number" min={0} step={10} value={budgetDraft}
+                            onChange={e => setBudgetDraft(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Escape") { setEditingBudgetCat(null); setBudgetDraft(""); } }}
+                            className="w-24 h-7 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none" />
+                        </div>
+                        <button type="submit" className="h-7 px-3 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
+                        <button type="button" onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); }}
+                          className="h-7 px-2 rounded-md border border-border-strong text-[10px] text-muted-foreground">Cancel</button>
+                        <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
+                          className="h-7 px-2 rounded-md text-[10px] text-negative hover:bg-negative/10 ml-auto">Remove</button>
+                      </form>
+                    ) : (
+                      <button onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1.5 transition-colors">
+                        <Pencil className="h-2.5 w-2.5" /> Edit
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Unbudgeted spending */}
+      {unbudgetedCats.length > 0 && (
+        <div className="surface-card overflow-hidden">
+          <div className="px-5 py-3 border-b border-border/15 flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-foreground">Spending without a budget</span>
+            <span className="text-[10px] text-muted-foreground ml-1">{fmtUSD(unbudgetedCats.reduce((s, c) => s + c.total, 0))} untracked</span>
+          </div>
+          <div className="divide-y divide-border/10">
+            {unbudgetedCats.map(c => {
+              const Icon = categoryIcon(c.category);
+              const color = catColor(c.category);
+              const isEditing = editingBudgetCat === c.category;
+              return (
+                <div key={c.category} className="flex items-center gap-3 px-5 py-3">
+                  <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                    <Icon className="h-3 w-3" />
+                  </div>
+                  <span className="text-[12.5px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                  <span className="text-[12px] tabular text-muted-foreground">{fmtUSD(c.total)}</span>
+                  {isEditing ? (
+                    <form className="flex items-center gap-1" onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
+                      <div className="relative">
+                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
+                        <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)}
+                          className="w-20 h-7 pl-4 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none" />
+                      </div>
+                      <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[10.5px] font-medium">OK</button>
+                    </form>
+                  ) : (
+                    <button onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(Math.ceil(c.total / 10) * 10)); }}
+                      className="text-[11px] text-[hsl(var(--primary))] hover:underline shrink-0 font-medium">+ Budget</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
     </div>
 
-    {/* Budget category txn popup */}
+        {/* Budget category txn popup */}
     {budgetCatPopup && (() => {
       const catTxns = budgetTxns.filter(t => Number(t.amount) > 0 && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === budgetCatPopup).sort((a,b)=>b.date.localeCompare(a.date));
       const catBudget = budgets[budgetCatPopup] ?? 0;
