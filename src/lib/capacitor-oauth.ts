@@ -18,9 +18,12 @@ export const isNative = () => Capacitor.isNativePlatform();
  */
 export const signInWithGoogle = async () => {
   if (!isNative()) {
+    // Use explicit production URL so OAuth always returns to the real app,
+    // not whatever domain happens to be serving this bundle (e.g. a stale Lovable preview).
+    const redirectTo = import.meta.env.VITE_APP_URL ?? window.location.origin;
     return supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
   }
 
