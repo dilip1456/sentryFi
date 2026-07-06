@@ -5,7 +5,10 @@ import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
+import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { Onboarding } from "@/components/Onboarding";
+import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
@@ -44,9 +47,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [showPrefs, setShowPrefs] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const { isAdmin, user } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
+  const { accounts: manualAccounts, save: saveManual } = useManualAccounts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
@@ -82,6 +88,16 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     // After 3 fails, default to showing empty dashboard rather than loading forever
     setHasItems(false);
   }, [user, guestDemo, onHasItemsResolved]);
+
+  // Show onboarding for brand-new users (no plaid items, no manual accounts, not seen before)
+  useEffect(() => {
+    if (guestDemo || !user || hasItems !== false) return;
+    const key = `sentryfi_onboarded_${user.id}`;
+    if (localStorage.getItem(key)) return;
+    // Only show if account was created in last 10 minutes (fresh signup)
+    const age = Date.now() - new Date(user.created_at ?? 0).getTime();
+    if (age < 10 * 60 * 1000) setShowOnboarding(true);
+  }, [hasItems, user, guestDemo]);
 
   useEffect(() => { checkItems(); }, [checkItems]);
 
@@ -170,6 +186,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Link account
             </button>
           )}
+          {!effectiveDemo && (
+            <button onClick={() => setManualOpen(true)} className="nav-item w-full">
+              <Plus className="h-4 w-4" />
+              Add manually
+            </button>
+          )}
           {user && (
             <button onClick={() => setShowPrefs(true)} className="nav-item w-full">
               <Bell className="h-4 w-4" />
@@ -243,6 +265,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
                         <Plus className="h-4 w-4 text-muted-foreground" /> Link account
+                      </button>
+                    )}
+                    {user && !effectiveDemo && (
+                      <button onClick={() => { setHeaderMenuOpen(false); setManualOpen(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
+                        <Plus className="h-4 w-4 text-muted-foreground" /> Add manually
                       </button>
                     )}
                     {user && (
@@ -341,7 +369,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               </div>
             )}
 
-            {showEmpty && <EmptyDashboard onLink={() => setLinkOpen(true)} />}
+            {showEmpty && <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />}
 
             {showLive && (
               <LivePlaidDashboard
@@ -454,6 +482,22 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </Dialog>
       )}
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
+
+      <ManualAccountDialog
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        onSave={async (input, id) => { const ok = await saveManual(input, id); if (ok) checkItems(); return ok; }}
+        editing={null}
+      />
+
+      {showOnboarding && user && (
+        <Onboarding
+          displayName={(user as { user_metadata?: { full_name?: string } }).user_metadata?.full_name ?? null}
+          onLinkPlaid={() => { setShowOnboarding(false); setLinkOpen(true); localStorage.setItem(`sentryfi_onboarded_${user.id}`, "1"); }}
+          onSaveManual={saveManual}
+          onFinish={() => { setShowOnboarding(false); localStorage.setItem(`sentryfi_onboarded_${user.id}`, "1"); }}
+        />
+      )}
     </div>
   );
 };
