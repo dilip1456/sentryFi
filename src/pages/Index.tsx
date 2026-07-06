@@ -6,7 +6,7 @@ import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
-import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { NotificationInbox } from "@/components/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
@@ -45,14 +45,14 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [showPrefs, setShowPrefs] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, signOut } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
@@ -196,7 +196,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </button>
           )}
           {user && (
-            <button onClick={() => setShowPrefs(true)} className="nav-item w-full">
+            <button onClick={() => setShowInbox(true)} className="nav-item w-full">
               <Bell className="h-4 w-4" />
               Notifications
             </button>
@@ -220,7 +220,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </button>
           )}
           {user && !guestDemo && (
-            <button onClick={() => supabase.auth.signOut().then(() => navigate("/welcome"))} className="nav-item w-full">
+            <button onClick={() => signOut().then(() => navigate("/welcome"))} className="nav-item w-full">
               <LogOut className="h-4 w-4" />
               Sign out
             </button>
@@ -283,7 +283,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     )}
                     {user && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
                         <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
                       </button>
@@ -312,7 +312,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     )}
                     {user && !guestDemo && (
-                      <button onClick={() => { setHeaderMenuOpen(false); supabase.auth.signOut().then(() => navigate("/welcome")); }}
+                      <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 hover:bg-white/5 border-t border-white/10">
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
@@ -471,7 +471,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     );
                   })}
                   {user && (
-                    <button onClick={() => { setMoreOpen(false); setShowPrefs(true); }}
+                    <button onClick={() => { setMoreOpen(false); setShowInbox(true); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
                       <Bell className="h-4 w-4 text-muted-foreground" />
                       Notifications
@@ -484,17 +484,17 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </nav>
       </div>
 
-      {showPrefs && (
-        <Dialog open onOpenChange={o => { if (!o) setShowPrefs(false); }}>
+      {showInbox && (
+        <Dialog open onOpenChange={o => { if (!o) setShowInbox(false); }}>
           <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
-            <DialogTitle className="sr-only">Notification preferences</DialogTitle>
-            <DialogDescription className="sr-only">Configure alerts</DialogDescription>
+            <DialogTitle className="sr-only">Notifications</DialogTitle>
+            <DialogDescription className="sr-only">Recent alerts and activity</DialogDescription>
             <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center gap-2">
               <Bell className="h-4 w-4 text-[hsl(var(--primary))]" />
-              <span className="font-display text-[15px] text-foreground font-semibold">Notifications & Alerts</span>
+              <span className="font-display text-[15px] text-foreground font-semibold">Notifications</span>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <NotificationPreferences onClose={() => setShowPrefs(false)} />
+              <NotificationInbox onClose={() => setShowInbox(false)} onOpenSettings={() => { setShowInbox(false); setShowProfile(true); }} />
             </div>
           </DialogContent>
         </Dialog>

@@ -136,14 +136,27 @@ export const useUserSettings = (userId: string | undefined) => {
         latestSettings.current = s;
         setSettingsState(s);
       } else {
-        // First time: migrate from localStorage, save to DB
-        const migrated = { ...DEFAULTS, ...migrateFromLocalStorage() };
+        // First time: migrate from localStorage only if this looks like a returning
+        // user (has account roles or budgets set). Brand-new users get clean defaults.
+        const ls = migrateFromLocalStorage();
+        const hasExistingData = Object.keys(ls.accountRoles ?? {}).length > 0
+          || Object.keys(ls.budgets ?? {}).length > 0;
+        const migrated = hasExistingData ? { ...DEFAULTS, ...ls } : DEFAULTS;
         latestSettings.current = migrated;
         setSettingsState(migrated);
         await supabase.from("user_settings").insert({
           user_id: userId,
           ...settingsToDb(migrated),
         });
+        // Clear localStorage keys so next user on this device starts clean
+        [
+          "sentryfi_budgets","sentryfi_account_roles","sentryfi_cat_overrides",
+          "sentryfi_cat_rules","sentryfi_custom_categories","sentryfi_name_overrides",
+          "sentryfi_name_rules","sentryfi_manual_income","sentryfi_manual_internal",
+          "sentryfi_manual_external","sentryfi_dismissed_insights","sentryfi_dismissed_actions",
+          "sentryfi_dismissed_recurring","sentryfi_panel_order","sentryfi_account_meta",
+          "sentryfi_benefits_used","sentryfi_money_map_feedback",
+        ].forEach(k => localStorage.removeItem(k));
       }
       setLoaded(true);
     })();
