@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { CategoryRule } from "./useCategoryRules";
+import type { SmartRule } from "@/lib/txn-rules";
 
 export interface AccountRoleInfo {
   role: "spending" | "buffer" | "reserve" | "savings_goal" | "investment" | "debt" | "unassigned";
@@ -22,6 +23,7 @@ export interface UserSettings {
   accountRoles: Record<string, AccountRoleInfo>;
   catOverrides: Record<string, string>;
   catRules: CategoryRule[];
+  smartRules: SmartRule[];
   customCats: CustomCategory[];
   nameOverrides: Record<string, string>;
   nameRules: Record<string, string>;
@@ -38,7 +40,7 @@ export interface UserSettings {
 }
 
 const DEFAULTS: UserSettings = {
-  budgets: {}, accountRoles: {}, catOverrides: {}, catRules: [],
+  budgets: {}, accountRoles: {}, catOverrides: {}, catRules: [], smartRules: [],
   customCats: [], nameOverrides: {}, nameRules: {},
   manualIncome: [], manualInternal: [], manualExternal: [],
   dismissedInsights: [], dismissedActions: [], dismissedRecurring: [],
@@ -77,6 +79,7 @@ const dbToSettings = (row: any): UserSettings => ({
   accountRoles:       row.account_roles     ?? {},
   catOverrides:       row.cat_overrides     ?? {},
   catRules:           row.cat_rules         ?? [],
+  smartRules:         row.smart_rules       ?? [],
   customCats:         row.custom_cats       ?? [],
   nameOverrides:      row.name_overrides    ?? {},
   nameRules:          row.name_rules        ?? {},
@@ -97,6 +100,7 @@ const settingsToDb = (s: UserSettings) => ({
   account_roles:       s.accountRoles,
   cat_overrides:       s.catOverrides,
   cat_rules:           s.catRules,
+  smart_rules:         s.smartRules,
   custom_cats:         s.customCats,
   name_overrides:      s.nameOverrides,
   name_rules:          s.nameRules,
@@ -218,6 +222,16 @@ export const useUserSettings = (userId: string | undefined) => {
   const toggleCatRule = (id: string) =>
     update({ catRules: latestSettings.current.catRules.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r) });
 
+  // ── Smart rules (generic multi-condition rules) ──
+  const addSmartRule = (rule: SmartRule) =>
+    update({ smartRules: [...latestSettings.current.smartRules, rule] });
+  const updateSmartRule = (id: string, patch: Partial<SmartRule>) =>
+    update({ smartRules: latestSettings.current.smartRules.map(r => r.id === id ? { ...r, ...patch } : r) });
+  const removeSmartRule = (id: string) =>
+    update({ smartRules: latestSettings.current.smartRules.filter(r => r.id !== id) });
+  const toggleSmartRule = (id: string) =>
+    update({ smartRules: latestSettings.current.smartRules.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r) });
+
   const addCustomCat = (name: string, type: "income" | "expense") =>
     update({ customCats: [...latestSettings.current.customCats.filter(c => c.name !== name), { name, type }] });
   const removeCustomCat = (name: string) =>
@@ -273,6 +287,7 @@ export const useUserSettings = (userId: string | undefined) => {
     setAccountRole,
     setCatOverride, bulkSetCatOverride, bulkSetCatOverrideMap,
     addCatRule, updateCatRule, removeCatRule, toggleCatRule,
+    addSmartRule, updateSmartRule, removeSmartRule, toggleSmartRule,
     addCustomCat, removeCustomCat,
     setNameOverride, bulkSetNameOverride, saveNameRule,
     addManualIncome, removeManualIncome,

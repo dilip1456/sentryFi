@@ -16,6 +16,10 @@ import { useUserSettings } from "@/hooks/useUserSettings";
 import { ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
 import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
 import { CategoryManager } from "@/components/finance/CategoryManager";
+import {
+  type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
+  FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
+} from "@/lib/txn-rules";
 import { fmtUSD } from "@/lib/format";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
@@ -27,6 +31,7 @@ import {
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
   Compass, ShieldAlert, Target, ThumbsUp, ThumbsDown,
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
+  SlidersHorizontal, Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -1061,10 +1066,134 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, 
 // ── Transaction detail modal ──────────────────────────────────────────
 type RenameRequest = { txnId: string; merchant: string | null; newName: string; matchingCount: number };
 
+// ── Shared condition editor (used by the filter and by Smart Rules) ────
+const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
+  set: ConditionSet;
+  onChange: (s: ConditionSet) => void;
+  accounts: { account_id: string; name: string; type: string | null }[];
+  categoryOptions: string[];
+  compact?: boolean;
+}) => {
+  const acctTypes = Array.from(new Set(accounts.map(a => a.type).filter(Boolean))) as string[];
+  const inputCls = "h-8 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]";
+
+  const patch = (id: string, p: Partial<Condition>) =>
+    onChange({ ...set, conditions: set.conditions.map(c => c.id === id ? { ...c, ...p } : c) });
+  const removeRow = (id: string) => onChange({ ...set, conditions: set.conditions.filter(c => c.id !== id) });
+  const addRow = () => onChange({ ...set, conditions: [...set.conditions, emptyCondition()] });
+
+  const onFieldChange = (c: Condition, field: TxnField) => {
+    const ops = FIELD_META[field].ops;
+    patch(c.id, { field, op: ops[0], value: field === "flow" ? "expense" : field === "pending" ? "true" : "", value2: undefined });
+  };
+
+  const ValueInput = ({ c }: { c: Condition }) => {
+    const meta = FIELD_META[c.field];
+    if (c.field === "account")
+      return (
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+          <option value="">Select account…</option>
+          {accounts.map(a => <option key={a.account_id} value={a.account_id}>{a.name}</option>)}
+        </select>
+      );
+    if (c.field === "account_type")
+      return (
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+          <option value="">Select type…</option>
+          {acctTypes.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      );
+    if (c.field === "flow")
+      return (
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+      );
+    if (c.field === "pending")
+      return (
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+          <option value="true">Pending</option>
+          <option value="false">Posted</option>
+        </select>
+      );
+    if (meta.kind === "number")
+      return (
+        <div className="flex-1 flex items-center gap-1 min-w-0">
+          <input type="number" value={c.value} onChange={e => patch(c.id, { value: e.target.value })} placeholder="0" className={cn(inputCls, "flex-1 min-w-0")} />
+          {c.op === "between" && <>
+            <span className="text-[10px] text-muted-foreground">and</span>
+            <input type="number" value={c.value2 ?? ""} onChange={e => patch(c.id, { value2: e.target.value })} placeholder="0" className={cn(inputCls, "flex-1 min-w-0")} />
+          </>}
+        </div>
+      );
+    if (meta.kind === "date")
+      return (
+        <div className="flex-1 flex items-center gap-1 min-w-0">
+          <input type="date" value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")} />
+          {c.op === "between" && <>
+            <span className="text-[10px] text-muted-foreground">and</span>
+            <input type="date" value={c.value2 ?? ""} onChange={e => patch(c.id, { value2: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")} />
+          </>}
+        </div>
+      );
+    // text (merchant, category)
+    return (
+      <>
+        <input list={c.field === "category" ? "cond-cats" : undefined} value={c.value} onChange={e => patch(c.id, { value: e.target.value })}
+          placeholder={c.field === "category" ? "Category…" : "Text…"} className={cn(inputCls, "flex-1 min-w-0")} />
+        {c.field === "category" && (
+          <datalist id="cond-cats">{categoryOptions.map(o => <option key={o} value={o} />)}</datalist>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      {set.conditions.length > 1 && (
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span className="text-muted-foreground">Match</span>
+          <div className="flex rounded-md border border-border/60 overflow-hidden">
+            {(["all", "any"] as const).map(m => (
+              <button key={m} type="button" onClick={() => onChange({ ...set, match: m })}
+                className={cn("px-2.5 py-1 text-[10.5px] font-medium transition-colors", set.match === m ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
+                {m === "all" ? "ALL" : "ANY"}
+              </button>
+            ))}
+          </div>
+          <span className="text-muted-foreground">of the conditions</span>
+        </div>
+      )}
+      {set.conditions.map(c => (
+        <div key={c.id} className="flex items-center gap-1.5">
+          <select value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}
+            className={cn(inputCls, "shrink-0", compact ? "w-[92px]" : "w-[110px]")}>
+            {(Object.keys(FIELD_META) as TxnField[]).map(f => <option key={f} value={f}>{FIELD_META[f].label}</option>)}
+          </select>
+          <select value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}
+            className={cn(inputCls, "shrink-0", compact ? "w-[96px]" : "w-[120px]")}>
+            {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
+          </select>
+          <ValueInput c={c} />
+          <button type="button" onClick={() => removeRow(c.id)} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button type="button" onClick={addRow} className="inline-flex items-center gap-1 text-[11px] text-[hsl(var(--primary))] hover:opacity-80">
+        <Plus className="h-3 w-3" /> Add condition
+      </button>
+    </div>
+  );
+};
+
 // ── Rules Manager ──────────────────────────────────────────────
 const RulesManager = ({
   rules, nameRules, allTxns, onRemoveCatRule, onToggleCatRule, onUpdateCatRule,
   onAddCatRule, onSaveNameRule, onRemoveNameRule, onClose,
+  smartRules, evalTxns, accounts, categoryOptions,
+  onAddSmartRule, onUpdateSmartRule, onRemoveSmartRule, onToggleSmartRule,
 }: {
   rules: CategoryRule[];
   nameRules: Record<string, string>;
@@ -1076,8 +1205,19 @@ const RulesManager = ({
   onSaveNameRule: (merchant: string, name: string) => void;
   onRemoveNameRule: (merchant: string) => void;
   onClose: () => void;
+  smartRules: SmartRule[];
+  evalTxns: { id: string; ev: EvalTxn }[];
+  accounts: { account_id: string; name: string; type: string | null }[];
+  categoryOptions: string[];
+  onAddSmartRule: (rule: SmartRule) => void;
+  onUpdateSmartRule: (id: string, patch: Partial<SmartRule>) => void;
+  onRemoveSmartRule: (id: string) => void;
+  onToggleSmartRule: (id: string) => void;
 }) => {
-  const [tab, setTab] = useState<"category" | "names">("category");
+  const [tab, setTab] = useState<"smart" | "category" | "names">("smart");
+  const [draftRule, setDraftRule] = useState<SmartRule | null>(null);
+  const countSmartMatches = (rule: SmartRule) =>
+    evalTxns.reduce((n, { ev }) => n + (ruleMatches({ ...rule, enabled: true }, ev) ? 1 : 0), 0);
   const [editId, setEditId] = useState<string | null>(null);
   const [editPattern, setEditPattern] = useState("");
   const [editMatchType, setEditMatchType] = useState<RuleMatchType>("contains");
@@ -1122,7 +1262,11 @@ const RulesManager = ({
             <div className="font-display text-[15px] text-foreground font-semibold">Transaction Rules</div>
             <div className="text-[11px] text-muted-foreground mt-0.5">Automatically apply patterns to matching transactions</div>
           </div>
-          <button onClick={() => { setShowNewCat(tab === "category"); setShowNewName(tab === "names"); setEditId(null); setEditNameKey(null); }}
+          <button onClick={() => {
+              if (tab === "smart") setDraftRule(emptyRule());
+              else { setShowNewCat(tab === "category"); setShowNewName(tab === "names"); }
+              setEditId(null); setEditNameKey(null);
+            }}
             className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0">
             <Plus className="h-3.5 w-3.5" /> New Rule
           </button>
@@ -1130,7 +1274,7 @@ const RulesManager = ({
 
         {/* Tabs */}
         <div className="flex gap-0 border-b border-border/20 shrink-0">
-          {([["category", "Category Rules", rules.length], ["names", "Name Rules", nameEntries.length]] as const).map(([k, label, count]) => (
+          {([["smart", "Smart Rules", smartRules.length], ["category", "Category Rules", rules.length], ["names", "Name Rules", nameEntries.length]] as const).map(([k, label, count]) => (
             <button key={k} onClick={() => setTab(k)}
               className={cn("flex-1 py-2.5 text-[12.5px] font-medium transition-colors border-b-2 -mb-px",
                 tab === k ? "border-[hsl(var(--primary))] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
@@ -1141,6 +1285,133 @@ const RulesManager = ({
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
+
+          {/* ── SMART RULES TAB ── */}
+          {tab === "smart" && (
+            <div className="divide-y divide-border/10">
+              {/* Draft (create/edit) form */}
+              {draftRule && (
+                <div className="p-4 bg-[hsl(var(--primary)/0.04)] border-b border-[hsl(var(--primary)/0.12)] space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Wand2 className="h-4 w-4 text-[hsl(var(--primary))]" />
+                    <input value={draftRule.name} onChange={e => setDraftRule({ ...draftRule, name: e.target.value })}
+                      placeholder="Rule name (e.g. Coffee shops)"
+                      className="flex-1 h-8 px-2.5 rounded-md bg-background border border-border/60 text-[12px] font-medium text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                  </div>
+
+                  <div className="rounded-lg border border-border/40 p-3 space-y-2">
+                    <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-semibold">When a transaction matches</div>
+                    <ConditionRows set={{ match: draftRule.match, conditions: draftRule.conditions }}
+                      onChange={s => setDraftRule({ ...draftRule, match: s.match, conditions: s.conditions })}
+                      accounts={accounts} categoryOptions={categoryOptions} />
+                  </div>
+
+                  <div className="rounded-lg border border-border/40 p-3 space-y-2">
+                    <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-semibold">Then do</div>
+                    {draftRule.actions.map((a, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <select value={a.type} onChange={e => {
+                            const type = e.target.value as RuleAction["type"];
+                            const next = [...draftRule.actions];
+                            next[i] = type === "mark_internal" ? { type } : { type, value: "" } as RuleAction;
+                            setDraftRule({ ...draftRule, actions: next });
+                          }}
+                          className="h-8 w-[130px] shrink-0 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none">
+                          <option value="set_category">Set category</option>
+                          <option value="rename">Rename to</option>
+                          <option value="mark_internal">Mark internal</option>
+                        </select>
+                        {a.type !== "mark_internal" && (
+                          <input list={a.type === "set_category" ? "smart-cats" : undefined}
+                            value={a.value} onChange={e => {
+                              const next = [...draftRule.actions];
+                              next[i] = { ...a, value: e.target.value } as RuleAction;
+                              setDraftRule({ ...draftRule, actions: next });
+                            }}
+                            placeholder={a.type === "set_category" ? "Category…" : "Display name…"}
+                            className="flex-1 min-w-0 h-8 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                        )}
+                        {a.type === "mark_internal" && <span className="flex-1 text-[11px] text-muted-foreground px-1">Excludes it from spending totals</span>}
+                        {draftRule.actions.length > 1 && (
+                          <button onClick={() => setDraftRule({ ...draftRule, actions: draftRule.actions.filter((_, j) => j !== i) })}
+                            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0"><X className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
+                    ))}
+                    <datalist id="smart-cats">{categoryOptions.map(o => <option key={o} value={o} />)}</datalist>
+                    <button onClick={() => setDraftRule({ ...draftRule, actions: [...draftRule.actions, { type: "set_category", value: "" }] })}
+                      className="inline-flex items-center gap-1 text-[11px] text-[hsl(var(--primary))] hover:opacity-80"><Plus className="h-3 w-3" /> Add action</button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">
+                      Matches <span className="text-[hsl(var(--primary))] font-semibold">{countSmartMatches(draftRule)}</span> current transactions
+                    </span>
+                    <div className="flex gap-2">
+                      <button onClick={() => setDraftRule(null)} className="h-8 px-3 rounded-md border border-border-strong text-[11.5px] text-muted-foreground">Cancel</button>
+                      <button onClick={() => {
+                          const clean = { ...draftRule, name: draftRule.name.trim() || "Untitled rule" };
+                          if (smartRules.some(r => r.id === clean.id)) onUpdateSmartRule(clean.id, clean);
+                          else onAddSmartRule(clean);
+                          setDraftRule(null);
+                        }}
+                        disabled={!draftRule.conditions.some(c => (c.value ?? "").trim() !== "" || c.field === "pending" || c.field === "flow")}
+                        className="h-8 px-4 rounded-md bg-gold text-[11.5px] font-semibold disabled:opacity-50">Save rule</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {smartRules.length === 0 && !draftRule && (
+                <div className="py-10 text-center space-y-2 px-6">
+                  <div className="h-11 w-11 mx-auto rounded-full bg-[hsl(var(--primary)/0.08)] grid place-items-center">
+                    <Wand2 className="h-5 w-5 text-[hsl(var(--primary)/0.6)]" />
+                  </div>
+                  <div className="text-[13px] text-foreground font-medium">No smart rules yet</div>
+                  <div className="text-[11.5px] text-muted-foreground">Build one rule that combines any conditions - amount, name, fuzzy match, account, date - and set a category, rename, or mark it internal. It runs automatically on new transactions.</div>
+                  <button onClick={() => setDraftRule(emptyRule())} className="mt-1 text-[11.5px] text-[hsl(var(--primary))] underline underline-offset-2">Create your first smart rule</button>
+                </div>
+              )}
+
+              {smartRules.map(rule => {
+                const count = countSmartMatches(rule);
+                const summary = (c: Condition) => `${FIELD_META[c.field].label} ${OP_LABEL[c.op]}${c.field === "pending" || c.field === "flow" ? "" : ` ${c.value}`}${c.op === "between" ? ` – ${c.value2 ?? ""}` : ""}`;
+                const actionSummary = (a: RuleAction) => a.type === "mark_internal" ? "mark internal" : a.type === "rename" ? `rename to "${a.value}"` : `set category → ${formatCat(a.value)}`;
+                return (
+                  <div key={rule.id} className={cn("px-4 py-3.5", !rule.enabled && "opacity-50")}>
+                    <div className="flex items-start gap-3">
+                      <div className="h-8 w-8 rounded-lg bg-[hsl(var(--primary)/0.1)] grid place-items-center shrink-0 mt-0.5">
+                        <Wand2 className="h-4 w-4 text-[hsl(var(--primary))]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-semibold text-foreground">{rule.name}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
+                          <span className="text-muted-foreground/70">If {rule.match === "all" ? "all" : "any"}: </span>
+                          {rule.conditions.map(summary).join(rule.match === "all" ? " and " : " or ")}
+                        </div>
+                        <div className="text-[11px] mt-0.5">
+                          <span className="text-muted-foreground/70">Then: </span>
+                          <span className="text-foreground">{rule.actions.map(actionSummary).join(", ")}</span>
+                        </div>
+                        <div className="text-[10.5px] text-[hsl(var(--primary))] mt-1">{count} match{count !== 1 ? "es" : ""}</div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => onToggleSmartRule(rule.id)}
+                          className={cn("h-7 px-2.5 rounded-full text-[10px] font-medium transition-colors border",
+                            rule.enabled ? "bg-positive/10 text-positive border-positive/20" : "bg-border/30 text-muted-foreground border-border/40")}>
+                          {rule.enabled ? "On" : "Off"}
+                        </button>
+                        <button onClick={() => setDraftRule(JSON.parse(JSON.stringify(rule)))}
+                          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30"><Pencil className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => onRemoveSmartRule(rule.id)}
+                          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* ── CATEGORY RULES TAB ── */}
           {tab === "category" && (
@@ -2810,7 +3081,7 @@ export const LivePlaidDashboard = ({
   const removeBudget = S.removeBudget;
   const roles = settings.accountRoles;
   const setRole = S.setAccountRole;
-  const overrides = settings.catOverrides;
+  const catOverridesManual = settings.catOverrides;
   const setOverride = S.setCatOverride;
   const bulkSetOverride = (ids: string[], cat: string) => S.bulkSetCatOverride(ids, cat);
   const bulkSetOverrideMap = S.bulkSetCatOverrideMap;
@@ -2824,10 +3095,19 @@ export const LivePlaidDashboard = ({
   const updateRule = S.updateCatRule;
   const removeRule = S.removeCatRule;
   const toggleRule = S.toggleCatRule;
+  const smartRules = settings.smartRules;
+  const addSmartRule = S.addSmartRule;
+  const updateSmartRule = S.updateSmartRule;
+  const removeSmartRule = S.removeSmartRule;
+  const toggleSmartRule = S.toggleSmartRule;
   const customCategories = settings.customCats;
   const addCategory = S.addCustomCat;
   const removeCategory = S.removeCustomCat;
-  const nameOverrides = settings.nameOverrides;
+  const allCategoryNames = useMemo(
+    () => Array.from(new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, ...customCategories.map(c => c.name)])).map(formatCat),
+    [customCategories]
+  );
+  const nameOverridesManual = settings.nameOverrides;
   const setNameOverride = S.setNameOverride;
   const bulkSetNameOverride = S.bulkSetNameOverride;
   const nameRules = settings.nameRules;
@@ -2932,15 +3212,14 @@ export const LivePlaidDashboard = ({
   const [txnAccountFilter, setTxnAccountFilter] = useState<string>("all");       // account_id or "all"
   const [txnAcctTypeFilter, setTxnAcctTypeFilter] = useState<string>("all");     // all | depository | credit | investment | loan
   const [txnFlowFilter, setTxnFlowFilter] = useState<"all"|"expense"|"income">("all");
-  const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc">("date-desc");
+  const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc"|"name-asc"|"name-desc"|"category-asc">("date-desc");
   const [hideInternal, setHideInternal] = useState(true);
   const [txnLimit, setTxnLimit] = useState(150);
   // Drill-down: clicking a bar in the spend-trend chart narrows the txn list to that exact day/month
   const [chartDrillDate, setChartDrillDate] = useState<string|null>(null);   // exact "YYYY-MM-DD" (day/week/month granularity)
   const [chartDrillMonth, setChartDrillMonth] = useState<number|null>(null); // 0-11 (year granularity)
-  // Ad-hoc filter builder — user-added rules on top of the standard filters
-  const [customFilters, setCustomFilters] = useState<{id:string;field:"amount"|"category"|"merchant"|"account";op:"gt"|"lt"|"eq"|"contains";value:string}[]>([]);
-  const [filterDraft, setFilterDraft] = useState<{field:"amount"|"category"|"merchant"|"account";op:"gt"|"lt"|"eq"|"contains";value:string}>({field:"amount",op:"gt",value:""});
+  // Advanced filter — a full condition set (all/any across every field)
+  const [filterSet, setFilterSet] = useState<ConditionSet>({ match: "all", conditions: [] });
   const [showFilterBuilder, setShowFilterBuilder] = useState(false);
   const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
   const [incomeExpanded, setIncomeExpanded] = useState(false);
@@ -2961,6 +3240,48 @@ export const LivePlaidDashboard = ({
   const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
+
+  // ── Smart rules — evaluate generic multi-condition rules across all txns.
+  // Because this is derived state, newly synced transactions are handled
+  // automatically on the next render (no manual "run" needed).
+  // Normalized transactions the rule/filter evaluator reads from.
+  const evalTxns = useMemo<{ id: string; ev: EvalTxn }[]>(() => {
+    const acctMap = new Map(accounts.map(a => [a.account_id, a]));
+    return txns.map(t => {
+      const acc = acctMap.get(t.account_id);
+      const amount = Number(t.amount) || 0;
+      return { id: t.id, ev: {
+        amount, absAmount: Math.abs(amount),
+        merchant: nameOverridesManual[t.id] ?? t.merchant_name ?? t.name ?? "",
+        category: formatCat(getEffectiveCategory(t, catOverridesManual, getRuleCategory) ?? "Other"),
+        accountId: t.account_id, accountName: acc?.name ?? "", accountType: acc?.type ?? "",
+        date: t.date, flow: (amount >= 0 ? "expense" : "income") as "expense" | "income", pending: !!t.pending,
+      } };
+    });
+  }, [txns, accounts, getRuleCategory, catOverridesManual, nameOverridesManual]);
+
+  const smartResults = useMemo(() => {
+    const catById: Record<string, string> = {};
+    const nameById: Record<string, string> = {};
+    const internalIds = new Set<string>();
+    const enabled = smartRules.filter(r => r.enabled && r.conditions.length && r.actions.length);
+    if (enabled.length === 0) return { catById, nameById, internalIds };
+    for (const { id, ev } of evalTxns) {
+      for (const rule of enabled) {
+        if (!ruleMatches(rule, ev)) continue;
+        for (const action of rule.actions) {
+          if (action.type === "set_category" && action.value) catById[id] = action.value;
+          else if (action.type === "rename" && action.value) nameById[id] = action.value;
+          else if (action.type === "mark_internal") internalIds.add(id);
+        }
+      }
+    }
+    return { catById, nameById, internalIds };
+  }, [smartRules, evalTxns]);
+
+  // Merged maps — manual edits always win over smart-rule output.
+  const overrides = useMemo(() => ({ ...smartResults.catById, ...catOverridesManual }), [smartResults, catOverridesManual]);
+  const nameOverrides = useMemo(() => ({ ...smartResults.nameById, ...nameOverridesManual }), [smartResults, nameOverridesManual]);
 
   // Resolve display name: per-txn override → merchant rule → merchant name
   const getDisplayName = (t: PTxn) => {
@@ -3199,8 +3520,8 @@ export const LivePlaidDashboard = ({
     S.toggleManualInternal(id);
   };
   const internalTxnIds = useMemo(
-    () => new Set([...autoInternalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
-    [autoInternalIds, manualInternalIds, manualExternalIds]
+    () => new Set([...autoInternalIds, ...smartResults.internalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
+    [autoInternalIds, smartResults, manualInternalIds, manualExternalIds]
   );
 
   // nwData must be computed after internalTxnIds so internal transfers are excluded from the chart
@@ -3307,38 +3628,35 @@ export const LivePlaidDashboard = ({
         (getEffectiveCategory(t,overrides,getRuleCategory) ?? "").toLowerCase().includes(q)
       );
     }
-    for (const f of customFilters) {
-      const v = f.value.trim().toLowerCase();
-      if (!v) continue;
+    // Advanced condition set — shares the same evaluator as Smart Rules
+    if (filterSet.conditions.some(c => (c.value ?? "").trim() !== "" || c.field === "pending")) {
       base = base.filter(t => {
-        if (f.field === "amount") {
-          const amt = Math.abs(Number(t.amount));
-          const n = parseFloat(f.value);
-          if (isNaN(n)) return true;
-          if (f.op === "gt") return amt > n;
-          if (f.op === "lt") return amt < n;
-          return Math.abs(amt - n) < 0.01;
-        }
-        if (f.field === "category") {
-          const cat = formatCat(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other").toLowerCase();
-          return f.op === "eq" ? cat === v : cat.includes(v);
-        }
-        if (f.field === "merchant") {
-          const m = (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").toLowerCase();
-          return f.op === "eq" ? m === v : m.includes(v);
-        }
-        if (f.field === "account") {
-          const accName = (acctById[t.account_id]?.name ?? "").toLowerCase();
-          return f.op === "eq" ? accName === v : accName.includes(v);
-        }
-        return true;
+        const amount = Number(t.amount) || 0;
+        const acc = acctById[t.account_id];
+        const evalTxn: EvalTxn = {
+          amount, absAmount: Math.abs(amount),
+          merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "",
+          category: formatCat(getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"),
+          accountId: t.account_id,
+          accountName: acc?.name ?? "",
+          accountType: acc?.type ?? "",
+          date: t.date,
+          flow: amount >= 0 ? "expense" : "income",
+          pending: !!t.pending,
+        };
+        return evaluateSet(filterSet, evalTxn);
       });
     }
+    const nameOf = (t: PTxn) => (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").toLowerCase();
+    const catOf = (t: PTxn) => formatCat(getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other").toLowerCase();
     const sorted = [...base];
-    if (txnSort === "date-desc")  sorted.sort((a,b)=>b.date.localeCompare(a.date));
-    if (txnSort === "date-asc")   sorted.sort((a,b)=>a.date.localeCompare(b.date));
+    if (txnSort === "date-desc")   sorted.sort((a,b)=>b.date.localeCompare(a.date));
+    if (txnSort === "date-asc")    sorted.sort((a,b)=>a.date.localeCompare(b.date));
     if (txnSort === "amount-desc") sorted.sort((a,b)=>Math.abs(Number(b.amount))-Math.abs(Number(a.amount)));
     if (txnSort === "amount-asc")  sorted.sort((a,b)=>Math.abs(Number(a.amount))-Math.abs(Number(b.amount)));
+    if (txnSort === "name-asc")    sorted.sort((a,b)=>nameOf(a).localeCompare(nameOf(b)));
+    if (txnSort === "name-desc")   sorted.sort((a,b)=>nameOf(b).localeCompare(nameOf(a)));
+    if (txnSort === "category-asc") sorted.sort((a,b)=>catOf(a).localeCompare(catOf(b)));
     return sorted;
   })();
 
@@ -4817,14 +5135,17 @@ export const LivePlaidDashboard = ({
               </div>
               <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
                 className="h-8 rounded-lg bg-secondary/40 border border-border/40 text-[11px] text-foreground px-2 focus:outline-none cursor-pointer">
-                <option value="date-desc">Newest</option>
-                <option value="date-asc">Oldest</option>
-                <option value="amount-desc">Largest</option>
-                <option value="amount-asc">Smallest</option>
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="amount-desc">Largest amount</option>
+                <option value="amount-asc">Smallest amount</option>
+                <option value="name-asc">Name A→Z</option>
+                <option value="name-desc">Name Z→A</option>
+                <option value="category-asc">Category A→Z</option>
               </select>
             </div>
 
-            {/* Flow filter chips */}
+            {/* Flow filter chips + advanced filter toggle */}
             <div className="flex items-center gap-1.5 flex-wrap">
               {(["all","expense","income"] as const).map(f=>(
                 <button key={f} onClick={()=>setTxnFlowFilter(f)}
@@ -4839,36 +5160,27 @@ export const LivePlaidDashboard = ({
                   <button onClick={()=>onCategorySelect?.("")}><X className="h-2.5 w-2.5 ml-0.5"/></button>
                 </div>
               )}
-              {customFilters.map(f=>(
-                <div key={f.id} className="flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium bg-secondary text-foreground border border-border">
-                  {f.field} {f.op} {f.value}
-                  <button onClick={()=>setCustomFilters(cs=>cs.filter(c=>c.id!==f.id))}><X className="h-2.5 w-2.5 ml-0.5"/></button>
-                </div>
-              ))}
-              <button onClick={()=>setShowFilterBuilder(v=>!v)}
-                className={cn("inline-flex items-center gap-1 h-6 px-2 rounded-full text-[10px] font-medium border transition-colors",
-                  showFilterBuilder?"bg-secondary text-foreground border-border":"border-border/40 text-muted-foreground hover:text-foreground")}>
-                <Plus className="h-2.5 w-2.5"/> Filter
-              </button>
+              {(() => {
+                const activeCount = filterSet.conditions.filter(c=>(c.value??"").trim()!==""||c.field==="pending").length;
+                return (
+                  <button onClick={()=>{ if(filterSet.conditions.length===0){setFilterSet({match:"all",conditions:[emptyCondition()]});} setShowFilterBuilder(v=>!v); }}
+                    className={cn("inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[10px] font-medium border transition-colors",
+                      showFilterBuilder||activeCount>0?"bg-primary/15 text-[hsl(var(--primary))] border-[hsl(var(--primary)/0.3)]":"border border-border/40 text-muted-foreground hover:text-foreground")}>
+                    <SlidersHorizontal className="h-2.5 w-2.5"/> Filters{activeCount>0&&<span className="ml-0.5">· {activeCount}</span>}
+                  </button>
+                );
+              })()}
             </div>
 
             {showFilterBuilder&&(
-              <form onSubmit={e=>{e.preventDefault();if(!filterDraft.value.trim())return;setCustomFilters(cs=>[...cs,{...filterDraft,id:`${Date.now()}`}]);setFilterDraft({field:"amount",op:"gt",value:""});setTxnLimit(150);}}
-                className="flex items-center gap-1.5 p-2 rounded-lg bg-secondary/30 border border-border/30">
-                <select value={filterDraft.field} onChange={e=>setFilterDraft(d=>({...d,field:e.target.value as typeof d.field}))}
-                  className="h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-1.5 focus:outline-none cursor-pointer">
-                  <option value="amount">Amount</option><option value="category">Category</option>
-                  <option value="merchant">Merchant</option><option value="account">Account</option>
-                </select>
-                <select value={filterDraft.op} onChange={e=>setFilterDraft(d=>({...d,op:e.target.value as typeof d.op}))}
-                  className="h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-1.5 focus:outline-none cursor-pointer">
-                  {filterDraft.field==="amount"?(<><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="eq">=</option></>):(<><option value="contains">contains</option><option value="eq">is exactly</option></>)}
-                </select>
-                <input value={filterDraft.value} onChange={e=>setFilterDraft(d=>({...d,value:e.target.value}))}
-                  type={filterDraft.field==="amount"?"number":"text"} placeholder={filterDraft.field==="amount"?"e.g. 50":"e.g. coffee"}
-                  className="flex-1 h-7 rounded-md bg-card border border-border/50 text-[10.5px] text-foreground px-2 focus:outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
-                <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[10.5px] font-medium hover:opacity-90 shrink-0">Add</button>
-              </form>
+              <div className="p-3 rounded-lg bg-secondary/30 border border-border/30 space-y-3">
+                <ConditionRows set={filterSet} onChange={s=>{setFilterSet(s);setTxnLimit(150);}}
+                  accounts={accounts} categoryOptions={allCategoryNames} compact />
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/20">
+                  <button onClick={()=>{setFilterSet({match:"all",conditions:[]});}} className="text-[11px] text-muted-foreground hover:text-foreground">Clear all</button>
+                  <button onClick={()=>setShowFilterBuilder(false)} className="h-7 px-3 rounded-md bg-gold text-[11px] font-semibold">Done</button>
+                </div>
+              </div>
             )}
 
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
@@ -4935,6 +5247,14 @@ export const LivePlaidDashboard = ({
         onSaveNameRule={saveNameRule}
         onRemoveNameRule={(merchant) => S.update({ nameRules: Object.fromEntries(Object.entries(nameRules).filter(([k]) => k !== merchant)) })}
         onClose={() => setShowRulesManager(false)}
+        smartRules={smartRules}
+        evalTxns={evalTxns}
+        accounts={accounts}
+        categoryOptions={allCategoryNames}
+        onAddSmartRule={addSmartRule}
+        onUpdateSmartRule={updateSmartRule}
+        onRemoveSmartRule={removeSmartRule}
+        onToggleSmartRule={toggleSmartRule}
       />}
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
