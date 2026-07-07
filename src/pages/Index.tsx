@@ -27,8 +27,8 @@ import {
 
 type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 
+// "overall" is the landing view — reached via the logo, not a nav tab.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
-  { k: "overall",   label: "Home",       icon: LayoutDashboard },
   { k: "moneymap",  label: "Money Map",  icon: Compass         },
   { k: "spending",  label: "Spending",   icon: PieChart        },
   { k: "budget",    label: "Budget",     icon: Wallet          },
@@ -37,7 +37,7 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "monthly",   label: "Cash Flow",  icon: CalendarClock   },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "moneymap", "spending", "budget"];
+const MOBILE_PRIMARY: View[] = ["moneymap", "spending", "budget"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [view, setView] = useState<View>("overall");
@@ -53,7 +53,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const { isAdmin, user, signOut } = useAuth();
+  const { isAdmin, user, signOut, profile } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
@@ -142,8 +142,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))]"
         style={{ WebkitOverflowScrolling: "touch" }}>
 
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))]">
+        {/* Logo — click to return to the landing view */}
+        <button onClick={() => go("overall")}
+          className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))] w-full text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors">
           <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
             <img src="/logo.png" alt="SentryFi" className="h-6 w-6 object-contain" />
           </div>
@@ -151,12 +152,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <div className="text-[13.5px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">SentryFi</div>
             {guestDemo && <div className="text-[10px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
           </div>
-        </div>
+        </button>
 
-        {/* Nav */}
+        {/* Nav — Home is the logo above, not a tab */}
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 scrollbar-none">
           <div className="section-label">Overview</div>
-          {TABS.filter(t => ["overall","moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
           {TABS.filter(t => ["spending","budget","monthly"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -234,17 +235,24 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
         {/* Mobile header */}
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
-          <div className="flex items-center gap-2.5">
+          <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[14px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (TABS.find(t => t.k === view)?.label ?? "SentryFi")}
+              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi"))}
             </span>
-          </div>
+          </button>
           <div className="flex items-center gap-1.5">
             {/* Not logged in */}
             {!user && !effectiveDemo && (
               <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[12px] font-semibold">
                 Sign in
+              </button>
+            )}
+            {/* Notifications */}
+            {user && (
+              <button onClick={() => setShowInbox(true)}
+                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                <Bell className="h-3.5 w-3.5" />
               </button>
             )}
             {/* Sync */}
@@ -364,18 +372,51 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <div className="hidden md:flex items-center justify-between">
               <div>
                 <h1 className="font-display text-2xl text-foreground">
-                  {TABS.find(t => t.k === view)?.label ?? "Dashboard"}
+                  {view === "overall" ? `Welcome back${profile?.display_name ? `, ${profile.display_name.split(" ")[0]}` : ""}` : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
                 </h1>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
                   {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                 </p>
               </div>
-              {!effectiveDemo && guestDemo && (
-                <button onClick={() => navigate("/auth")}
-                  className="bg-gold h-9 px-4 rounded-lg text-[13px]">
-                  Create free account
-                </button>
-              )}
+
+              {/* Top button bar */}
+              <div className="flex items-center gap-2">
+                {!effectiveDemo && guestDemo && (
+                  <button onClick={() => navigate("/auth")}
+                    className="bg-gold h-9 px-4 rounded-lg text-[13px] mr-1">
+                    Create free account
+                  </button>
+                )}
+                {!effectiveDemo && hasItems === true && (
+                  <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
+                    title="Sync data"
+                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-50">
+                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+                  </button>
+                )}
+                {user && (
+                  <button onClick={() => setShowInbox(true)}
+                    title="Notifications"
+                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+                    <Bell className="h-4 w-4" />
+                  </button>
+                )}
+                {user && !guestDemo && (
+                  <button onClick={() => signOut().then(() => navigate("/welcome"))}
+                    title="Sign out"
+                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-negative hover:border-negative/40 transition-colors">
+                    <LogOut className="h-4 w-4" />
+                  </button>
+                )}
+                {user && !guestDemo && (
+                  <button onClick={() => setShowProfile(true)} title="Profile & settings"
+                    className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
+                    {profile?.avatar_url
+                      ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+                      : <span className="text-[13px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Loading state */}
