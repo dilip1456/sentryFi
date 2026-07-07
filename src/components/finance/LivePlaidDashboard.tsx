@@ -1087,7 +1087,9 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
     patch(c.id, { field, op: ops[0], value: field === "flow" ? "expense" : field === "pending" ? "true" : "", value2: undefined });
   };
 
-  const ValueInput = ({ c }: { c: Condition }) => {
+  // Plain render function (NOT a nested component) so text inputs keep focus
+  // across the parent re-render each keystroke triggers.
+  const renderValue = (c: Condition) => {
     const meta = FIELD_META[c.field];
     if (c.field === "account")
       return (
@@ -1175,7 +1177,7 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
             className={cn(inputCls, "shrink-0", compact ? "w-[96px]" : "w-[120px]")}>
             {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
           </select>
-          <ValueInput c={c} />
+          {renderValue(c)}
           <button type="button" onClick={() => removeRow(c.id)} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
