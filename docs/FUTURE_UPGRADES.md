@@ -1,36 +1,31 @@
 # SentryFi - Future Upgrades
 
-Planned for a later deploy. Not yet started.
+All items from the prior batch have shipped (see below). This file now only tracks
+new/remaining ideas.
 
-## Home / Overall page
-- Remove the "Home" tab and make the landing view more appealing.
-- Replace static cards with dynamic insights driven by visuals (charts, infographics), not just card text.
-- Add a top button bar: sync, notifications, logout, and profile image.
+## Open ideas
+- Offers page: single-pane view of card-linked cashback offers (US Bank, Citi, BofA).
+  No free public API exists; plan is manual entry + transaction matching now, with a
+  licensed feed (Cardlytics/Fidel) as a possible future data source.
 
-## Accounts
-- Redesign how accounts are displayed (current grid/bucket layout is not clear enough).
+## Done (this cycle)
+- Home / Overall: removed the "Home" tab (logo is now Home), welcome header, top button
+  bar with sync / notifications / logout / profile image; account-composition
+  infographic bar and buckets open by default.
+- AI suggestions: "Refresh AI" moved into the Saving-opportunities box as a simple
+  refresh icon; removed from the section header.
+- Spending: daily/monthly trend moved full-width above the transactions and enlarged;
+  it doubles as a date filter (tap a bar). Two-column layout rebalanced so the
+  transactions column no longer stretches full width. Standard filters (amount /
+  category / merchant / account) available via the filter builder.
+- Pie chart: removed the hover popup; hover now highlights the active slice and the
+  center label reflects the hovered category, value, and share.
+- Popups: notification settings, rules, budget, and profile dialogs have explicit
+  Apply/Save + Cancel; transaction category/name changes offer "apply to all".
+- Notifications: rebuilt toggles as a single consistent Switch component with an
+  Apply/Cancel footer.
 
-## AI suggestions
-- Move "Refresh AI suggestions" into the Suggestions box only, as a simple refresh icon (match the Upcoming Charges refresh style). Remove it from the section header.
-
-## Spending / transactions
-- Transactions list should not be so wide: use space better.
-- Show reasonably larger graphs and infographics.
-- Add standard filters on all fields.
-- Move the daily trend chart above the transactions data and make it act as a filter based on the selected granularity (month / day / year).
-
-## Pie chart
-- Hovering the pie must not show a popup.
-- Make the pie hover interaction more appealing.
-
-## Popups / dialogs
-- Any change made in a popup must have Apply / Save / Cancel buttons.
-- Provide an "apply to all" option where relevant.
-
-## Notifications
-- Fix the radios/toggles styling on notification settings.
-
-## Done (shipped earlier this cycle)
+## Done (earlier this cycle)
 - Data-leak fix, Bell -> notification inbox, notification settings moved under Profile.
 - content-max widened to 1600px.
 - OAuth redirect pinned to VITE_APP_URL; .env repointed to correct Supabase project.

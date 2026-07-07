@@ -2921,6 +2921,7 @@ export const LivePlaidDashboard = ({
   const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null);
   const [addCatNameDraft, setAddCatNameDraft] = useState("");
   const [addCatCustom, setAddCatCustom] = useState("");
+  const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
   // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
@@ -3595,11 +3596,6 @@ export const LivePlaidDashboard = ({
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-display text-lg md:text-xl text-primary">Insights into your spending</h2>
-            <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
-              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">
-              <Sparkles className={cn("h-3 w-3", insightsLoading && "animate-pulse")} />
-              {insightsLoading ? "Analyzing…" : "Refresh AI"}
-            </button>
           </div>
 
           {/* Sortable 2-col panel grid — drag the ⠿ handle to reorder */}
@@ -3658,6 +3654,11 @@ export const LivePlaidDashboard = ({
                       +${visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0).toLocaleString()}/yr
                     </span>
                   )}
+                  <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
+                    title="Refresh AI suggestions"
+                    className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
+                    <RefreshCw className={cn("h-3.5 w-3.5", insightsLoading && "animate-spin")} />
+                  </button>
                 </div>
                 {insightsLoading ? (
                   <div className="p-3 grid grid-cols-2 gap-2">
@@ -3671,7 +3672,7 @@ export const LivePlaidDashboard = ({
                   </div>
                 ) : visibleInsights.length===0 ? (
                   <div className="px-4 py-5 text-[12px] text-muted-foreground flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 shrink-0 opacity-40" />Click "Refresh AI" to generate insights.
+                    <Sparkles className="h-4 w-4 shrink-0 opacity-40" />Tap the refresh icon above to generate insights.
                   </div>
                 ) : (
                   <div className="p-3 grid grid-cols-1 gap-3">
@@ -3914,7 +3915,37 @@ export const LivePlaidDashboard = ({
             No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {/* Composition infographic — assets vs debt at a glance */}
+            {(() => {
+              const buckets = bucketOrder.map(b => {
+                const accs = accounts.filter(a => mapBucket(a.type, a.subtype) === b);
+                const total = accs.reduce((s,a) => s + Math.abs(Number(a.current_balance)||0), 0);
+                return { bucket: b, total, count: accs.length,
+                  color: b==="cash"?"hsl(var(--positive))":b==="credit"?"hsl(var(--warning))":b==="loan"?"hsl(var(--negative))":b==="investment"?"hsl(var(--info))":"hsl(var(--muted-foreground))" };
+              }).filter(x => x.count > 0 && x.total > 0);
+              const grand = buckets.reduce((s,x)=>s+x.total,0) || 1;
+              if (buckets.length === 0) return null;
+              return (
+                <div className="surface-card p-4 space-y-3">
+                  <div className="flex h-3 rounded-full overflow-hidden bg-border/20">
+                    {buckets.map(x => (
+                      <div key={x.bucket} style={{ width: `${(x.total/grand)*100}%`, backgroundColor: x.color }}
+                        className="h-full transition-all" title={`${bucketMeta[x.bucket].label}: ${fmtUSD(x.total)}`} />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {buckets.map(x => (
+                      <div key={x.bucket} className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: x.color }} />
+                        <span className="text-[11px] text-muted-foreground">{bucketMeta[x.bucket].label}</span>
+                        <span className="text-[11px] font-semibold text-foreground tabular">{fmtUSD(x.total,{compact:true})}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
               {bucketOrder.map(bucket => (
                 <BucketGroup
@@ -3926,7 +3957,7 @@ export const LivePlaidDashboard = ({
                   creditDetails={creditDetails}
                   items={items}
                   onSelect={a => setDetailAccount(a)}
-                  defaultOpen={false}
+                  defaultOpen
                 />
               ))}
             </div>
@@ -4595,8 +4626,51 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
+      {/* ── Trend chart — full width, above data, doubles as a date filter ── */}
+      {bkts.length > 1 && (
+        <div className="surface-card p-4 mb-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[12px] font-semibold text-foreground">
+                {spendingPeriod.granularity==="year"?"Monthly":"Daily"} trend
+              </span>
+              <span className="text-[10.5px] text-muted-foreground">tap a bar to filter transactions</span>
+            </div>
+            {(chartDrillDate||chartDrillMonth!=null)&&(
+              <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-medium border border-negative/30 bg-negative/10 text-negative">
+                {chartDrillDate?new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
+                <X className="h-2.5 w-2.5"/>
+              </button>
+            )}
+          </div>
+          <div className="h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bkts} margin={{top:2,right:0,bottom:0,left:0}} barCategoryGap="24%" onClick={(s:any)=>{
+                const b=bkts[s?.activeTooltipIndex];if(!b)return;
+                if(b.dateKey)setChartDrillDate(p=>p===b.dateKey?null:b.dateKey!);
+                else if(b.monthIdx!=null)setChartDrillMonth(p=>p===b.monthIdx?null:b.monthIdx!);
+              }}>
+                <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.2} vertical={false}/>
+                <XAxis dataKey="label" axisLine={false} tickLine={false}
+                  interval={spendingPeriod.granularity==="month"?Math.floor(bkts.length/12):0}
+                  tick={{fontSize:9,fill:"hsl(var(--muted-foreground))",fontFamily:"inherit"}}/>
+                <YAxis hide domain={[0,"dataMax+30"]}/>
+                <Tooltip content={<TrendTip/>} cursor={{fill:"hsl(var(--foreground))",fillOpacity:0.05}}/>
+                <Bar dataKey="total" radius={[3,3,0,0]} animationDuration={400} cursor="pointer">
+                  {bkts.map((b,i)=>{
+                    const drilled=(!!b.dateKey&&b.dateKey===chartDrillDate)||(b.monthIdx!=null&&b.monthIdx===chartDrillMonth);
+                    return <Cell key={i} fill={drilled?"hsl(var(--negative))":"hsl(var(--primary))"} fillOpacity={drilled||b.isCurrent?1:0.45}/>;
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       {/* ── Main 2-col layout ── */}
-      <div className="xl:grid xl:grid-cols-[360px_1fr] gap-3 items-start space-y-3 xl:space-y-0">
+      <div className="xl:grid xl:grid-cols-[380px_minmax(0,1fr)] gap-3 items-start space-y-3 xl:space-y-0">
 
         {/* ── LEFT: visual summary ── */}
         <div className="space-y-3">
@@ -4608,25 +4682,43 @@ export const LivePlaidDashboard = ({
             ) : (
               <div className="flex items-center gap-4">
                 {/* Donut */}
-                <div className="relative shrink-0 h-[120px] w-[120px]">
+                <div className="relative shrink-0 h-[130px] w-[130px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={donutData} dataKey="value" cx="50%" cy="50%"
-                        innerRadius={36} outerRadius={56} paddingAngle={2} animationDuration={500}
-                        onClick={(d:any)=>onCategorySelect?.(selectedCategory===d.category?"":d.category)}>
-                        {donutData.map((d,i)=>(
-                          <Cell key={i} fill={d.color}
-                            fillOpacity={!selectedCategory||selectedCategory===d.category?1:0.3}
-                            stroke="transparent" />
-                        ))}
+                        innerRadius={40} outerRadius={60} paddingAngle={2} animationDuration={500}
+                        onClick={(d:any)=>onCategorySelect?.(selectedCategory===d.category?"":d.category)}
+                        onMouseEnter={(_:any,i:number)=>setHoveredSlice(i)}
+                        onMouseLeave={()=>setHoveredSlice(null)}>
+                        {donutData.map((d,i)=>{
+                          const isActive = hoveredSlice===i;
+                          const dimmed = (selectedCategory && selectedCategory!==d.category) || (hoveredSlice!==null && !isActive);
+                          return (
+                            <Cell key={i} fill={d.color}
+                              fillOpacity={dimmed?0.28:1}
+                              stroke={isActive?d.color:"transparent"} strokeWidth={isActive?2:0}
+                              style={{ transition:"opacity 0.15s", cursor:"pointer", filter:isActive?"brightness(1.12)":"none" }} />
+                          );
+                        })}
                       </Pie>
-                      <Tooltip formatter={(v:any)=>fmtUSD(v)} contentStyle={{background:"hsl(var(--card))",border:"1px solid hsl(var(--border))",borderRadius:8,fontSize:11}} />
                     </PieChart>
                   </ResponsiveContainer>
-                  {/* Center label */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <div className="text-[11px] tabular font-bold text-foreground">{fmtUSD(spendingPeriodTotal,{compact:true})}</div>
-                    <div className="text-[10px] text-muted-foreground">spent</div>
+                  {/* Center label — reflects hovered slice, else total */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-2 text-center">
+                    {hoveredSlice!==null && donutData[hoveredSlice] ? (
+                      <>
+                        <div className="text-[11.5px] tabular font-bold text-foreground leading-tight">{fmtUSD(donutData[hoveredSlice].value,{compact:true})}</div>
+                        <div className="text-[9px] text-muted-foreground truncate max-w-[72px] leading-tight mt-0.5">{formatCat(donutData[hoveredSlice].category)}</div>
+                        <div className="text-[9px] font-medium mt-0.5" style={{color:donutData[hoveredSlice].color}}>
+                          {Math.round((donutData[hoveredSlice].value/spendingPeriodTotal)*100)}%
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[12px] tabular font-bold text-foreground">{fmtUSD(spendingPeriodTotal,{compact:true})}</div>
+                        <div className="text-[10px] text-muted-foreground">spent</div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -4709,45 +4801,6 @@ export const LivePlaidDashboard = ({
             </div>
           )}
 
-          {/* Spend trend chart */}
-          {bkts.length > 1 && (
-            <div className="surface-card p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[11px] font-semibold text-foreground">
-                  {spendingPeriod.granularity==="year"?"Monthly":"Daily"} trend
-                </span>
-                {(chartDrillDate||chartDrillMonth!=null)&&(
-                  <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-negative/30 bg-negative/10 text-negative">
-                    {chartDrillDate?new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
-                    <X className="h-2.5 w-2.5"/>
-                  </button>
-                )}
-              </div>
-              <div className="h-28">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={bkts} margin={{top:2,right:0,bottom:0,left:0}} barCategoryGap="28%" onClick={(s:any)=>{
-                    const b=bkts[s?.activeTooltipIndex];if(!b)return;
-                    if(b.dateKey)setChartDrillDate(p=>p===b.dateKey?null:b.dateKey!);
-                    else if(b.monthIdx!=null)setChartDrillMonth(p=>p===b.monthIdx?null:b.monthIdx!);
-                  }}>
-                    <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.2} vertical={false}/>
-                    <XAxis dataKey="label" axisLine={false} tickLine={false}
-                      interval={spendingPeriod.granularity==="month"?Math.floor(bkts.length/8):0}
-                      tick={{fontSize:8,fill:"hsl(var(--muted-foreground))",fontFamily:"inherit"}}/>
-                    <YAxis hide domain={[0,"dataMax+30"]}/>
-                    <Tooltip content={<TrendTip/>} cursor={{fill:"hsl(var(--foreground))",fillOpacity:0.05}}/>
-                    <Bar dataKey="total" radius={[3,3,0,0]} animationDuration={400}>
-                      {bkts.map((b,i)=>{
-                        const drilled=(!!b.dateKey&&b.dateKey===chartDrillDate)||(b.monthIdx!=null&&b.monthIdx===chartDrillMonth);
-                        return <Cell key={i} fill={drilled?"hsl(var(--negative))":"hsl(var(--primary))"} fillOpacity={drilled||b.isCurrent?1:0.4}/>;
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── RIGHT: transaction list ── */}
