@@ -3211,8 +3211,6 @@ export const LivePlaidDashboard = ({
   const [fundAllocations, setFundAllocations] = useState<Record<string,string>>({});
   // Transaction explorer (spending tab) — search / filter / sort
   const [txnSearch, setTxnSearch] = useState("");
-  const [txnAccountFilter, setTxnAccountFilter] = useState<string>("all");       // account_id or "all"
-  const [txnAcctTypeFilter, setTxnAcctTypeFilter] = useState<string>("all");     // all | depository | credit | investment | loan
   const [txnFlowFilter, setTxnFlowFilter] = useState<"all"|"expense"|"income">("all");
   const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc"|"name-asc"|"name-desc"|"category-asc">("date-desc");
   const [hideInternal, setHideInternal] = useState(true);
@@ -3615,8 +3613,6 @@ export const LivePlaidDashboard = ({
   const filteredSpendingTxns = (() => {
     let base = spendingPeriodTxns;
     if (selectedCategory) base = base.filter(t=>(getEffectiveCategory(t,overrides,getRuleCategory)??"Other")===selectedCategory);
-    if (txnAccountFilter !== "all") base = base.filter(t => t.account_id === txnAccountFilter);
-    if (txnAcctTypeFilter !== "all") base = base.filter(t => acctById[t.account_id]?.type === txnAcctTypeFilter);
     if (txnFlowFilter === "expense") base = base.filter(t => Number(t.amount) > 0);
     if (txnFlowFilter === "income")  base = base.filter(t => Number(t.amount) < 0);
     if (hideInternal) base = base.filter(t => !internalTxnIds.has(t.id));
@@ -3777,7 +3773,7 @@ export const LivePlaidDashboard = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("expense");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+                onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
@@ -3794,7 +3790,7 @@ export const LivePlaidDashboard = ({
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("income");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+                onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
@@ -3804,7 +3800,7 @@ export const LivePlaidDashboard = ({
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+                onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
@@ -3816,7 +3812,7 @@ export const LivePlaidDashboard = ({
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
-                setTxnAccountFilter("all");setTxnAcctTypeFilter("all");onCategorySelect?.("__spending__");
+                onCategorySelect?.("__spending__");
               }}
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
