@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
-import { Loader2, Landmark, Trash2, AlertTriangle } from "lucide-react";
+import { Loader2, Landmark, Trash2, AlertTriangle, Camera, User } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
@@ -30,6 +30,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [timezone, setTimezone] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [items, setItems] = useState<PlaidItemRow[] | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
@@ -72,17 +74,46 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.from("profiles").update({
+    // upsert (not update): brand-new users may not have a profile row yet, so a
+    // plain update would silently affect zero rows and "save" nothing.
+    const { error } = await supabase.from("profiles").upsert({
+      user_id: user.id,
       display_name: parsed.data.display_name,
       phone: parsed.data.phone || null,
       timezone: parsed.data.timezone || null,
       avatar_url: parsed.data.avatar_url || null,
-    }).eq("user_id", user.id);
+    }, { onConflict: "user_id" });
     setBusy(false);
     if (error) return toast.error(error.message);
     await refresh();
     toast.success("Profile saved");
     onOpenChange(false);
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please choose an image file"); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Image must be under 5 MB"); return; }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `${user.id}/avatar_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, cacheControl: "3600" });
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const publicUrl = data.publicUrl;
+      setAvatarUrl(publicUrl);
+      // Persist immediately so the new photo sticks even without pressing Save.
+      const { error: dbErr } = await supabase.from("profiles").upsert(
+        { user_id: user.id, avatar_url: publicUrl }, { onConflict: "user_id" });
+      if (dbErr) throw dbErr;
+      await refresh();
+      toast.success("Photo updated");
+    } catch (e) {
+      toast.error("Upload failed", { description: (e as Error).message });
+    } finally {
+      setUploading(false);
+    }
   };
 
   const disconnectBank = async (item: PlaidItemRow) => {
@@ -140,12 +171,37 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             <NotificationPreferences onClose={() => onOpenChange(false)} />
           )}
           {activeTab === "profile" && <>
-          <div className="p-5 space-y-3">
+          <div className="p-5 space-y-4">
+            {/* Avatar */}
+            <div className="flex items-center gap-4">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                className="relative h-16 w-16 rounded-full overflow-hidden shrink-0 border border-border grid place-items-center bg-[hsl(var(--primary)/0.12)] group">
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                  : <User className="h-6 w-6 text-[hsl(var(--primary))]" />}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity grid place-items-center">
+                  {uploading ? <Loader2 className="h-4 w-4 text-white animate-spin" /> : <Camera className="h-4 w-4 text-white" />}
+                </div>
+              </button>
+              <div className="min-w-0">
+                <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                  className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline disabled:opacity-50">
+                  {uploading ? "Uploading…" : avatarUrl ? "Change photo" : "Upload photo"}
+                </button>
+                <div className="text-[11px] text-muted-foreground mt-0.5">JPG or PNG, up to 5 MB</div>
+                {avatarUrl && (
+                  <button type="button" onClick={() => setAvatarUrl("")}
+                    className="text-[11px] text-muted-foreground hover:text-negative mt-0.5">Remove</button>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); e.target.value = ""; }} />
+            </div>
+
             {[
               { label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
               { label: "Phone", value: phone, set: setPhone, ph: "+1 555 123 4567", max: 30 },
               { label: "Timezone", value: timezone, set: setTimezone, ph: "America/Los_Angeles", max: 60 },
-              { label: "Avatar URL", value: avatarUrl, set: setAvatarUrl, ph: "https://…", max: 500 },
             ].map((f) => (
               <div key={f.label}>
                 <label className="text-[11px] text-muted-foreground">{f.label}</label>
