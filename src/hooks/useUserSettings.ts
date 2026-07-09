@@ -17,6 +17,13 @@ export interface AccountRoleInfo {
 
 export interface ManualIncomeItem { id: string; label: string; amount: number; }
 export interface CustomCategory { name: string; type: "income" | "expense"; }
+export interface RecurringDismissal {
+  merchant: string;          // normalized merchant key
+  category?: string;         // plaid category (lowercased) at dismissal time
+  reason: string;            // why the user removed it
+  suppressCategory?: boolean; // also hide the whole category going forward
+  at: string;
+}
 
 export interface UserSettings {
   budgets: Record<string, number>;
@@ -33,6 +40,7 @@ export interface UserSettings {
   dismissedInsights: string[];
   dismissedActions: string[];
   dismissedRecurring: string[];
+  recurringDismissals: RecurringDismissal[];
   panelOrder: string[];
   accountMeta: Record<string, { apr?: number; nickname?: string }>;
   benefitsUsed: Record<string, boolean>;
@@ -43,7 +51,7 @@ const DEFAULTS: UserSettings = {
   budgets: {}, accountRoles: {}, catOverrides: {}, catRules: [], smartRules: [],
   customCats: [], nameOverrides: {}, nameRules: {},
   manualIncome: [], manualInternal: [], manualExternal: [],
-  dismissedInsights: [], dismissedActions: [], dismissedRecurring: [],
+  dismissedInsights: [], dismissedActions: [], dismissedRecurring: [], recurringDismissals: [],
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
 };
 
@@ -89,6 +97,7 @@ const dbToSettings = (row: any): UserSettings => ({
   dismissedInsights:  row.dismissed_insights  ?? [],
   dismissedActions:   row.dismissed_actions   ?? [],
   dismissedRecurring: row.dismissed_recurring ?? [],
+  recurringDismissals: row.recurring_dismissals ?? [],
   panelOrder:         row.panel_order       ?? [],
   accountMeta:        row.account_meta      ?? {},
   benefitsUsed:       row.benefits_used     ?? {},
@@ -110,6 +119,7 @@ const settingsToDb = (s: UserSettings) => ({
   dismissed_insights:  s.dismissedInsights,
   dismissed_actions:   s.dismissedActions,
   dismissed_recurring: s.dismissedRecurring,
+  recurring_dismissals: s.recurringDismissals,
   panel_order:         s.panelOrder,
   account_meta:        s.accountMeta,
   benefits_used:       s.benefitsUsed,
@@ -267,6 +277,18 @@ export const useUserSettings = (userId: string | undefined) => {
   const dismissRecurring = (merchant: string) =>
     update({ dismissedRecurring: [...new Set([...latestSettings.current.dismissedRecurring, merchant.toLowerCase()])] });
 
+  const dismissRecurringWithReason = (entry: RecurringDismissal) =>
+    update({
+      dismissedRecurring: [...new Set([...latestSettings.current.dismissedRecurring, entry.merchant.toLowerCase()])],
+      recurringDismissals: [
+        ...latestSettings.current.recurringDismissals.filter(d => d.merchant !== entry.merchant),
+        entry,
+      ],
+    });
+
+  const clearRecurringDismissals = () =>
+    update({ dismissedRecurring: [], recurringDismissals: [] });
+
   const setPanelOrder = (order: string[]) => update({ panelOrder: order });
 
   const setAccountMeta = (accountId: string, meta: { apr?: number; nickname?: string }) =>
@@ -292,7 +314,7 @@ export const useUserSettings = (userId: string | undefined) => {
     setNameOverride, bulkSetNameOverride, saveNameRule,
     addManualIncome, removeManualIncome,
     toggleManualInternal,
-    dismissInsight, dismissAction, dismissRecurring,
+    dismissInsight, dismissAction, dismissRecurring, dismissRecurringWithReason, clearRecurringDismissals,
     setPanelOrder,
     setAccountMeta,
     setBenefitUsed,
