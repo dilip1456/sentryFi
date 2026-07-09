@@ -400,7 +400,8 @@ const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRul
 };
 
 type RecurringCharge = {
-  merchant: string; avgAmount: number; dayOfMonth: number;
+  merchant: string; merchantKey: string; category: string;
+  avgAmount: number; dayOfMonth: number;
   lastSeen: string; monthsActive: number; predictedDate: Date;
   accountId: string; intervalDays: number; intervalLabel: string;
 };
@@ -410,7 +411,12 @@ type RecurringCharge = {
  * Supports weekly (~7d), bi-weekly (~14d), monthly (~30d), quarterly (~90d).
  * Shows next 30 days of upcoming charges only.
  */
-const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
+const detectRecurring = (
+  txns: PTxn[],
+  internalIds: Set<string> = new Set(),
+  suppressMerchants: Set<string> = new Set(),
+  suppressCategories: Set<string> = new Set(),
+): RecurringCharge[] => {
   const now = new Date(); now.setHours(0,0,0,0);
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
   const lookahead = new Date(now.getTime() + 30 * 86400000);
@@ -422,23 +428,29 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
     { label: "Quarterly",  days: 91, tolerance: 10 },
   ];
 
-  // Categories that are never truly recurring (variable spend) — checked first since
-  // category data from Plaid is reliable when present.
-  const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal/i;
+  // Categories that are never truly recurring (variable/one-off spend) — checked first
+  // since category data from Plaid is reliable when present. Parking is included: it
+  // is pay-per-use, not a subscription.
+  const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal|parking/i;
   // Merchant name patterns that indicate one-off or variable spend even when category data
-  // is missing/generic — covers delivery apps, grocery/gas chains, and restaurant-style keywords
-  // (category alone missed real restaurants too often, which is the bug this guards against).
-  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b/i;
+  // is missing/generic — covers delivery apps, grocery/gas chains, restaurants, and parking.
+  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b|parking|parkmobile|paybyphone|spothero|garage\b|meter\b/i;
+
+  const norm = (t: PTxn) => (t.merchant_name ?? t.name ?? "").trim().toLowerCase()
+    .replace(/\s+(and|&|llc|inc|co\.?|corp\.?)[\s,]*$/i, "").slice(0, 40);
 
   const expenses = txns.filter(t => {
     if (Number(t.amount) <= 0 || t.pending) return false;
+    if (internalIds.has(t.id)) return false; // app-detected internal transfers
     if (new Date(t.date) < threeMonthsAgo) return false;
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
     if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
+    if (suppressCategories.has(cat0) || suppressCategories.has(cat1)) return false;
     const merchant = (t.merchant_name ?? t.name ?? "").toLowerCase();
     if (NON_RECURRING_MERCHANT.test(merchant)) return false;
     if (cat0.includes("transfer")) return false;
+    if (suppressMerchants.has(norm(t))) return false; // user-dismissed merchants
     return true;
   });
 
@@ -503,13 +515,15 @@ const detectRecurring = (txns: PTxn[]): RecurringCharge[] => {
 
     const displayName = deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "Unknown";
     const dayOfMonth = predictedDate.getDate();
+    const category = (deduped.find(t => t.category?.[0])?.category?.[0] ?? "").toLowerCase();
+    const merchantKey = norm(deduped[0]);
 
     const accCounts: Record<string, number> = {};
     for (const t of deduped) { accCounts[t.account_id] = (accCounts[t.account_id] ?? 0) + 1; }
     const accountId = Object.entries(accCounts).sort((a, b) => b[1] - a[1])[0][0];
 
     results.push({
-      merchant: displayName, avgAmount, dayOfMonth,
+      merchant: displayName, merchantKey, category, avgAmount, dayOfMonth,
       lastSeen, monthsActive: deduped.length,
       predictedDate, accountId,
       intervalDays: matchedInterval.days,
@@ -3141,10 +3155,22 @@ export const LivePlaidDashboard = ({
   const dismissedInsights = new Set(settings.dismissedInsights);
   const dismissedActions = new Set(settings.dismissedActions);
   const dismissedRecurring = new Set(settings.dismissedRecurring);
+  const recurringDismissals = settings.recurringDismissals;
   const dismissInsight = S.dismissInsight;
   const dismissAction = S.dismissAction;
   const dismissRecurring = (merchant: string) => S.dismissRecurring(merchant);
-  const restoreAllRecurring = () => S.update({ dismissedRecurring: [] });
+  const dismissRecurringWithReason = S.dismissRecurringWithReason;
+  const restoreAllRecurring = () => S.clearRecurringDismissals();
+  // Suppression sets derived from structured dismissals: exact merchant keys plus
+  // any categories the user chose to hide entirely, so similar charges stay gone.
+  const suppressRecurringMerchants = useMemo(
+    () => new Set([...dismissedRecurring, ...recurringDismissals.map(d => d.merchant.toLowerCase())]),
+    [settings.dismissedRecurring, recurringDismissals]
+  );
+  const suppressRecurringCategories = useMemo(
+    () => new Set(recurringDismissals.filter(d => d.suppressCategory && d.category).map(d => d.category!.toLowerCase())),
+    [recurringDismissals]
+  );
 
   // getRuleCategory — derived from rules (memoized)
   const getRuleCategory = useCallback((merchantName: string | null): string | null => {
@@ -3220,6 +3246,7 @@ export const LivePlaidDashboard = ({
   const [addCatNameDraft, setAddCatNameDraft] = useState("");
   const [addCatCustom, setAddCatCustom] = useState("");
   const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
+  const [recurringMenuFor, setRecurringMenuFor] = useState<string | null>(null); // merchantKey whose remove-reason menu is open
   // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
@@ -3617,7 +3644,7 @@ export const LivePlaidDashboard = ({
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds);
-  const recurringCharges = detectRecurring(txns).filter(r => !dismissedRecurring.has(r.merchant.toLowerCase()));
+  const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
 
   // Filtered + sorted txns for the spending-tab explorer
   const acctById = useMemo(() => {
@@ -4125,9 +4152,9 @@ export const LivePlaidDashboard = ({
                         Next 60 days · {recurringCharges.length} recurring
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
-                      {dismissedRecurring.size > 0 && (
+                      {suppressRecurringMerchants.size > 0 && (
                         <button onClick={restoreAllRecurring} className="text-[10px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors">
-                          {dismissedRecurring.size} hidden · restore
+                          {suppressRecurringMerchants.size} hidden · restore
                         </button>
                       )}
                     </div>
@@ -4188,10 +4215,44 @@ export const LivePlaidDashboard = ({
                             <div className="text-[13px] tabular font-semibold text-foreground">{fmtUSD(r.avgAmount)}</div>
                             {daysAway>1 && <div className="text-[10px] text-muted-foreground tabular">{daysAway}d</div>}
                           </div>
-                          <button onClick={()=>dismissRecurring(r.merchant)} title="Remove from recurring list"
-                            className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all shrink-0">
-                            <X className="h-3 w-3" />
-                          </button>
+                          <div className="relative shrink-0">
+                            <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list"
+                              className={cn("h-6 w-6 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
+                                recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100")}>
+                              <X className="h-3 w-3" />
+                            </button>
+                            {recurringMenuFor===r.merchantKey && (()=>{
+                              const doDismiss = (reason: string, suppressCategory=false) => {
+                                dismissRecurringWithReason({ merchant: r.merchantKey, category: r.category || undefined, reason, suppressCategory, at: new Date().toISOString() });
+                                setRecurringMenuFor(null);
+                                toast.success("Removed from upcoming", { description: suppressCategory && r.category ? `Similar ${formatCat(r.category)} charges will stay hidden.` : `"${r.merchant}" won't be predicted again.` });
+                              };
+                              return (
+                                <>
+                                  <button className="fixed inset-0 z-[60]" onClick={()=>setRecurringMenuFor(null)} />
+                                  <div className="absolute right-0 top-7 z-[61] w-52 rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden py-1">
+                                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/70">Why remove this?</div>
+                                    {[
+                                      { label: "Not a recurring charge", reason: "not_recurring" },
+                                      { label: "I cancelled it", reason: "cancelled" },
+                                      { label: "Wrong prediction", reason: "wrong_prediction" },
+                                    ].map(opt=>(
+                                      <button key={opt.reason} onClick={()=>doDismiss(opt.reason)}
+                                        className="w-full text-left px-3 py-2 text-[12px] text-foreground hover:bg-surface-hover/50 transition-colors">
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                    {r.category && (
+                                      <button onClick={()=>doDismiss("hide_category", true)}
+                                        className="w-full text-left px-3 py-2 text-[12px] text-foreground hover:bg-surface-hover/50 transition-colors border-t border-border/20">
+                                        Hide all {formatCat(r.category)} charges
+                                      </button>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
                         </div>
                       );
                     })}
