@@ -1075,7 +1075,8 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
   compact?: boolean;
 }) => {
   const acctTypes = Array.from(new Set(accounts.map(a => a.type).filter(Boolean))) as string[];
-  const inputCls = "h-8 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]";
+  // Matches the transaction toolbar controls so the whole app reads as one system.
+  const inputCls = "h-8 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground px-2.5 outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors";
 
   const patch = (id: string, p: Partial<Condition>) =>
     onChange({ ...set, conditions: set.conditions.map(c => c.id === id ? { ...c, ...p } : c) });
@@ -1254,24 +1255,39 @@ const RulesManager = ({
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88dvh] flex flex-col">
+      <DialogContent className="max-w-2xl surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88dvh] flex flex-col">
         <DialogTitle className="sr-only">Rules</DialogTitle>
         <DialogDescription className="sr-only">Manage transaction rules</DialogDescription>
 
         {/* Header */}
-        <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center justify-between">
-          <div>
+        <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center justify-between gap-2">
+          <div className="min-w-0">
             <div className="font-display text-[15px] text-foreground font-semibold">Transaction Rules</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">Automatically apply patterns to matching transactions</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Rules apply automatically to every transaction, new and old</div>
           </div>
-          <button onClick={() => {
-              if (tab === "smart") setDraftRule(emptyRule());
-              else { setShowNewCat(tab === "category"); setShowNewName(tab === "names"); }
-              setEditId(null); setEditNameKey(null);
-            }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0">
-            <Plus className="h-3.5 w-3.5" /> New Rule
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => {
+                const enabled = smartRules.filter(r => r.enabled);
+                const affected = new Set<string>();
+                for (const { id, ev } of evalTxns)
+                  for (const r of enabled) if (ruleMatches(r, ev)) { affected.add(id); break; }
+                toast.success("Rules are live", {
+                  description: `${enabled.length} active rule${enabled.length !== 1 ? "s" : ""} currently affecting ${affected.size} transaction${affected.size !== 1 ? "s" : ""}.`,
+                });
+              }}
+              title="Re-check rules against all transactions"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border-strong text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+              <RefreshCw className="h-3.5 w-3.5" /> Run rules
+            </button>
+            <button onClick={() => {
+                if (tab === "smart") setDraftRule(emptyRule());
+                else { setShowNewCat(tab === "category"); setShowNewName(tab === "names"); }
+                setEditId(null); setEditNameKey(null);
+              }}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0">
+              <Plus className="h-3.5 w-3.5" /> New Rule
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -1298,7 +1314,7 @@ const RulesManager = ({
                     <Wand2 className="h-4 w-4 text-[hsl(var(--primary))]" />
                     <input value={draftRule.name} onChange={e => setDraftRule({ ...draftRule, name: e.target.value })}
                       placeholder="Rule name (e.g. Coffee shops)"
-                      className="flex-1 h-8 px-2.5 rounded-md bg-background border border-border/60 text-[12px] font-medium text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                      className="flex-1 h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[12px] font-medium text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                   </div>
 
                   <div className="rounded-lg border border-border/40 p-3 space-y-2">
@@ -1318,7 +1334,7 @@ const RulesManager = ({
                             next[i] = type === "mark_internal" ? { type } : { type, value: "" } as RuleAction;
                             setDraftRule({ ...draftRule, actions: next });
                           }}
-                          className="h-8 w-[130px] shrink-0 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none">
+                          className="h-8 w-[130px] shrink-0 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground px-2 outline-none">
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
@@ -1331,7 +1347,7 @@ const RulesManager = ({
                               setDraftRule({ ...draftRule, actions: next });
                             }}
                             placeholder={a.type === "set_category" ? "Category…" : "Display name…"}
-                            className="flex-1 min-w-0 h-8 rounded-md bg-background border border-border/60 text-[11.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                            className="flex-1 min-w-0 h-8 rounded-lg bg-secondary/40 border border-border/40 text-[11.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                         )}
                         {a.type === "mark_internal" && <span className="flex-1 text-[11px] text-muted-foreground px-1">Excludes it from spending totals</span>}
                         {draftRule.actions.length > 1 && (
@@ -1426,17 +1442,17 @@ const RulesManager = ({
                   <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                     <span className="text-[11px] text-muted-foreground">When name</span>
                     <select value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}
-                      className="h-8 px-2 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                      className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
                       <option value="contains">contains</option>
                       <option value="starts_with">starts with</option>
                       <option value="exact">is exactly</option>
                     </select>
                     <span className="text-[11px] text-muted-foreground">Pattern</span>
                     <input value={newPattern} onChange={e => setNewPattern(e.target.value)} placeholder="e.g. Amazon, Starbucks…"
-                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                      className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                     <span className="text-[11px] text-muted-foreground">Category</span>
                     <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="e.g. Shopping, Food…"
-                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                      className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                   </div>
                   {newPattern && newCategory && (
                     <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
@@ -1476,7 +1492,7 @@ const RulesManager = ({
                         <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                           <span className="text-[11px] text-muted-foreground">When name</span>
                           <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
-                            className="h-8 px-2 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                            className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
                             <option value="contains">contains</option>
                             <option value="starts_with">starts with</option>
                             <option value="exact">is exactly</option>
@@ -1486,7 +1502,7 @@ const RulesManager = ({
                             className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
                           <span className="text-[11px] text-muted-foreground">Category</span>
                           <input value={editCategory} onChange={e => setEditCategory(e.target.value)}
-                            className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                            className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                         </div>
                         {editPattern && editCategory && (
                           <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
@@ -1585,10 +1601,10 @@ const RulesManager = ({
                   <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                     <span className="text-[11px] text-muted-foreground">Merchant name</span>
                     <input value={newNameMerchant} onChange={e => setNewNameMerchant(e.target.value)} placeholder="e.g. AMZN Mktp US"
-                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                      className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                     <span className="text-[11px] text-muted-foreground">Show as</span>
                     <input value={newNameDisplay} onChange={e => setNewNameDisplay(e.target.value)} placeholder="e.g. Amazon"
-                      className="h-8 px-2.5 rounded-md bg-background border border-border/60 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                      className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                   </div>
                   {newNameMerchant && newNameDisplay && (
                     <div className="text-[10.5px] text-muted-foreground bg-border/20 rounded-md px-3 py-1.5">
