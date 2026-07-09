@@ -22,7 +22,12 @@ import NotFound from "./pages/NotFound.tsx";
 const Index = lazy(() => import("./pages/Index.tsx"));
 const Demo = lazy(() => import("./pages/Demo.tsx"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    // Alt-tabbing back shouldn't trigger a wave of refetches / loading flicker.
+    queries: { refetchOnWindowFocus: false },
+  },
+});
 
 const RouteFallback = () => (
   <div className="min-h-screen grid place-items-center bg-background">

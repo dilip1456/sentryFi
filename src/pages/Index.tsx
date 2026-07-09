@@ -41,7 +41,13 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
 const MOBILE_PRIMARY: View[] = ["moneymap", "spending", "budget"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
-  const [view, setView] = useState<View>("overall");
+  // Persist the active view so a background auth-token refresh (which can remount
+  // this tree when the window regains focus) doesn't bounce the user back to Home.
+  const [view, setView] = useState<View>(() => {
+    const saved = sessionStorage.getItem("sentryfi_view");
+    return (saved as View) || "overall";
+  });
+  useEffect(() => { sessionStorage.setItem("sentryfi_view", view); }, [view]);
   const [linkOpen, setLinkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
@@ -156,9 +162,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </div>
         </button>
 
-        {/* Nav — Home is the logo above, not a tab */}
+        {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 scrollbar-none">
           <div className="section-label">Overview</div>
+          <button onClick={() => go("overall")} className={cn("nav-item w-full text-left", view === "overall" && "active")}>
+            <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
+            <span>Home</span>
+          </button>
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
