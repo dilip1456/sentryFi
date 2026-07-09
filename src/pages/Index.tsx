@@ -10,6 +10,7 @@ import { NotificationInbox } from "@/components/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
+import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
@@ -57,6 +58,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
+  const { unreadCount, refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
@@ -251,8 +253,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Notifications */}
             {user && (
               <button onClick={() => setShowInbox(true)}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="relative h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[9px] font-bold grid place-items-center leading-none">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
               </button>
             )}
             {/* Sync */}
@@ -397,8 +404,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 {user && (
                   <button onClick={() => setShowInbox(true)}
                     title="Notifications"
-                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+                    className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
                     <Bell className="h-4 w-4" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[9px] font-bold grid place-items-center leading-none">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    )}
                   </button>
                 )}
                 {user && !guestDemo && (
@@ -527,7 +539,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       </div>
 
       {showInbox && (
-        <Dialog open onOpenChange={o => { if (!o) setShowInbox(false); }}>
+        <Dialog open onOpenChange={o => { if (!o) { setShowInbox(false); refreshUnread(); } }}>
           <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
             <DialogTitle className="sr-only">Notifications</DialogTitle>
             <DialogDescription className="sr-only">Recent alerts and activity</DialogDescription>
