@@ -17,6 +17,15 @@ const schema = z.object({
 
 type PlaidItemRow = { id: string; institution_name: string | null; status: string; created_at: string };
 
+// Live US phone formatting as the user types: 5551234567 -> (555) 123-4567
+const formatPhone = (raw: string): string => {
+  const d = raw.replace(/\D/g, "").slice(0, 10);
+  if (d.length === 0) return "";
+  if (d.length < 4) return `(${d}`;
+  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+};
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -56,7 +65,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   useEffect(() => {
     if (open) {
       setDisplayName(profile?.display_name ?? "");
-      setPhone(profile?.phone ?? "");
+      setPhone(formatPhone(profile?.phone ?? ""));
       setTimezone(profile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
       setAvatarUrl(profile?.avatar_url ?? "");
       setShowDeleteAccount(false);
@@ -200,7 +209,6 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
 
             {[
               { label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
-              { label: "Phone", value: phone, set: setPhone, ph: "+1 555 123 4567", max: 30 },
               { label: "Timezone", value: timezone, set: setTimezone, ph: "America/Los_Angeles", max: 60 },
             ].map((f) => (
               <div key={f.label}>
@@ -209,6 +217,13 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                   className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
               </div>
             ))}
+            {/* Phone with live US formatting: (555) 123-4567 */}
+            <div>
+              <label className="text-[11px] text-muted-foreground">Phone</label>
+              <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} placeholder="(555) 123-4567"
+                type="tel" inputMode="tel" maxLength={16}
+                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+            </div>
             <button onClick={save} disabled={busy}
               className="mt-2 w-full py-2 rounded-md bg-foreground text-background text-[13px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

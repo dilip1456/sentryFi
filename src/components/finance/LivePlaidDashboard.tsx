@@ -4278,20 +4278,25 @@ export const LivePlaidDashboard = ({
                 </div>
               );
             })()}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
-              {bucketOrder.map(bucket => (
-                <BucketGroup
-                  key={bucket}
-                  bucket={bucket}
-                  accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
-                  txns={txns}
-                  accountMeta={accountMeta}
-                  creditDetails={creditDetails}
-                  items={items}
-                  onSelect={a => setDetailAccount(a)}
-                  defaultOpen
-                />
-              ))}
+            {/* Masonry columns so expanded/collapsed cards of different heights
+                pack tightly and fill the row instead of leaving gaps. */}
+            <div className="columns-1 md:columns-2 xl:columns-3 gap-2 [column-fill:balance]">
+              {bucketOrder
+                .filter(bucket => accounts.some(a => mapBucket(a.type, a.subtype) === bucket))
+                .map(bucket => (
+                  <div key={bucket} className="break-inside-avoid mb-2">
+                    <BucketGroup
+                      bucket={bucket}
+                      accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
+                      txns={txns}
+                      accountMeta={accountMeta}
+                      creditDetails={creditDetails}
+                      items={items}
+                      onSelect={a => setDetailAccount(a)}
+                      defaultOpen
+                    />
+                  </div>
+                ))}
             </div>
             <button
               onClick={onAddAccount}

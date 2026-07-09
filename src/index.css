@@ -39,13 +39,13 @@
     --accent: 43 80% 58%;
     --accent-foreground: 222 25% 8%;
 
-    /* Signal colors — clear, not garish */
-    --positive: 158 55% 48%;
-    --negative: 5 72% 58%;
-    --warning: 38 88% 56%;
-    --info: 212 72% 62%;
+    /* Signal colors — muted for a sleek financial look in dark mode */
+    --positive: 158 48% 52%;
+    --negative: 6 55% 60%;
+    --warning: 38 78% 58%;
+    --info: 212 60% 64%;
 
-    --destructive: 5 72% 54%;
+    --destructive: 6 55% 56%;
     --destructive-foreground: 0 0% 98%;
 
     --border: 222 18% 19%;

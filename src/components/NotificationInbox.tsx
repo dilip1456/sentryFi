@@ -33,6 +33,7 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
   const { user } = useAuth();
   const [items, setItems] = useState<Note[] | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<"all" | "unread">("all");
 
   const parse = useCallback((rows: AlertRow[], acctNames: Record<string, string>, read: Set<string>): Note[] => {
     return rows.map(r => {
@@ -103,32 +104,48 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
     return `${Math.floor(hrs / 24)}d ago`;
   };
 
+  const shown = (items ?? []).filter(n => filter === "all" || !n.read);
+
   return (
     <div className="flex flex-col min-h-0">
-      {unread > 0 && (
-        <div className="px-4 py-2 border-b border-border/20 flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">{unread} unread</span>
-          <button onClick={markAllRead} className="text-[11px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80">
-            <CheckCheck className="h-3.5 w-3.5" /> Mark all read
-          </button>
+      {items && items.length > 0 && (
+        <div className="px-4 py-2 border-b border-border/20 flex items-center justify-between gap-2">
+          <div className="flex rounded-lg border border-border/50 overflow-hidden">
+            {(["all", "unread"] as const).map(f => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={cn("px-3 py-1 text-[11px] font-medium capitalize transition-colors",
+                  filter === f ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
+                {f}{f === "unread" && unread > 0 ? ` (${unread})` : ""}
+              </button>
+            ))}
+          </div>
+          {unread > 0 && (
+            <button onClick={markAllRead} className="text-[11px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80 shrink-0">
+              <CheckCheck className="h-3.5 w-3.5" /> Mark all read
+            </button>
+          )}
         </div>
       )}
 
       {items === null ? (
         <div className="p-10 grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-      ) : items.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="p-8 flex flex-col items-center gap-3 text-center">
           <div className="h-12 w-12 rounded-full bg-[hsl(var(--primary)/0.08)] grid place-items-center">
             <Bell className="h-5 w-5 text-[hsl(var(--primary)/0.5)]" />
           </div>
           <div>
-            <div className="text-[13.5px] font-semibold text-foreground">You're all caught up</div>
-            <div className="text-[12px] text-muted-foreground mt-1">Alerts for low balances, budget limits, and upcoming payments will appear here.</div>
+            <div className="text-[13.5px] font-semibold text-foreground">{filter === "unread" && (items?.length ?? 0) > 0 ? "No unread notifications" : "You're all caught up"}</div>
+            <div className="text-[12px] text-muted-foreground mt-1">
+              {filter === "unread" && (items?.length ?? 0) > 0
+                ? "Switch to All to see earlier notifications."
+                : "Alerts for low balances, budget limits, and upcoming payments will appear here."}
+            </div>
           </div>
         </div>
       ) : (
         <div className="divide-y divide-border/20">
-          {items.map(n => {
+          {shown.map(n => {
             const Icon = TYPE_ICON[n.type] ?? Bell;
             return (
               <button key={n.id} onClick={() => markRead(n.id)}

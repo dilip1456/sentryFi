@@ -29,14 +29,16 @@ const Switch = ({ on, onChange, label }: { on: boolean; onChange: () => void; la
     aria-label={label}
     onClick={onChange}
     className={cn(
-      "w-11 h-[26px] rounded-full transition-colors relative shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary)/0.4)]",
-      on ? "bg-[hsl(var(--primary))]" : "bg-border-strong"
+      "w-[46px] h-[26px] rounded-full transition-colors relative shrink-0 outline-none border focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary)/0.4)]",
+      on
+        ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]"
+        : "bg-secondary border-border-strong"
     )}
   >
     <span
       className={cn(
-        "absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
-        on ? "translate-x-[22px]" : "translate-x-[3px]"
+        "absolute top-[2px] h-[20px] w-[20px] rounded-full shadow-sm transition-transform duration-200",
+        on ? "translate-x-[22px] bg-white" : "translate-x-[2px] bg-muted-foreground"
       )}
     />
   </button>
