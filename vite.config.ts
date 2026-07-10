@@ -19,6 +19,7 @@ export default defineConfig(() => ({
     // makes it obvious on-device whether you're running a stale APK or the latest one.
     __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
   },
   plugins: [react()],
   resolve: {

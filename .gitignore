@@ -39,5 +39,3 @@ android/local.properties
 tsconfig.app.tsbuildinfo
 supabase/.temp
 -e 
-# APK builds — stored as GitHub Release assets, not in repo
-public/downloads/*.apk

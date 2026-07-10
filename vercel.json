@@ -2,11 +2,13 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "redirects": [
+  "headers": [
     {
-      "source": "/downloads/SentryFi.apk",
-      "destination": "https://github.com/dilip1456/sentryFi/releases/download/latest/SentryFi-release.apk",
-      "permanent": false
+      "source": "/downloads/:file.apk",
+      "headers": [
+        { "key": "Content-Type", "value": "application/vnd.android.package-archive" },
+        { "key": "Content-Disposition", "value": "attachment; filename=SentryFi.apk" }
+      ]
     }
   ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]

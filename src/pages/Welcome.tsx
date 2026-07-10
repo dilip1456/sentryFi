@@ -2,7 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { isNative } from "@/lib/capacitor-oauth";
-import { APK_DOWNLOAD_URL } from "@/lib/constants";
+import { APK_DOWNLOAD_URL, APP_VERSION } from "@/lib/constants";
 
 const FEATURES = [
   {
@@ -239,7 +239,7 @@ const navigate = useNavigate();
       {/* ── Footer ── */}
       <footer style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "28px 24px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ fontSize: 13, color: "#4B5C70" }}>© 2026 SentryFi. Personal use.</div>
+          <div style={{ fontSize: 13, color: "#4B5C70" }}>© 2026 Sentry Finance · v{APP_VERSION}</div>
           <div style={{ display: "flex", gap: 20 }}>
             <Link to="/auth" style={{ fontSize: 13, color: "#4B5C70", textDecoration: "none" }}>Sign in</Link>
             <Link to="/pricing" style={{ fontSize: 13, color: "#4B5C70", textDecoration: "none" }}>Pricing</Link>
