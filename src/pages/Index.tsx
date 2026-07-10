@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
@@ -288,11 +289,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Settings className="h-3.5 w-3.5" />
               </button>
-              {headerMenuOpen && (
+              {headerMenuOpen && createPortal(
                 <>
-                  <div className="fixed inset-0 z-[100]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div className="fixed top-14 right-2 z-[101] w-56 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
-                    style={{ background: "hsl(var(--surface-elevated, 222 22% 14%))" }}>
+                  <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
+                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+                    style={{ background: "#1a2236" }}>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white/5">
@@ -301,36 +302,30 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     )}
                     {user && !effectiveDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
-                        <Plus className="h-4 w-4 text-muted-foreground" /> Link account
-                      </button>
-                    )}
-                    {user && !effectiveDemo && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setManualOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
-                        <Plus className="h-4 w-4 text-muted-foreground" /> Add manually
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
                     {user && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
-                        <Bell className="h-4 w-4 text-muted-foreground" /> Notifications
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5">
-                        <Settings className="h-4 w-4 text-muted-foreground" /> Profile &amp; settings
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowProfile?.(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        <Settings className="h-4 w-4 opacity-60" /> Settings
                       </button>
                     )}
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5 border-t border-white/10"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10"
                       onClick={() => setHeaderMenuOpen(false)}>
-                      <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
+                      <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
-                    {(demo && !guestDemo) && (
+                    {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-warning hover:bg-white/5 border-t border-white/10">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-yellow-400 hover:bg-white/5 border-t border-white/10">
                         <Sparkles className="h-4 w-4" /> Exit demo
                       </button>
                     )}
@@ -342,12 +337,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 hover:bg-white/5 border-t border-white/10">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 font-medium hover:bg-white/5 border-t border-white/10">
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
                     )}
                   </div>
-                </>
+                </>,
+                document.body
               )}
             </div>
           </div>
