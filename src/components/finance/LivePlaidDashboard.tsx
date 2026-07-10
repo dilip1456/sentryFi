@@ -3336,7 +3336,7 @@ export const LivePlaidDashboard = ({
 
   // Panel order for overall dashboard (drag-and-drop)
   const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "top-spending", "upcoming-charges"];
-  const panelOrder = settings.panelOrder.length === 4 && DEFAULT_PANEL_ORDER.every(id => settings.panelOrder.includes(id)) ? settings.panelOrder : DEFAULT_PANEL_ORDER;
+  const panelOrder = (settings.panelOrder?.length === 4 && DEFAULT_PANEL_ORDER.every(id => settings.panelOrder.includes(id))) ? settings.panelOrder : DEFAULT_PANEL_ORDER;
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
