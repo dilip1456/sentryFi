@@ -45,28 +45,22 @@ jobs:
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
 
-      - name: Find APK
-        id: apk
+      - name: Copy APK to public/downloads
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n1)
-          if [ -z "$APK_PATH" ]; then echo "No APK found"; exit 1; fi
-          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "Found: $APK_PATH ($(du -sh $APK_PATH | cut -f1))"
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "Found: $APK"
+          mkdir -p public/downloads
+          cp "$APK" public/downloads/SentryFi.apk
+          ls -lh public/downloads/SentryFi.apk
 
-      - name: Upload APK as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SentryFi-release
-          path: ${{ steps.apk.outputs.path }}
-          retention-days: 30
-
-      - name: Create or update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: "SentryFi Latest Build"
-          body: "Auto-built from latest main. Install on Android."
-          files: ${{ steps.apk.outputs.path }}
-          prerelease: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit APK to repo (served by Vercel)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/downloads/SentryFi.apk
+          if git diff --cached --quiet; then
+            echo "APK unchanged, skipping commit"
+          else
+            git commit -m "chore: update APK v$(node -p 'require(\"./package.json\").version') [skip ci]"
+            git push
+          fi

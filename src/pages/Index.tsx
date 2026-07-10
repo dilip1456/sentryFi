@@ -18,7 +18,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
-import { APK_DOWNLOAD_URL } from "@/lib/constants";
+import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
@@ -239,6 +239,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Sign out
             </button>
           )}
+          <div className="px-3 pt-2 pb-1 text-[10px] text-muted-foreground/30 select-none">
+            v{APP_VERSION} · {BUILD_DATE}
+          </div>
         </div>
       </aside>
 
@@ -482,7 +485,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
             <div className="text-center text-[10.5px] text-muted-foreground/40 pt-4">
-              SentryFi · {effectiveDemo ? "Demo data" : "Live data"}
+              Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
         </main>
