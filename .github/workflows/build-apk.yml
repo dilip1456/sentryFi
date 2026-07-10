@@ -1,15 +1,31 @@
 name: Build Android APK
 
 on:
+  # Only build APK when Android or app-critical files change
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'capacitor.config.ts'
+      - 'vite.config.ts'
+  # Or trigger manually
   workflow_dispatch:
+
+# Skip if commit message contains [skip apk]
+concurrency:
+  group: apk-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
   build:
+    # Skip doc/config-only changes
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip apk]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +57,7 @@ jobs:
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
           KEYSTORE_PATH: "sentryfi-release.keystore"
@@ -49,13 +65,12 @@ jobs:
           KEYSTORE_STORE_PASSWORD: "SentryFi2026!"
           KEYSTORE_KEY_PASSWORD: "SentryFi2026!"
 
-      - name: Copy APK to public/downloads
+      - name: Copy APK
         run: |
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          echo "Found: $APK ($(du -sh $APK | cut -f1))"
+          echo "APK: $APK ($(du -sh $APK | cut -f1))"
           mkdir -p public/downloads
           cp "$APK" public/downloads/SentryFi.apk
-          ls -lh public/downloads/SentryFi.apk
 
       - name: Commit APK
         run: |
@@ -66,6 +81,6 @@ jobs:
             echo "APK unchanged"
           else
             VERSION=$(node -p "require('./package.json').version")
-            git commit -m "chore: update APK v${VERSION} [skip ci]"
+            git commit -m "chore: APK v${VERSION} [skip ci]"
             git push
           fi
