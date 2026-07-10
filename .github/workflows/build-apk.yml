@@ -39,33 +39,20 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Decode keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | tr -d ' \n\r\t' | base64 -d > android/app/sentryfi-release.keystore
-            echo "Keystore decoded: $(wc -c < android/app/sentryfi-release.keystore) bytes"
-            echo "KEYSTORE_AVAILABLE=true" >> $GITHUB_ENV
-          else
-            echo "No keystore secret found, using debug signing"
-            echo "KEYSTORE_AVAILABLE=false" >> $GITHUB_ENV
-          fi
-
       - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
           KEYSTORE_PATH: "sentryfi-release.keystore"
-          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
-          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
-          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+          KEYSTORE_ALIAS: "sentryfi-release"
+          KEYSTORE_STORE_PASSWORD: "SentryFi2026!"
+          KEYSTORE_KEY_PASSWORD: "SentryFi2026!"
 
       - name: Copy APK to public/downloads
         run: |
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          echo "Found: $APK"
+          echo "Found: $APK ($(du -sh $APK | cut -f1))"
           mkdir -p public/downloads
           cp "$APK" public/downloads/SentryFi.apk
           ls -lh public/downloads/SentryFi.apk
