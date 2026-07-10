@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+
+// Android crash logger - shows errors visibly since Android WebView has no DevTools
+if (typeof window !== "undefined") {
+  const origError = console.error.bind(console);
+  console.error = (...args: any[]) => {
+    origError(...args);
+    // Store last error for display
+    try {
+      const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
+      sessionStorage.setItem("__last_error__", msg.slice(0, 500));
+    } catch {}
+  };
+}
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
@@ -307,13 +320,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     )}
                     {user && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setShowPrefs(true); }}
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
-                      <button onClick={() => { setHeaderMenuOpen(false); setShowProfile?.(true); }}
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
                         <Settings className="h-4 w-4 opacity-60" /> Settings
                       </button>
