@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -40,12 +40,17 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/sentryfi-release.keystore
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/sentryfi-release.keystore
+            echo "KEYSTORE_AVAILABLE=true" >> $GITHUB_ENV
+          else
+            echo "KEYSTORE_AVAILABLE=false" >> $GITHUB_ENV
+          fi
 
-      - name: Build release APK (signed)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         env:
@@ -55,19 +60,13 @@ jobs:
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
           KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
 
-      - name: Build release APK (unsigned fallback)
-        if: ${{ secrets.KEYSTORE_BASE64 == '' }}
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
-
       - name: Copy APK to public/downloads
         run: |
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          echo "Found: $APK ($(du -sh $APK | cut -f1))"
+          echo "Found: $APK"
           mkdir -p public/downloads
           cp "$APK" public/downloads/SentryFi.apk
+          ls -lh public/downloads/SentryFi.apk
 
       - name: Commit APK
         run: |
@@ -77,6 +76,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "APK unchanged"
           else
-            git commit -m "chore: update APK v$(node -p 'require(\"./package.json\").version') [skip ci]"
+            VERSION=$(node -p "require('./package.json').version")
+            git commit -m "chore: update APK v${VERSION} [skip ci]"
             git push
           fi
