@@ -123,7 +123,7 @@ const navigate = useNavigate();
             Try the demo
           </button>
           {isAndroid && (
-            <a href="{APK_DOWNLOAD_URL}" download style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
+            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" style={{ padding: "13px 28px", borderRadius: 12, background: "#1E2F50", border: "1px solid rgba(212,146,14,0.3)", color: "#D4920E", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
               ↓ Download Android app
             </a>
           )}
@@ -228,7 +228,7 @@ const navigate = useNavigate();
           </div>
           {isAndroid && (
             <div style={{ marginTop: 24 }}>
-              <a href="{APK_DOWNLOAD_URL}" download style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
+              <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "#D4920E", textDecoration: "none", borderBottom: "1px solid rgba(212,146,14,0.4)", paddingBottom: 2 }}>
                 ↓ Download the Android app instead
               </a>
             </div>

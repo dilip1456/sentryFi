@@ -320,7 +320,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                         <Settings className="h-4 w-4 text-muted-foreground" /> Profile &amp; settings
                       </button>
                     )}
-                    <a href="{APK_DOWNLOAD_URL}"
+                    <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-white/5 border-t border-white/10"
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 text-muted-foreground" /> Download Android app
@@ -355,7 +355,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
             <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
-            <a href="{APK_DOWNLOAD_URL}"
+            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
               className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
             </a>
