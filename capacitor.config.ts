@@ -5,13 +5,10 @@ const config: CapacitorConfig = {
   appName: 'SentryFi',
   webDir: 'dist',
   android: {
-    // Allow content to scroll naturally in the WebView
     allowMixedContent: true,
   },
   plugins: {
-    SplashScreen: {
-      launchShowDuration: 0,
-    },
+    SplashScreen: { launchShowDuration: 0 },
   },
 };
 
