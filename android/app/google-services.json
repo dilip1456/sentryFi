@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "852624413611",
+    "project_id": "sentryfiapp",
+    "storage_bucket": "sentryfiapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:852624413611:android:9c95192bc452dbf80df8ee",
+        "android_client_info": {
+          "package_name": "com.sentryfi.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAqbuu3TIlr82WvuQ8accX_7hVHm74_1hc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
