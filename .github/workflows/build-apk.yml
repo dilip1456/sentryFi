@@ -1,7 +1,6 @@
 name: Build Android APK
 
 on:
-  # Only build APK when Android or app-critical files change
   push:
     branches: [main]
     paths:
@@ -11,10 +10,8 @@ on:
       - 'package.json'
       - 'capacitor.config.ts'
       - 'vite.config.ts'
-  # Or trigger manually
   workflow_dispatch:
 
-# Skip if commit message contains [skip apk]
 concurrency:
   group: apk-build
   cancel-in-progress: true
@@ -24,8 +21,7 @@ permissions:
 
 jobs:
   build:
-    # Skip doc/config-only changes
-    if: "!contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip apk]')"
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +36,9 @@ jobs:
 
       - name: Build web bundle
         run: npm run build
+
+      - name: Remove APK from dist (stops recursive bundling)
+        run: rm -rf dist/downloads/
 
       - uses: actions/setup-java@v4
         with:
