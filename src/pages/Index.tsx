@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import { useTheme } from "@/contexts/ThemeContext";
 
 // Android crash logger - shows errors visibly since Android WebView has no DevTools
 if (typeof window !== "undefined") {
@@ -36,7 +37,7 @@ import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
   LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -75,6 +76,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const { isAdmin, user, signOut, profile } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
@@ -253,6 +255,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Sign out
             </button>
           )}
+          <button onClick={toggleTheme} className="nav-item w-full">
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </button>
           <div className="px-3 pt-2 pb-1 text-[10px] text-muted-foreground/30 select-none">
             v{APP_VERSION} · {BUILD_DATE}
           </div>
@@ -306,7 +312,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
                   <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
-                    style={{ background: "#1a2236" }}>
+                    style={{ background: "hsl(var(--sidebar-background))" }}>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white/5">
@@ -331,6 +337,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                         <Settings className="h-4 w-4 opacity-60" /> Settings
                       </button>
                     )}
+                    <button onClick={toggleTheme}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                      {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
+                      {theme === "dark" ? "Light mode" : "Dark mode"}
+                    </button>
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10"
                       onClick={() => setHeaderMenuOpen(false)}>
@@ -533,26 +544,31 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {moreOpen && (
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-border/60 shadow-2xl overflow-hidden"
-                  style={{ background: "hsl(var(--surface-elevated, 222 22% 14%))" }}>
+                <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+                  style={{ background: "hsl(var(--sidebar-background))" }}>
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
-                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] hover:bg-[hsl(var(--surface-hover))] transition-colors",
-                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
-                        <Icon className="h-4 w-4 text-muted-foreground" />
+                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] hover:bg-white/5 transition-colors",
+                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-white")}>
+                        <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
                       </button>
                     );
                   })}
                   {user && (
                     <button onClick={() => { setMoreOpen(false); setShowInbox(true); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-[hsl(var(--surface-hover))] border-t border-border/20">
-                      <Bell className="h-4 w-4 text-muted-foreground" />
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                      <Bell className="h-4 w-4 opacity-60" />
                       Notifications
                     </button>
                   )}
+                  <button onClick={() => { setMoreOpen(false); toggleTheme(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                    {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
+                    {theme === "dark" ? "Light mode" : "Dark mode"}
+                  </button>
                 </div>
               </>
             )}
