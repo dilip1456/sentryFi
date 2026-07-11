@@ -134,46 +134,58 @@ export const useUserSettings = (userId: string | undefined) => {
 
   // Load from Supabase on mount
   useEffect(() => {
-    if (!userId) { setLoaded(true); return; }  // demo/guest — use defaults immediately
-    (async () => {
-      const { data, error } = await supabase
-        .from("user_settings")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+    if (!userId) { setLoaded(true); return; }
+    let cancelled = false;
 
-      if (error) { console.warn("[settings] load error:", error.message); }
+    const doLoad = async (attempt = 0) => {
+      try {
+        const { data, error } = await supabase
+          .from("user_settings")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle();
 
-      if (data) {
-        // DB row exists — use it (authoritative)
-        const s = dbToSettings(data);
-        latestSettings.current = s;
-        setSettingsState(s);
-      } else {
-        // First time: migrate from localStorage only if this looks like a returning
-        // user (has account roles or budgets set). Brand-new users get clean defaults.
-        const ls = migrateFromLocalStorage();
-        const hasExistingData = Object.keys(ls.accountRoles ?? {}).length > 0
-          || Object.keys(ls.budgets ?? {}).length > 0;
-        const migrated = hasExistingData ? { ...DEFAULTS, ...ls } : DEFAULTS;
-        latestSettings.current = migrated;
-        setSettingsState(migrated);
-        await supabase.from("user_settings").insert({
-          user_id: userId,
-          ...settingsToDb(migrated),
-        });
-        // Clear localStorage keys so next user on this device starts clean
-        [
-          "sentryfi_budgets","sentryfi_account_roles","sentryfi_cat_overrides",
-          "sentryfi_cat_rules","sentryfi_custom_categories","sentryfi_name_overrides",
-          "sentryfi_name_rules","sentryfi_manual_income","sentryfi_manual_internal",
-          "sentryfi_manual_external","sentryfi_dismissed_insights","sentryfi_dismissed_actions",
-          "sentryfi_dismissed_recurring","sentryfi_panel_order","sentryfi_account_meta",
-          "sentryfi_benefits_used","sentryfi_money_map_feedback",
-        ].forEach(k => localStorage.removeItem(k));
+        if (cancelled) return;
+
+        if (error) {
+          console.warn("[settings] load error:", error.message, "attempt", attempt);
+          // Retry once after 1s — Android OAuth token propagation delay
+          if (attempt === 0) {
+            setTimeout(() => doLoad(1), 1000);
+            return;
+          }
+          // Give up — use defaults so app still loads
+          setLoaded(true);
+          return;
+        }
+
+        if (data) {
+          const s = dbToSettings(data);
+          latestSettings.current = s;
+          setSettingsState(s);
+        } else {
+          // First time user — start with defaults, save in background
+          const ls = migrateFromLocalStorage();
+          const hasExistingData = Object.keys(ls.accountRoles ?? {}).length > 0
+            || Object.keys(ls.budgets ?? {}).length > 0;
+          const migrated = hasExistingData ? { ...DEFAULTS, ...ls } : DEFAULTS;
+          latestSettings.current = migrated;
+          setSettingsState(migrated);
+          // Don't await — let it fail silently if auth not ready yet
+          supabase.from("user_settings").insert({
+            user_id: userId,
+            ...settingsToDb(migrated),
+          }).catch(e => console.warn("[settings] insert failed:", e));
+        }
+      } catch (e) {
+        console.warn("[settings] unexpected error:", e);
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
-      setLoaded(true);
-    })();
+    };
+
+    doLoad();
+    return () => { cancelled = true; };
   }, [userId]);
 
   // Debounced save — batches rapid changes (typing a budget amount) into one write
