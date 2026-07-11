@@ -4793,170 +4793,9 @@ export const LivePlaidDashboard = ({
     </div>
   );
 
-  // ── MONTHLY ───────────────────────────────────────────────
-  if (view==="monthly") return (
-    <div className="space-y-4 animate-fade-up">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="font-display text-xl text-primary">Transactions</h2>
-        <PeriodNav state={monthlyPeriod} onChange={setMonthlyPeriod} />
-      </div>
-      {/* 2-col on xl+: left = stats+chart+categories, right = txn list */}
-      <div className="xl:grid xl:grid-cols-[1fr_1.3fr] xl:gap-4 xl:items-start space-y-4 xl:space-y-0">
-      <div className="space-y-4 min-w-0">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div className="surface-card p-4 relative overflow-hidden">
-          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-positive/8 blur-2xl" />
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Income</div>
-          <div className="font-display text-2xl text-positive mt-1 tabular">{fmtUSD(monthlyIncome)}</div>
-          {monthlyIncome > 0 && monthlySpend > 0 && (
-            <div className="text-[10px] text-muted-foreground mt-1">
-              {Math.round(((monthlyIncome - monthlySpend) / monthlyIncome) * 100)}% saved
-            </div>
-          )}
-        </div>
-        <div className="surface-card p-4 relative overflow-hidden">
-          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-negative/8 blur-2xl" />
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Spent</div>
-          <div className="font-display text-2xl text-foreground mt-1 tabular">{fmtUSD(monthlySpend)}</div>
-          {monthlyIncome > 0 && (
-            <div className="mt-2 h-1 rounded-full bg-border/40 overflow-hidden">
-              <div className="h-full rounded-full transition-all"
-                style={{width:`${Math.min((monthlySpend/monthlyIncome)*100,100)}%`,
-                  background: monthlySpend > monthlyIncome ? "hsl(var(--negative))" : monthlySpend/monthlyIncome > 0.8 ? "hsl(var(--warning))" : "hsl(var(--positive))"}} />
-            </div>
-          )}
-        </div>
-        <div className="col-span-2 sm:col-span-1 surface-card p-4 relative overflow-hidden">
-          <div className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full bg-[hsl(var(--primary)/0.08)] blur-2xl" />
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Net</div>
-          {(() => {
-            const net = monthlyIncome - monthlySpend;
-            return (
-              <>
-                <div className={cn("font-display text-2xl mt-1 tabular", net >= 0 ? "text-positive" : "text-negative")}>
-                  {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
-                </div>
-                <div className="text-[10px] text-muted-foreground mt-1">
-                  {monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)).length} transactions
-                </div>
-              </>
-            );
-          })()}
-        </div>
-      </div>
-      {monthlyPeriod.granularity === "month" && monthlyPeriod.offset === 0 && (
-        <div className="surface-card p-4">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">6-month cash flow</div>
-          <div className="h-36">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyFlow} margin={{top:0,right:0,bottom:0,left:0}} barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.4} vertical={false} />
-                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:9}} />
-                <YAxis hide />
-                <Tooltip contentStyle={{background:"hsl(var(--popover))",border:"1px solid var(--gold-border)",borderRadius:"10px",fontSize:"12px"}}
-                  formatter={(v:number,n:string)=>[fmtUSD(v),n==="income"?"Income":"Spend"]} />
-                <Bar dataKey="income" fill="hsl(var(--positive))" fillOpacity={0.7} radius={[3,3,0,0]} animationDuration={1000} />
-                <Bar dataKey="spend"  fill="hsl(var(--negative))" fillOpacity={0.5} radius={[3,3,0,0]} animationDuration={1200} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-      {/* Category breakdown for the period */}
-      {monthlyPeriodTxns.length > 0 && (() => {
-        const periodExpenses = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)>0);
-        const catMap: Record<string,number> = {};
-        for (const t of periodExpenses) {
-          const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
-          catMap[cat] = (catMap[cat]??0) + Number(t.amount);
-        }
-        const cats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,6);
-        const total = cats.reduce((s,[,v])=>s+v,0);
-        if (cats.length === 0) return null;
-        return (
-          <div className="surface-card overflow-hidden">
-            <div className="px-5 py-3 border-b border-border/20 text-[10px] uppercase tracking-wider text-muted-foreground">
-              Spending by category
-            </div>
-            <div className="divide-y divide-border/15">
-              {cats.map(([cat, amt])=>{
-                const Icon = categoryIcon(cat); const color = catColor(cat);
-                const pct = total > 0 ? (amt/total)*100 : 0;
-                return (
-                  <div key={cat} className="flex items-center gap-3 px-5 py-3 relative overflow-hidden">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 opacity-60" style={{width:`${pct}%`,background:`${color}10`}}/>
-                    <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
-                      <Icon className="h-3 w-3"/>
-                    </div>
-                    <span className="text-[12px] text-foreground flex-1 truncate">{formatCat(cat)}</span>
-                    <span className="text-[10px] text-muted-foreground tabular shrink-0">{Math.round(pct)}%</span>
-                    <span className="text-[12px] tabular font-semibold text-foreground shrink-0">{fmtUSD(amt)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
+  // Monthly view removed - merged into Spending tab
 
-      </div>{/* end left col */}
-      <div className="min-w-0">
-      <section className="space-y-2">
-        {(() => {
-          const mFlow = monthlyFlowFilter;
-          const setMFlow = setMonthlyFlowFilter;
-          const filtered = monthlyPeriodTxns.filter(t => {
-            if (hideInternal && internalTxnIds.has(t.id)) return false;
-            if (mFlow === "expense") return Number(t.amount) > 0;
-            if (mFlow === "income") return Number(t.amount) < 0;
-            return true;
-          });
-          return (
-            <>
-              <div className="flex items-center justify-between gap-2 px-1 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h2 className="font-display text-[13px] text-primary">{getPeriodLabel(monthlyPeriod)}</h2>
-                  <span className="text-[11px] text-muted-foreground">{filtered.length} shown</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {(["all","expense","income"] as const).map(f => (
-                    <button key={f} onClick={()=>setMFlow(f)}
-                      className={cn("px-2.5 py-1 rounded-full text-[10.5px] font-medium transition-colors capitalize",
-                        mFlow===f?"bg-foreground text-background":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
-                      {f === "all" ? "All" : f === "expense" ? "Expenses" : "Income"}
-                    </button>
-                  ))}
-                  <button onClick={()=>setHideInternal(v=>!v)}
-                    className={cn("px-2.5 py-1 rounded-full text-[10.5px] font-medium transition-colors border",
-                      hideInternal ? "border-border/50 text-muted-foreground" : "border-info/40 bg-info/10 text-info")}>
-                    {hideInternal ? "Transfers hidden" : "Showing transfers"}
-                  </button>
-                </div>
-              </div>
-              {filtered.length===0 ? (
-                <div className="surface-card p-6 text-center text-[12px] text-muted-foreground">No transactions for this filter.</div>
-              ) : (
-                <div className="surface-card overflow-hidden"><div className="overflow-y-auto max-h-[600px] xl:max-h-[calc(100dvh-240px)]">
-                  {filtered.map((t,i)=><TxnRow key={t.id} t={t} i={i} overrides={overrides} getRuleCategory={getRuleCategory}
-                    isInternal={internalTxnIds.has(t.id)}
-                    isAutoInternal={autoInternalIds.has(t.id)}
-                    isManualInternal={manualInternalIds.has(t.id)}
-                    onToggleInternal={toggleManualInternal}
-                    nameOverride={getDisplayName(t)}
-                    onOpenDetail={txn=>openDetail(txn)} onOpenDetailCat={txn=>openDetail(txn,true)} />)}
-                </div></div>
-              )}
-            </>
-          );
-        })()}
-      </section>
-      </div>{/* end right col */}
-      </div>{/* end 2-col grid */}
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
-    </div>
-  );
-
-  // ── SPENDING & BUDGET ─────────────────────────────────────
+    // ── SPENDING & BUDGET ─────────────────────────────────────
   if (view==="spending") {
     // ── Donut data ──
     const donutData = spendingPeriodByCategory.slice(0, 8).map(c => ({
@@ -5068,7 +4907,7 @@ export const LivePlaidDashboard = ({
       )}
 
       {/* ── Main 2-col layout ── */}
-      <div className="xl:grid xl:grid-cols-[380px_minmax(0,1fr)] gap-3 items-start space-y-3 xl:space-y-0">
+      <div className="lg:grid lg:grid-cols-[340px_minmax(0,1fr)] gap-3 items-start space-y-3 lg:space-y-0">
 
         {/* ── LEFT: visual summary ── */}
         <div className="space-y-3">
@@ -5163,7 +5002,7 @@ export const LivePlaidDashboard = ({
                 <span className="text-[11px] font-semibold text-foreground">By category</span>
                 {selectedCategory&&<button onClick={()=>onCategorySelect?.("")} className="text-[10px] text-[hsl(var(--primary))]">Clear ×</button>}
               </div>
-              <div className="divide-y divide-border/10 max-h-[360px] overflow-y-auto">
+              <div className="divide-y divide-border/10 max-h-[280px] sm:max-h-[360px] overflow-y-auto scrollbar-none">
                 {spendingPeriodByCategory.map(c=>{
                   const Icon=categoryIcon(c.category);
                   const color=catColor(c.category);

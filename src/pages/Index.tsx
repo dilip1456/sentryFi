@@ -35,13 +35,13 @@ import { isNative } from "@/lib/capacitor-oauth";
 import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
-  LayoutDashboard, CalendarClock, Sparkles, PieChart, Users, Loader2,
+  LayoutDashboard, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
   LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "monthly" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
+type View = "overall" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
@@ -50,7 +50,6 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "budget",    label: "Budget",     icon: Wallet          },
   { k: "giftcards", label: "Gift Cards", icon: Gift            },
   { k: "benefits",  label: "Benefits",   icon: Sparkles        },
-  { k: "monthly",   label: "Cash Flow",  icon: CalendarClock   },
 ];
 
 const MOBILE_PRIMARY: View[] = ["moneymap", "spending", "budget"];
@@ -188,7 +187,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending","budget","monthly"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending","budget"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -377,7 +376,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {!isNative() && (
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
+            <span className="text-[12.5px] text-foreground flex-1 font-medium">Install Sentry Finance app</span>
             <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
               className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
@@ -412,7 +411,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <div className="hidden md:flex items-center justify-between">
               <div>
                 <h1 className="font-display text-2xl text-foreground">
-                  {view === "overall" ? `Welcome back${profile?.display_name ? `, ${profile.display_name.split(" ")[0]}` : ""}` : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
+                  {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
                 </h1>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
                   {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
