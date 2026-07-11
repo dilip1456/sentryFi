@@ -15,17 +15,15 @@ export const fmtUSD = (
   let formatted: string;
 
   if (opts?.compact && abs >= 1_000_000) {
-    // Compact notation only for $1M+ (e.g. $1.2M, $2.4B)
-    formatted = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      notation: "compact",
-      maximumFractionDigits: 1,
-      minimumFractionDigits: 0,
-    }).format(abs);
+    // Manual compact for $1M+ — Intl notation:'compact' not supported on all Android WebViews
+    const m = abs / 1_000_000;
+    const str = m >= 10 ? m.toFixed(0) : m.toFixed(1);
+    formatted = `$${str}M`;
+  } else if (opts?.compact && abs >= 1_000) {
+    const k = abs / 1_000;
+    const str = k >= 10 ? k.toFixed(0) : k.toFixed(1);
+    formatted = `$${str}K`;
   } else {
-    // Standard: never show ".00" for whole-dollar amounts unless cents forced.
-    // Show either 0 or 2 decimals — never 1 (e.g. "$12,832.2" looks like a typo).
     const hasCents = Math.round(abs * 100) % 100 !== 0;
     formatted = new Intl.NumberFormat("en-US", {
       style: "currency",
