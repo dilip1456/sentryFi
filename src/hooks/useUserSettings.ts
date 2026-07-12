@@ -232,10 +232,22 @@ export const useUserSettings = (userId: string | undefined) => {
     update({ catOverrides: { ...latestSettings.current.catOverrides, ...map } });
 
   const addCatRule = (pattern: string, category: string, matchType: "contains" | "exact" | "starts_with" = "contains") => {
-    const rules = latestSettings.current.catRules.filter(
+    const existing = latestSettings.current.catRules.filter(
       r => !(r.pattern.toLowerCase() === pattern.toLowerCase() && r.matchType === matchType)
     );
-    update({ catRules: [...rules, { id: `rule_${Date.now()}`, pattern, matchType, category, source: "user" as const, enabled: true, createdAt: new Date().toISOString() }] });
+    update({ catRules: [...existing, { id: `rule_${Date.now()}`, pattern, matchType, category, source: "user" as const, enabled: true, createdAt: new Date().toISOString() }] });
+  };
+  // Clear AI-generated per-txn overrides for txn IDs that are now covered by a rule.
+  // Call this after adding/updating a rule with the matched transaction IDs.
+  const clearAiOverridesForIds = (ids: string[]) => {
+    const current = latestSettings.current.catOverrides;
+    const next: Record<string,string> = {};
+    // Keep only entries that were manually set (not AI-generated)
+    // We track AI-generated ones separately via aiCatOverrides
+    for (const [k,v] of Object.entries(current)) {
+      if (!ids.includes(k)) next[k] = v;
+    }
+    update({ catOverrides: next });
   };
   const updateCatRule = (id: string, patch: Partial<CategoryRule>) =>
     update({ catRules: latestSettings.current.catRules.map(r => r.id === id ? { ...r, ...patch } : r) });
@@ -319,7 +331,7 @@ export const useUserSettings = (userId: string | undefined) => {
     // Typed convenience methods
     setBudget, removeBudget,
     setAccountRole,
-    setCatOverride, bulkSetCatOverride, bulkSetCatOverrideMap,
+    setCatOverride, bulkSetCatOverride, bulkSetCatOverrideMap, clearAiOverridesForIds,
     addCatRule, updateCatRule, removeCatRule, toggleCatRule,
     addSmartRule, updateSmartRule, removeSmartRule, toggleSmartRule,
     addCustomCat, removeCustomCat,

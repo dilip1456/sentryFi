@@ -847,11 +847,19 @@ const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") retu
 const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(isAIInsight):[]);
 
 /** Resolve the effective display category for a transaction, respecting overrides → rules → original */
+// Category priority (highest → lowest):
+// 1. Manual per-transaction override (user explicitly set this transaction's category)
+// 2. Pattern rule match (user defined "starbucks → Coffee")
+// 3. Smart rule / AI suggestion (stored in catOverrides, but only if no rule exists)
+// 4. Plaid's category (default from bank)
 const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null): string|null => {
+  // 1. Manual override wins over everything
   if (overrides[t.id]) return overrides[t.id];
+  // 2. Pattern rule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
+  // 3. Plaid category fallback
   return t.category?.[0] ?? null;
 };
 
@@ -3202,8 +3210,44 @@ export const LivePlaidDashboard = ({
     S.bulkSetCatOverrideMap(map);
   };
   const rules = settings.catRules;
-  const addRule = S.addCatRule;
-  const updateRule = S.updateCatRule;
+  // When a rule is added, clear any per-txn overrides for transactions the rule now covers.
+  // This is what makes "set rule → category sticks" work — without this, old AI-generated
+  // overrides in catOverrides take priority over the new rule.
+  const addRule = (pattern: string, category: string, matchType: "contains" | "exact" | "starts_with" = "contains") => {
+    S.addCatRule(pattern, category, matchType);
+    // Find all txns covered by this new rule and clear their per-txn overrides
+    const p = pattern.toLowerCase();
+    const matchedIds = txns
+      .filter(t => {
+        const m = (t.merchant_name ?? t.name ?? "").toLowerCase();
+        if (matchType === "exact") return m === p;
+        if (matchType === "starts_with") return m.startsWith(p);
+        return m.includes(p);
+      })
+      .map(t => t.id);
+    if (matchedIds.length > 0) S.clearAiOverridesForIds(matchedIds);
+  };
+  const updateRule = (id: string, patch: Parameters<typeof S.updateCatRule>[1]) => {
+    S.updateCatRule(id, patch);
+    // Also re-clear overrides if pattern or category changed
+    if (patch.pattern || patch.category || patch.matchType) {
+      const rule = rules.find(r => r.id === id);
+      if (rule) {
+        const resolvedPattern = patch.pattern ?? rule.pattern;
+        const resolvedMatchType = patch.matchType ?? rule.matchType;
+        const p = resolvedPattern.toLowerCase();
+        const matchedIds = txns
+          .filter(t => {
+            const m = (t.merchant_name ?? t.name ?? "").toLowerCase();
+            if (resolvedMatchType === "exact") return m === p;
+            if (resolvedMatchType === "starts_with") return m.startsWith(p);
+            return m.includes(p);
+          })
+          .map(t => t.id);
+        if (matchedIds.length > 0) S.clearAiOverridesForIds(matchedIds);
+      }
+    }
+  };
   const removeRule = S.removeCatRule;
   const toggleRule = S.toggleCatRule;
   const smartRules = settings.smartRules;
@@ -3522,10 +3566,16 @@ export const LivePlaidDashboard = ({
         if (freshTxns?.length) {
           const currentOverrides = overrides;
           const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
-            .filter(t => !currentOverrides[t.id]);
+            .filter(t => {
+              // Skip if already has a manual per-txn override
+              if (currentOverrides[t.id]) return false;
+              // Skip if a rule already covers this transaction
+              if (getRuleCategory(t.merchant_name ?? t.name ?? null)) return false;
+              return true;
+            });
           if (toCateg.length > 0) {
             const { data: catResult } = await supabase.functions.invoke("ai-categorize", {
-              body: { transactions: toCateg, rules: [], userExamples: [] },
+              body: { transactions: toCateg, rules: rules.filter(r => r.enabled).map(r => ({ pattern: r.pattern, matchType: r.matchType, category: r.category })), userExamples: [] },
             });
             if (catResult?.results?.length) {
               const newMap: Record<string,string> = {};
