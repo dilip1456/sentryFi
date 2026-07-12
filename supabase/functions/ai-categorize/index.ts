@@ -1,67 +1,62 @@
-import Anthropic from "npm:@anthropic-ai/sdk";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const GROQ_KEY = Deno.env.get("GROQ_API_KEY");
+
 const CATEGORIES = [
   "Food & Drink", "Groceries", "Transportation", "Travel", "Shopping",
   "Entertainment", "Healthcare", "Bills & Utilities", "Education",
-  "Personal Care", "Charitable Giving", "Mortgage Payment", "Rent",
-  "Auto Loan", "Student Loan", "Credit Card Payment", "Bill Payment",
-  "Insurance", "Salary", "Interest & Dividends", "Bank Fees",
-  "Financial Services", "Business", "Home", "Transfer In", "Transfer Out",
-  "Internal Transfer", "Savings", "Other",
+  "Personal Care", "Mortgage Payment", "Rent", "Credit Card Payment",
+  "Insurance", "Salary", "Bank Fees", "Business", "Other",
 ];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
   try {
-    const { transactions } = await req.json() as {
-      transactions: { id: string; name: string; merchant_name: string | null; plaid_category: string; amount: number }[];
-    };
+    if (!GROQ_KEY) return json({ error: "GROQ_API_KEY not set" }, 500);
 
-    if (!transactions?.length) return json({ suggestions: [] });
+    const body = await req.json();
+    const transactions = (body.transactions ?? []).slice(0, 20);
+    if (!transactions.length) return json({ suggestions: [] });
 
-    const client = new Anthropic();
+    const lines = transactions.map((t: any) =>
+      `${t.id}|"${t.merchant_name || t.name}"|$${Math.abs(t.amount)}|${t.plaid_category}`
+    ).join("\n");
 
-    const prompt = `You are a personal finance categorization assistant. Review these transactions and identify ones where the bank's category seems WRONG based on the merchant/transaction name.
+    const prompt = `Review these bank transactions. Flag only ones where the category is clearly wrong based on the merchant name. Skip transfers and salary.
 
-Only flag transactions where you are confident the category is incorrect. Do NOT flag transfers, salary, or transactions where the category is ambiguous.
+Categories: ${CATEGORIES.join(", ")}
 
-Available categories: ${CATEGORIES.join(", ")}
+id|name|amount|bank_category
+${lines}
 
-Transactions to review:
-${transactions.map(t => `- ID: ${t.id} | Name: "${t.name}"${t.merchant_name ? ` | Merchant: "${t.merchant_name}"` : ""} | Amount: $${Math.abs(t.amount)} | Bank category: "${t.plaid_category}"`).join("\n")}
+JSON only, no markdown: {"suggestions":[{"id":"","name":"","current_category":"","suggested_category":"","reason":""}]}
+If nothing is wrong return: {"suggestions":[]}`;
 
-Respond with JSON only, no other text:
-{
-  "suggestions": [
-    {
-      "id": "transaction_id",
-      "name": "merchant name for display",
-      "current_category": "what bank says",
-      "suggested_category": "what it should be",
-      "reason": "one short sentence why",
-      "confidence": "high|medium"
-    }
-  ]
-}
-
-Only include HIGH confidence suggestions. If unsure, skip it. Return empty array if nothing is clearly wrong.`;
-
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
+      body: JSON.stringify({
+        model: "llama3-70b-8192",
+        temperature: 0.1,
+        max_tokens: 800,
+        messages: [{ role: "user", content: prompt }],
+      }),
     });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const clean = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
+    const rawText = await res.text();
+    if (!res.ok) {
+      console.error("[ai-categorize] Groq error:", res.status, rawText.slice(0, 300));
+      return json({ error: `Groq ${res.status}: ${rawText.slice(0, 200)}` }, 500);
+    }
 
+    const data = JSON.parse(rawText);
+    const text = data.choices?.[0]?.message?.content ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return json({ suggestions: [] });
+    const parsed = JSON.parse(match[0]);
     return json({ suggestions: parsed.suggestions ?? [] });
   } catch (e) {
     console.error("[ai-categorize]", e);
@@ -70,8 +65,5 @@ Only include HIGH confidence suggestions. If unsure, skip it. Return empty array
 });
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
