@@ -16,6 +16,7 @@ import { useUserSettings } from "@/hooks/useUserSettings";
 import { ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
 import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
 import { CategoryManager } from "@/components/finance/CategoryManager";
+import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
@@ -3613,6 +3614,7 @@ export const LivePlaidDashboard = ({
   const [spendingPeriod, setSpendingPeriod] = useState<PeriodState>({ granularity: "month", offset: 0 });
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
   const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
   const [addCatNameDraft, setAddCatNameDraft] = useState("");
   const [addCatCustom, setAddCatCustom] = useState("");
   const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
@@ -5521,6 +5523,18 @@ export const LivePlaidDashboard = ({
         onRemoveSmartRule={removeSmartRule}
         onToggleSmartRule={toggleSmartRule}
       />}
+      <CategorySuggestions
+        txns={txns}
+        dismissedIds={dismissedSuggestions}
+        onAccept={(txnId, suggestedCat, merchantName) => {
+          // Apply override to this specific transaction
+          setOverride(txnId, suggestedCat);
+          // Create a rule so future transactions from same merchant get same category
+          const pattern = merchantName.toLowerCase().split(/\s+/).slice(0, 2).join(" ");
+          if (pattern.length > 2) addRule(pattern, suggestedCat, "contains");
+        }}
+        onDismiss={(txnId) => setDismissedSuggestions(prev => new Set([...prev, txnId]))}
+      />
       <CategoryManager
         open={showCatManager} onClose={()=>setShowCatManager(false)}
         txns={txns} overrides={overrides} rules={rules} budgets={budgets}
