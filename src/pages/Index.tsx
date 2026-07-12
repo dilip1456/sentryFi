@@ -29,6 +29,7 @@ import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
@@ -75,9 +76,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const { isAdmin, user, signOut, profile } = useAuth();
-  const { theme, toggle: toggleTheme } = useTheme();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
+  const { theme, toggle: toggleTheme } = useTheme();
+  const dark = theme === "dark";
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
   const { unreadCount, refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
@@ -236,6 +238,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Profile &amp; settings
             </button>
           )}
+          <button onClick={toggleTheme} className="nav-item w-full">
+            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {dark ? "Light mode" : "Dark mode"}
+          </button>
           {demo && !guestDemo && (
             <button onClick={() => setDemo(false)} className="nav-item w-full text-warning">
               <Sparkles className="h-4 w-4" />
@@ -301,6 +307,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
             </button>
             )}
+            {/* Theme toggle — always visible on mobile */}
+            <button onClick={toggleTheme}
+              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+              className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+              {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)}
@@ -376,7 +388,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {!isNative() && (
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12.5px] text-foreground flex-1 font-medium">Install Sentry Finance app</span>
+            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
             <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
               className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download

@@ -3104,7 +3104,10 @@ export const LivePlaidDashboard = ({
   const { user } = useAuth();
 
   // ── All user preferences — synced to Supabase ──────────────────
-  const S = useUserSettings(user?.id);
+  // Demo mode (whether guest /demo or a real user previewing "Demo mode") must
+  // never read or write the real account's settings — pass no userId so it
+  // always gets fresh, in-memory-only defaults, same as guestDemo.
+  const S = useUserSettings((demo || guestDemo) ? undefined : user?.id);
   const { settings, loaded: settingsLoaded } = S;
 
   // Destructure for ergonomic use throughout the component

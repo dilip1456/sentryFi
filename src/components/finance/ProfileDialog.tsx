@@ -49,7 +49,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "notifications">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "banks" | "notifications">("profile");
 
   const loadItems = async () => {
     if (!user) return;
@@ -62,17 +62,28 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
     setItems(data ?? []);
   };
 
+  // Reset transient UI (active tab, delete confirmation) only when the dialog
+  // actually opens — not on every profile refresh (a background auth-token
+  // refresh on tab-focus updates `profile` and must NOT bounce the user's tab).
   useEffect(() => {
     if (open) {
-      setDisplayName(profile?.display_name ?? "");
-      setPhone(formatPhone(profile?.phone ?? ""));
-      setTimezone(profile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
-      setAvatarUrl(profile?.avatar_url ?? "");
       setShowDeleteAccount(false);
       setDeleteConfirmText("");
       setActiveTab("profile");
       loadItems();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the editable fields in sync with the latest profile, but this must not
+  // touch activeTab.
+  useEffect(() => {
+    if (!open) return;
+    setDisplayName(profile?.display_name ?? "");
+    setPhone(formatPhone(profile?.phone ?? ""));
+    setTimezone(profile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+    setAvatarUrl(profile?.avatar_url ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile]);
 
   const save = async () => {
@@ -167,10 +178,10 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
           <div className="font-display text-base text-foreground">Settings</div>
           <div className="text-[11.5px] text-muted-foreground mt-0.5">{user?.email}</div>
           <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[12px] w-fit">
-            {(["profile", "notifications"] as const).map(tab => (
+            {([["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"]] as const).map(([tab, label]) => (
               <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1 rounded-full capitalize transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
-                {tab === "profile" ? "Profile" : "Notifications"}
+                className={`px-4 py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
+                {label}
               </button>
             ))}
           </div>
@@ -231,47 +242,6 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             </button>
           </div>
 
-          {/* Connected banks */}
-          <div className="px-5 pb-5">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
-            {items === null ? (
-              <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-            ) : items.length === 0 ? (
-              <div className="text-[12px] text-muted-foreground">No banks connected.</div>
-            ) : (
-              <div className="space-y-2">
-                {items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-2.5 surface-card px-3 py-2.5">
-                    <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
-                      <Landmark className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
-                      <div className="text-[10px] text-muted-foreground capitalize">{item.status}</div>
-                    </div>
-                    {confirmDisconnect?.id === item.id ? (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button onClick={() => disconnectBank(item)} disabled={disconnectingId === item.id}
-                          className="h-7 px-2.5 rounded-md bg-negative text-white text-[11px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
-                          {disconnectingId === item.id && <Loader2 className="h-3 w-3 animate-spin" />} Confirm
-                        </button>
-                        <button onClick={() => setConfirmDisconnect(null)} className="h-7 px-2 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground">
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setConfirmDisconnect(item)}
-                        className="text-[11px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="text-[10px] text-muted-foreground mt-2">
-              Disconnecting fully revokes access with your bank. It doesn't just remove it from this view.
-            </div>
-          </div>
-
           {/* ── Danger zone: delete account ── */}
           <div className="px-5 pb-5">
             <div className="border-t border-negative/20 pt-4">
@@ -308,6 +278,48 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             </div>
           </div>
           </>}
+
+          {activeTab === "banks" && (
+            <div className="p-5">
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
+              {items === null ? (
+                <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+              ) : items.length === 0 ? (
+                <div className="text-[12px] text-muted-foreground">No banks connected.</div>
+              ) : (
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <div key={item.id} className="flex items-center gap-2.5 surface-card px-3 py-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                        <Landmark className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
+                        <div className="text-[10px] text-muted-foreground capitalize">{item.status}</div>
+                      </div>
+                      {confirmDisconnect?.id === item.id ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => disconnectBank(item)} disabled={disconnectingId === item.id}
+                            className="h-7 px-2.5 rounded-md bg-negative text-white text-[11px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
+                            {disconnectingId === item.id && <Loader2 className="h-3 w-3 animate-spin" />} Confirm
+                          </button>
+                          <button onClick={() => setConfirmDisconnect(null)} className="h-7 px-2 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground">
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setConfirmDisconnect(item)}
+                          className="text-[11px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="text-[10px] text-muted-foreground mt-2">
+                Disconnecting fully revokes access with your bank. It doesn't just remove it from this view.
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

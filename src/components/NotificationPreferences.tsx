@@ -21,27 +21,18 @@ const DEFAULTS: AlertPrefs = {
 };
 
 // Single reusable switch so every toggle looks and behaves identically.
+// Segmented On/Off control — unambiguous (never reads as a radio button).
 const Switch = ({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) => (
-  <button
-    type="button"
-    role="switch"
-    aria-checked={on}
-    aria-label={label}
-    onClick={onChange}
-    className={cn(
-      "w-[46px] h-[26px] rounded-full transition-colors relative shrink-0 outline-none border focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary)/0.4)]",
-      on
-        ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]"
-        : "bg-secondary border-border-strong"
-    )}
-  >
-    <span
-      className={cn(
-        "absolute top-[2px] h-[20px] w-[20px] rounded-full shadow-sm transition-transform duration-200",
-        on ? "translate-x-[22px] bg-white" : "translate-x-[2px] bg-muted-foreground"
-      )}
-    />
-  </button>
+  <div role="group" aria-label={label} className="inline-flex shrink-0 rounded-lg border border-border-strong overflow-hidden text-[11px] font-semibold select-none">
+    <button type="button" aria-pressed={!on} onClick={() => { if (on) onChange(); }}
+      className={cn("px-3 py-1.5 transition-colors", !on ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
+      Off
+    </button>
+    <button type="button" aria-pressed={on} onClick={() => { if (!on) onChange(); }}
+      className={cn("px-3 py-1.5 transition-colors", on ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
+      On
+    </button>
+  </div>
 );
 
 export const NotificationPreferences = ({ onClose }: { onClose: () => void }) => {
