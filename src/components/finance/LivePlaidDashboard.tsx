@@ -137,7 +137,10 @@ const PERIODS: Period[] = ["1W", "1M", "3M", "1Y", "ALL"];
 const EXPENSE_CATEGORIES = [
   "Food & Drink", "Groceries", "Travel", "Transportation", "Shopping",
   "Entertainment", "Healthcare", "Bills & Utilities", "Education",
-  "Personal Care", "Charitable Giving", "Transfer Out", "Other",
+  "Personal Care", "Charitable Giving",
+  "Mortgage", "Rent", "Auto Loan", "Student Loan", "Credit Card Payment",
+  "Bill Payment", "Insurance", "Bank Fees",
+  "Transfer Out", "Other",
 ];
 
 const INCOME_CATEGORIES = [
@@ -848,58 +851,74 @@ const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(is
 
 /** Resolve the effective display category for a transaction, respecting overrides → rules → original */
 // Maps raw Plaid category strings to app category names.
-// Plaid sends categories in two formats:
-//   New: ["Food & Drink"]
-//   Old: ["Food and Drink", "Restaurants", "Fast Food"]
-// We normalise both to the app's category set.
-const normalisePlaidCategory = (cats: string[] | null | undefined): string => {
+// Takes name/merchant too so "Payment" can be split into mortgage vs credit card etc.
+const normalisePlaidCategory = (
+  cats: string[] | null | undefined,
+  name?: string | null,
+  merchant?: string | null,
+): string => {
   if (!cats || cats.length === 0) return "Other";
   const c0 = (cats[0] ?? "").toLowerCase();
   const c1 = (cats[1] ?? "").toLowerCase();
   const c2 = (cats[2] ?? "").toLowerCase();
   const all = [c0, c1, c2].join("|");
+  const nm  = (name ?? "").toLowerCase();
+  const mc  = (merchant ?? "").toLowerCase();
+  const any = all + "|" + nm + "|" + mc;
 
-  // Transfers & payments — check before food since some are ambiguous
-  if (all.includes("payroll") || all.includes("salary"))    return "Salary";
-  if (all.includes("interest earned") || all.includes("dividend")) return "Interest & Dividends";
-  if (all.includes("interest charged") || all.includes("bank fee") || all.includes("overdraft")) return "Bills & Utilities";
-  if (all.includes("transfer in") || all.includes("credit") && all.includes("transfer")) return "Transfer In";
-  if (all.includes("transfer out") || all.includes("debit") && all.includes("transfer")) return "Transfer Out";
-  if (all.includes("internal account transfer") || all.includes("third party") || c0 === "transfer") return "Transfer Out";
-  if (all.includes("credit card") || all.includes("payment")) return "Bills & Utilities";
+  // Transfers & payroll — check before food since some are ambiguous
+  if (any.includes("payroll") || any.includes("salary") || any.includes("direct deposit")) return "Salary";
+  if (any.includes("interest earned") || any.includes("dividend"))          return "Interest & Dividends";
+  if (any.includes("interest charged") || any.includes("overdraft"))        return "Bank Fees";
+  if (any.includes("bank fee") || any.includes("service fee"))              return "Bank Fees";
+  if (any.includes("transfer in") || (all.includes("credit") && all.includes("transfer"))) return "Transfer In";
+  if (any.includes("transfer out") || (all.includes("debit") && all.includes("transfer"))) return "Transfer Out";
+  if (any.includes("internal account transfer") || any.includes("third party")) return "Transfer Out";
+  if (c0 === "transfer")                                                     return "Transfer Out";
+
+  // Payment — look at merchant/name to classify properly
+  if (c0 === "payment") {
+    if (any.includes("mortgage") || any.includes("fundin") || any.includes("home loan") || any.includes("hmc") || any.includes("mr. cooper") || any.includes("loancare") || any.includes("pennymac") || any.includes("quicken loan")) return "Mortgage";
+    if (any.includes("rent") || any.includes("apartment") || any.includes("lease"))                                   return "Rent";
+    if (any.includes("car") || any.includes("auto") || any.includes("vehicle") || any.includes("toyota") || any.includes("honda") || any.includes("ford") || any.includes("ally financial") || any.includes("capital one auto")) return "Auto Loan";
+    if (any.includes("student") || any.includes("sallie mae") || any.includes("navient") || any.includes("mohela")) return "Student Loan";
+    if (c1 === "credit card" || any.includes("credit card") || any.includes("thank you") || any.includes("payment thank"))  return "Credit Card Payment";
+    if (any.includes("insurance") || any.includes("geico") || any.includes("state farm") || any.includes("allstate")) return "Insurance";
+    return "Bill Payment";
+  }
 
   // Food & drink
-  if (c0 === "food & drink" || c0 === "food and drink" || all.includes("restaurant") || all.includes("fast food") || all.includes("coffee")) return "Food & Drink";
-  if (c0 === "groceries" || all.includes("groceries") || all.includes("grocery") || all.includes("supermarket")) return "Groceries";
+  if (c0 === "food & drink" || c0 === "food and drink" || c1.includes("restaurant") || c1.includes("fast food") || c1.includes("coffee")) return "Food & Drink";
+  if (c0 === "groceries" || any.includes("groceries") || any.includes("grocery") || any.includes("supermarket")) return "Groceries";
 
   // Shopping
-  if (c0 === "shopping" || c0 === "shops" || all.includes("hardware") || all.includes("clothing") || all.includes("sporting")) return "Shopping";
+  if (c0 === "shopping" || c0 === "shops" || c1.includes("hardware") || c1.includes("clothing") || c1.includes("sporting")) return "Shopping";
 
   // Transport
-  if (c0 === "transportation" || all.includes("taxi") || all.includes("uber") || all.includes("lyft") || all.includes("gas station") || all.includes("parking") || all.includes("transit")) return "Transportation";
-  if (c0 === "travel" || all.includes("lodging") || all.includes("hotel") || all.includes("airline") || all.includes("flight")) return "Travel";
+  if (c0 === "transportation" || any.includes("taxi") || any.includes("uber") || any.includes("lyft") || c1.includes("gas station") || c1.includes("parking") || c1.includes("transit")) return "Transportation";
+  if (c0 === "travel" || c1.includes("lodging") || c1.includes("hotel") || c1.includes("airline") || c1.includes("flight")) return "Travel";
 
   // Bills & utilities
-  if (c0 === "bills & utilities" || c0 === "service" || all.includes("utilities") || all.includes("electric") || all.includes("water") || all.includes("gas") || all.includes("cable") || all.includes("telecom") || all.includes("subscription") || all.includes("internet") || all.includes("phone")) return "Bills & Utilities";
+  if (c0 === "bills & utilities" || c0 === "service" || any.includes("utilities") || any.includes("electric") || c2.includes("water") || c2.includes("gas") || any.includes("cable") || any.includes("telecom") || any.includes("subscription") || any.includes("internet") || any.includes("phone")) return "Bills & Utilities";
 
   // Entertainment
-  if (c0 === "entertainment" || all.includes("entertainment") || all.includes("streaming") || all.includes("gaming") || all.includes("sport") || all.includes("recreation")) return "Entertainment";
+  if (c0 === "entertainment" || any.includes("streaming") || any.includes("gaming") || c1.includes("sport")) return "Entertainment";
 
   // Health
-  if (c0 === "healthcare" || all.includes("pharmacy") || all.includes("medical") || all.includes("dental") || all.includes("doctor") || all.includes("health")) return "Healthcare";
+  if (c0 === "healthcare" || any.includes("pharmacy") || any.includes("medical") || any.includes("dental") || any.includes("doctor")) return "Healthcare";
 
   // Education
-  if (c0 === "education" || all.includes("education") || all.includes("school") || all.includes("tuition")) return "Education";
+  if (c0 === "education" || any.includes("school") || any.includes("tuition")) return "Education";
 
   // Personal care
-  if (all.includes("personal care") || all.includes("salon") || all.includes("barber") || all.includes("spa")) return "Personal Care";
+  if (any.includes("personal care") || any.includes("salon") || any.includes("barber") || any.includes("spa")) return "Personal Care";
 
   // Charity
-  if (all.includes("charit") || all.includes("donation") || all.includes("nonprofit") || all.includes("government")) return "Charitable Giving";
+  if (any.includes("charit") || any.includes("donation") || any.includes("nonprofit") || any.includes("government")) return "Charitable Giving";
 
-  // Catch-all: use the first category title-cased
+  // Use raw category[0] if it's meaningful
   const raw = cats[0];
-  if (raw && raw !== "Other") return raw;
+  if (raw && raw.length > 0 && raw !== "Other") return raw;
   return "Other";
 };
 
@@ -914,8 +933,8 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
-  // 3. Normalised Plaid category
-  return normalisePlaidCategory(t.category);
+  // 3. Normalised Plaid category (uses name+merchant to split "Payment" into mortgage/rent/etc)
+  return normalisePlaidCategory(t.category, t.name, t.merchant_name);
 };
 
 // ── Right-panel drawer ─────────────────────────────────────────
