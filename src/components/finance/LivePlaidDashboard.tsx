@@ -847,11 +847,66 @@ const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") retu
 const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(isAIInsight):[]);
 
 /** Resolve the effective display category for a transaction, respecting overrides → rules → original */
+// Maps raw Plaid category strings to app category names.
+// Plaid sends categories in two formats:
+//   New: ["Food & Drink"]
+//   Old: ["Food and Drink", "Restaurants", "Fast Food"]
+// We normalise both to the app's category set.
+const normalisePlaidCategory = (cats: string[] | null | undefined): string => {
+  if (!cats || cats.length === 0) return "Other";
+  const c0 = (cats[0] ?? "").toLowerCase();
+  const c1 = (cats[1] ?? "").toLowerCase();
+  const c2 = (cats[2] ?? "").toLowerCase();
+  const all = [c0, c1, c2].join("|");
+
+  // Transfers & payments — check before food since some are ambiguous
+  if (all.includes("payroll") || all.includes("salary"))    return "Salary";
+  if (all.includes("interest earned") || all.includes("dividend")) return "Interest & Dividends";
+  if (all.includes("interest charged") || all.includes("bank fee") || all.includes("overdraft")) return "Bills & Utilities";
+  if (all.includes("transfer in") || all.includes("credit") && all.includes("transfer")) return "Transfer In";
+  if (all.includes("transfer out") || all.includes("debit") && all.includes("transfer")) return "Transfer Out";
+  if (all.includes("internal account transfer") || all.includes("third party") || c0 === "transfer") return "Transfer Out";
+  if (all.includes("credit card") || all.includes("payment")) return "Bills & Utilities";
+
+  // Food & drink
+  if (c0 === "food & drink" || c0 === "food and drink" || all.includes("restaurant") || all.includes("fast food") || all.includes("coffee")) return "Food & Drink";
+  if (c0 === "groceries" || all.includes("groceries") || all.includes("grocery") || all.includes("supermarket")) return "Groceries";
+
+  // Shopping
+  if (c0 === "shopping" || c0 === "shops" || all.includes("hardware") || all.includes("clothing") || all.includes("sporting")) return "Shopping";
+
+  // Transport
+  if (c0 === "transportation" || all.includes("taxi") || all.includes("uber") || all.includes("lyft") || all.includes("gas station") || all.includes("parking") || all.includes("transit")) return "Transportation";
+  if (c0 === "travel" || all.includes("lodging") || all.includes("hotel") || all.includes("airline") || all.includes("flight")) return "Travel";
+
+  // Bills & utilities
+  if (c0 === "bills & utilities" || c0 === "service" || all.includes("utilities") || all.includes("electric") || all.includes("water") || all.includes("gas") || all.includes("cable") || all.includes("telecom") || all.includes("subscription") || all.includes("internet") || all.includes("phone")) return "Bills & Utilities";
+
+  // Entertainment
+  if (c0 === "entertainment" || all.includes("entertainment") || all.includes("streaming") || all.includes("gaming") || all.includes("sport") || all.includes("recreation")) return "Entertainment";
+
+  // Health
+  if (c0 === "healthcare" || all.includes("pharmacy") || all.includes("medical") || all.includes("dental") || all.includes("doctor") || all.includes("health")) return "Healthcare";
+
+  // Education
+  if (c0 === "education" || all.includes("education") || all.includes("school") || all.includes("tuition")) return "Education";
+
+  // Personal care
+  if (all.includes("personal care") || all.includes("salon") || all.includes("barber") || all.includes("spa")) return "Personal Care";
+
+  // Charity
+  if (all.includes("charit") || all.includes("donation") || all.includes("nonprofit") || all.includes("government")) return "Charitable Giving";
+
+  // Catch-all: use the first category title-cased
+  const raw = cats[0];
+  if (raw && raw !== "Other") return raw;
+  return "Other";
+};
+
 // Category priority (highest → lowest):
 // 1. Manual per-transaction override (user explicitly set this transaction's category)
 // 2. Pattern rule match (user defined "starbucks → Coffee")
-// 3. Smart rule / AI suggestion (stored in catOverrides, but only if no rule exists)
-// 4. Plaid's category (default from bank)
+// 3. Plaid's category (normalised from raw Plaid strings)
 const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null): string|null => {
   // 1. Manual override wins over everything
   if (overrides[t.id]) return overrides[t.id];
@@ -859,8 +914,8 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
-  // 3. Plaid category fallback
-  return t.category?.[0] ?? null;
+  // 3. Normalised Plaid category
+  return normalisePlaidCategory(t.category);
 };
 
 // ── Right-panel drawer ─────────────────────────────────────────
