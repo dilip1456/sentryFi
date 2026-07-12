@@ -60,12 +60,7 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
       });
 
       if (error || data?.error) {
-        // Likely a network/config issue on the server side
-        setSuggestions([]);
-        setRan(true);
-        toast.error("AI scan unavailable", {
-          description: "Add api.groq.com to Supabase Edge Function egress settings to enable this feature.",
-        });
+        toast.error("AI scan failed", { description: data?.error ?? error?.message });
         setLoading(false);
         return;
       }
