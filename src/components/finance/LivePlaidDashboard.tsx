@@ -940,8 +940,8 @@ const PLAID_CATEGORY_MAP: Record<string, string> = {
   "Shops|Pharmacies":                        "Healthcare",
   "Shops|Drug Store/Pharmacy":               "Healthcare",
 
-  // ── Payment — split by name in code below ─────────────────
-  "Payment":                                 "PAYMENT_NEEDS_NAME", // resolved by name
+  // ── Payment ────────────────────────────────────────────────
+  "Payment":                                 "Mortgage Payment",
   "Payment|Rent":                            "Rent",
   "Payment|Loan":                            "Loan Payment",
   "Payment|Credit Card":                     "Credit Card Payment",
@@ -1068,11 +1068,7 @@ const PLAID_CATEGORY_MAP: Record<string, string> = {
 
 // Resolve a Plaid category array to an app category name.
 // Takes name+merchant for cases where Plaid's category is ambiguous (e.g. "Payment").
-const normalisePlaidCategory = (
-  cats: string[] | null | undefined,
-  name?: string | null,
-  merchant?: string | null,
-): string => {
+const normalisePlaidCategory = (cats: string[] | null | undefined): string => {
   if (!cats || cats.length === 0) return "Other";
 
   // Build lookup key — try most specific first (3-level → 2-level → 1-level)
@@ -1093,18 +1089,6 @@ const normalisePlaidCategory = (
   const mapped = PLAID_CATEGORY_MAP[nk3] ?? PLAID_CATEGORY_MAP[nk2] ?? PLAID_CATEGORY_MAP[nk1]
                ?? PLAID_CATEGORY_MAP[key3] ?? PLAID_CATEGORY_MAP[key2] ?? PLAID_CATEGORY_MAP[key1];
 
-  // "Payment" without a subcategory is the only ambiguous one — use name to determine type
-  // Everything else is clear from the Plaid category hierarchy alone
-  if (mapped === "PAYMENT_NEEDS_NAME") {
-    const any = ((name ?? "") + " " + (merchant ?? "")).toLowerCase();
-    if (any.match(/mortgage|fundin|home.?loan|loancare|pennymac|mr.?cooper|quicken|rocket.?mortgage/)) return "Mortgage";
-    if (any.match(/rent|apartment|lease|property/))                      return "Rent";
-    if (any.match(/car.?loan|auto.?loan|ally|toyota.?finance|honda.?finance|ford.?motor/)) return "Auto Loan";
-    if (any.match(/student.?loan|sallie|navient|mohela|nelnet/))         return "Student Loan";
-    if (any.match(/insurance|geico|allstate|state.?farm|progressive/))   return "Insurance";
-    return "Bill Payment";
-  }
-
   if (mapped) return mapped;
 
   // Last resort: return the raw category[0] as-is
@@ -1122,8 +1106,8 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
-  // 3. Normalised Plaid category (uses name+merchant to split "Payment" into mortgage/rent/etc)
-  return normalisePlaidCategory(t.category, t.name, t.merchant_name);
+  // 3. Normalised Plaid category
+  return normalisePlaidCategory(t.category);
 };
 
 // ── Right-panel drawer ─────────────────────────────────────────
