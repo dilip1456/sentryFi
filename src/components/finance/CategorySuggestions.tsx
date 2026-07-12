@@ -59,7 +59,16 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
         body: { transactions: toReview },
       });
 
-      if (error) throw error;
+      if (error || data?.error) {
+        // Likely a network/config issue on the server side
+        setSuggestions([]);
+        setRan(true);
+        toast.error("AI scan unavailable", {
+          description: "Add api.groq.com to Supabase Edge Function egress settings to enable this feature.",
+        });
+        setLoading(false);
+        return;
+      }
       setSuggestions((data?.suggestions ?? []).filter((s: Suggestion) =>
         !accepted.has(s.id) && !rejected.has(s.id)
       ));
