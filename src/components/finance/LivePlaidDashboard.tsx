@@ -1093,17 +1093,16 @@ const normalisePlaidCategory = (
   const mapped = PLAID_CATEGORY_MAP[nk3] ?? PLAID_CATEGORY_MAP[nk2] ?? PLAID_CATEGORY_MAP[nk1]
                ?? PLAID_CATEGORY_MAP[key3] ?? PLAID_CATEGORY_MAP[key2] ?? PLAID_CATEGORY_MAP[key1];
 
-  // "Payment" without a subcategory — look at transaction name to determine type
+  // "Payment" without a subcategory is the only ambiguous one — use name to determine type
+  // Everything else is clear from the Plaid category hierarchy alone
   if (mapped === "PAYMENT_NEEDS_NAME") {
-    const nm = (name ?? "").toLowerCase();
-    const mc = (merchant ?? "").toLowerCase();
-    const any = nm + " " + mc;
+    const any = ((name ?? "") + " " + (merchant ?? "")).toLowerCase();
     if (any.match(/mortgage|fundin|home.?loan|loancare|pennymac|mr.?cooper|quicken|rocket.?mortgage/)) return "Mortgage";
-    if (any.match(/rent|apartment|lease|property/)) return "Rent";
-    if (any.match(/car.?loan|auto.?loan|ally.?financial|capital.?one.?auto|toyota.?finance|honda.?finance|ford.?motor.?credit/)) return "Auto Loan";
-    if (any.match(/student.?loan|sallie.?mae|navient|mohela|great.?lakes|nelnet/)) return "Student Loan";
-    if (any.match(/insurance|geico|allstate|state.?farm|progressive|aetna|anthem|cigna/)) return "Insurance";
-    return "Bill Payment"; // generic fallback
+    if (any.match(/rent|apartment|lease|property/))                      return "Rent";
+    if (any.match(/car.?loan|auto.?loan|ally|toyota.?finance|honda.?finance|ford.?motor/)) return "Auto Loan";
+    if (any.match(/student.?loan|sallie|navient|mohela|nelnet/))         return "Student Loan";
+    if (any.match(/insurance|geico|allstate|state.?farm|progressive/))   return "Insurance";
+    return "Bill Payment";
   }
 
   if (mapped) return mapped;
