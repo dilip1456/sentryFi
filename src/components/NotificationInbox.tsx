@@ -33,7 +33,7 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
   const { user } = useAuth();
   const [items, setItems] = useState<Note[] | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [filter, setFilter] = useState<"all" | "unread">("unread");
 
   const parse = useCallback((rows: AlertRow[], acctNames: Record<string, string>, read: Set<string>): Note[] => {
     return rows.map(r => {

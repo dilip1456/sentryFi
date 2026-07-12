@@ -31,10 +31,10 @@
     --primary-glow: 43 90% 68%;
 
     --secondary: 222 18% 17%;
-    --secondary-foreground: 210 15% 80%;
+    --secondary-foreground: 210 18% 88%;
 
     --muted: 222 20% 15%;
-    --muted-foreground: 215 12% 52%;
+    --muted-foreground: 215 16% 66%;
 
     --accent: 43 80% 58%;
     --accent-foreground: 222 25% 8%;
@@ -73,7 +73,7 @@
 
     /* Sidebar */
     --sidebar-background: 222 28% 7%;
-    --sidebar-foreground: 215 12% 52%;
+    --sidebar-foreground: 215 16% 66%;
     --sidebar-primary: 43 80% 58%;
     --sidebar-primary-foreground: 222 25% 8%;
     --sidebar-accent: 222 22% 11%;
