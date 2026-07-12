@@ -741,6 +741,81 @@ const generateActions = (
     }
   })();
 
+  // Fees / overdraft / non-purchase charges — money paid that isn't a real purchase
+  (() => {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 45);
+    const FEE_RE = /overdraft|\bnsf\b|non-?sufficient|insufficient fund|service charge|service fee|maintenance fee|monthly fee|account fee|late fee|late payment|\batm fee\b|foreign transaction|interest charge|finance charge|annual fee|over-?limit|returned item|stop payment|wire fee|transfer fee|\bfee\b|penalty/i;
+    const fees = realTxns.filter(t =>
+      Number(t.amount) > 0 && !t.pending &&
+      new Date(t.date + "T00:00:00") >= cutoff &&
+      FEE_RE.test(t.merchant_name ?? t.name ?? "")
+    ).sort((a, b) => Number(b.amount) - Number(a.amount));
+    if (fees.length > 0) {
+      const total = fees.reduce((s, t) => s + Number(t.amount), 0);
+      const top = fees[0];
+      items.push({
+        id: "fees-charged", priority: "urgent",
+        title: `${fmtUSD(total)} in fees charged`,
+        detail: `${fees.length} fee${fees.length > 1 ? "s" : ""} in the last 45 days, e.g. ${top.merchant_name ?? top.name ?? "a charge"} ${fmtUSD(Number(top.amount))}. These often can be waived, contact your bank.`,
+        cta: "Review fees", icon: AlertTriangle,
+      });
+    }
+  })();
+
+  // Duplicate charges — same merchant + amount within 4 days (possible double-bill)
+  (() => {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const recent = realTxns.filter(t => Number(t.amount) > 0 && !t.pending && new Date(t.date + "T00:00:00") >= cutoff);
+    const byKey: Record<string, PTxn[]> = {};
+    for (const t of recent) {
+      const key = `${(t.merchant_name ?? t.name ?? "").trim().toLowerCase()}|${Number(t.amount).toFixed(2)}`;
+      (byKey[key] ??= []).push(t);
+    }
+    const dupes: PTxn[][] = [];
+    for (const group of Object.values(byKey)) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date));
+      for (let i = 1; i < sorted.length; i++) {
+        const days = Math.abs((new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()) / 86400000);
+        if (days <= 4) { dupes.push([sorted[i - 1], sorted[i]]); break; }
+      }
+    }
+    if (dupes.length > 0) {
+      const [a] = dupes[0];
+      items.push({
+        id: "duplicate-charge", priority: "urgent",
+        title: `Possible duplicate charge`,
+        detail: `${a.merchant_name ?? a.name ?? "A merchant"} billed ${fmtUSD(Number(a.amount))} twice within days${dupes.length > 1 ? ` (+${dupes.length - 1} more pair${dupes.length > 2 ? "s" : ""})` : ""}. Verify it isn't a double charge.`,
+        cta: "Review", icon: AlertTriangle,
+      });
+    }
+  })();
+
+  // Largest expense this month (beyond the recent-7-day flag) — surfaces a big
+  // one-off spend for the current month if it stands out.
+  (() => {
+    const now = new Date();
+    const monthTxns = realTxns.filter(t => {
+      if (Number(t.amount) <= 0 || t.pending) return false;
+      const d = new Date(t.date + "T00:00:00");
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).sort((a, b) => Number(b.amount) - Number(a.amount));
+    if (monthTxns.length >= 3) {
+      const top = monthTxns[0];
+      const rest = monthTxns.slice(1);
+      const avgRest = rest.reduce((s, t) => s + Number(t.amount), 0) / rest.length;
+      // Flag only if it's genuinely large: >$300 and at least 3x the average of the rest.
+      if (Number(top.amount) > 300 && Number(top.amount) > avgRest * 3) {
+        items.push({
+          id: `month-large-${top.id}`, priority: "info",
+          title: `Biggest expense this month: ${fmtUSD(Number(top.amount))}`,
+          detail: `${top.merchant_name ?? top.name ?? "Unknown"} on ${new Date(top.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}, well above your typical spend.`,
+          cta: "Review", icon: TrendingUp, reviewCategory: getEffectiveCategory(top, overrides, getRuleCategory) ?? undefined,
+        });
+      }
+    }
+  })();
+
   // HYSA suggestion
   const lowYieldSavings = accounts.filter(a => {
     if (a.subtype !== "savings") return false;
@@ -764,7 +839,8 @@ const generateActions = (
     cta: "View all", icon: Sparkles,
   });
 
-  return items.slice(0, 6);
+  const rank: Record<string, number> = { urgent: 0, soon: 1, info: 2 };
+  return items.sort((a, b) => (rank[a.priority] ?? 3) - (rank[b.priority] ?? 3)).slice(0, 8);
 };
 
 const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") return false; const o=x as Record<string,unknown>; return typeof o.id==="string"&&typeof o.title==="string"&&typeof o.impact==="string"; };
@@ -3250,6 +3326,7 @@ export const LivePlaidDashboard = ({
   const [addCatCustom, setAddCatCustom] = useState("");
   const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
   const [recurringMenuFor, setRecurringMenuFor] = useState<string | null>(null); // merchantKey whose remove-reason menu is open
+  const [showOrganize, setShowOrganize] = useState(false); // Money Map: organize-accounts dialog
   // manualIncome from useUserSettings
   const [showAddIncome, setShowAddIncome] = useState(false);
   const [incomeDraftLabel, setIncomeDraftLabel] = useState("");
@@ -5777,51 +5854,75 @@ export const LivePlaidDashboard = ({
           )}
         </div>
 
-        {/* ── Account role assignment: only unassigned accounts need action ── */}
-        {unassignedAccts.length > 0 && <AccountTagStack list={unassignedAccts} onAssign={(id, role) => setRole(id, { role })} />}
+        {/* ── Organize accounts: behind a button, grouped by type in a dialog ── */}
+        <div className="surface-card px-5 py-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-semibold text-foreground">Organize accounts</div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {unassignedAccts.length > 0
+                ? `${unassignedAccts.length} account${unassignedAccts.length > 1 ? "s" : ""} still need a role`
+                : `${accountsWithRole.length} account${accountsWithRole.length !== 1 ? "s" : ""} tagged by role`}
+            </div>
+          </div>
+          <button onClick={() => setShowOrganize(true)}
+            className={cn("h-9 px-4 rounded-lg text-[12.5px] font-semibold shrink-0 inline-flex items-center gap-1.5",
+              unassignedAccts.length > 0 ? "bg-gold" : "border border-border-strong text-foreground hover:bg-surface-hover/40")}>
+            <Wallet className="h-3.5 w-3.5" /> Organize
+            {unassignedAccts.length > 0 && <span className="ml-0.5 px-1.5 rounded-full bg-background/30 text-[10px]">{unassignedAccts.length}</span>}
+          </button>
+        </div>
 
-        {/* ── All accounts — compact flat table ── */}
-        {accountsWithRole.length > unassignedAccts.length && (() => {
-          const ROLE_COLOR: Record<AccountRole, string> = {
-            spending: "hsl(var(--positive))", buffer: "hsl(var(--info))", reserve: "hsl(var(--gold))",
-            savings_goal: "hsl(var(--gold))", investment: "hsl(var(--positive))", debt: "hsl(var(--negative))", unassigned: "hsl(var(--muted-foreground))",
-          };
-          const tagged = accountsWithRole.filter(x => x.info.role !== "unassigned");
-          return (
-            <div className="surface-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-border/20 flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-foreground">All accounts</span>
-                <span className="text-[10px] text-muted-foreground">{tagged.length} tagged</span>
+        {showOrganize && (
+          <Dialog open onOpenChange={o => { if (!o) setShowOrganize(false); }}>
+            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+              <DialogTitle className="sr-only">Organize accounts</DialogTitle>
+              <DialogDescription className="sr-only">Assign each account a role, grouped by type.</DialogDescription>
+              <div className="px-5 py-4 border-b border-border/30 shrink-0">
+                <div className="font-display text-[15px] text-foreground font-semibold">Organize accounts</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">Grouped by type. Tag each with a Money Map role.</div>
               </div>
-              <div className="divide-y divide-border/10">
-                {tagged.map(({ acc, info }) => {
-                  const color = ROLE_COLOR[info.role];
-                  const bal = Number(acc.current_balance) || 0;
-                  const isDebt = info.role === "debt";
-                  return (
-                    <div key={acc.account_id} className="flex items-center gap-3 px-5 py-3">
-                      <div className="flex-1 min-w-0 flex items-center gap-2">
-                        <Landmark className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <div className="text-[12.5px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
-                          {acc.mask && <div className="text-[10px] text-muted-foreground">···· {acc.mask}</div>}
-                        </div>
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {bucketOrder
+                  .map(bucket => ({ bucket, list: accountsWithRole.filter(x => mapBucket(x.acc.type, x.acc.subtype) === bucket) }))
+                  .filter(g => g.list.length > 0)
+                  .map(({ bucket, list }) => (
+                    <div key={bucket} className="border-b border-border/15 last:border-0">
+                      <div className="px-5 py-2 bg-border/10 flex items-center justify-between">
+                        <span className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-semibold">{bucketMeta[bucket].label}</span>
+                        <span className="text-[10px] text-muted-foreground">{list.length}</span>
                       </div>
-                      <div className="text-right shrink-0">
-                        <div className={cn("text-[13px] tabular font-semibold", isDebt ? "text-negative" : "text-foreground")}>
-                          {isDebt ? "-" : ""}{fmtUSD(Math.abs(bal))}
-                        </div>
-                      </div>
-                      <div className="shrink-0">
-                        <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} getRole={getRole} setRole={setRole} />
+                      <div className="divide-y divide-border/10">
+                        {list.map(({ acc }) => {
+                          const bal = Number(acc.current_balance) || 0;
+                          const isDebtAcc = isDebt(acc.type);
+                          return (
+                            <div key={acc.account_id} className="flex items-center gap-3 px-5 py-3">
+                              <div className="flex-1 min-w-0 flex items-center gap-2">
+                                <Landmark className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="text-[12.5px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
+                                  {acc.mask && <div className="text-[10px] text-muted-foreground">···· {acc.mask}</div>}
+                                </div>
+                              </div>
+                              <div className={cn("text-[13px] tabular font-semibold shrink-0", isDebtAcc ? "text-negative" : "text-foreground")}>
+                                {isDebtAcc ? "-" : ""}{fmtUSD(Math.abs(bal))}
+                              </div>
+                              <div className="shrink-0">
+                                <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} getRole={getRole} setRole={setRole} />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
               </div>
-            </div>
-          );
-        })()}
+              <div className="p-4 border-t border-border/20 shrink-0">
+                <button onClick={() => setShowOrganize(false)} className="w-full h-10 rounded-lg bg-gold text-[13px] font-semibold">Done</button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
 
         {/* ── Acted-on suggestions, collapsed reference ── */}
         {actedSuggestions.length > 0 && (
