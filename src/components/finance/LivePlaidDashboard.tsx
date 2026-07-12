@@ -3554,40 +3554,9 @@ export const LivePlaidDashboard = ({
     const synced = data?.synced ?? 0;
     toast.success(`Synced ${synced} transaction${synced !== 1 ? "s" : ""}`);
     await load();
-    // Auto-categorize newly synced transactions that have no user override
+    // Plaid already provides categories — no AI needed.
+    // User rules (pattern matching) and manual per-txn overrides handle the rest.
     if (synced > 0) {
-      try {
-        const { data: freshTxns } = await supabase
-          .from("plaid_transactions")
-          .select("id,name,merchant_name,amount,category")
-          .eq("user_id", user.id)
-          .order("date", { ascending: false })
-          .limit(synced + 20);
-        if (freshTxns?.length) {
-          const currentOverrides = overrides;
-          const toCateg = (freshTxns as { id:string; name:string|null; merchant_name:string|null; amount:number; category:string[]|null }[])
-            .filter(t => {
-              // Skip if already has a manual per-txn override
-              if (currentOverrides[t.id]) return false;
-              // Skip if a rule already covers this transaction
-              if (getRuleCategory(t.merchant_name ?? t.name ?? null)) return false;
-              return true;
-            });
-          if (toCateg.length > 0) {
-            const { data: catResult } = await supabase.functions.invoke("ai-categorize", {
-              body: { transactions: toCateg, rules: rules.filter(r => r.enabled).map(r => ({ pattern: r.pattern, matchType: r.matchType, category: r.category })), userExamples: [] },
-            });
-            if (catResult?.results?.length) {
-              const newMap: Record<string,string> = {};
-              for (const r of catResult.results as { id:string; category:string }[]) {
-                if (r.id && r.category) newMap[r.id] = r.category;
-              }
-              S.bulkSetCatOverrideMap(newMap);
-            }
-          }
-        }
-      } catch (e) { console.warn("[auto-categorize]", e); }
-      // Also refresh insights in background after sync
       loadInsights(true).catch(console.warn);
     }
   },[user,load,loadInsights,onSyncingChange]);
