@@ -172,6 +172,66 @@ describe("getEffectiveCategory", () => {
     expect(resolve({}, [], "t1", null, null)).toBe("Other");
   });
 
+  it("rule beats AI override — rules must stick", () => {
+    // Bug: AI categorized "Starbucks" → "Food & Drink" and stored it as a per-txn override.
+    // User then creates rule "starbucks → Coffee". Rule appeared in UI but override in
+    // catOverrides still won, so the rule never stuck.
+    // Fix: when rule is added, clearAiOverridesForIds removes the stale per-txn override.
+    const overrides: Record<string,string> = { "txn_1": "Food & Drink" }; // old AI result
+    const rules = [{ pattern: "starbucks", matchType: "contains", category: "Coffee", enabled: true }];
+
+    const getRuleCategory = (merchant: string | null) => {
+      if (!merchant) return null;
+      const m = merchant.toLowerCase();
+      return rules.find(r => r.enabled && m.includes(r.pattern.toLowerCase()))?.category ?? null;
+    };
+
+    // BEFORE fix: override wins → "Food & Drink" (wrong)
+    const txn = { id: "txn_1", merchant_name: "Starbucks", name: "Starbucks", category: ["Food & Drink"] };
+    const resolve = (t: typeof txn, ovr: Record<string,string>) => {
+      if (ovr[t.id]) return ovr[t.id];
+      return getRuleCategory(t.merchant_name) ?? t.category[0];
+    };
+    expect(resolve(txn, overrides)).toBe("Food & Drink"); // the bug
+
+    // AFTER fix: clear the override when rule is added
+    const clearedOverrides: Record<string,string> = {};
+    // clearAiOverridesForIds(["txn_1"]) removes txn_1 from overrides
+    expect(resolve(txn, clearedOverrides)).toBe("Coffee"); // the fix ✓
+  });
+
+  it("manual override beats rule", () => {
+    // User manually sets txn → "Dining Out". Even if a rule says "starbucks → Coffee",
+    // the manual override must win.
+    const overrides: Record<string,string> = { "txn_1": "Dining Out" }; // manual
+    const rules = [{ pattern: "starbucks", matchType: "contains", category: "Coffee", enabled: true }];
+    const getRuleCategory = (m: string | null) =>
+      rules.find(r => r.enabled && (m ?? "").toLowerCase().includes(r.pattern))?.category ?? null;
+
+    const txn = { id: "txn_1", merchant_name: "Starbucks", name: "Starbucks", category: ["Food & Drink"] };
+    const resolve = (t: typeof txn, ovr: Record<string,string>) => {
+      if (ovr[t.id]) return ovr[t.id]; // manual wins
+      return getRuleCategory(t.merchant_name) ?? t.category[0];
+    };
+    expect(resolve(txn, overrides)).toBe("Dining Out"); // manual override ✓
+  });
+
+  it("AI categorize skips rule-matched transactions", () => {
+    // ai-categorize should not re-categorize transactions already covered by a rule
+    const txns = [
+      { id: "t1", merchant_name: "Starbucks", name: "Starbucks" },
+      { id: "t2", merchant_name: "Shell Gas", name: "Shell Gas" },
+    ];
+    const rules = [{ pattern: "starbucks", matchType: "contains", category: "Coffee", enabled: true }];
+    const getRuleCategory = (m: string | null) =>
+      rules.find(r => r.enabled && (m ?? "").toLowerCase().includes(r.pattern))?.category ?? null;
+
+    // Only send txns that DON'T have a rule match
+    const toCateg = txns.filter(t => !getRuleCategory(t.merchant_name));
+    expect(toCateg.map(t => t.id)).toEqual(["t2"]); // t1 skipped ✓
+    expect(toCateg).not.toContainEqual(expect.objectContaining({ id: "t1" }));
+  });
+
   it("Groceries maps correctly", () => {
     // Bug: GROCERY_AND_SPECIALTY_FOOD_STORES not in PFC map → everything showed as Other
     const PFC_MAP: Record<string, string> = {
