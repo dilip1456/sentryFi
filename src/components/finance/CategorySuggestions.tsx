@@ -60,8 +60,9 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
       });
 
       if (error || data?.error) {
-        toast.error("AI scan failed", { description: data?.error ?? error?.message });
+        toast.error("AI scan failed", { description: data?.error ?? error?.message ?? "Unknown error" });
         setLoading(false);
+        setRan(true);
         return;
       }
       setSuggestions((data?.suggestions ?? []).filter((s: Suggestion) =>
