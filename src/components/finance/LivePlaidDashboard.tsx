@@ -135,12 +135,19 @@ const loadAllMeta = (): Record<string, AccountMeta> => {
 const PERIODS: Period[] = ["1W", "1M", "3M", "1Y", "ALL"];
 
 const EXPENSE_CATEGORIES = [
-  "Food & Drink", "Groceries", "Travel", "Transportation", "Shopping",
-  "Entertainment", "Healthcare", "Bills & Utilities", "Education",
-  "Personal Care", "Charitable Giving",
-  "Mortgage", "Rent", "Auto Loan", "Student Loan", "Credit Card Payment",
-  "Bill Payment", "Insurance", "Bank Fees",
-  "Transfer Out", "Other",
+  // Food
+  "Food & Drink", "Groceries",
+  // Home & Transport
+  "Transportation", "Travel", "Mortgage", "Rent", "Auto Loan", "Home",
+  // Bills
+  "Bills & Utilities", "Insurance", "Credit Card Payment", "Bill Payment", "Student Loan",
+  // Life
+  "Shopping", "Entertainment", "Healthcare", "Education", "Personal Care",
+  // Finance
+  "Financial Services", "Bank Fees", "Business",
+  // Giving & transfers
+  "Charitable Giving", "Transfer Out", "Internal Transfer",
+  "Other",
 ];
 
 const INCOME_CATEGORIES = [
@@ -850,76 +857,259 @@ const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") retu
 const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(isAIInsight):[]);
 
 /** Resolve the effective display category for a transaction, respecting overrides → rules → original */
-// Maps raw Plaid category strings to app category names.
-// Takes name/merchant too so "Payment" can be split into mortgage vs credit card etc.
+// ── Plaid → App category mapping ───────────────────────────────────────────
+// Plaid sends category as an array: [level1, level2?, level3?]
+// This table covers every category Plaid can send, mapped to the app's names.
+// Priority: exact 3-level > exact 2-level > exact 1-level > name-based fallback.
+// Reference: https://plaid.com/docs/transactions/categories/
+
+const PLAID_CATEGORY_MAP: Record<string, string> = {
+  // ── Bank Fees ──────────────────────────────────────────────
+  "Bank Fees":                               "Bank Fees",
+  "Bank Fees|Atm Fees":                      "Bank Fees",
+  "Bank Fees|Foreign Transaction":           "Bank Fees",
+  "Bank Fees|Insufficient Funds":            "Bank Fees",
+  "Bank Fees|Interest Charge":               "Bank Fees",
+  "Bank Fees|Overdraft":                     "Bank Fees",
+  "Bank Fees|Other Bank Fees":               "Bank Fees",
+  "Bank Fees|Wire Transfer":                 "Bank Fees",
+
+  // ── Interest ───────────────────────────────────────────────
+  "Interest":                                "Interest & Dividends",
+  "Interest|Interest Earned":                "Interest & Dividends",
+  "Interest|Interest Charged":               "Bank Fees",
+
+  // ── Cash Advance ───────────────────────────────────────────
+  "Cash Advance":                            "Bank Fees",
+  "Cash Advance|Credit Card":                "Bank Fees",
+
+  // ── Community ─────────────────────────────────────────────
+  "Community":                               "Other",
+  "Community|Animal Shelter":                "Charitable Giving",
+  "Community|Assisted Living Services":      "Healthcare",
+  "Community|Courts":                        "Other",
+  "Community|Day Care And Preschools":       "Education",
+  "Community|Education":                     "Education",
+  "Community|Government Departments And Agencies": "Other",
+  "Community|Non-Governmental Organizations": "Charitable Giving",
+  "Community|Organizations And Associations": "Charitable Giving",
+  "Community|Religious":                     "Charitable Giving",
+
+  // ── Entertainment ─────────────────────────────────────────
+  "Entertainment":                           "Entertainment",
+  "Entertainment|Amusement Parks And Arcades": "Entertainment",
+  "Entertainment|Arts And Crafts":           "Entertainment",
+  "Entertainment|Bars":                      "Food & Drink",
+  "Entertainment|Casinos And Gambling":      "Entertainment",
+  "Entertainment|Events And Attractions":    "Entertainment",
+  "Entertainment|Music And Audio":           "Entertainment",
+  "Entertainment|Outdoors And Recreation":   "Entertainment",
+  "Entertainment|Sports":                    "Entertainment",
+  "Entertainment|Video Games":               "Entertainment",
+
+  // ── Food and Drink ────────────────────────────────────────
+  "Food & Drink":                            "Food & Drink",
+  "Food And Drink":                          "Food & Drink",
+  "Food And Drink|Bar":                      "Food & Drink",
+  "Food And Drink|Beer, Wine And Spirits":   "Food & Drink",
+  "Food And Drink|Coffee Shop":              "Food & Drink",
+  "Food And Drink|Fast Food":                "Food & Drink",
+  "Food And Drink|Food Truck":               "Food & Drink",
+  "Food And Drink|Restaurants":              "Food & Drink",
+  "Food And Drink|Restaurants|Fast Food":    "Food & Drink",
+  "Food And Drink|Restaurants|Seafood":      "Food & Drink",
+  "Food And Drink|Vending Machines":         "Food & Drink",
+
+  // ── Groceries ─────────────────────────────────────────────
+  "Groceries":                               "Groceries",
+  "Shops|Supermarkets And Groceries":        "Groceries",
+  "Shops|Food And Beverage Store":           "Groceries",
+  "Shops|Food And Beverage Store|Farmers Market": "Groceries",
+  "Shops|Food And Beverage Store|Health Food Store": "Groceries",
+  "Shops|Farmers Markets":                   "Groceries",
+
+  // ── Healthcare ────────────────────────────────────────────
+  "Healthcare":                              "Healthcare",
+  "Healthcare|Dentists":                     "Healthcare",
+  "Healthcare|Emergency Services":           "Healthcare",
+  "Healthcare|Hospitals":                    "Healthcare",
+  "Healthcare|Optometrists":                 "Healthcare",
+  "Healthcare|Pharmacies":                   "Healthcare",
+  "Healthcare|Physicians":                   "Healthcare",
+  "Healthcare|Veterinarians":                "Healthcare",
+  "Shops|Pharmacies":                        "Healthcare",
+  "Shops|Drug Store/Pharmacy":               "Healthcare",
+
+  // ── Payment — split by name in code below ─────────────────
+  "Payment":                                 "PAYMENT_NEEDS_NAME", // resolved by name
+  "Payment|Rent":                            "Rent",
+  "Payment|Loan":                            "Loan Payment",
+  "Payment|Credit Card":                     "Credit Card Payment",
+
+  // ── Personal Care ─────────────────────────────────────────
+  "Personal Care":                           "Personal Care",
+  "Service|Personal Care":                   "Personal Care",
+  "Service|Salons And Barbers":              "Personal Care",
+
+  // ── Salary / Income ───────────────────────────────────────
+  "Salary":                                  "Salary",
+  "Transfer|Payroll":                        "Salary",
+  "Transfer|Deposit":                        "Transfer In",
+
+  // ── Service → Bills & Utilities ───────────────────────────
+  "Service":                                 "Bills & Utilities",
+  "Service|Advertising And Marketing":       "Business",
+  "Service|Automotive":                      "Auto & Transport",
+  "Service|Automotive|Repairs":              "Auto & Transport",
+  "Service|Business Services":               "Business",
+  "Service|Cable":                           "Bills & Utilities",
+  "Service|Cleaning":                        "Home",
+  "Service|Computer Repair":                 "Bills & Utilities",
+  "Service|Digital Purchase":                "Shopping",
+  "Service|Financial":                       "Financial Services",
+  "Service|Financial|Financial Planning And Investments": "Financial Services",
+  "Service|Financial|Mortgages":             "Mortgage",
+  "Service|Financial|Stock Brokers":         "Financial Services",
+  "Service|Funeral Services":                "Other",
+  "Service|Insurance":                       "Insurance",
+  "Service|Landscaping And Arborists":       "Home",
+  "Service|Laundry And Dry Cleaning":        "Personal Care",
+  "Service|Legal":                           "Other",
+  "Service|Moving":                          "Home",
+  "Service|Postage And Shipping":            "Shopping",
+  "Service|Real Estate":                     "Home",
+  "Service|Repairs And Maintenance":         "Home",
+  "Service|Security And Safety":             "Bills & Utilities",
+  "Service|Subscription":                    "Bills & Utilities",
+  "Service|Tax Preparation":                 "Financial Services",
+  "Service|Telecommunication Services":      "Bills & Utilities",
+  "Service|Travel Agency":                   "Travel",
+  "Service|Utilities":                       "Bills & Utilities",
+  "Service|Utilities|Cable":                 "Bills & Utilities",
+  "Service|Utilities|Electric":              "Bills & Utilities",
+  "Service|Utilities|Gas":                   "Bills & Utilities",
+  "Service|Utilities|Internet":              "Bills & Utilities",
+  "Service|Utilities|Sanitary And Waste Management": "Bills & Utilities",
+  "Service|Utilities|Telephone":             "Bills & Utilities",
+  "Service|Utilities|Water":                 "Bills & Utilities",
+
+  // ── Shopping ──────────────────────────────────────────────
+  "Shopping":                                "Shopping",
+  "Shops":                                   "Shopping",
+  "Shops|Antiques":                          "Shopping",
+  "Shops|Arts And Crafts":                   "Shopping",
+  "Shops|Automotive/Parts And Accessories":  "Auto & Transport",
+  "Shops|Beauty Products":                   "Personal Care",
+  "Shops|Books And Newsstands":              "Shopping",
+  "Shops|Children":                          "Shopping",
+  "Shops|Clothing And Accessories":          "Shopping",
+  "Shops|Computer And Electronics":          "Shopping",
+  "Shops|Convenience Stores":               "Shopping",
+  "Shops|Department Stores":                 "Shopping",
+  "Shops|Electronics":                       "Shopping",
+  "Shops|Flowers":                           "Shopping",
+  "Shops|Furniture And Home Decor":          "Home",
+  "Shops|Gas Stations":                      "Transportation",
+  "Shops|Gift And Novelty":                  "Shopping",
+  "Shops|Hardware Store":                    "Home",
+  "Shops|Hobby And Collectibles":            "Shopping",
+  "Shops|Jewelry And Watches":               "Shopping",
+  "Shops|Musical Instruments":               "Entertainment",
+  "Shops|Office Supplies":                   "Shopping",
+  "Shops|Pet Supplies":                      "Shopping",
+  "Shops|Sporting Goods":                    "Shopping",
+  "Shops|Toys":                              "Shopping",
+  "Shops|Warehouses And Wholesale":          "Shopping",
+
+  // ── Tax ───────────────────────────────────────────────────
+  "Tax":                                     "Financial Services",
+  "Tax|Payment":                             "Financial Services",
+  "Tax|Refund":                              "Income",
+
+  // ── Transfer ──────────────────────────────────────────────
+  "Transfer":                                "Transfer Out",
+  "Transfer In":                             "Transfer In",
+  "Transfer Out":                            "Transfer Out",
+  "Transfer|Credit":                         "Transfer In",
+  "Transfer|Debit":                          "Transfer Out",
+  "Transfer|Deposit":                        "Transfer In",
+  "Transfer|Internal Account Transfer":      "Internal Transfer",
+  "Transfer|Keep The Change Savings Program": "Savings",
+  "Transfer|Payroll":                        "Salary",
+  "Transfer|Savings":                        "Savings",
+  "Transfer|Third Party":                    "Transfer Out",
+  "Transfer|Third Party|Paypal":             "Transfer Out",
+  "Transfer|Third Party|Venmo":              "Transfer Out",
+  "Transfer|Third Party|Zelle":              "Transfer Out",
+  "Transfer|Wire":                           "Transfer Out",
+  "Transfer|Withdrawal":                     "Transfer Out",
+
+  // ── Transportation ────────────────────────────────────────
+  "Transportation":                          "Transportation",
+  "Travel|Car Service":                      "Transportation",
+  "Travel|Charter Buses":                    "Transportation",
+  "Travel|Commuter Transportation":          "Transportation",
+  "Travel|Gas Stations":                     "Transportation",
+  "Travel|Parking":                          "Transportation",
+  "Travel|Subway And Bus":                   "Transportation",
+  "Travel|Taxi":                             "Transportation",
+
+  // ── Travel ────────────────────────────────────────────────
+  "Travel":                                  "Travel",
+  "Travel|Airlines And Aviation Services":   "Travel",
+  "Travel|Car And Truck Rentals":            "Travel",
+  "Travel|Hotels And Motels":                "Travel",
+  "Travel|Lodging":                          "Travel",
+  "Travel|Tolls And Fees":                   "Transportation",
+
+  // ── Bills & Utilities (already clean from newer Plaid) ────
+  "Bills & Utilities":                       "Bills & Utilities",
+};
+
+// Resolve a Plaid category array to an app category name.
+// Takes name+merchant for cases where Plaid's category is ambiguous (e.g. "Payment").
 const normalisePlaidCategory = (
   cats: string[] | null | undefined,
   name?: string | null,
   merchant?: string | null,
 ): string => {
   if (!cats || cats.length === 0) return "Other";
-  const c0 = (cats[0] ?? "").toLowerCase();
-  const c1 = (cats[1] ?? "").toLowerCase();
-  const c2 = (cats[2] ?? "").toLowerCase();
-  const all = [c0, c1, c2].join("|");
-  const nm  = (name ?? "").toLowerCase();
-  const mc  = (merchant ?? "").toLowerCase();
-  const any = all + "|" + nm + "|" + mc;
 
-  // Transfers & payroll — check before food since some are ambiguous
-  if (any.includes("payroll") || any.includes("salary") || any.includes("direct deposit")) return "Salary";
-  if (any.includes("interest earned") || any.includes("dividend"))          return "Interest & Dividends";
-  if (any.includes("interest charged") || any.includes("overdraft"))        return "Bank Fees";
-  if (any.includes("bank fee") || any.includes("service fee"))              return "Bank Fees";
-  if (any.includes("transfer in") || (all.includes("credit") && all.includes("transfer"))) return "Transfer In";
-  if (any.includes("transfer out") || (all.includes("debit") && all.includes("transfer"))) return "Transfer Out";
-  if (any.includes("internal account transfer") || any.includes("third party")) return "Transfer Out";
-  if (c0 === "transfer")                                                     return "Transfer Out";
+  // Build lookup key — try most specific first (3-level → 2-level → 1-level)
+  const c0 = cats[0] ?? "";
+  const c1 = cats[1] ?? "";
+  const c2 = cats[2] ?? "";
 
-  // Payment — look at merchant/name to classify properly
-  if (c0 === "payment") {
-    if (any.includes("mortgage") || any.includes("fundin") || any.includes("home loan") || any.includes("hmc") || any.includes("mr. cooper") || any.includes("loancare") || any.includes("pennymac") || any.includes("quicken loan")) return "Mortgage";
-    if (any.includes("rent") || any.includes("apartment") || any.includes("lease"))                                   return "Rent";
-    if (any.includes("car") || any.includes("auto") || any.includes("vehicle") || any.includes("toyota") || any.includes("honda") || any.includes("ford") || any.includes("ally financial") || any.includes("capital one auto")) return "Auto Loan";
-    if (any.includes("student") || any.includes("sallie mae") || any.includes("navient") || any.includes("mohela")) return "Student Loan";
-    if (c1 === "credit card" || any.includes("credit card") || any.includes("thank you") || any.includes("payment thank"))  return "Credit Card Payment";
-    if (any.includes("insurance") || any.includes("geico") || any.includes("state farm") || any.includes("allstate")) return "Insurance";
-    return "Bill Payment";
+  const key3 = [c0, c1, c2].filter(Boolean).join("|");
+  const key2 = [c0, c1].filter(Boolean).join("|");
+  const key1 = c0;
+
+  // Normalise key for lookup (title-case, trim)
+  const norm = (s: string) => s.trim().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  const nk3 = [norm(c0), norm(c1), norm(c2)].filter(Boolean).join("|");
+  const nk2 = [norm(c0), norm(c1)].filter(Boolean).join("|");
+  const nk1 = norm(c0);
+
+  const mapped = PLAID_CATEGORY_MAP[nk3] ?? PLAID_CATEGORY_MAP[nk2] ?? PLAID_CATEGORY_MAP[nk1]
+               ?? PLAID_CATEGORY_MAP[key3] ?? PLAID_CATEGORY_MAP[key2] ?? PLAID_CATEGORY_MAP[key1];
+
+  // "Payment" without a subcategory — look at transaction name to determine type
+  if (mapped === "PAYMENT_NEEDS_NAME") {
+    const nm = (name ?? "").toLowerCase();
+    const mc = (merchant ?? "").toLowerCase();
+    const any = nm + " " + mc;
+    if (any.match(/mortgage|fundin|home.?loan|loancare|pennymac|mr.?cooper|quicken|rocket.?mortgage/)) return "Mortgage";
+    if (any.match(/rent|apartment|lease|property/)) return "Rent";
+    if (any.match(/car.?loan|auto.?loan|ally.?financial|capital.?one.?auto|toyota.?finance|honda.?finance|ford.?motor.?credit/)) return "Auto Loan";
+    if (any.match(/student.?loan|sallie.?mae|navient|mohela|great.?lakes|nelnet/)) return "Student Loan";
+    if (any.match(/insurance|geico|allstate|state.?farm|progressive|aetna|anthem|cigna/)) return "Insurance";
+    return "Bill Payment"; // generic fallback
   }
 
-  // Food & drink
-  if (c0 === "food & drink" || c0 === "food and drink" || c1.includes("restaurant") || c1.includes("fast food") || c1.includes("coffee")) return "Food & Drink";
-  if (c0 === "groceries" || any.includes("groceries") || any.includes("grocery") || any.includes("supermarket")) return "Groceries";
+  if (mapped) return mapped;
 
-  // Shopping
-  if (c0 === "shopping" || c0 === "shops" || c1.includes("hardware") || c1.includes("clothing") || c1.includes("sporting")) return "Shopping";
-
-  // Transport
-  if (c0 === "transportation" || any.includes("taxi") || any.includes("uber") || any.includes("lyft") || c1.includes("gas station") || c1.includes("parking") || c1.includes("transit")) return "Transportation";
-  if (c0 === "travel" || c1.includes("lodging") || c1.includes("hotel") || c1.includes("airline") || c1.includes("flight")) return "Travel";
-
-  // Bills & utilities
-  if (c0 === "bills & utilities" || c0 === "service" || any.includes("utilities") || any.includes("electric") || c2.includes("water") || c2.includes("gas") || any.includes("cable") || any.includes("telecom") || any.includes("subscription") || any.includes("internet") || any.includes("phone")) return "Bills & Utilities";
-
-  // Entertainment
-  if (c0 === "entertainment" || any.includes("streaming") || any.includes("gaming") || c1.includes("sport")) return "Entertainment";
-
-  // Health
-  if (c0 === "healthcare" || any.includes("pharmacy") || any.includes("medical") || any.includes("dental") || any.includes("doctor")) return "Healthcare";
-
-  // Education
-  if (c0 === "education" || any.includes("school") || any.includes("tuition")) return "Education";
-
-  // Personal care
-  if (any.includes("personal care") || any.includes("salon") || any.includes("barber") || any.includes("spa")) return "Personal Care";
-
-  // Charity
-  if (any.includes("charit") || any.includes("donation") || any.includes("nonprofit") || any.includes("government")) return "Charitable Giving";
-
-  // Use raw category[0] if it's meaningful
-  const raw = cats[0];
-  if (raw && raw.length > 0 && raw !== "Other") return raw;
-  return "Other";
+  // Last resort: return the raw category[0] as-is
+  return c0 || "Other";
 };
 
 // Category priority (highest → lowest):
