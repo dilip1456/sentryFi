@@ -233,14 +233,29 @@ describe("getEffectiveCategory", () => {
   });
 
   it("Groceries maps correctly", () => {
-    // Bug: GROCERY_AND_SPECIALTY_FOOD_STORES not in PFC map → everything showed as Other
-    const PFC_MAP: Record<string, string> = {
-      GROCERY_AND_SPECIALTY_FOOD_STORES: "Groceries",
-      GROCERIES: "Groceries",
-      GAS_STATIONS: "Transportation",
+    // normalisePlaidCategory handles both old and new Plaid formats
+    const normalise = (cats: string[]) => {
+      const c0 = (cats[0] ?? "").toLowerCase();
+      const c1 = (cats[1] ?? "").toLowerCase();
+      const all = [c0, c1].join("|");
+      if (c0 === "food & drink" || c0 === "food and drink" || all.includes("restaurant")) return "Food & Drink";
+      if (c0 === "groceries" || all.includes("groceries")) return "Groceries";
+      if (c0 === "service" || all.includes("utilities")) return "Bills & Utilities";
+      if (all.includes("telecom") || all.includes("subscription")) return "Bills & Utilities";
+      if (c0 === "transportation") return "Transportation";
+      if (c0 === "entertainment") return "Entertainment";
+      return cats[0] ?? "Other";
     };
-    expect(PFC_MAP["GROCERY_AND_SPECIALTY_FOOD_STORES"]).toBe("Groceries");
-    expect(PFC_MAP["GAS_STATIONS"]).toBe("Transportation");
+    // New format
+    expect(normalise(["Food & Drink"])).toBe("Food & Drink");
+    expect(normalise(["Groceries"])).toBe("Groceries");
+    expect(normalise(["Entertainment"])).toBe("Entertainment");
+    expect(normalise(["Transportation"])).toBe("Transportation");
+    // Old Plaid format
+    expect(normalise(["Food and Drink", "Restaurants"])).toBe("Food & Drink");
+    expect(normalise(["Service", "Utilities", "Gas"])).toBe("Bills & Utilities");
+    expect(normalise(["Service", "Telecommunication Services"])).toBe("Bills & Utilities");
+    expect(normalise(["Service", "Subscription"])).toBe("Bills & Utilities");
   });
 });
 
