@@ -20,25 +20,19 @@ const DEFAULTS: AlertPrefs = {
   budget_pct: 90, low_balance: 100, payment_days: 3, weekly_summary: true,
 };
 
-// Single reusable switch so every toggle looks and behaves identically.
-// Segmented On/Off control — unambiguous (never reads as a radio button).
+// Segmented Off/On control — unambiguous in both light and dark, and never
+// reads as a radio button (the recurring complaint about the sliding toggle).
 const Switch = ({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) => (
-  <button
-    type="button"
-    role="switch"
-    aria-checked={on}
-    aria-label={label}
-    onClick={onChange}
-    className={cn(
-      "relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200",
-      on ? "bg-[hsl(var(--primary))]" : "bg-border"
-    )}
-  >
-    <span className={cn(
-      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
-      on ? "translate-x-5" : "translate-x-0.5"
-    )} />
-  </button>
+  <div role="group" aria-label={label} className="inline-flex shrink-0 rounded-lg border border-border-strong overflow-hidden text-[11px] font-semibold select-none">
+    <button type="button" aria-pressed={!on} onClick={() => { if (on) onChange(); }}
+      className={cn("px-3 py-1.5 transition-colors", !on ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
+      Off
+    </button>
+    <button type="button" aria-pressed={on} onClick={() => { if (!on) onChange(); }}
+      className={cn("px-3 py-1.5 transition-colors", on ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
+      On
+    </button>
+  </div>
 );
 
 export const NotificationPreferences = ({ onClose }: { onClose: () => void }) => {
