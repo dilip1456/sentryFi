@@ -23,16 +23,22 @@ const DEFAULTS: AlertPrefs = {
 // Single reusable switch so every toggle looks and behaves identically.
 // Segmented On/Off control — unambiguous (never reads as a radio button).
 const Switch = ({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) => (
-  <div role="group" aria-label={label} className="inline-flex shrink-0 rounded-lg border border-border-strong overflow-hidden text-[11px] font-semibold select-none">
-    <button type="button" aria-pressed={!on} onClick={() => { if (on) onChange(); }}
-      className={cn("px-3 py-1.5 transition-colors", !on ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
-      Off
-    </button>
-    <button type="button" aria-pressed={on} onClick={() => { if (!on) onChange(); }}
-      className={cn("px-3 py-1.5 transition-colors", on ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
-      On
-    </button>
-  </div>
+  <button
+    type="button"
+    role="switch"
+    aria-checked={on}
+    aria-label={label}
+    onClick={onChange}
+    className={cn(
+      "relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200",
+      on ? "bg-[hsl(var(--primary))]" : "bg-border"
+    )}
+  >
+    <span className={cn(
+      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
+      on ? "translate-x-5" : "translate-x-0.5"
+    )} />
+  </button>
 );
 
 export const NotificationPreferences = ({ onClose }: { onClose: () => void }) => {
@@ -140,7 +146,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
             <label className="text-[13px] text-foreground">Budget alert at <span className="font-semibold text-[hsl(var(--primary))]">{prefs.budget_pct}%</span> spent</label>
             <input type="range" min={50} max={100} step={5} value={prefs.budget_pct}
               onChange={e => setPrefs(p => ({ ...p, budget_pct: Number(e.target.value) }))}
-              className="w-full accent-[hsl(var(--primary))]" />
+              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[10px] text-muted-foreground"><span>50%</span><span>100%</span></div>
           </div>
 
@@ -148,7 +154,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
             <label className="text-[13px] text-foreground">Low balance alert below <span className="font-semibold text-[hsl(var(--primary))]">${prefs.low_balance}</span></label>
             <input type="range" min={0} max={1000} step={50} value={prefs.low_balance}
               onChange={e => setPrefs(p => ({ ...p, low_balance: Number(e.target.value) }))}
-              className="w-full accent-[hsl(var(--primary))]" />
+              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[10px] text-muted-foreground"><span>$0</span><span>$1,000</span></div>
           </div>
 
@@ -156,7 +162,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
             <label className="text-[13px] text-foreground">Payment due warning <span className="font-semibold text-[hsl(var(--primary))]">{prefs.payment_days} days</span> before</label>
             <input type="range" min={1} max={14} step={1} value={prefs.payment_days}
               onChange={e => setPrefs(p => ({ ...p, payment_days: Number(e.target.value) }))}
-              className="w-full accent-[hsl(var(--primary))]" />
+              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[10px] text-muted-foreground"><span>1 day</span><span>14 days</span></div>
           </div>
         </div>

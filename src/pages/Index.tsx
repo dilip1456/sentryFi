@@ -52,7 +52,7 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "benefits",  label: "Benefits",   icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["moneymap", "spending", "budget"];
+const MOBILE_PRIMARY: View[] = ["overall", "spending", "budget", "moneymap"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
@@ -321,57 +321,57 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               {headerMenuOpen && createPortal(
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
-                    style={{ background: "hsl(var(--sidebar-background))" }}>
+                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl border border-border/30 shadow-2xl overflow-hidden"
+                    className="bg-[hsl(var(--popover))] border border-border">
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white/5">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
                         <LogOut className="h-4 w-4" /> Sign in / Create account
                       </button>
                     )}
                     {user && !effectiveDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
                         <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
                     {user && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
                         <Settings className="h-4 w-4 opacity-60" /> Settings
                       </button>
                     )}
                     <button onClick={toggleTheme}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
                       {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                       {theme === "dark" ? "Light mode" : "Dark mode"}
                     </button>
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30"
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
                     {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-yellow-400 hover:bg-white/5 border-t border-white/10">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-warning hover:bg-muted/50 border-t border-border/30">
                         <Sparkles className="h-4 w-4" /> Exit demo
                       </button>
                     )}
                     {guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-white/10">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-border/30">
                         <LogOut className="h-4 w-4" /> Create free account
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 font-medium hover:bg-white/5 border-t border-white/10">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 font-medium hover:bg-white/5 border-t border-border/30">
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
                     )}
@@ -555,12 +555,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
                 <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
-                  style={{ background: "hsl(var(--sidebar-background))" }}>
+                  className="bg-[hsl(var(--popover))] border border-border">
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
-                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] hover:bg-white/5 transition-colors",
+                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 transition-colors",
                           view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-white")}>
                         <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
@@ -569,13 +569,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   })}
                   {user && (
                     <button onClick={() => { setMoreOpen(false); setShowInbox(true); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
                       <Bell className="h-4 w-4 opacity-60" />
                       Notifications
                     </button>
                   )}
                   <button onClick={() => { setMoreOpen(false); toggleTheme(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-white hover:bg-white/5 border-t border-white/10">
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
                     {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                     {theme === "dark" ? "Light mode" : "Dark mode"}
                   </button>
