@@ -942,7 +942,7 @@ const PLAID_CATEGORY_MAP: Record<string, string> = {
   "Shops|Drug Store/Pharmacy":               "Healthcare",
 
   // ── Payment ────────────────────────────────────────────────
-  "Payment":                                 "Mortgage Payment",
+  "Payment":                                 "Mortgage",
   "Payment|Rent":                            "Rent",
   "Payment|Loan":                            "Loan Payment",
   "Payment|Credit Card":                     "Credit Card Payment",
@@ -5211,50 +5211,8 @@ export const LivePlaidDashboard = ({
         </div>
       </div>
 
-      {/* ── Trend chart — full width, above data, doubles as a date filter ── */}
-      {bkts.length > 1 && (
-        <div className="surface-card p-4 mb-3">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-baseline gap-2">
-              <span className="text-[12px] font-semibold text-foreground">
-                {spendingPeriod.granularity==="year"?"Monthly":"Daily"} trend
-              </span>
-              <span className="text-[10.5px] text-muted-foreground">tap a bar to filter transactions</span>
-            </div>
-            {(chartDrillDate||chartDrillMonth!=null)&&(
-              <button onClick={()=>{setChartDrillDate(null);setChartDrillMonth(null);}}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-medium border border-negative/30 bg-negative/10 text-negative">
-                {chartDrillDate?new Date(chartDrillDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):new Date(2000,chartDrillMonth!,1).toLocaleDateString("en-US",{month:"long"})}
-                <X className="h-2.5 w-2.5"/>
-              </button>
-            )}
-          </div>
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={bkts} margin={{top:2,right:0,bottom:0,left:0}} barCategoryGap="24%" onClick={(s:any)=>{
-                const b=bkts[s?.activeTooltipIndex];if(!b)return;
-                if(b.dateKey)setChartDrillDate(p=>p===b.dateKey?null:b.dateKey!);
-                else if(b.monthIdx!=null)setChartDrillMonth(p=>p===b.monthIdx?null:b.monthIdx!);
-              }}>
-                <CartesianGrid strokeDasharray="3 6" stroke="hsl(var(--border))" strokeOpacity={0.2} vertical={false}/>
-                <XAxis dataKey="label" axisLine={false} tickLine={false}
-                  interval={spendingPeriod.granularity==="month"?Math.floor(bkts.length/12):0}
-                  tick={{fontSize:9,fill:"hsl(var(--muted-foreground))",fontFamily:"inherit"}}/>
-                <YAxis hide domain={[0,"dataMax+30"]}/>
-                <Tooltip content={<TrendTip/>} cursor={{fill:"hsl(var(--foreground))",fillOpacity:0.05}}/>
-                <Bar dataKey="total" radius={[3,3,0,0]} animationDuration={400} cursor="pointer">
-                  {bkts.map((b,i)=>{
-                    const drilled=(!!b.dateKey&&b.dateKey===chartDrillDate)||(b.monthIdx!=null&&b.monthIdx===chartDrillMonth);
-                    return <Cell key={i} fill={drilled?"hsl(var(--negative))":"hsl(var(--primary))"} fillOpacity={drilled||b.isCurrent?1:0.45}/>;
-                  })}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
 
-      {/* ── Main 2-col layout ── */}
+            {/* ── Main 2-col layout ── */}
       <div className="lg:grid lg:grid-cols-[340px_minmax(0,1fr)] gap-3 items-start space-y-3 lg:space-y-0">
 
         {/* ── LEFT: visual summary ── */}
@@ -5738,61 +5696,50 @@ export const LivePlaidDashboard = ({
               const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
               const isEditing = editingBudgetCat === c.category;
               return (
-                <div key={c.category} className="px-5 py-4">
-                  {/* Name row */}
-                  <div className="flex items-center gap-2.5 mb-2.5 cursor-pointer"
+                <div key={c.category} className="px-4 py-3">
+                  {/* Compact row: icon + name + amounts + bar */}
+                  <div className="flex items-center gap-2.5 mb-1.5 cursor-pointer"
                     onClick={() => { if (!isEditing) setBudgetCatPopup(c.category); }}>
-                    <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                      <Icon className="h-3.5 w-3.5" />
+                    <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                      <Icon className="h-3 w-3" />
                     </div>
-                    <span className="text-[13px] font-semibold text-foreground flex-1">{formatCat(c.category)}</span>
-                    <span className="text-[10px] text-muted-foreground">{c.count} txn{c.count !== 1 ? "s" : ""}</span>
-                    {over && <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative">OVER</span>}
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+                    <span className="text-[12.5px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                    <span className={cn("text-[12.5px] font-semibold tabular shrink-0", over ? "text-negative" : "text-foreground")}>
+                      {fmtUSD(actual)}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground shrink-0">/ {fmtUSD(budget)}</span>
+                    {over && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-negative/15 text-negative shrink-0">OVER</span>}
                   </div>
-
-                  {/* Budget / Actual aligned label-value rows */}
-                  <div className="ml-9 space-y-1">
-                    <div className="flex items-baseline">
-                      <span className="text-[11px] text-muted-foreground w-16 shrink-0">Budget</span>
-                      <span className="text-[13px] font-medium text-foreground tabular">{fmtUSD(budget)}</span>
+                  {/* Progress bar */}
+                  {!isEditing && (
+                    <div className="ml-8 h-1.5 rounded-full bg-border/30 overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-500", over ? "bg-negative" : pct > 80 ? "bg-warning" : "bg-[hsl(var(--primary))]")}
+                        style={{ width: `${pct}%`, backgroundColor: over ? undefined : pct <= 80 ? color : undefined }}
+                      />
                     </div>
-                    <div className="flex items-baseline">
-                      <span className="text-[11px] text-muted-foreground w-16 shrink-0">Actual</span>
-                      <span className={cn("text-[13px] font-semibold tabular", over ? "text-negative" : "text-foreground")}>{fmtUSD(actual)}</span>
-                      <span className={cn("text-[10.5px] tabular ml-3 font-medium", over ? "text-negative" : "text-positive")}>
-                        {over ? `${fmtUSD(actual - budget)} over` : `${fmtUSD(budget - actual)} left`}
-                      </span>
-                    </div>
-                    <div className="h-1 rounded-full bg-border/30 mt-2 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-300" style={{
-                        width: `${pct}%`,
-                        backgroundColor: over ? "hsl(var(--negative))" : pct >= 85 ? "hsl(var(--warning))" : color
-                      }} />
-                    </div>
-                    {isEditing ? (
-                      <form className="flex items-center gap-1.5 mt-2"
-                        onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
-                        <div className="relative">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">$</span>
-                          <input autoFocus type="number" min={0} step={10} value={budgetDraft}
-                            onChange={e => setBudgetDraft(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Escape") { setEditingBudgetCat(null); setBudgetDraft(""); } }}
-                            className="w-24 h-7 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none" />
-                        </div>
-                        <button type="submit" className="h-7 px-3 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
-                        <button type="button" onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); }}
-                          className="h-7 px-2 rounded-md border border-border-strong text-[10px] text-muted-foreground">Cancel</button>
-                        <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
-                          className="h-7 px-2 rounded-md text-[10px] text-negative hover:bg-negative/10 ml-auto">Remove</button>
-                      </form>
-                    ) : (
-                      <button onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
-                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1.5 transition-colors">
-                        <Pencil className="h-2.5 w-2.5" /> Edit
-                      </button>
-                    )}
-                  </div>
+                  )}
+                  {/* Edit inline */}
+                  {isEditing ? (
+                    <form className="ml-8 flex items-center gap-1.5 mt-2"
+                      onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
+                      <span className="text-[11px] text-muted-foreground">$</span>
+                      <input autoFocus type="number" min={0} step={10} value={budgetDraft}
+                        onChange={e => setBudgetDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Escape") { setEditingBudgetCat(null); setBudgetDraft(""); } }}
+                        className="w-24 h-7 pl-2 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none" />
+                      <button type="submit" className="h-7 px-3 rounded-md bg-gold text-[10.5px] font-medium">Save</button>
+                      <button type="button" onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); }}
+                        className="h-7 px-2 rounded-md border border-border text-[10px] text-muted-foreground">Cancel</button>
+                      <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
+                        className="h-7 px-2 rounded-md text-[10px] text-negative hover:bg-negative/10 ml-auto">Remove</button>
+                    </form>
+                  ) : (
+                    <button onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
+                      className="ml-8 text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 transition-colors">
+                      <Pencil className="h-2.5 w-2.5" /> Edit
+                    </button>
+                  )}
                 </div>
               );
             })}

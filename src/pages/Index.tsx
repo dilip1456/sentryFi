@@ -554,14 +554,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {moreOpen && (
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div className="fixed bottom-16 right-2 z-[101] w-48 rounded-xl border border-white/10 shadow-2xl overflow-hidden"
-                  className="bg-[hsl(var(--popover))] border border-border">
+                <div className="fixed bottom-16 right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
                         className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 transition-colors",
-                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-white")}>
+                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
                         <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
                       </button>
