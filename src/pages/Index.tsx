@@ -45,6 +45,7 @@ type View = "overall" | "benefits" | "spending" | "budget" | "moneymap" | "giftc
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
+  { k: "overall",   label: "Home",       icon: LayoutDashboard },
   { k: "moneymap",  label: "Money Map",  icon: Compass         },
   { k: "spending",  label: "Spending",   icon: PieChart        },
   { k: "budget",    label: "Budget",     icon: Wallet          },
