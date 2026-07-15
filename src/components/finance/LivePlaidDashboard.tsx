@@ -17,6 +17,7 @@ import { ROLE_META, type AccountRole } from "@/hooks/useAccountRoles";
 import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules";
 import { CategoryManager } from "@/components/finance/CategoryManager";
 import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
+import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
@@ -420,7 +421,7 @@ type RecurringCharge = {
 /**
  * Detect truly recurring charges by identifying consistent intervals.
  * Supports weekly (~7d), bi-weekly (~14d), monthly (~30d), quarterly (~90d).
- * Shows next 30 days of upcoming charges only.
+ * Shows next 15 days of upcoming charges only.
  */
 const detectRecurring = (
   txns: PTxn[],
@@ -430,7 +431,7 @@ const detectRecurring = (
 ): RecurringCharge[] => {
   const now = new Date(); now.setHours(0,0,0,0);
   const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-  const lookahead = new Date(now.getTime() + 30 * 86400000);
+  const lookahead = new Date(now.getTime() + 15 * 86400000);
 
   const INTERVAL_BUCKETS = [
     { label: "Weekly",     days: 7,  tolerance: 2 },
@@ -4551,7 +4552,7 @@ export const LivePlaidDashboard = ({
                     <h3 className="font-display text-[13px] text-primary">Upcoming Charges</h3>
                     <div className="flex items-center gap-2">
                       <div className="text-[10px] text-muted-foreground">
-                        Next 60 days · {recurringCharges.length} recurring
+                        Next 15 days · {recurringCharges.length} recurring
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
                       {suppressRecurringMerchants.size > 0 && (
@@ -4574,10 +4575,17 @@ export const LivePlaidDashboard = ({
                       const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
                       const isThisWeek = daysAway <= 7;
                       const sourceAcc = accounts.find(a => a.account_id === r.accountId);
+                      const isCC = sourceAcc?.type === "credit";
                       const isDebtAcc = sourceAcc ? isDebt(sourceAcc.type) : false;
-                      const availBal = sourceAcc ? (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0) : null;
-                      const showBalCheck = !isDebtAcc && availBal !== null;
+                      // For CC: check available credit. For checking/savings: check available balance.
+                      const availBal = sourceAcc
+                        ? isCC
+                          ? (Number(sourceAcc.available_balance) || 0) // available credit on CC
+                          : (Number(sourceAcc.available_balance) || Number(sourceAcc.current_balance) || 0)
+                        : null;
+                      const showBalCheck = availBal !== null;
                       const hasSufficient = availBal !== null && availBal >= r.avgAmount;
+                      const flagLabel = isCC ? "Low credit" : "Low funds";
                       return (
                         <div key={idx} className="group flex items-center gap-3 px-5 py-3">
                           <div className={cn("shrink-0 w-9 text-center rounded-lg py-1 border",
@@ -4608,7 +4616,7 @@ export const LivePlaidDashboard = ({
                               {showBalCheck && !hasSufficient && (
                                 <><span className="text-muted-foreground/30">·</span>
                                 <span className="text-[10.5px] text-negative flex items-center gap-0.5">
-                                  <AlertTriangle className="h-2.5 w-2.5" />Low funds
+                                  <AlertTriangle className="h-2.5 w-2.5" />{flagLabel}
                                 </span></>
                               )}
                             </div>
@@ -6246,135 +6254,8 @@ export const LivePlaidDashboard = ({
   })).filter(c => c.info !== null);
 
   if (view === "benefits") {
-    const totalAnnualFees = cardsWithInfo.reduce((s,c) => s + (c.info!.annualFee ?? 0), 0);
-    const totalCredits = cardsWithInfo.reduce((s,c) => s + (c.info!.annualCredits?.reduce((cs,cr) => cs + cr.amount, 0) ?? 0), 0);
-    const usedCredits = cardsWithInfo.reduce((s,c) => {
-      return s + (c.info!.annualCredits?.reduce((cs,cr) => {
-        const key = `${c.account.account_id}:${cr.label}`;
-        return cs + (benefitsUsed[key] ? cr.amount : 0);
-      }, 0) ?? 0);
-    }, 0);
-    return (
-      <div className="space-y-4 animate-fade-up">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="font-display text-xl text-primary">Card Benefits</h2>
-          {totalCredits > 0 && (
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span className="tabular"><span className="text-positive font-semibold">{fmtUSD(usedCredits)}</span> / {fmtUSD(totalCredits)} redeemed</span>
-              {totalAnnualFees > 0 && <span>· {fmtUSD(totalAnnualFees)} annual fees</span>}
-            </div>
-          )}
-        </div>
-
-        {/* Summary bar */}
-        {totalCredits > 0 && (
-          <div className="surface-card p-4">
-            <div className="flex items-center justify-between text-[11px] mb-2">
-              <span className="text-muted-foreground">Annual credits redeemed</span>
-              <span className="tabular font-medium">{totalCredits > 0 ? Math.round((usedCredits/totalCredits)*100) : 0}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-border/40 overflow-hidden">
-              <div className="h-full rounded-full bg-positive transition-all" style={{width:`${totalCredits > 0 ? Math.min((usedCredits/totalCredits)*100,100) : 0}%`}} />
-            </div>
-            <div className="mt-2 text-[10px] text-muted-foreground">
-              {fmtUSD(totalCredits - usedCredits)} in unclaimed credits this year
-              {totalAnnualFees > 0 && <> · Net cost after credits: <span className={cn("font-medium", totalAnnualFees - totalCredits < 0 ? "text-positive" : "text-foreground")}>{fmtUSD(Math.max(0, totalAnnualFees - totalCredits))}</span></>}
-            </div>
-          </div>
-        )}
-
-        {cardsWithInfo.length === 0 && (
-          <div className="surface-card p-10 text-center space-y-2">
-            <CreditCard className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-            <div className="font-display text-lg text-foreground">No credit cards linked</div>
-            <div className="text-[12px] text-muted-foreground">Link a credit card to see your rewards and benefits.</div>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {cardsWithInfo.map(({ account: a, info }) => {
-            if (!info) return null;
-            const cardCredits = info.annualCredits ?? [];
-            const cardTotalCredits = cardCredits.reduce((s,c) => s + c.amount, 0);
-            const cardUsed = cardCredits.reduce((s,c) => benefitsUsed[`${a.account_id}:${c.label}`] ? s + c.amount : s, 0);
-            const mask = a.mask ? `··${a.mask}` : "";
-            return (
-              <div key={a.account_id} className="surface-card overflow-hidden">
-                {/* Card header */}
-                <div className="px-5 py-4 border-b border-border/20 flex items-start gap-3">
-                  <div className="h-9 w-9 rounded-xl bg-[hsl(var(--primary)/0.1)] grid place-items-center shrink-0">
-                    <CreditCard className="h-4 w-4 text-gold" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-[13px] text-foreground truncate">{a.name ?? a.official_name ?? "Card"} {mask}</span>
-                      {info.annualFee != null && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border/60 text-muted-foreground shrink-0">
-                          {info.annualFee === 0 ? "No annual fee" : `$${info.annualFee}/yr fee`}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{info.purpose}</div>
-                  </div>
-                  {cardTotalCredits > 0 && (
-                    <div className="text-right shrink-0">
-                      <div className="text-[12px] font-semibold text-positive tabular">{fmtUSD(cardUsed)}</div>
-                      <div className="text-[10.5px] text-muted-foreground">/ {fmtUSD(cardTotalCredits)}</div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Rewards summary */}
-                <div className="px-5 py-3 border-b border-border/15 bg-surface/30">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Rewards</div>
-                  <div className="text-[11.5px] text-foreground">{info.rewards}</div>
-                  <div className="text-[10.5px] text-muted-foreground mt-0.5">Best for: {info.bestFor}</div>
-                </div>
-
-                {/* Annual credits checklist */}
-                {cardCredits.length > 0 && (
-                  <div className="divide-y divide-border/15">
-                    {cardCredits.map(credit => {
-                      const key = `${a.account_id}:${credit.label}`;
-                      const used = !!benefitsUsed[key];
-                      return (
-                        <button key={key} onClick={() => toggleBenefit(key)}
-                          className={cn("w-full flex items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-surface-hover/30",
-                            used && "opacity-60")}>
-                          <div className={cn("mt-0.5 h-4 w-4 rounded border-2 shrink-0 grid place-items-center transition-colors",
-                            used ? "bg-positive border-positive" : "border-border/60")}>
-                            {used && <Check className="h-2.5 w-2.5 text-background" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className={cn("text-[12px] font-medium", used ? "line-through text-muted-foreground" : "text-foreground")}>
-                              {credit.label}{credit.amount > 0 && <span className="ml-1 text-positive">+{fmtUSD(credit.amount)}</span>}
-                            </div>
-                            <div className="text-[10.5px] text-muted-foreground mt-0.5">{credit.howTo}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Cards without matched info — show raw list */}
-        {creditCards.filter(a => !getCardInfo(a.name, a.official_name)).length > 0 && (
-          <div className="surface-card p-4 space-y-2">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Other credit cards (no benefits data)</div>
-            {creditCards.filter(a => !getCardInfo(a.name, a.official_name)).map(a => (
-              <div key={a.account_id} className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                <CreditCard className="h-3.5 w-3.5 shrink-0" />
-                {a.name ?? a.official_name ?? "Card"}{a.mask ? ` ··${a.mask}` : ""}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
+    // New AI-powered benefits view — see CardBenefitsView component below
+    return <CardBenefitsView accounts={accounts} supabase={supabase} user={user} />;
   }
 
   // Should be unreachable now — view is constrained to overall/monthly/spending/benefits
