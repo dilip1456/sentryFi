@@ -2295,6 +2295,59 @@ const TxnDetailModal = ({
 // ── Positioned picker — rendered at root level of each view ───
 
 // ── Sortable panel card ──────────────────────────────────────────
+const SpendingCatPopup = ({ cat, txns, accounts, nameOverrides, onClose, onOpenDetail }: {
+  cat: string;
+  txns: PTxn[];
+  accounts: PAccount[];
+  nameOverrides: Record<string,string>;
+  onClose: () => void;
+  onOpenDetail: (t: PTxn) => void;
+}) => {
+  const total = txns.reduce((s,t) => s + Number(t.amount), 0);
+  const Icon = categoryIcon(cat);
+  const color = catColor(cat);
+  return (
+    <Dialog open onOpenChange={o => { if(!o) onClose(); }}>
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+        <DialogTitle className="sr-only">{formatCat(cat)}</DialogTitle>
+        <DialogDescription className="sr-only">Transactions for {formatCat(cat)}</DialogDescription>
+        <div className="px-5 py-4 border-b border-border/30 flex items-center gap-3 shrink-0">
+          <div className="h-9 w-9 rounded-xl grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
+            <Icon className="h-4 w-4"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-semibold text-foreground">{formatCat(cat)}</div>
+            <div className="text-[11px] text-muted-foreground">{txns.length} transactions · {fmtUSD(total)}</div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-border/10">
+          {txns.length === 0 ? (
+            <div className="p-10 text-center text-[12px] text-muted-foreground">No transactions</div>
+          ) : txns.map(t => {
+            const acc = accounts.find(a => a.account_id === t.account_id);
+            return (
+              <button key={t.id} onClick={() => onOpenDetail(t)}
+                className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-surface-hover/30 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-medium text-foreground truncate">
+                    {nameOverrides[t.id] ?? t.merchant_name ?? t.name}
+                  </div>
+                  <div className="text-[10.5px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                    <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                    {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
+                  </div>
+                </div>
+                <span className="text-[13.5px] font-semibold tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0"/>
+              </button>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 const SortableCard = ({ id, children }: { id: string; children: (handleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
@@ -3615,6 +3668,7 @@ export const LivePlaidDashboard = ({
   const [budgetMonthOffset, setBudgetMonthOffset] = useState(0);
   const [budgetCatPopup, setBudgetCatPopup] = useState<string | null>(null);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
+  const [spendingCatPopup, setSpendingCatPopup] = useState<string | null>(null); // mobile only
   const [addCatNameDraft, setAddCatNameDraft] = useState("");
   const [addCatCustom, setAddCatCustom] = useState("");
   const [hoveredSlice, setHoveredSlice] = useState<number | null>(null);
@@ -5189,6 +5243,7 @@ export const LivePlaidDashboard = ({
     };
 
     return (
+    <>
     <div className="space-y-3 animate-fade-up">
       {/* ── Header row ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -5321,7 +5376,10 @@ export const LivePlaidDashboard = ({
                   const isActive=selectedCategory===c.category;
                   return (
                     <button key={c.category}
-                      onClick={()=>{onCategorySelect?.(isActive?"":c.category);setTxnFlowFilter("expense");}}
+                      onClick={()=>{
+                        if (window.innerWidth < 1024) { setSpendingCatPopup(c.category); }
+                        else { onCategorySelect?.(isActive?"":c.category); setTxnFlowFilter("expense"); }
+                      }}
                       className={cn("w-full text-left px-5 py-3 transition-colors",isActive?"bg-[hsl(var(--primary)/0.07)]":"hover:bg-surface-hover/30",selectedCategory&&!isActive?"opacity-40 hover:opacity-70":"")}>
                       <div className="flex items-center gap-2.5 mb-1.5">
                         <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
@@ -5346,8 +5404,8 @@ export const LivePlaidDashboard = ({
 
         </div>
 
-        {/* ── RIGHT: transaction list ── */}
-        <div className="surface-card overflow-hidden">
+        {/* ── RIGHT: transaction list (desktop only — mobile uses popup) ── */}
+        <div className="surface-card overflow-hidden hidden lg:block">
           {/* Toolbar */}
           <div className="px-5 py-3 border-b border-border/20 space-y-2">
             <div className="flex items-center gap-2">
@@ -5505,6 +5563,17 @@ export const LivePlaidDashboard = ({
         onAddCategory={addCategory} onRemoveCategory={removeCategory}
       />
     </div>
+
+    {/* Mobile category popup */}
+    {spendingCatPopup && <SpendingCatPopup
+      cat={spendingCatPopup}
+      txns={txns.filter(t => Number(t.amount) > 0 && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === spendingCatPopup).sort((a,b) => b.date.localeCompare(a.date))}
+      accounts={accounts}
+      nameOverrides={nameOverrides}
+      onClose={() => setSpendingCatPopup(null)}
+      onOpenDetail={(t) => { setSpendingCatPopup(null); openDetail(t); }}
+    />}
+    </>
     );
   }
 
