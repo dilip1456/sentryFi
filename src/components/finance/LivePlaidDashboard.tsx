@@ -5675,7 +5675,9 @@ export const LivePlaidDashboard = ({
 
     return (
     <>
-    <div className="animate-fade-up space-y-4">
+    {/* Constrained column — a budget reads best in a focused width, not stretched
+        across the whole screen where the progress bars become uncomfortably wide. */}
+    <div className="animate-fade-up space-y-4 max-w-2xl mx-auto">
 
       {/* Merged Spending/Budget switch + month nav */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
