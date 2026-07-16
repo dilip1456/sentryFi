@@ -3472,6 +3472,7 @@ interface Props {
   demo?: boolean;
   guestDemo?: boolean;
   view?: string;
+  onViewChange?: (v: string) => void;
   syncTrigger?: number;
   onSyncingChange?: (v:boolean)=>void;
   selectedCategory?: string|null;
@@ -3482,7 +3483,7 @@ interface Props {
 }
 
 export const LivePlaidDashboard = ({
-  onAddAccount, hasItems, demo=false, guestDemo=false, view="overall",
+  onAddAccount, hasItems, demo=false, guestDemo=false, view="overall", onViewChange,
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
   manualAccounts = [], onEditManual, onDeleteManual,
@@ -4117,6 +4118,19 @@ export const LivePlaidDashboard = ({
   if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
+  // Segmented switch between the merged Spending and Budget views.
+  const SpendBudgetTabs = () => (
+    <div className="flex p-0.5 rounded-lg border border-border bg-surface/60 text-[12.5px] font-medium">
+      {([["spending", "Spending"], ["budget", "Budget"]] as const).map(([k, label]) => (
+        <button key={k} onClick={() => onViewChange?.(k)}
+          className={cn("px-4 py-1.5 rounded-md transition-colors",
+            view === k ? "bg-[hsl(var(--primary))] text-background font-semibold" : "text-muted-foreground hover:text-foreground")}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
   const PeriodNav = ({ state, onChange, granularities = ["week","month","year"] }: { state: PeriodState; onChange: (s: PeriodState) => void; granularities?: PeriodGranularity[] }) => (
     <div className="flex items-center gap-2 flex-wrap">
       <div className="flex rounded-full border border-border p-0.5 bg-surface/60">
@@ -5255,8 +5269,8 @@ export const LivePlaidDashboard = ({
     <div className="space-y-3 animate-fade-up">
       {/* ── Header row ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <h2 className="font-display text-xl text-primary">Spending</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <SpendBudgetTabs />
           <PeriodNav state={spendingPeriod} granularities={["day","week","month","year"]}
             onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);onCategorySelect?.("");}} />
         </div>
@@ -5663,17 +5677,20 @@ export const LivePlaidDashboard = ({
     <>
     <div className="animate-fade-up space-y-4">
 
-      {/* Month nav */}
-      <div className="flex items-center justify-between px-1">
-        <button onClick={() => setBudgetMonthOffset(o => o - 1)}
-          className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <span className="text-[14px] font-semibold text-foreground">{getPeriodLabel(budgetPeriodState)}</span>
-        <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
-          className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
-          <ChevronRight className="h-4 w-4" />
-        </button>
+      {/* Merged Spending/Budget switch + month nav */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <SpendBudgetTabs />
+        <div className="flex items-center gap-2">
+          <button onClick={() => setBudgetMonthOffset(o => o - 1)}
+            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-[14px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
+          <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
+            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Top tracker */}
