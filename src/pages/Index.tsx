@@ -44,16 +44,16 @@ import {
 type View = "overall" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
+// "budget" is merged into the Spending tab (switchable inside that view).
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "overall",   label: "Home",       icon: LayoutDashboard },
   { k: "moneymap",  label: "Money Map",  icon: Compass         },
   { k: "spending",  label: "Spending",   icon: PieChart        },
-  { k: "budget",    label: "Budget",     icon: Wallet          },
   { k: "giftcards", label: "Gift Cards", icon: Gift            },
   { k: "benefits",  label: "Benefits",   icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "spending", "budget", "moneymap"];
+const MOBILE_PRIMARY: View[] = ["overall", "spending", "moneymap", "giftcards"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
@@ -148,7 +148,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Sidebar nav item
   const NavItem = ({ tab }: { tab: typeof TABS[0] }) => {
     const Icon = tab.icon;
-    const active = view === tab.k;
+    // Budget is merged into Spending, so the Spending item stays active for both.
+    const active = view === tab.k || (tab.k === "spending" && view === "budget");
     return (
       <button
         onClick={() => go(tab.k)}
@@ -189,7 +190,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending","budget"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -278,7 +279,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[14px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi"))}
+              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "SentryFi"))}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
@@ -423,7 +424,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <div className="hidden md:flex items-center justify-between">
               <div>
                 <h1 className="font-display text-2xl text-foreground">
-                  {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
+                  {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "Dashboard")}
                 </h1>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
                   {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
@@ -489,6 +490,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 hasItems
                 onAddAccount={() => setLinkOpen(true)}
                 view={view}
+                onViewChange={(v) => setView(v as View)}
                 syncTrigger={syncTrigger}
                 onSyncingChange={setSyncing}
                 selectedCategory={selectedCategory}
@@ -506,6 +508,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 hasItems={false}
                 onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
                 view={view}
+                onViewChange={(v) => setView(v as View)}
                 syncTrigger={0}
                 selectedCategory={selectedCategory}
                 onCategorySelect={handleCategorySelect}
@@ -531,7 +534,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         >
           {mobilePrimary.map(t => {
             const Icon = t.icon;
-            const active = view === t.k;
+            const active = view === t.k || (t.k === "spending" && view === "budget");
             return (
               <button key={t.k} onClick={() => go(t.k)}
                 className="flex flex-col items-center gap-0.5 py-2 px-1 relative">
