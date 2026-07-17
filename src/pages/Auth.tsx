@@ -65,8 +65,8 @@ const Auth = () => {
             <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
           </div>
           <div className="font-display text-xl text-foreground">SentryFi</div>
-          <div className="text-[12px] text-muted-foreground">Personal finance intelligence</div>
-          <div className="text-[10px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
+          <div className="text-[13px] text-muted-foreground">Personal finance intelligence</div>
+          <div className="text-[12px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
         </div>
       </div>
     );
@@ -128,9 +128,9 @@ const Auth = () => {
       {showBanner && (
         <div className="w-full max-w-sm bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.25)] rounded-xl px-4 py-3 flex items-center gap-2.5">
           <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-          <span className="text-[12px] text-foreground flex-1">Get the SentryFi app for the best experience.</span>
+          <span className="text-[13px] text-foreground flex-1">Get the SentryFi app for the best experience.</span>
           <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-            className="text-[11.5px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 no-min-h">
+            className="text-[13px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 no-min-h">
             Download
           </a>
           <button onClick={dismissBanner} aria-label="Dismiss" className="h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0 no-min-h">
@@ -144,11 +144,11 @@ const Auth = () => {
           <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
           <div>
             <div className="font-display text-base text-foreground">SentryFi</div>
-            <div className="text-[11px] text-muted-foreground">Personal finance intelligence</div>
+            <div className="text-[12.5px] text-muted-foreground">Personal finance intelligence</div>
           </div>
         </div>
 
-        <div className="flex p-1 mb-4 rounded-full border border-border bg-surface/40 text-[12px]">
+        <div className="flex p-1 mb-4 rounded-full border border-border bg-surface/40 text-[13px]">
           {(["signin", "signup"] as const).map((m) => (
             <button
               key={m}
@@ -164,33 +164,33 @@ const Auth = () => {
         <form onSubmit={submit} className="space-y-3">
           {mode === "signup" && (
             <div>
-              <label className="text-[11px] text-muted-foreground">Display name</label>
+              <label className="text-[12.5px] text-muted-foreground">Display name</label>
               <input value={displayName} onChange={(e) => setDisplayName(e.target.value)}
-                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40"
+                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
                 placeholder="Jordan Reeves" maxLength={80} />
             </div>
           )}
           <div>
-            <label className="text-[11px] text-muted-foreground">Email</label>
+            <label className="text-[12.5px] text-muted-foreground">Email</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40"
+              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
               placeholder="you@example.com" maxLength={255} autoComplete="email" />
           </div>
           <div>
-            <label className="text-[11px] text-muted-foreground">Password</label>
+            <label className="text-[12.5px] text-muted-foreground">Password</label>
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40"
+              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
               placeholder="••••••••" minLength={8} maxLength={72} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
           </div>
           <button type="submit" disabled={busy}
-            className="w-full py-2 rounded-md bg-foreground text-background text-[13px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+            className="w-full py-2 rounded-md bg-foreground text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === "signin" ? "Sign in" : "Create account"}
           </button>
           {mode === "signin" && (
             <div className="text-center mt-1">
               <button type="button" onClick={() => { setShowForgot(true); setForgotEmail(email); }}
-                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                className="text-[12.5px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
                 Forgot password?
               </button>
             </div>
@@ -199,18 +199,18 @@ const Auth = () => {
 
         {showForgot && (
           <div className="mt-4 rounded-xl border border-border bg-surface/40 p-4 space-y-3">
-            <div className="text-[13px] font-medium text-foreground">Reset your password</div>
+            <div className="text-[14px] font-medium text-foreground">Reset your password</div>
             <form onSubmit={sendReset} className="space-y-2">
               <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               <div className="flex gap-2">
                 <button type="submit" disabled={busy}
-                  className="flex-1 py-2 rounded-md bg-foreground text-background text-[12px] font-medium disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                  className="flex-1 py-2 rounded-md bg-foreground text-background text-[13px] font-medium disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
                   {busy && <Loader2 className="h-3 w-3 animate-spin" />} Send reset email
                 </button>
                 <button type="button" onClick={() => setShowForgot(false)}
-                  className="px-3 py-2 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground">
+                  className="px-3 py-2 rounded-md border border-border text-[13px] text-muted-foreground hover:text-foreground">
                   Cancel
                 </button>
               </div>
@@ -218,22 +218,22 @@ const Auth = () => {
           </div>
         )}
 
-        <div className="flex items-center gap-2 my-4 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 my-4 text-[12px] text-muted-foreground">
           <div className="flex-1 h-px bg-border/60" /> OR <div className="flex-1 h-px bg-border/60" />
         </div>
 
         <button onClick={google} disabled={busy}
-          className="w-full py-2 rounded-md border border-border bg-surface/40 hover:bg-surface text-[13px] text-foreground inline-flex items-center justify-center gap-2 disabled:opacity-50">
+          className="w-full py-2 rounded-md border border-border bg-surface/40 hover:bg-surface text-[14px] text-foreground inline-flex items-center justify-center gap-2 disabled:opacity-50">
           <svg className="h-4 w-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.25 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11 11 0 0 0 1 12c0 1.77.42 3.44 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
           Continue with Google
         </button>
 
-        <div className="mt-4 text-center text-[10.5px] text-muted-foreground">
+        <div className="mt-4 text-center text-[12px] text-muted-foreground">
           By continuing you agree to our Terms & Privacy.
         </div>
 
         <div className="mt-3 text-center">
-          <Link to="/demo" className="text-[11.5px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+          <Link to="/demo" className="text-[13px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
             Just browsing? Try the demo →
           </Link>
         </div>

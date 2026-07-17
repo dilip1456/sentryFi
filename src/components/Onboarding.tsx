@@ -68,7 +68,7 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
                 <h1 className="font-display text-2xl text-foreground">
                   Welcome{firstName ? `, ${firstName}` : ""}!
                 </h1>
-                <p className="mt-2 text-[14px] text-muted-foreground leading-relaxed">
+                <p className="mt-2 text-[15px] text-muted-foreground leading-relaxed">
                   SentryFi shows you what you can actually spend, not just your bank balance.
                   Let's get your accounts set up in 2 minutes.
                 </p>
@@ -81,18 +81,18 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
                   { n: "03", t: "See your real number", s: "True available balance" },
                 ].map(i => (
                   <div key={i.n} className="surface-card p-3 rounded-xl">
-                    <div className="text-[11px] font-bold text-gold mb-1.5">{i.n}</div>
-                    <div className="text-[12px] font-semibold text-foreground">{i.t}</div>
-                    <div className="text-[10.5px] text-muted-foreground mt-0.5">{i.s}</div>
+                    <div className="text-[12.5px] font-bold text-gold mb-1.5">{i.n}</div>
+                    <div className="text-[13px] font-semibold text-foreground">{i.t}</div>
+                    <div className="text-[12px] text-muted-foreground mt-0.5">{i.s}</div>
                   </div>
                 ))}
               </div>
 
               <button onClick={() => setStep("connect")}
-                className="w-full h-11 rounded-xl bg-gold text-background font-semibold text-[14px] flex items-center justify-center gap-2">
+                className="w-full h-11 rounded-xl bg-gold text-background font-semibold text-[15px] flex items-center justify-center gap-2">
                 Get started <ArrowRight className="h-4 w-4" />
               </button>
-              <button onClick={onFinish} className="text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+              <button onClick={onFinish} className="text-[13px] text-muted-foreground hover:text-foreground transition-colors">
                 Skip for now
               </button>
             </div>
@@ -103,11 +103,11 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
             <div className="space-y-4">
               <div>
                 <h2 className="font-display text-xl text-foreground">Add your accounts</h2>
-                <p className="mt-1 text-[13px] text-muted-foreground">
+                <p className="mt-1 text-[14px] text-muted-foreground">
                   Connect what you have. You can always add more later.
                 </p>
                 {addedCount > 0 && (
-                  <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gold font-medium">
+                  <div className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-gold font-medium">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {addedCount} account{addedCount !== 1 ? "s" : ""} added
                   </div>
@@ -122,27 +122,27 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
                       {o.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13.5px] font-semibold text-foreground">{o.label}</div>
-                      <div className="text-[11.5px] text-muted-foreground">{o.sub}</div>
+                      <div className="text-[14px] font-semibold text-foreground">{o.label}</div>
+                      <div className="text-[13px] text-muted-foreground">{o.sub}</div>
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0" />
                   </button>
                 ))}
 
                 <button onClick={() => { setManualType("other"); setManualOpen(true); }}
-                  className="w-full border border-dashed border-border hover:border-border-strong p-3.5 rounded-xl flex items-center gap-2 text-muted-foreground hover:text-foreground transition-all text-[13px]">
+                  className="w-full border border-dashed border-border hover:border-border-strong p-3.5 rounded-xl flex items-center gap-2 text-muted-foreground hover:text-foreground transition-all text-[14px]">
                   <Plus className="h-4 w-4" /> Add other account type
                 </button>
               </div>
 
               <div className="pt-2 flex items-center gap-3">
                 <button onClick={onFinish}
-                  className="flex-1 h-10 rounded-xl border border-border text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+                  className="flex-1 h-10 rounded-xl border border-border text-[14px] text-muted-foreground hover:text-foreground transition-colors">
                   {addedCount > 0 ? "I'm done adding" : "Skip for now"}
                 </button>
                 {addedCount > 0 && (
                   <button onClick={() => setStep("done")}
-                    className="flex-1 h-10 rounded-xl bg-gold text-background text-[13px] font-semibold flex items-center justify-center gap-1.5">
+                    className="flex-1 h-10 rounded-xl bg-gold text-background text-[14px] font-semibold flex items-center justify-center gap-1.5">
                     Continue <ArrowRight className="h-4 w-4" />
                   </button>
                 )}
@@ -158,23 +158,23 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
               </div>
               <div>
                 <h2 className="font-display text-2xl text-foreground">You're all set!</h2>
-                <p className="mt-2 text-[13.5px] text-muted-foreground leading-relaxed">
+                <p className="mt-2 text-[14px] text-muted-foreground leading-relaxed">
                   Head to Money Map to tag each account and unlock your True Available balance.
                 </p>
               </div>
 
               <div className="surface-card p-4 rounded-xl text-left space-y-2">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Quick tip</div>
+                <div className="text-[12.5px] font-semibold text-muted-foreground uppercase tracking-wide">Quick tip</div>
                 <div className="flex items-start gap-2.5">
                   <Sparkles className="h-4 w-4 text-gold shrink-0 mt-0.5" />
-                  <p className="text-[13px] text-foreground leading-relaxed">
+                  <p className="text-[14px] text-foreground leading-relaxed">
                     Tag your checking account as "Everyday Expenses" and your emergency fund as "Emergency Fund" to see your real spendable balance.
                   </p>
                 </div>
               </div>
 
               <button onClick={onFinish}
-                className="w-full h-11 rounded-xl bg-gold text-background font-semibold text-[14px] flex items-center justify-center gap-2">
+                className="w-full h-11 rounded-xl bg-gold text-background font-semibold text-[15px] flex items-center justify-center gap-2">
                 Go to dashboard <ArrowRight className="h-4 w-4" />
               </button>
             </div>

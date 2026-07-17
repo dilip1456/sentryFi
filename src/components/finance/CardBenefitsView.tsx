@@ -142,8 +142,8 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
         <CreditCard className="h-10 w-10 text-muted-foreground/30" />
-        <div className="text-[14px] font-medium text-foreground">No credit cards linked</div>
-        <div className="text-[12px] text-muted-foreground">Link a credit card to see its benefits</div>
+        <div className="text-[15px] font-medium text-foreground">No credit cards linked</div>
+        <div className="text-[13px] text-muted-foreground">Link a credit card to see its benefits</div>
       </div>
     );
   }
@@ -153,7 +153,7 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
       <div className="flex items-center justify-between">
         <h2 className="font-display text-xl text-primary">Card Benefits</h2>
         <button onClick={() => loadBenefits(true)} disabled={loading}
-          className="flex items-center gap-1.5 h-7 px-3 rounded-full border border-border text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40">
+          className="flex items-center gap-1.5 h-7 px-3 rounded-full border border-border text-[12.5px] text-muted-foreground hover:text-foreground disabled:opacity-40">
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           {loading ? "Loading…" : "Refresh"}
         </button>
@@ -162,8 +162,8 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
       {loading && cards.length === 0 ? (
         <div className="surface-card p-10 flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-8 w-8 text-[hsl(var(--primary))] animate-spin" />
-          <div className="text-[13px] font-medium text-foreground">Looking up card benefits…</div>
-          <div className="text-[11px] text-muted-foreground">This takes a few seconds</div>
+          <div className="text-[14px] font-medium text-foreground">Looking up card benefits…</div>
+          <div className="text-[12.5px] text-muted-foreground">This takes a few seconds</div>
         </div>
       ) : cards.map(card => {
         const active = card.benefits.filter(b => !b.used_at);
@@ -180,8 +180,8 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
                 <CreditCard className="h-4 w-4 text-[hsl(var(--primary))]" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-[13.5px] font-semibold text-foreground truncate">{card.official_name || card.name}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">
+                <div className="text-[14px] font-semibold text-foreground truncate">{card.official_name || card.name}</div>
+                <div className="text-[12.5px] text-muted-foreground mt-0.5">
                   {card.benefits.length === 0 ? "No benefits found" : `${active.length} available${used.length > 0 ? ` · ${used.length} used` : ""}`}
                 </div>
               </div>
@@ -191,7 +191,7 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
             {isExpanded && (
               <div className="border-t border-border/20">
                 {active.length === 0 && used.length === 0 && (
-                  <div className="px-5 py-6 text-center text-[12px] text-muted-foreground">No benefits data available</div>
+                  <div className="px-5 py-6 text-center text-[13px] text-muted-foreground">No benefits data available</div>
                 )}
 
                 {/* Active benefits */}
@@ -199,20 +199,20 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
                   <div key={b.key} className="flex items-start gap-3 px-5 py-3.5 border-b border-border/10 last:border-0">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13px] font-medium text-foreground">{b.title}</span>
+                        <span className="text-[14px] font-medium text-foreground">{b.title}</span>
                         {b.value && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-positive/10 text-positive">
+                          <span className="text-[12px] font-semibold px-1.5 py-0.5 rounded-full bg-positive/10 text-positive">
                             {b.value}
                           </span>
                         )}
-                        <span className="text-[10px] text-muted-foreground/50">{b.period}</span>
+                        <span className="text-[12px] text-muted-foreground/50">{b.period}</span>
                       </div>
                       {b.description && (
-                        <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed">{b.description}</div>
+                        <div className="text-[13px] text-muted-foreground mt-0.5 leading-relaxed">{b.description}</div>
                       )}
                     </div>
                     <button onClick={() => markUsed(card.account_id, b.key)}
-                      className="shrink-0 h-7 px-2.5 rounded-full border border-border/60 text-[10.5px] text-muted-foreground hover:bg-positive/10 hover:text-positive hover:border-positive/30 transition-colors flex items-center gap-1 mt-0.5">
+                      className="shrink-0 h-7 px-2.5 rounded-full border border-border/60 text-[12px] text-muted-foreground hover:bg-positive/10 hover:text-positive hover:border-positive/30 transition-colors flex items-center gap-1 mt-0.5">
                       <CheckCircle className="h-3 w-3" /> Used
                     </button>
                   </div>
@@ -223,20 +223,20 @@ export const CardBenefitsView = ({ accounts, supabase, user }: Props) => {
                   <div className="border-t border-border/10">
                     <button onClick={() => toggleShowUsed(card.account_id)}
                       className="w-full flex items-center gap-2 px-5 py-2.5 text-left hover:bg-surface-hover/20">
-                      <span className="text-[11px] text-muted-foreground">{used.length} used benefit{used.length !== 1 ? "s" : ""}</span>
-                      <span className="text-[10px] text-[hsl(var(--primary))]">{seeUsed ? "Hide" : "Show all"}</span>
+                      <span className="text-[12.5px] text-muted-foreground">{used.length} used benefit{used.length !== 1 ? "s" : ""}</span>
+                      <span className="text-[12px] text-[hsl(var(--primary))]">{seeUsed ? "Hide" : "Show all"}</span>
                     </button>
                     {seeUsed && used.map(b => (
                       <div key={b.key} className="flex items-start gap-3 px-5 py-3 border-t border-border/10 opacity-50">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <CheckCircle className="h-3.5 w-3.5 text-positive shrink-0" />
-                            <span className="text-[12.5px] font-medium text-foreground line-through">{b.title}</span>
-                            {b.value && <span className="text-[10px] text-muted-foreground">{b.value}</span>}
+                            <span className="text-[13.5px] font-medium text-foreground line-through">{b.title}</span>
+                            {b.value && <span className="text-[12px] text-muted-foreground">{b.value}</span>}
                           </div>
                         </div>
                         <button onClick={() => unmarkUsed(card.account_id, b.key)}
-                          className="shrink-0 h-6 px-2 rounded-full border border-border/40 text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
+                          className="shrink-0 h-6 px-2 rounded-full border border-border/40 text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
                           <RotateCcw className="h-2.5 w-2.5" /> Restore
                         </button>
                       </div>

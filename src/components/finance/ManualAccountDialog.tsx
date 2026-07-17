@@ -115,10 +115,10 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
             {typeInfo?.icon ?? <HelpCircle className="h-4 w-4" />}
           </div>
           <div>
-            <div className="font-semibold text-[14px] text-foreground">
+            <div className="font-semibold text-[15px] text-foreground">
               {editing ? "Edit account" : "Add account manually"}
             </div>
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-[12.5px] text-muted-foreground">
               {step === "type" ? "Choose account type" : step === "details" ? "Enter details" : step === "role" ? "Assign to Money Map" : "Account saved"}
             </div>
           </div>
@@ -149,8 +149,8 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                     form.type === t.type ? "bg-gold/15 text-gold" : "bg-surface-hover text-muted-foreground")}>
                     {t.icon}
                   </div>
-                  <div className="text-[13px] font-semibold text-foreground">{t.label}</div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">{t.desc}</div>
+                  <div className="text-[14px] font-semibold text-foreground">{t.label}</div>
+                  <div className="text-[12.5px] text-muted-foreground mt-0.5">{t.desc}</div>
                 </button>
               ))}
             </div>
@@ -162,36 +162,36 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               {/* Institution + Name */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-medium text-muted-foreground">Lender / Institution</label>
+                  <label className="text-[13px] font-medium text-muted-foreground">Lender / Institution</label>
                   <input
                     value={form.institution_name ?? ""}
                     onChange={e => set("institution_name", e.target.value)}
                     placeholder={isMortgage ? "Provident Funding" : "Chase, Vanguard..."}
-                    className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                    className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-medium text-muted-foreground">Account nickname *</label>
+                  <label className="text-[13px] font-medium text-muted-foreground">Account nickname *</label>
                   <input
                     value={form.name ?? ""}
                     onChange={e => set("name", e.target.value)}
                     placeholder={isMortgage ? "Home mortgage" : "My account"}
-                    className={cn("w-full h-9 rounded-lg border bg-surface-card px-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60",
+                    className={cn("w-full h-9 rounded-lg border bg-surface-card px-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60",
                       errors.name ? "border-red-500/60" : "border-border")}
                   />
-                  {errors.name && <p className="text-[11px] text-red-400">{errors.name}</p>}
+                  {errors.name && <p className="text-[12.5px] text-red-400">{errors.name}</p>}
                 </div>
               </div>
 
               {/* Mortgage-specific fields */}
               {isMortgage && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-medium text-muted-foreground">Property address</label>
+                  <label className="text-[13px] font-medium text-muted-foreground">Property address</label>
                   <input
                     value={form.property_address ?? ""}
                     onChange={e => set("property_address", e.target.value)}
                     placeholder="123 Main St, San Francisco CA 94102"
-                    className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                    className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                   />
                 </div>
               )}
@@ -201,58 +201,58 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <label className="text-[12px] font-medium text-muted-foreground">Original loan amount</label>
+                      <label className="text-[13px] font-medium text-muted-foreground">Original loan amount</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
                         <input
                           type="number" min="0" step="1000"
                           value={form.original_loan_amount ?? ""}
                           onChange={e => set("original_loan_amount", numOrNull(e.target.value))}
                           placeholder="450,000"
-                          className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                          className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                         />
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[12px] font-medium text-muted-foreground">Interest rate (%)</label>
+                      <label className="text-[13px] font-medium text-muted-foreground">Interest rate (%)</label>
                       <input
                         type="number" min="0" max="30" step="0.01"
                         value={form.interest_rate ?? ""}
                         onChange={e => set("interest_rate", numOrNull(e.target.value))}
                         placeholder="6.75"
-                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1.5">
-                      <label className="text-[12px] font-medium text-muted-foreground">Monthly payment</label>
+                      <label className="text-[13px] font-medium text-muted-foreground">Monthly payment</label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
                         <input
                           type="number" min="0"
                           value={form.monthly_payment ?? ""}
                           onChange={e => set("monthly_payment", numOrNull(e.target.value))}
                           placeholder="2,850"
-                          className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                          className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                         />
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[12px] font-medium text-muted-foreground">Loan start date</label>
+                      <label className="text-[13px] font-medium text-muted-foreground">Loan start date</label>
                       <input
                         type="date"
                         value={form.loan_start_date ?? ""}
                         onChange={e => set("loan_start_date", e.target.value)}
-                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[13px] text-foreground focus:outline-none focus:border-gold/60"
+                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[14px] text-foreground focus:outline-none focus:border-gold/60"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[12px] font-medium text-muted-foreground">Loan term</label>
+                      <label className="text-[13px] font-medium text-muted-foreground">Loan term</label>
                       <select
                         value={form.loan_term_years ?? ""}
                         onChange={e => set("loan_term_years", e.target.value === "" ? null : Number(e.target.value))}
-                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[13px] text-foreground focus:outline-none focus:border-gold/60">
+                        className="w-full h-9 rounded-lg border border-border bg-surface-card px-3 text-[14px] text-foreground focus:outline-none focus:border-gold/60">
                         <option value="">Select</option>
                         <option value="5">5 yr</option>
                         <option value="10">10 yr</option>
@@ -267,15 +267,15 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                   {/* Auto-estimated balance callout */}
                   {estimate ? (
                     <div className="rounded-xl border border-gold/20 bg-gold/5 px-4 py-3 space-y-1">
-                      <div className="text-[11px] text-gold font-semibold uppercase tracking-wide">Estimated from your loan details</div>
+                      <div className="text-[12.5px] text-gold font-semibold uppercase tracking-wide">Estimated from your loan details</div>
                       <div className="flex items-baseline gap-2">
                         <span className="text-[22px] font-bold text-foreground">${Math.round(estimate.balance).toLocaleString()}</span>
-                        <span className="text-[12px] text-muted-foreground">remaining balance</span>
+                        <span className="text-[13px] text-muted-foreground">remaining balance</span>
                       </div>
-                      <div className="text-[11.5px] text-muted-foreground">
+                      <div className="text-[13px] text-muted-foreground">
                         Payoff in approx. {Math.ceil(estimate.monthsRemaining / 12)} yrs ({estimate.payoffDate.toLocaleDateString("en-US", { month: "short", year: "numeric" })})
                       </div>
-                      <div className="text-[11px] text-muted-foreground/60 mt-1">
+                      <div className="text-[12.5px] text-muted-foreground/60 mt-1">
                         Or enter the exact balance from your latest statement below.
                       </div>
                     </div>
@@ -286,33 +286,33 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               {/* Current balance (all types) */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-medium text-muted-foreground">
+                  <label className="text-[13px] font-medium text-muted-foreground">
                     {isLoan ? "Current balance (override)" : "Current balance *"}
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
                     <input
                       type="number" min="0"
                       value={form.current_balance ?? ""}
                       onChange={e => set("current_balance", numOrNull(e.target.value))}
                       placeholder={estimate ? String(Math.round(estimate.balance)) : "0"}
-                      className={cn("w-full h-9 rounded-lg border bg-surface-card pl-6 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60",
+                      className={cn("w-full h-9 rounded-lg border bg-surface-card pl-6 pr-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60",
                         errors.current_balance ? "border-red-500/60" : "border-border")}
                     />
                   </div>
-                  {errors.current_balance && <p className="text-[11px] text-red-400">{errors.current_balance}</p>}
+                  {errors.current_balance && <p className="text-[12.5px] text-red-400">{errors.current_balance}</p>}
                 </div>
                 {isMortgage && (
                   <div className="space-y-1.5">
-                    <label className="text-[12px] font-medium text-muted-foreground">Property value (est.)</label>
+                    <label className="text-[13px] font-medium text-muted-foreground">Property value (est.)</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
                       <input
                         type="number" min="0" step="1000"
                         value={form.property_value ?? ""}
                         onChange={e => set("property_value", numOrNull(e.target.value))}
                         placeholder="550,000"
-                        className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
+                        className="w-full h-9 rounded-lg border border-border bg-surface-card pl-6 pr-3 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60"
                       />
                     </div>
                   </div>
@@ -322,11 +322,11 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               {/* Equity callout for mortgage */}
               {isMortgage && form.property_value && (form.current_balance ?? (estimate?.balance ?? 0)) > 0 && (
                 <div className="rounded-xl border border-[hsl(var(--primary)/0.2)] bg-[hsl(var(--primary)/0.05)] px-4 py-3">
-                  <div className="text-[11px] text-[hsl(var(--primary))] font-semibold uppercase tracking-wide mb-1">Home equity</div>
+                  <div className="text-[12.5px] text-[hsl(var(--primary))] font-semibold uppercase tracking-wide mb-1">Home equity</div>
                   <div className="text-[20px] font-bold text-foreground">
                     ${(form.property_value - (form.current_balance ?? Math.round(estimate?.balance ?? 0))).toLocaleString()}
                   </div>
-                  <div className="text-[11.5px] text-muted-foreground">
+                  <div className="text-[13px] text-muted-foreground">
                     {((1 - (form.current_balance ?? Math.round(estimate?.balance ?? 0)) / form.property_value) * 100).toFixed(1)}% equity
                   </div>
                 </div>
@@ -334,13 +334,13 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
 
               {/* Notes */}
               <div className="space-y-1.5">
-                <label className="text-[12px] font-medium text-muted-foreground">Notes (optional)</label>
+                <label className="text-[13px] font-medium text-muted-foreground">Notes (optional)</label>
                 <textarea
                   rows={2}
                   value={form.notes ?? ""}
                   onChange={e => set("notes", e.target.value)}
                   placeholder="Any other details..."
-                  className="w-full rounded-lg border border-border bg-surface-card px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60 resize-none"
+                  className="w-full rounded-lg border border-border bg-surface-card px-3 py-2 text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-gold/60 resize-none"
                 />
               </div>
             </div>
@@ -349,7 +349,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
           {/* STEP: ROLE */}
           {step === "role" && (
             <div className="space-y-2">
-              <p className="text-[12.5px] text-muted-foreground mb-3">
+              <p className="text-[13.5px] text-muted-foreground mb-3">
                 How should this account affect your True Available balance in Money Map?
               </p>
               {ROLES_FOR_PICKER.map(r => (
@@ -363,8 +363,8 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                     {form.role === r && <Check className="h-3 w-3 text-background" />}
                   </div>
                   <div>
-                    <div className="text-[13px] font-semibold text-foreground">{ROLE_META[r].name}</div>
-                    <div className="text-[11.5px] text-muted-foreground mt-0.5">{ROLE_META[r].description}</div>
+                    <div className="text-[14px] font-semibold text-foreground">{ROLE_META[r].name}</div>
+                    <div className="text-[13px] text-muted-foreground mt-0.5">{ROLE_META[r].description}</div>
                   </div>
                 </button>
               ))}
@@ -378,7 +378,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                 <Check className="h-6 w-6 text-gold" />
               </div>
               <div className="text-[16px] font-semibold text-foreground">Account saved!</div>
-              <div className="text-[13px] text-muted-foreground">
+              <div className="text-[14px] text-muted-foreground">
                 {form.name} has been added to your dashboard and Money Map.
               </div>
             </div>
@@ -390,7 +390,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
           <div className="px-5 py-4 border-t border-border/30 shrink-0 flex items-center gap-3">
             {step !== "type" && (
               <button onClick={() => setStep(step === "role" ? "details" : "type")}
-                className="flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+                className="flex items-center gap-1 text-[14px] text-muted-foreground hover:text-foreground transition-colors">
                 <ChevronLeft className="h-4 w-4" /> Back
               </button>
             )}
@@ -398,19 +398,19 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
             {step === "type" && (
               <button onClick={() => setStep("details")}
                 disabled={!form.type}
-                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[13px] font-semibold disabled:opacity-40">
+                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[14px] font-semibold disabled:opacity-40">
                 Next <ChevronRight className="h-4 w-4" />
               </button>
             )}
             {step === "details" && (
               <button onClick={() => { if (validateDetails()) setStep("role"); }}
-                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[13px] font-semibold">
+                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[14px] font-semibold">
                 Next <ChevronRight className="h-4 w-4" />
               </button>
             )}
             {step === "role" && (
               <button onClick={handleSave} disabled={saving}
-                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[13px] font-semibold disabled:opacity-60">
+                className="flex items-center gap-1.5 h-9 px-5 rounded-lg bg-gold text-background text-[14px] font-semibold disabled:opacity-60">
                 {saving ? "Saving..." : "Save account"}
               </button>
             )}
@@ -419,7 +419,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
         {step === "done" && (
           <div className="px-5 py-4 border-t border-border/30 shrink-0 flex justify-center">
             <button onClick={() => onOpenChange(false)}
-              className="h-9 px-6 rounded-lg bg-gold text-background text-[13px] font-semibold">
+              className="h-9 px-6 rounded-lg bg-gold text-background text-[14px] font-semibold">
               Done
             </button>
           </div>

@@ -175,8 +175,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <img src="/logo.png" alt="SentryFi" className="h-6 w-6 object-contain" />
           </div>
           <div>
-            <div className="text-[13.5px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">SentryFi</div>
-            {guestDemo && <div className="text-[10px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
+            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">SentryFi</div>
+            {guestDemo && <div className="text-[12px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
           </div>
         </button>
 
@@ -265,7 +265,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
-          <div className="px-3 pt-2 pb-1 text-[10px] text-muted-foreground/30 select-none">
+          <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/30 select-none">
             v{APP_VERSION} · {BUILD_DATE}
           </div>
         </div>
@@ -278,14 +278,14 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
-            <span className="text-[14px] font-semibold text-foreground">
+            <span className="text-[15px] font-semibold text-foreground">
               {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "SentryFi"))}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
             {/* Not logged in */}
             {!user && !effectiveDemo && (
-              <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[12px] font-semibold">
+              <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[13px] font-semibold">
                 Sign in
               </button>
             )}
@@ -295,7 +295,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 className="relative h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[9px] font-bold grid place-items-center leading-none">
+                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
@@ -327,53 +327,53 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     className="bg-[hsl(var(--popover))] border border-border">
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13.5px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
                         <LogOut className="h-4 w-4" /> Sign in / Create account
                       </button>
                     )}
                     {user && !effectiveDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
                         <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
                     {user && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
                         <Settings className="h-4 w-4 opacity-60" /> Settings
                       </button>
                     )}
                     <button onClick={toggleTheme}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
                       {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                       {theme === "dark" ? "Light mode" : "Dark mode"}
                     </button>
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30"
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
                     {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-warning hover:bg-muted/50 border-t border-border/30">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-warning hover:bg-muted/50 border-t border-border/30">
                         <Sparkles className="h-4 w-4" /> Exit demo
                       </button>
                     )}
                     {guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-border/30">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-border/30">
                         <LogOut className="h-4 w-4" /> Create free account
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[13px] text-red-400 font-medium hover:bg-white/5 border-t border-border/30">
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-red-400 font-medium hover:bg-white/5 border-t border-border/30">
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
                     )}
@@ -389,9 +389,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {!isNative() && (
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[12.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
+            <span className="text-[13.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
             <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[12px] font-bold px-3 py-1.5 rounded-full bg-gold">
+              className="shrink-0 text-[13px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
             </a>
           </div>
@@ -401,13 +401,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {effectiveDemo && (
           <div className="shrink-0 bg-[hsl(var(--warning)/0.08)] border-b border-[hsl(var(--warning)/0.15)] px-4 py-2 flex items-center gap-2.5">
             <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
-            <span className="text-[12px] text-foreground flex-1">You're viewing demo data.</span>
+            <span className="text-[13px] text-foreground flex-1">You're viewing demo data.</span>
             <button onClick={() => navigate("/auth")}
-              className="text-[11.5px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
+              className="text-[13px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
               Create account
             </button>
             <button onClick={() => { setDemo(false); navigate("/welcome"); }}
-              className="text-[11px] text-muted-foreground shrink-0 underline underline-offset-2">
+              className="text-[12.5px] text-muted-foreground shrink-0 underline underline-offset-2">
               Exit
             </button>
           </div>
@@ -426,7 +426,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 <h1 className="font-display text-2xl text-foreground">
                   {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "Dashboard")}
                 </h1>
-                <p className="text-[12px] text-muted-foreground mt-0.5">
+                <p className="text-[13px] text-muted-foreground mt-0.5">
                   {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                 </p>
               </div>
@@ -435,7 +435,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <div className="flex items-center gap-2">
                 {!effectiveDemo && guestDemo && (
                   <button onClick={() => navigate("/auth")}
-                    className="bg-gold h-9 px-4 rounded-lg text-[13px] mr-1">
+                    className="bg-gold h-9 px-4 rounded-lg text-[14px] mr-1">
                     Create free account
                   </button>
                 )}
@@ -452,7 +452,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
                     <Bell className="h-4 w-4" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[9px] font-bold grid place-items-center leading-none">
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
                         {unreadCount > 9 ? "9+" : unreadCount}
                       </span>
                     )}
@@ -470,7 +470,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
                     {profile?.avatar_url
                       ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
-                      : <span className="text-[13px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
+                      : <span className="text-[14px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
                   </button>
                 )}
               </div>
@@ -518,7 +518,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {view === "giftcards" && !guestDemo && <GiftCardsSection />}
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
-            <div className="text-center text-[10.5px] text-muted-foreground/40 pt-4">
+            <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
               Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
@@ -542,7 +542,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-[hsl(var(--primary))]" />
                 )}
                 <Icon className={cn("h-5 w-5 transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
-                <span className={cn("text-[9.5px] font-medium transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>
+                <span className={cn("text-[11px] font-medium transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>
                   {t.label}
                 </span>
               </button>
@@ -553,7 +553,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <button onClick={() => setMoreOpen(m => !m)}
               className="w-full flex flex-col items-center gap-0.5 py-2 px-1">
               <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
-              <span className="text-[9.5px] font-medium text-muted-foreground">More</span>
+              <span className="text-[11px] font-medium text-muted-foreground">More</span>
             </button>
             {moreOpen && (
               <>
@@ -563,7 +563,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
-                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 transition-colors",
+                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors",
                           view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
                         <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
@@ -572,13 +572,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   })}
                   {user && (
                     <button onClick={() => { setMoreOpen(false); setShowInbox(true); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
                       <Bell className="h-4 w-4 opacity-60" />
                       Notifications
                     </button>
                   )}
                   <button onClick={() => { setMoreOpen(false); toggleTheme(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[13px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
                     {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                     {theme === "dark" ? "Light mode" : "Dark mode"}
                   </button>

@@ -174,20 +174,20 @@ const BudgetRow = ({ category, budget, spent, onSave, onRemove }: {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-[12.5px] text-foreground">{fmtCat(category)}</span>
+          <span className="text-[13.5px] text-foreground">{fmtCat(category)}</span>
           <div className="flex items-center gap-2 shrink-0">
             {editing ? (
               <div className="flex items-center gap-1">
-                <span className="text-[11px] text-muted-foreground">$</span>
+                <span className="text-[12.5px] text-muted-foreground">$</span>
                 <input autoFocus type="number" min={1} step={10} value={val} onChange={e => setVal(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
-                  className="w-20 bg-secondary/50 border border-border/60 rounded px-1.5 py-0.5 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                  className="w-20 bg-secondary/50 border border-border/60 rounded px-1.5 py-0.5 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
                 <button onClick={save} className="text-positive"><Check className="h-3.5 w-3.5" /></button>
                 <button onClick={() => setEditing(false)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
               </div>
             ) : (
               <>
-                <span className={cn("text-[12px] tabular", over ? "text-negative" : near ? "text-warning" : "text-muted-foreground")}>
+                <span className={cn("text-[13px] tabular", over ? "text-negative" : near ? "text-warning" : "text-muted-foreground")}>
                   {fmtUSD(spent)} / {fmtUSD(budget)}
                 </span>
                 <button onClick={() => { setVal(String(budget)); setEditing(true); }}
@@ -207,7 +207,7 @@ const BudgetRow = ({ category, budget, spent, onSave, onRemove }: {
             <div className="h-full rounded-full transition-all"
               style={{ width: `${pct}%`, backgroundColor: over ? "hsl(var(--negative))" : near ? "hsl(var(--warning))" : color }} />
           </div>
-          <span className={cn("text-[9.5px] tabular shrink-0", over ? "text-negative" : near ? "text-warning" : "text-muted-foreground")}>
+          <span className={cn("text-[11px] tabular shrink-0", over ? "text-negative" : near ? "text-warning" : "text-muted-foreground")}>
             {over ? `${(((spent - budget) / budget) * 100).toFixed(0)}% over` : `${(100 - pct).toFixed(0)}% left`}
           </span>
         </div>
@@ -232,8 +232,8 @@ const TxnRow = ({ t, i, effCat, onRecat }: {
         <Icon className="h-3 w-3" />
       </div>
       <div className="min-w-0">
-        <div className="text-[12px] text-foreground truncate leading-tight">{t.merchant_name ?? t.name ?? "Transaction"}</div>
-        <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+        <div className="text-[13px] text-foreground truncate leading-tight">{t.merchant_name ?? t.name ?? "Transaction"}</div>
+        <div className="text-[12px] text-muted-foreground flex items-center gap-1">
           <span>{new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
           {display && <>
             <span>·</span>
@@ -245,7 +245,7 @@ const TxnRow = ({ t, i, effCat, onRecat }: {
           </>}
         </div>
       </div>
-      <div className={cn("text-[12px] tabular font-medium shrink-0", isIncome ? "text-positive" : "text-foreground")}>
+      <div className={cn("text-[13px] tabular font-medium shrink-0", isIncome ? "text-positive" : "text-foreground")}>
         {isIncome ? "+" : "−"}{fmtUSD(Math.abs(Number(t.amount)), { cents: true })}
       </div>
     </div>
@@ -271,7 +271,7 @@ const QuickPicker = ({ txn, currentCat, allCats, onSelect, onClose }: {
           <Search className="h-3 w-3 text-muted-foreground shrink-0" />
           <input autoFocus value={q} onChange={e => setQ(e.target.value)}
             placeholder="Search category…"
-            className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground" />
+            className="flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground" />
         </div>
         <div className="max-h-48 overflow-y-auto">
           {filtered.map(cat => {
@@ -282,7 +282,7 @@ const QuickPicker = ({ txn, currentCat, allCats, onSelect, onClose }: {
                 <div className="h-5 w-5 rounded grid place-items-center shrink-0" style={{ backgroundColor: `${color}1a`, color }}>
                   <Icon className="h-3 w-3" />
                 </div>
-                <span className="text-[12px] text-foreground flex-1">{cat}</span>
+                <span className="text-[13px] text-foreground flex-1">{cat}</span>
                 {cat === currentCat && <Check className="h-3 w-3 text-positive shrink-0" />}
               </button>
             );
@@ -291,12 +291,12 @@ const QuickPicker = ({ txn, currentCat, allCats, onSelect, onClose }: {
             <button onClick={() => { onSelect(q); onClose(); }}
               className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 text-gold">
               <Plus className="h-3 w-3 shrink-0" />
-              <span className="text-[12px]">Create "{q}"</span>
+              <span className="text-[13px]">Create "{q}"</span>
             </button>
           )}
         </div>
         <div className="border-t border-border/20 px-3 py-2">
-          <div className="text-[10px] text-muted-foreground">Tip: tick "Always apply" to create a rule</div>
+          <div className="text-[12px] text-muted-foreground">Tip: tick "Always apply" to create a rule</div>
         </div>
       </div>
     </>
@@ -463,32 +463,32 @@ export const SpendingScreen = ({
         <div className="flex items-center gap-1 p-0.5 rounded-full bg-secondary/40 border border-border/30">
           {(Object.keys(PERIOD_LABELS) as SpendPeriod[]).map(p => (
             <button key={p} onClick={() => setPeriod(p)}
-              className={cn("px-3 py-1 rounded-full text-[11.5px] font-medium transition-all",
+              className={cn("px-3 py-1 rounded-full text-[13px] font-medium transition-all",
                 period === p ? "bg-gold shadow-sm" : "text-muted-foreground hover:text-foreground")}>
               {PERIOD_LABELS[p]}
             </button>
           ))}
         </div>
-        <div className="text-[11px] text-muted-foreground">{range.label}</div>
+        <div className="text-[12.5px] text-muted-foreground">{range.label}</div>
       </div>
 
       {/* Stats bar */}
       <div className="grid grid-cols-3 gap-2">
         <div className="surface-card p-3">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Income</div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Income</div>
           <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(income)}</div>
         </div>
         <div className="surface-card p-3">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Spent</div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Spent</div>
           <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(expense)}</div>
           {expenseChange !== null && (
-            <div className={cn("text-[9.5px] tabular mt-0.5", expenseChange > 0 ? "text-negative" : "text-positive")}>
+            <div className={cn("text-[11px] tabular mt-0.5", expenseChange > 0 ? "text-negative" : "text-positive")}>
               {expenseChange > 0 ? "+" : ""}{expenseChange.toFixed(0)}% vs prev
             </div>
           )}
         </div>
         <div className="surface-card p-3">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Net</div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Net</div>
           <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
             {net >= 0 ? "+" : ""}{fmtUSD(Math.abs(net))}
           </div>
@@ -499,11 +499,11 @@ export const SpendingScreen = ({
       <div className="flex items-center gap-0 border-b border-border/30">
         {(["overview", "budgets", "rules", "categories"] as const).map(t => (
           <button key={t} onClick={() => setSubTab(t)}
-            className={cn("px-4 py-2 text-[12px] font-medium capitalize transition-colors relative",
+            className={cn("px-4 py-2 text-[13px] font-medium capitalize transition-colors relative",
               subTab === t ? "text-foreground" : "text-muted-foreground hover:text-foreground")}>
             {t === "categories" ? "Categories" : t === "rules" ? "Rules" : t === "budgets" ? "Budgets" : "Overview"}
             {t === "overview" && unassignedCount > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-warning/20 text-warning text-[9px]">{unassignedCount}</span>
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-warning/20 text-warning text-[11px]">{unassignedCount}</span>
             )}
             {subTab === t && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gold rounded-full" />}
           </button>
@@ -517,11 +517,11 @@ export const SpendingScreen = ({
           {chartData.length > 0 && catBreakdown.length > 0 && (
             <div className="surface-card p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Spending by category</div>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Spending by category</div>
                 <div className="flex items-center gap-3 flex-wrap justify-end">
                   {catBreakdown.slice(0, 5).map(c => (
                     <button key={c.category} onClick={() => setCatFilter(catFilter === c.category ? "" : c.category)}
-                      className={cn("flex items-center gap-1 text-[10px] transition-opacity", catFilter && catFilter !== c.category && "opacity-40")}>
+                      className={cn("flex items-center gap-1 text-[12px] transition-opacity", catFilter && catFilter !== c.category && "opacity-40")}>
                       <div className="h-2 w-2 rounded-full" style={{ backgroundColor: catColor(c.category) }} />
                       <span className="text-muted-foreground">{fmtCat(c.category)}</span>
                     </button>
@@ -551,9 +551,9 @@ export const SpendingScreen = ({
           {catBreakdown.length > 0 && (
             <div className="surface-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border/20 flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">By category</div>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">By category</div>
                 {catFilter && (
-                  <button onClick={() => setCatFilter("")} className="text-[10px] text-gold hover:underline flex items-center gap-1">
+                  <button onClick={() => setCatFilter("")} className="text-[12px] text-gold hover:underline flex items-center gap-1">
                     Clear filter <X className="h-3 w-3" />
                   </button>
                 )}
@@ -571,10 +571,10 @@ export const SpendingScreen = ({
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[12px] text-foreground">{fmtCat(c.category)}</span>
+                          <span className="text-[13px] text-foreground">{fmtCat(c.category)}</span>
                           <div className="flex items-center gap-2 shrink-0">
-                            {bud && <span className={cn("text-[9.5px] tabular", pct > 100 ? "text-negative" : pct > 75 ? "text-warning" : "text-muted-foreground")}>{pct.toFixed(0)}%</span>}
-                            <span className="text-[12px] tabular font-medium">{fmtUSD(c.total)}</span>
+                            {bud && <span className={cn("text-[11px] tabular", pct > 100 ? "text-negative" : pct > 75 ? "text-warning" : "text-muted-foreground")}>{pct.toFixed(0)}%</span>}
+                            <span className="text-[13px] tabular font-medium">{fmtUSD(c.total)}</span>
                           </div>
                         </div>
                         {bud && (
@@ -596,30 +596,30 @@ export const SpendingScreen = ({
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder={catFilter ? `Search in ${fmtCat(catFilter)}…` : "Search transactions…"}
-                className="flex-1 bg-transparent text-[12px] text-foreground outline-none placeholder:text-muted-foreground" />
-              {catFilter && <button onClick={() => setCatFilter("")} className="text-[10px] text-gold">×{fmtCat(catFilter)}</button>}
+                className="flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground" />
+              {catFilter && <button onClick={() => setCatFilter("")} className="text-[12px] text-gold">×{fmtCat(catFilter)}</button>}
               {search && <button onClick={() => setSearch("")} className="text-muted-foreground"><X className="h-3 w-3" /></button>}
-              <span className="text-[10px] text-muted-foreground tabular shrink-0">{displayTxns.length}</span>
+              <span className="text-[12px] text-muted-foreground tabular shrink-0">{displayTxns.length}</span>
             </div>
             {/* Bulk assign toolbar */}
             {selectedBulk.size > 0 && (
               <div className="px-4 py-2 bg-secondary/20 border-b border-border/20 flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground">{selectedBulk.size} selected</span>
+                <span className="text-[12.5px] text-muted-foreground">{selectedBulk.size} selected</span>
                 <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
-                  className="flex-1 bg-secondary/40 border border-border/40 rounded px-2 py-1 text-[11px] text-foreground outline-none">
+                  className="flex-1 bg-secondary/40 border border-border/40 rounded px-2 py-1 text-[12.5px] text-foreground outline-none">
                   <option value="">Assign to…</option>
                   <optgroup label="Expense">{builtInExpense.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
                   <optgroup label="Income">{builtInIncome.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
                   {customCategories.length > 0 && <optgroup label="Custom">{customCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
                 </select>
                 <button onClick={applyBulk} disabled={!bulkCat}
-                  className="h-7 px-3 rounded bg-gold text-[11px] font-medium hover:opacity-90 disabled:opacity-40">Apply</button>
+                  className="h-7 px-3 rounded bg-gold text-[12.5px] font-medium hover:opacity-90 disabled:opacity-40">Apply</button>
                 <button onClick={() => setSelectedBulk(new Set())} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
               </div>
             )}
             <div className="max-h-[480px] overflow-y-auto">
               {displayTxns.length === 0 ? (
-                <div className="px-4 py-8 text-center text-[12px] text-muted-foreground">
+                <div className="px-4 py-8 text-center text-[13px] text-muted-foreground">
                   No transactions{catFilter ? ` in ${fmtCat(catFilter)}` : ""}{search ? ` matching "${search}"` : ""} for this period.
                 </div>
               ) : (
@@ -667,11 +667,11 @@ export const SpendingScreen = ({
             return (
               <div className="surface-elevated p-4 grid grid-cols-3 gap-3">
                 <div>
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Total budgeted</div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Total budgeted</div>
                   <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalBudgeted)}</div>
                 </div>
                 <div>
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Spent vs budget</div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Spent vs budget</div>
                   <div className={cn("font-display text-lg tabular mt-0.5", totalSpent > totalBudgeted ? "text-negative" : "text-positive")}>
                     {fmtUSD(totalSpent)}
                   </div>
@@ -680,7 +680,7 @@ export const SpendingScreen = ({
                   </div>
                 </div>
                 <div>
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Over budget</div>
+                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Over budget</div>
                   <div className={cn("font-display text-lg tabular mt-0.5", overCount > 0 ? "text-negative" : "text-positive")}>
                     {overCount} {overCount === 1 ? "category" : "categories"}
                   </div>
@@ -693,8 +693,8 @@ export const SpendingScreen = ({
           {Object.keys(budgets).length > 0 && (
             <div className="surface-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border/20 flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Active budgets</div>
-                <span className="text-[10px] text-muted-foreground">{Object.keys(budgets).length}</span>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Active budgets</div>
+                <span className="text-[12px] text-muted-foreground">{Object.keys(budgets).length}</span>
               </div>
               {Object.entries(budgets).map(([cat, limit]) => (
                 <BudgetRow key={cat} category={cat} budget={limit}
@@ -711,7 +711,7 @@ export const SpendingScreen = ({
             if (unbudgeted.length === 0) return null;
             return (
               <div className="surface-card overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-border/20 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <div className="px-4 py-2.5 border-b border-border/20 text-[12.5px] uppercase tracking-wider text-muted-foreground">
                   Add budget for active categories
                 </div>
                 {unbudgeted.map(c => {
@@ -722,8 +722,8 @@ export const SpendingScreen = ({
                         <Icon className="h-3 w-3" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className="text-[12px] text-foreground">{fmtCat(c.category)}</span>
-                        <span className="text-[10px] text-muted-foreground ml-2 tabular">{fmtUSD(c.total)} this period</span>
+                        <span className="text-[13px] text-foreground">{fmtCat(c.category)}</span>
+                        <span className="text-[12px] text-muted-foreground ml-2 tabular">{fmtUSD(c.total)} this period</span>
                       </div>
                       <QuickBudgetAdd category={c.category} suggested={c.total} onSave={v => { onSetBudget(c.category, v); toast.success(`Budget set for ${fmtCat(c.category)}`); }} />
                     </div>
@@ -734,7 +734,7 @@ export const SpendingScreen = ({
           })()}
 
           {Object.keys(budgets).length === 0 && catBreakdown.length === 0 && (
-            <div className="surface-card p-8 text-center text-[12px] text-muted-foreground">
+            <div className="surface-card p-8 text-center text-[13px] text-muted-foreground">
               No spending data for this period. Sync transactions to get started.
             </div>
           )}
@@ -746,13 +746,13 @@ export const SpendingScreen = ({
         <div className="space-y-3">
           {/* Add new rule */}
           <div className="surface-card p-4 space-y-3">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Add rule</div>
+            <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Add rule</div>
             <div className="flex items-center gap-2">
               <input value={newRuleMerchant} onChange={e => setNewRuleMerchant(e.target.value)}
                 placeholder="Merchant name (e.g. Starbucks)"
-                className="flex-1 bg-secondary/40 border border-border/40 rounded-lg px-3 py-2 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+                className="flex-1 bg-secondary/40 border border-border/40 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
               <select value={newRuleCat} onChange={e => setNewRuleCat(e.target.value)}
-                className="bg-secondary/40 border border-border/40 rounded-lg px-2 py-2 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]">
+                className="bg-secondary/40 border border-border/40 rounded-lg px-2 py-2 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]">
                 <option value="">Category…</option>
                 <optgroup label="Expense">{builtInExpense.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
                 <optgroup label="Income">{builtInIncome.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
@@ -764,7 +764,7 @@ export const SpendingScreen = ({
                 toast.success(`Rule added: "${newRuleMerchant.trim()}" → ${fmtCat(newRuleCat)}`);
                 setNewRuleMerchant(""); setNewRuleCat("");
               }} disabled={!newRuleMerchant.trim() || !newRuleCat}
-                className="h-9 px-3 rounded-lg bg-gold text-[12px] font-medium hover:opacity-90 disabled:opacity-40 flex items-center gap-1 shrink-0">
+                className="h-9 px-3 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 disabled:opacity-40 flex items-center gap-1 shrink-0">
                 <Plus className="h-3.5 w-3.5" /> Add
               </button>
             </div>
@@ -772,14 +772,14 @@ export const SpendingScreen = ({
 
           {/* Rules list */}
           {rules.length === 0 ? (
-            <div className="surface-card p-8 text-center text-[12px] text-muted-foreground">
+            <div className="surface-card p-8 text-center text-[13px] text-muted-foreground">
               No rules yet. Add a rule above or change a transaction category and tick "Always apply".
             </div>
           ) : (
             <div className="surface-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border/20 flex items-center justify-between">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Active rules</div>
-                <span className="text-[10px] text-muted-foreground">{rules.length}</span>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Active rules</div>
+                <span className="text-[12px] text-muted-foreground">{rules.length}</span>
               </div>
               {rules.map((rule, i) => {
                 const Icon = catIcon(rule.category); const color = catColor(rule.category);
@@ -790,17 +790,17 @@ export const SpendingScreen = ({
                       <Icon className="h-3 w-3" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-[12px] text-foreground font-medium">"{rule.merchantPattern}"</span>
-                      <span className="text-[11px] text-muted-foreground mx-1.5">→</span>
+                      <span className="text-[13px] text-foreground font-medium">"{rule.merchantPattern}"</span>
+                      <span className="text-[12.5px] text-muted-foreground mx-1.5">→</span>
                       {isEditing ? (
                         <select value={editRuleCat} onChange={e => setEditRuleCat(e.target.value)} autoFocus
-                          className="bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5 text-[11px] text-foreground outline-none">
+                          className="bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none">
                           <optgroup label="Expense">{builtInExpense.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
                           <optgroup label="Income">{builtInIncome.map(c => <option key={c} value={c}>{c}</option>)}</optgroup>
                           {customCategories.length > 0 && <optgroup label="Custom">{customCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</optgroup>}
                         </select>
                       ) : (
-                        <span className="text-[12px] text-foreground">{fmtCat(rule.category)}</span>
+                        <span className="text-[13px] text-foreground">{fmtCat(rule.category)}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -836,20 +836,20 @@ export const SpendingScreen = ({
         <div className="space-y-3">
           {/* Add custom category */}
           <div className="surface-card p-4 space-y-3">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Add category</div>
+            <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Add category</div>
             <div className="flex items-center gap-2">
               <input value={newCatName} onChange={e => setNewCatName(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { onAddCategory(newCatName.trim(), newCatType); toast.success(`"${newCatName.trim()}" created`); setNewCatName(""); } }}
                 placeholder="Category name…"
-                className="flex-1 bg-secondary/40 border border-border/40 rounded-lg px-3 py-2 text-[12px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+                className="flex-1 bg-secondary/40 border border-border/40 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
               <select value={newCatType} onChange={e => setNewCatType(e.target.value as "income" | "expense")}
-                className="bg-secondary/40 border border-border/40 rounded-lg px-2 py-2 text-[12px] text-foreground outline-none">
+                className="bg-secondary/40 border border-border/40 rounded-lg px-2 py-2 text-[13px] text-foreground outline-none">
                 <option value="expense">Expense</option>
                 <option value="income">Income</option>
               </select>
               <button onClick={() => { if (!newCatName.trim()) return; onAddCategory(newCatName.trim(), newCatType); toast.success(`"${newCatName.trim()}" created`); setNewCatName(""); }}
                 disabled={!newCatName.trim()}
-                className="h-9 px-3 rounded-lg bg-gold text-[12px] font-medium hover:opacity-90 disabled:opacity-40 shrink-0 flex items-center gap-1">
+                className="h-9 px-3 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 disabled:opacity-40 shrink-0 flex items-center gap-1">
                 <Plus className="h-3.5 w-3.5" /> Add
               </button>
             </div>
@@ -861,7 +861,7 @@ export const SpendingScreen = ({
             const custom = customCategories.filter(c => c.type === type);
             return (
               <div key={type} className="surface-card overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-border/20 text-[11px] uppercase tracking-wider text-muted-foreground capitalize">{type} categories</div>
+                <div className="px-4 py-2.5 border-b border-border/20 text-[12.5px] uppercase tracking-wider text-muted-foreground capitalize">{type} categories</div>
                 {[...builtIn.map(n => ({ name: n, custom: false })), ...custom.map(c => ({ name: c.name, custom: true }))].map(cat => {
                   const Icon = catIcon(cat.name); const color = catColor(cat.name);
                   const count = periodTxns.filter(t => getEffectiveCat(t) === cat.name).length;
@@ -873,13 +873,13 @@ export const SpendingScreen = ({
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[12px] text-foreground">{cat.name}</span>
-                          {cat.custom && <span className="text-[9px] px-1 rounded bg-secondary text-muted-foreground">custom</span>}
+                          <span className="text-[13px] text-foreground">{cat.name}</span>
+                          {cat.custom && <span className="text-[11px] px-1 rounded bg-secondary text-muted-foreground">custom</span>}
                         </div>
-                        <span className="text-[10px] text-muted-foreground">{count} txn{count !== 1 ? "s" : ""}{spent > 0 ? ` · ${fmtUSD(spent)}` : ""} this period</span>
+                        <span className="text-[12px] text-muted-foreground">{count} txn{count !== 1 ? "s" : ""}{spent > 0 ? ` · ${fmtUSD(spent)}` : ""} this period</span>
                       </div>
                       {budgets[cat.name] && (
-                        <div className="text-[10px] text-muted-foreground tabular">{fmtUSD(budgets[cat.name])}/mo</div>
+                        <div className="text-[12px] text-muted-foreground tabular">{fmtUSD(budgets[cat.name])}/mo</div>
                       )}
                       {cat.custom && (
                         <button onClick={() => {
@@ -904,7 +904,7 @@ export const SpendingScreen = ({
               return !c || c === "Other" || c === UNASSIGNED;
             });
             if (unassigned.length === 0) return (
-              <div className="surface-card px-4 py-4 flex items-center gap-2 text-[12px] text-muted-foreground">
+              <div className="surface-card px-4 py-4 flex items-center gap-2 text-[13px] text-muted-foreground">
                 <Check className="h-4 w-4 text-positive shrink-0" />
                 All transactions in this period are categorized.
               </div>
@@ -912,8 +912,8 @@ export const SpendingScreen = ({
             return (
               <div className="surface-card overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-border/20 flex items-center justify-between">
-                  <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Unassigned ({unassigned.length})</div>
-                  <div className="text-[10px] text-muted-foreground">Click the category to assign</div>
+                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">Unassigned ({unassigned.length})</div>
+                  <div className="text-[12px] text-muted-foreground">Click the category to assign</div>
                 </div>
                 {unassigned.map((t, i) => (
                   <TxnRow key={t.id} t={t} i={i} effCat={getEffectiveCat(t)} onRecat={(txn) => {
@@ -952,18 +952,18 @@ const QuickBudgetAdd = ({ category, suggested, onSave }: {
 
   if (!open) return (
     <button onClick={() => setOpen(true)}
-      className="text-[11px] text-gold hover:underline flex items-center gap-1">
+      className="text-[12.5px] text-gold hover:underline flex items-center gap-1">
       <Plus className="h-3 w-3" /> Set budget
     </button>
   );
 
   return (
     <div className="flex items-center gap-1">
-      <span className="text-[11px] text-muted-foreground">$</span>
+      <span className="text-[12.5px] text-muted-foreground">$</span>
       <input autoFocus type="number" min={1} step={10} value={val}
         onChange={e => setVal(e.target.value)}
         onKeyDown={e => { if (e.key === "Enter") { const n = parseFloat(val); if (n > 0) { onSave(n); setOpen(false); } } if (e.key === "Escape") setOpen(false); }}
-        className="w-20 bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5 text-[11px] text-foreground outline-none" />
+        className="w-20 bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none" />
       <button onClick={() => { const n = parseFloat(val); if (n > 0) { onSave(n); setOpen(false); } }}
         className="text-positive"><Check className="h-3.5 w-3.5" /></button>
       <button onClick={() => setOpen(false)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>

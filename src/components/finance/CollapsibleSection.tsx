@@ -25,7 +25,7 @@ export const CollapsibleSection = ({
       >
         <div className="min-w-0 flex-1">
           {eyebrow && (
-            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            <div className="text-[12px] uppercase tracking-[0.2em] text-muted-foreground">
               {eyebrow}
             </div>
           )}
@@ -33,7 +33,7 @@ export const CollapsibleSection = ({
             <h2 className="font-display text-lg md:text-xl text-primary truncate">{title}</h2>
           </div>
           {subtitle && (
-            <p className="text-[11.5px] text-muted-foreground mt-0.5 truncate">{subtitle}</p>
+            <p className="text-[13px] text-muted-foreground mt-0.5 truncate">{subtitle}</p>
           )}
         </div>
 

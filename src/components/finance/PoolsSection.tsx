@@ -55,7 +55,7 @@ const PoolTile = ({ pool, onClick }: { pool: Pool; onClick: () => void }) => {
         <div className={cn("h-9 w-9 rounded-lg grid place-items-center ring-1 border border-border-strong", a.bg, a.ring, a.text)}>
           <Icon className="h-4 w-4" />
         </div>
-        <div className={cn("text-[10px] uppercase tracking-wider tabular", a.text)}>
+        <div className={cn("text-[12px] uppercase tracking-wider tabular", a.text)}>
           +{fmtUSD(pool.monthly, { compact: true })}/mo
         </div>
       </div>
@@ -68,13 +68,13 @@ const PoolTile = ({ pool, onClick }: { pool: Pool; onClick: () => void }) => {
           <div className="h-1 rounded-full bg-secondary overflow-hidden">
             <div className={cn("h-full rounded-full transition-all", a.bar)} style={{ width: `${pct}%` }} />
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular">
+          <div className="mt-1 flex justify-between text-[12px] text-muted-foreground tabular">
             <span>{pct.toFixed(0)}% of goal</span>
             <span>{fmtUSD(pool.target!, { compact: true })}</span>
           </div>
         </div>
       ) : (
-        <div className="mt-3 text-[10px] text-muted-foreground">No goal set · flowing</div>
+        <div className="mt-3 text-[12px] text-muted-foreground">No goal set · flowing</div>
       )}
     </button>
   );
@@ -120,7 +120,7 @@ const PoolDetail = ({
               <div className="mt-3 h-1.5 rounded-full bg-secondary overflow-hidden">
                 <div className={cn("h-full rounded-full transition-all", a.bar)} style={{ width: `${pct}%` }} />
               </div>
-              <div className="mt-1.5 flex justify-between text-[11px] text-muted-foreground tabular">
+              <div className="mt-1.5 flex justify-between text-[12.5px] text-muted-foreground tabular">
                 <span>{pct.toFixed(0)}% of {fmtUSD(pool.target!, { compact: true })} goal</span>
                 {monthsToGoal !== null && <span>{monthsToGoal} mo to fund</span>}
               </div>
@@ -129,7 +129,7 @@ const PoolDetail = ({
         </div>
 
         <div className="hairline p-6 space-y-4">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Allocation rule</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Allocation rule</div>
 
           <div className="flex items-center justify-between">
             <div className="text-sm text-foreground">Move from salary each month</div>
@@ -203,7 +203,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
         <div className="flex items-end justify-between">
           <div>
             <h2 className="font-display text-xl md:text-2xl text-primary">Virtual savings pools</h2>
-            <p className="text-[11.5px] text-muted-foreground mt-1 max-w-xl">
+            <p className="text-[13px] text-muted-foreground mt-1 max-w-xl">
               Slice one HYSA into named pools. Rules move money on payday, and what's left is yours to spend.
             </p>
           </div>
@@ -223,7 +223,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
           />
           <div className="relative flex items-start justify-between gap-3">
             <div>
-              <div className="text-[10px] uppercase tracking-[0.22em] text-info font-medium">Monthly salary</div>
+              <div className="text-[12px] uppercase tracking-[0.22em] text-info font-medium">Monthly salary</div>
               {editingSalary ? (
                 <input
                   autoFocus
@@ -242,7 +242,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
                   {fmtUSD(salary)}
                 </button>
               )}
-              <div className="text-[11px] text-muted-foreground mt-1">Tap to edit · drives all rules below</div>
+              <div className="text-[12.5px] text-muted-foreground mt-1">Tap to edit · drives all rules below</div>
             </div>
             <div className="h-9 w-9 rounded-lg border border-info/30 bg-info/10 text-info grid place-items-center">
               <Wallet className="h-4 w-4" />
@@ -251,7 +251,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
 
           {/* Allocation bar */}
           <div className="relative mt-5">
-            <div className="flex items-center justify-between text-[11px] mb-2">
+            <div className="flex items-center justify-between text-[12.5px] mb-2">
               <span className="text-muted-foreground uppercase tracking-wider">Allocated to pools</span>
               <span className="tabular text-foreground">
                 {fmtUSD(totalAllocated, { compact: true })} / {fmtUSD(salary, { compact: true })}
@@ -272,7 +272,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
                 );
               })}
             </div>
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-muted-foreground">
               {pools.map((p) => {
                 const a = accentMap[p.accent];
                 return (
@@ -295,7 +295,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
               unallocated >= 0 ? "text-foreground" : "text-negative"
             )}>
               {unallocated < 0 ? "−" : ""}{fmtUSD(Math.abs(unallocated))}
-              <span className="text-[11px] text-muted-foreground ml-1.5">/mo</span>
+              <span className="text-[12.5px] text-muted-foreground ml-1.5">/mo</span>
             </div>
           </div>
         </div>
@@ -308,8 +308,8 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
           />
           <div className="relative flex items-start justify-between">
             <div>
-              <div className="text-[10px] uppercase tracking-[0.22em] text-positive font-medium">Actually free</div>
-              <div className="text-[11px] text-muted-foreground mt-1">After every pool is funded</div>
+              <div className="text-[12px] uppercase tracking-[0.22em] text-positive font-medium">Actually free</div>
+              <div className="text-[12.5px] text-muted-foreground mt-1">After every pool is funded</div>
             </div>
             <div className="h-9 w-9 rounded-lg border border-positive/30 bg-positive/10 text-positive grid place-items-center">
               <PiggyBank className="h-4 w-4" />
@@ -323,7 +323,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
             {trulyAvailable < 0 ? "−" : ""}{fmtUSD(Math.abs(trulyAvailable), { compact: true })}
           </div>
 
-          <div className="relative mt-4 space-y-1.5 text-[11px]">
+          <div className="relative mt-4 space-y-1.5 text-[12.5px]">
             <Row label="Marcus HYSA balance" value={fmtUSD(HYSA_BALANCE, { compact: true })} />
             <Row label="Locked in pools" value={`− ${fmtUSD(totalPooled, { compact: true })}`} muted />
             <div className="hairline pt-1.5">
@@ -337,7 +337,7 @@ export const PoolsSection = ({ embedded = false }: { embedded?: boolean } = {}) 
       <div>
         <div className="flex items-end justify-between mb-3 px-1">
           <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Your pools · {pools.length}</div>
-          <div className="text-[11px] text-muted-foreground">Tap any pool to adjust the rule</div>
+          <div className="text-[12.5px] text-muted-foreground">Tap any pool to adjust the rule</div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {pools.map((p) => (

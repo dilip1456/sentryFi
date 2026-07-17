@@ -70,7 +70,7 @@ const DetailRow = ({ a }: { a: Account }) => {
 
       {progress !== null && (
         <div className="mt-3">
-          <div className="flex justify-between text-[10.5px] text-muted-foreground tabular mb-1">
+          <div className="flex justify-between text-[12px] text-muted-foreground tabular mb-1">
             <span>Paid off {progress.toFixed(0)}%</span>
             <span>{fmtUSD(a.originalBalance!, { compact: true })} original</span>
           </div>
@@ -86,7 +86,7 @@ const DetailRow = ({ a }: { a: Account }) => {
         </div>
       )}
 
-      <button className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+      <button className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
         <ExternalLink className="h-3 w-3" /> Open at {a.institution}
       </button>
     </div>
@@ -95,8 +95,8 @@ const DetailRow = ({ a }: { a: Account }) => {
 
 const Mini = ({ label, value, tone }: { label: string; value: string; tone: "positive" | "negative" | "info" | "warning" }) => (
   <div>
-    <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground">{label}</div>
-    <div className={cn("text-[12.5px] tabular font-medium mt-0.5", toneText[tone])}>{value}</div>
+    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className={cn("text-[13.5px] tabular font-medium mt-0.5", toneText[tone])}>{value}</div>
   </div>
 );
 
@@ -128,19 +128,19 @@ const AccountRow = ({
 
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] text-foreground truncate">{a.name}</span>
+            <span className="text-[14px] text-foreground truncate">{a.name}</span>
             {a.isPayingAccount && (
-              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-info/30 bg-info/10 text-info">
+              <span className="text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-info/30 bg-info/10 text-info">
                 Pays bills
               </span>
             )}
             {a.promo && (
-              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive">
+              <span className="text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 bg-positive/10 text-positive">
                 0% APR
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5 text-[10.5px] text-muted-foreground tabular">
+          <div className="flex items-center gap-2 mt-0.5 text-[12px] text-muted-foreground tabular">
             <span>{a.institution}{a.last4 && ` ··${a.last4}`}</span>
             {a.apr !== undefined && (
               <>
@@ -168,7 +168,7 @@ const AccountRow = ({
         </div>
 
         <div className={cn(
-          "inline-flex items-center gap-0.5 text-[10.5px] tabular",
+          "inline-flex items-center gap-0.5 text-[12px] tabular",
           trendGood ? "text-positive" : "text-negative",
         )}>
           {trendUp ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
@@ -176,7 +176,7 @@ const AccountRow = ({
         </div>
 
         <div className={cn(
-          "text-right text-[13.5px] font-medium tabular w-24",
+          "text-right text-[14px] font-medium tabular w-24",
           isDebt ? "text-negative" : "text-foreground",
         )}>
           {isDebt ? "−" : ""}{fmtUSD(Math.abs(a.balance), { compact: true })}
@@ -227,9 +227,9 @@ const BucketTable = ({
             <div className="flex items-center gap-2">
               <h3 className="font-display text-base md:text-lg text-foreground">{meta.label}</h3>
               {bucket === "longterm" && <Lock className="h-3 w-3 text-muted-foreground" />}
-              <span className="text-[10.5px] text-muted-foreground tabular">· {items.length}</span>
+              <span className="text-[12px] text-muted-foreground tabular">· {items.length}</span>
             </div>
-            <div className="text-[11px] text-muted-foreground truncate">{meta.sub}</div>
+            <div className="text-[12.5px] text-muted-foreground truncate">{meta.sub}</div>
           </div>
         </div>
 
@@ -241,7 +241,7 @@ const BucketTable = ({
             {isDebt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
           </div>
           {trailing && (
-            <div className={cn("text-[10.5px] tabular mt-1", toneText[meta.tone])}>{trailing}</div>
+            <div className={cn("text-[12px] tabular mt-1", toneText[meta.tone])}>{trailing}</div>
           )}
         </div>
       </button>
@@ -273,7 +273,7 @@ export const AccountsSection = ({ onAddAccount }: { onAddAccount?: () => void } 
     <section className="space-y-2.5">
       <div className="flex items-baseline justify-between gap-4 px-1">
         <h2 className="font-display text-base md:text-lg text-primary">Accounts</h2>
-        <span className="text-[11px] text-muted-foreground">Tap a row for details</span>
+        <span className="text-[12.5px] text-muted-foreground">Tap a row for details</span>
       </div>
 
       <div className="space-y-2.5">
@@ -285,7 +285,7 @@ export const AccountsSection = ({ onAddAccount }: { onAddAccount?: () => void } 
         {onAddAccount && (
           <button
             onClick={onAddAccount}
-            className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[12px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
+            className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[13px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
           >
             <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
           </button>

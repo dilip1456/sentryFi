@@ -35,21 +35,21 @@ const BenefitTile = ({ b, onClick }: { b: CardBenefit; onClick: () => void }) =>
         <div className="h-8 w-8 rounded-md bg-secondary/60 border border-border/60 grid place-items-center text-foreground/80">
           <Icon className="h-3.5 w-3.5" />
         </div>
-        <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border", sm.chip)}>
+        <span className={cn("text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border", sm.chip)}>
           {sm.label}
         </span>
       </div>
-      <div className="mt-2.5 text-[12px] text-foreground font-medium leading-tight line-clamp-2">{b.name}</div>
-      <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{b.cardName}</div>
+      <div className="mt-2.5 text-[13px] text-foreground font-medium leading-tight line-clamp-2">{b.name}</div>
+      <div className="text-[12px] text-muted-foreground mt-0.5 truncate">{b.cardName}</div>
 
       <div className="mt-2.5 flex items-baseline justify-between">
         <div>
           <div className="font-display text-base tabular text-foreground leading-none">
             {fmtUSD(remaining, { compact: true })}
           </div>
-          <div className="text-[10px] text-muted-foreground tabular mt-0.5">left of {fmtUSD(b.value, { compact: true })}</div>
+          <div className="text-[12px] text-muted-foreground tabular mt-0.5">left of {fmtUSD(b.value, { compact: true })}</div>
         </div>
-        <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{b.cycle}</div>
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{b.cycle}</div>
       </div>
 
       <div className="mt-2 h-1 rounded-full bg-secondary overflow-hidden">
@@ -83,9 +83,9 @@ const BenefitDetail = ({ b, onClose }: { b: CardBenefit | null; onClose: () => v
           <div className="h-11 w-11 rounded-xl bg-secondary/60 border border-border-strong grid place-items-center">
             <Icon className="h-5 w-5 text-foreground" />
           </div>
-          <div className="mt-3 text-[10px] uppercase tracking-wider text-muted-foreground">{b.cardName} · {b.category}</div>
+          <div className="mt-3 text-[12px] uppercase tracking-wider text-muted-foreground">{b.cardName} · {b.category}</div>
           <div className="font-display text-xl text-foreground mt-0.5">{b.name}</div>
-          <div className={cn("mt-3 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] uppercase tracking-wider border", sm.chip)}>
+          <div className={cn("mt-3 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] uppercase tracking-wider border", sm.chip)}>
             <span className={cn("h-1.5 w-1.5 rounded-full", sm.dot)} /> {sm.label} · {b.resetDate}
           </div>
         </div>
@@ -95,7 +95,7 @@ const BenefitDetail = ({ b, onClose }: { b: CardBenefit | null; onClose: () => v
           <Stat label="Remaining" value={fmtUSD(remaining)} accent="positive" />
         </div>
         <div className="hairline p-5">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">How to redeem</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-1.5">How to redeem</div>
           <p className="text-sm text-foreground leading-relaxed">{b.how}</p>
         </div>
         <div className="hairline p-4">
@@ -110,7 +110,7 @@ const BenefitDetail = ({ b, onClose }: { b: CardBenefit | null; onClose: () => v
 
 const Stat = ({ label, value, accent }: { label: string; value: string; accent?: "positive" | "warning" }) => (
   <div className="p-4">
-    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className="text-[12px] uppercase tracking-wider text-muted-foreground">{label}</div>
     <div className={cn("mt-1 font-display text-base tabular",
       accent === "positive" && "text-positive",
       accent === "warning" && "text-warning",
@@ -137,40 +137,40 @@ const RefinanceRow = ({ r }: { r: RefinanceOption }) => {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium text-foreground">{r.loanName}</div>
-            <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border", m.chip)}>
+            <span className={cn("text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border", m.chip)}>
               {m.label}
             </span>
           </div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">
+          <div className="text-[12.5px] text-muted-foreground mt-0.5">
             {acc?.institution} → {r.lender} · balance {fmtUSD(Math.abs(acc?.balance ?? 0), { compact: true })}
           </div>
         </div>
 
         <div className="flex items-center gap-4 tabular">
           <div className="text-right">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current</div>
+            <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Current</div>
             <div className="font-display text-sm text-foreground">{r.currentRate.toFixed(2)}%</div>
           </div>
           <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
           <div className="text-right">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Offered</div>
+            <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Offered</div>
             <div className="font-display text-sm text-positive">{r.offeredRate.toFixed(2)}%</div>
           </div>
           <div className="text-right pl-3 border-l border-border/60">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">−{rateDelta.toFixed(2)}pp</div>
+            <div className="text-[12px] uppercase tracking-wider text-muted-foreground">−{rateDelta.toFixed(2)}pp</div>
             <div className="font-display text-sm text-positive">{fmtUSD(r.monthlySavings)}/mo</div>
           </div>
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-[12.5px]">
         <Pill label="Closing cost" value={r.closingCost === 0 ? "Free" : fmtUSD(r.closingCost)} />
         <Pill label="Breakeven"    value={r.monthsToBreakeven === 0 ? "Immediate" : `${r.monthsToBreakeven} mo`} />
         <Pill label="Lifetime save" value={fmtUSD(r.lifetimeSavings, { compact: true })} accent="positive" />
         <Pill label="Recommendation" value={m.label} />
       </div>
 
-      <div className="mt-3 flex items-start gap-2 text-[11px] text-muted-foreground bg-surface/40 rounded-md px-3 py-2 border border-border/40">
+      <div className="mt-3 flex items-start gap-2 text-[12.5px] text-muted-foreground bg-surface/40 rounded-md px-3 py-2 border border-border/40">
         <Info className="h-3 w-3 mt-0.5 shrink-0" />
         <span>{r.notes}</span>
       </div>
@@ -180,8 +180,8 @@ const RefinanceRow = ({ r }: { r: RefinanceOption }) => {
 
 const Pill = ({ label, value, accent }: { label: string; value: string; accent?: "positive" }) => (
   <div className="rounded-md border border-border/60 bg-surface/40 px-2.5 py-1.5">
-    <div className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</div>
-    <div className={cn("text-[12px] tabular font-medium mt-0.5", accent === "positive" ? "text-positive" : "text-foreground")}>
+    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</div>
+    <div className={cn("text-[13px] tabular font-medium mt-0.5", accent === "positive" ? "text-positive" : "text-foreground")}>
       {value}
     </div>
   </div>
@@ -217,7 +217,7 @@ export const BenefitsSection = () => {
           <Inline icon={<AlertCircle className="h-3.5 w-3.5" />} label="Unused this cycle" value={fmtUSD(leftOnTable, { compact: true })} tone="warning" />
           <Inline icon={<TrendingDown className="h-3.5 w-3.5" />} label="Refi opportunity" value={fmtUSD(refiSavings, { compact: true })} tone="positive" />
         </div>
-        <div className="text-[11px] text-muted-foreground">Across {cardBenefits.length} perks · {refinanceOptions.length} loan offers</div>
+        <div className="text-[12.5px] text-muted-foreground">Across {cardBenefits.length} perks · {refinanceOptions.length} loan offers</div>
       </div>
 
       {/* Card benefits */}
@@ -225,7 +225,7 @@ export const BenefitsSection = () => {
         title="Card benefits & credits"
         subtitle="Recurring credits, lounge access, and reimbursements."
         trailing={
-          <div className="hidden md:inline-flex items-center gap-1 text-[11px] text-warning tabular">
+          <div className="hidden md:inline-flex items-center gap-1 text-[12.5px] text-warning tabular">
             <AlertCircle className="h-3 w-3" />
             {fmtUSD(leftOnTable, { compact: true })} unused
           </div>
@@ -237,7 +237,7 @@ export const BenefitsSection = () => {
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                "px-3 py-1 rounded-full text-[11px] capitalize transition-colors",
+                "px-3 py-1 rounded-full text-[12.5px] capitalize transition-colors",
                 filter === f ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground border border-border/60",
               )}
             >
@@ -245,7 +245,7 @@ export const BenefitsSection = () => {
               {f === "expiring" && <span className="ml-1 text-warning">•</span>}
             </button>
           ))}
-          <span className="ml-2 text-[11px] text-muted-foreground tabular">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="ml-2 text-[12.5px] text-muted-foreground tabular">{filtered.length} item{filtered.length !== 1 ? "s" : ""}</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((b) => <BenefitTile key={b.id} b={b} onClick={() => setSelected(b)} />)}
@@ -257,7 +257,7 @@ export const BenefitsSection = () => {
         title="Refinance opportunities"
         subtitle="Current market rates compared against your loans, net of closing costs."
         trailing={
-          <div className="hidden md:inline-flex items-center gap-1 text-[11px] text-positive tabular">
+          <div className="hidden md:inline-flex items-center gap-1 text-[12.5px] text-positive tabular">
             <Check className="h-3 w-3" />
             {refinanceOptions.filter((r) => r.recommendation !== "skip").length} actionable
           </div>
@@ -283,7 +283,7 @@ const Inline = ({ icon, label, value, tone }: { icon: React.ReactNode; label: st
     <div className="flex items-center gap-2">
       <div className={cn("h-7 w-7 rounded-md grid place-items-center border", toneClass)}>{icon}</div>
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground leading-none">{label}</div>
+        <div className="text-[12px] uppercase tracking-wider text-muted-foreground leading-none">{label}</div>
         <div className="font-display text-base tabular text-foreground leading-tight mt-0.5">{value}</div>
       </div>
     </div>

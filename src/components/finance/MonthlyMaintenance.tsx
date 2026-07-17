@@ -94,12 +94,12 @@ const FlowGroup = ({
             {meta.icon}
           </div>
           <div>
-            <div className="text-[12px] font-medium text-foreground">{meta.label}</div>
-            <div className="text-[10px] text-muted-foreground">{meta.sub}</div>
+            <div className="text-[13px] font-medium text-foreground">{meta.label}</div>
+            <div className="text-[12px] text-muted-foreground">{meta.sub}</div>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">total / mo</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground">total / mo</div>
           <div className="text-sm font-display tabular text-negative">−{fmtUSD(total, { compact: true })}</div>
         </div>
       </div>
@@ -109,21 +109,21 @@ const FlowGroup = ({
             <div className={cn("h-1.5 w-1.5 rounded-full", toneText[r.tone].replace("text-", "bg-"))} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-[12.5px] text-foreground truncate">{r.label}</span>
+                <span className="text-[13.5px] text-foreground truncate">{r.label}</span>
                 {r.badge && (
-                  <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border", toneBg[r.tone], toneText[r.tone])}>
+                  <span className={cn("text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border", toneBg[r.tone], toneText[r.tone])}>
                     {r.badge}
                   </span>
                 )}
               </div>
-              {r.sub && <div className="text-[10.5px] text-muted-foreground truncate">{r.sub}</div>}
+              {r.sub && <div className="text-[12px] text-muted-foreground truncate">{r.sub}</div>}
             </div>
             {r.dueDay && (
-              <span className="text-[10px] text-muted-foreground tabular hidden sm:inline-flex items-center gap-1">
+              <span className="text-[12px] text-muted-foreground tabular hidden sm:inline-flex items-center gap-1">
                 <Calendar className="h-2.5 w-2.5" /> {r.dueDay}
               </span>
             )}
-            <div className="text-right text-[13px] font-medium tabular text-negative w-20">
+            <div className="text-right text-[14px] font-medium tabular text-negative w-20">
               {onEdit ? (
                 <Amount value={Math.abs(r.amount)} onChange={(n) => onEdit(r.id, n)} className="text-negative" />
               ) : (
@@ -204,7 +204,7 @@ export const MonthlyMaintenance = () => {
         <h2 className="font-display text-xl md:text-2xl text-primary">Monthly cash flow</h2>
         <button
           onClick={() => setShowHelp(true)}
-          className="hidden md:inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          className="hidden md:inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors"
         >
           <Sparkles className="h-3 w-3" /> How is this calculated?
         </button>
@@ -223,13 +223,13 @@ export const MonthlyMaintenance = () => {
         <div className="relative grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Income */}
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-positive font-medium inline-flex items-center gap-1.5">
+            <div className="text-[12px] uppercase tracking-[0.22em] text-positive font-medium inline-flex items-center gap-1.5">
               <ArrowDown className="h-3 w-3 rotate-180" /> Income
             </div>
             <div className="mt-2 font-display text-3xl tabular text-foreground">
               +{fmtUSD(totalIncome, { compact: true })}
             </div>
-            <div className="mt-2 space-y-1 text-[11px]">
+            <div className="mt-2 space-y-1 text-[12.5px]">
               <Row label="Salary" editable value={salary} onChange={setSalary} />
               <Row label="Other / side"  editable value={otherIncome} onChange={setOtherIncome} />
             </div>
@@ -237,13 +237,13 @@ export const MonthlyMaintenance = () => {
 
           {/* Outflow */}
           <div>
-            <div className="text-[10px] uppercase tracking-[0.22em] text-negative font-medium inline-flex items-center gap-1.5">
+            <div className="text-[12px] uppercase tracking-[0.22em] text-negative font-medium inline-flex items-center gap-1.5">
               <ArrowUp className="h-3 w-3" /> Outflow
             </div>
             <div className="mt-2 font-display text-3xl tabular text-foreground">
               −{fmtUSD(totalOutflow, { compact: true })}
             </div>
-            <div className="mt-2 space-y-1 text-[11px]">
+            <div className="mt-2 space-y-1 text-[12.5px]">
               <Row label="Loan EMIs" value={totalEmi} />
               <Row label="Card statements" value={totalStmt} />
               <Row label="Recurring bills" value={totalSubs} />
@@ -258,7 +258,7 @@ export const MonthlyMaintenance = () => {
             netCash >= 0 ? "border-positive/30 bg-positive/5" : "border-negative/30 bg-negative/10"
           )}>
             <div className={cn(
-              "text-[10px] uppercase tracking-[0.22em] font-medium",
+              "text-[12px] uppercase tracking-[0.22em] font-medium",
               netCash >= 0 ? "text-positive" : "text-negative"
             )}>
               {netCash >= 0 ? "Free cash" : "Short by"}
@@ -269,11 +269,11 @@ export const MonthlyMaintenance = () => {
             )}>
               {netCash < 0 ? "−" : ""}{fmtUSD(Math.abs(netCash), { compact: true })}
             </div>
-            <div className="text-[10px] text-muted-foreground mt-1">After every monthly obligation</div>
+            <div className="text-[12px] text-muted-foreground mt-1">After every monthly obligation</div>
 
             {/* Ratio bar */}
             <div className="mt-4">
-              <div className="flex justify-between text-[10px] text-muted-foreground tabular mb-1">
+              <div className="flex justify-between text-[12px] text-muted-foreground tabular mb-1">
                 <span>Outflow ratio</span>
                 <span>{ratio.toFixed(0)}% of income</span>
               </div>
@@ -317,9 +317,9 @@ export const MonthlyMaintenance = () => {
             <button onClick={() => setShowHelp(false)} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover">
               <X className="h-4 w-4" />
             </button>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">How this works</div>
+            <div className="text-[12px] uppercase tracking-wider text-muted-foreground">How this works</div>
             <div className="font-display text-2xl text-foreground mt-1">Monthly view ≠ Overall view</div>
-            <ul className="mt-4 space-y-2.5 text-[12px] text-muted-foreground leading-relaxed">
+            <ul className="mt-4 space-y-2.5 text-[13px] text-muted-foreground leading-relaxed">
               <li className="flex gap-2"><span className="text-positive">•</span><span><b className="text-foreground">EMIs</b> show the monthly payment, not the $312k mortgage total.</span></li>
               <li className="flex gap-2"><span className="text-warning">•</span><span><b className="text-foreground">Credit cards</b> count this cycle's statement balance, assumed paid in full.</span></li>
               <li className="flex gap-2"><span className="text-info">•</span><span><b className="text-foreground">Pools</b> auto-divert salary into named buckets in your HYSA.</span></li>
