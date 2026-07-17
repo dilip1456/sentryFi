@@ -100,13 +100,13 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
           <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--primary))]" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-semibold text-foreground">AI Category Review</div>
-          <div className="text-[11px] text-muted-foreground">Spots miscategorized transactions for you to confirm</div>
+          <div className="text-[14px] font-semibold text-foreground">AI Category Review</div>
+          <div className="text-[12.5px] text-muted-foreground">Spots miscategorized transactions for you to confirm</div>
         </div>
         <button
           onClick={run}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gold text-[11.5px] font-semibold disabled:opacity-50 shrink-0"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gold text-[13px] font-semibold disabled:opacity-50 shrink-0"
         >
           {loading
             ? <><Loader2 className="h-3 w-3 animate-spin" /> Scanning…</>
@@ -119,7 +119,7 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
 
       {/* Results */}
       {!ran && !loading && (
-        <div className="px-4 py-5 text-center text-[12px] text-muted-foreground">
+        <div className="px-4 py-5 text-center text-[13px] text-muted-foreground">
           Tap Scan to find miscategorized transactions
         </div>
       )}
@@ -127,26 +127,26 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
       {ran && !loading && pending === 0 && (
         <div className="px-4 py-5 text-center">
           <CheckCircle className="h-8 w-8 text-positive mx-auto mb-2 opacity-60" />
-          <div className="text-[12.5px] font-medium text-foreground">All categories look correct</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">No issues found in recent transactions</div>
+          <div className="text-[13.5px] font-medium text-foreground">All categories look correct</div>
+          <div className="text-[12.5px] text-muted-foreground mt-0.5">No issues found in recent transactions</div>
         </div>
       )}
 
       {pending > 0 && (
         <div className="divide-y divide-border/10">
-          <div className="px-4 py-2 text-[11px] text-muted-foreground">
+          <div className="px-4 py-2 text-[12.5px] text-muted-foreground">
             {pending} suggestion{pending !== 1 ? "s" : ""} — tap ✓ to apply, ✗ to skip
           </div>
           {suggestions.map(s => (
             <div key={s.id} className="px-4 py-3.5 flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium text-foreground truncate">{s.name}</div>
+                <div className="text-[14px] font-medium text-foreground truncate">{s.name}</div>
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-negative/10 text-negative line-through">{s.current_category}</span>
+                  <span className="text-[12.5px] px-2 py-0.5 rounded-full bg-negative/10 text-negative line-through">{s.current_category}</span>
                   <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-positive/10 text-positive font-medium">{s.suggested_category}</span>
+                  <span className="text-[12.5px] px-2 py-0.5 rounded-full bg-positive/10 text-positive font-medium">{s.suggested_category}</span>
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-1">{s.reason}</div>
+                <div className="text-[12.5px] text-muted-foreground mt-1">{s.reason}</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
                 <button onClick={() => accept(s)}

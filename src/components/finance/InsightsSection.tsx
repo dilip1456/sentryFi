@@ -36,7 +36,7 @@ const InsightCard = ({ insight, onOpen, onDismiss }: {
           <div className={cn("h-1.5 w-1.5 rounded-full", sev.dot)}>
             <div className={cn("absolute h-1.5 w-1.5 rounded-full animate-pulse-glow", sev.dot, "opacity-50 blur-sm")} />
           </div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
+          <span className="text-[12px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
         </div>
       </div>
 
@@ -46,10 +46,10 @@ const InsightCard = ({ insight, onOpen, onDismiss }: {
 
       <div className="mt-3 pt-3 border-t border-border/60 flex items-end justify-between">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Opportunity</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Opportunity</div>
           <div className="font-display text-lg tabular text-positive leading-tight">{insight.impact}</div>
         </div>
-        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground group-hover:text-foreground transition-colors">
+        <span className="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground group-hover:text-foreground transition-colors">
           Details <ArrowRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
         </span>
       </div>
@@ -78,10 +78,10 @@ const InsightDialog = ({ insight, onClose, onDismiss }: {
               <Icon className="h-4 w-4 text-foreground" />
             </div>
             <div className="flex items-center gap-2">
-              <span className={cn("chip !py-0.5 !px-2 !text-[10px]", sev.chip)}>
+              <span className={cn("chip !py-0.5 !px-2 !text-[12px]", sev.chip)}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", sev.dot)} /> {sev.label} impact
               </span>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
+              <span className="text-[12px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
             </div>
           </div>
 
@@ -90,7 +90,7 @@ const InsightDialog = ({ insight, onClose, onDismiss }: {
           </h3>
 
           <div className="mt-4 inline-flex items-baseline gap-2 rounded-lg bg-positive/10 border border-positive/20 px-3 py-2">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Estimated</span>
+            <span className="text-[12px] uppercase tracking-wider text-muted-foreground">Estimated</span>
             <span className="font-display text-lg tabular text-positive">{insight.impact}</span>
           </div>
         </div>
@@ -122,7 +122,7 @@ const InsightDialog = ({ insight, onClose, onDismiss }: {
 
 const Detail = ({ label, body, accent }: { label: string; body: string; accent?: boolean }) => (
   <div>
-    <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-1">{label}</div>
+    <div className="text-[12px] uppercase tracking-[0.15em] text-muted-foreground mb-1">{label}</div>
     <p className={cn(
       "text-sm leading-relaxed",
       accent ? "text-foreground" : "text-muted-foreground"

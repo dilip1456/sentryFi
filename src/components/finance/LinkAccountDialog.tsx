@@ -111,7 +111,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
             <Building2 className="h-5 w-5" />
           </div>
           <div className="mt-3 font-display text-lg text-foreground">Link your accounts</div>
-          <div className="mt-1 text-[11.5px] text-muted-foreground">
+          <div className="mt-1 text-[13px] text-muted-foreground">
             Securely connect via <span className="text-gold font-medium">Plaid</span>, read-only access.
           </div>
         </div>
@@ -125,8 +125,8 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
                   <Icon className="h-3.5 w-3.5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12.5px] text-foreground">{s.label}</div>
-                  <div className="text-[10.5px] text-muted-foreground truncate">{s.note}</div>
+                  <div className="text-[13.5px] text-foreground">{s.label}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{s.note}</div>
                 </div>
               </div>
             );
@@ -135,7 +135,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
 
         <div className="mx-4 mb-4 px-3 py-2 rounded-md bg-surface/40 border border-border/40 flex items-start gap-2">
           <Lock className="h-3 w-3 mt-0.5 shrink-0 text-gold" />
-          <span className="text-[10.5px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             Plaid encrypts your credentials end-to-end. SentryFi only receives read-only balances and transactions, never your password.
           </span>
         </div>
@@ -144,7 +144,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
           <button
             onClick={connect}
             disabled={loading || exchanging || !ready}
-            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[14px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
           >
             {loading || exchanging ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> {exchanging ? "Linking…" : "Preparing…"}</>
@@ -154,7 +154,7 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
           </button>
           <button
             onClick={tryDemo}
-            className="w-full inline-flex items-center justify-center gap-2 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+            className="w-full inline-flex items-center justify-center gap-2 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors"
           >
             <Sparkles className="h-3.5 w-3.5" /> Or explore with demo data
           </button>

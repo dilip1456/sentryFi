@@ -89,17 +89,17 @@ export const AdminUsersSection = () => {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="font-display text-lg text-foreground">Users</h2>
-          <p className="text-[11.5px] text-muted-foreground">{rows.length} total · {rows.filter((r) => r.roles.includes("admin")).length} admin · {rows.filter((r) => r.disabled).length} disabled</p>
+          <p className="text-[13px] text-muted-foreground">{rows.length} total · {rows.filter((r) => r.roles.includes("admin")).length} admin · {rows.filter((r) => r.disabled).length} disabled</p>
         </div>
         <div className="flex items-center gap-2 bg-surface/40 border border-border/60 rounded-md px-2 py-1.5">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…"
-            className="bg-transparent text-[12px] text-foreground outline-none w-44" />
+            className="bg-transparent text-[13px] text-foreground outline-none w-44" />
         </div>
       </div>
 
       <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
-        <div className="hidden md:grid grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-2 text-[10.5px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-surface/40">
+        <div className="hidden md:grid grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-2 text-[12px] uppercase tracking-wider text-muted-foreground border-b border-border/40 bg-surface/40">
           <div>User</div>
           <div>Plan</div>
           <div>Role</div>
@@ -109,32 +109,32 @@ export const AdminUsersSection = () => {
         {loading ? (
           <div className="py-10 grid place-items-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
         ) : filtered.length === 0 ? (
-          <div className="py-10 text-center text-[12px] text-muted-foreground">No users found.</div>
+          <div className="py-10 text-center text-[13px] text-muted-foreground">No users found.</div>
         ) : filtered.map((r) => {
           const isUserAdmin = r.roles.includes("admin");
           const initials = (r.display_name ?? "U").split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
           return (
             <div key={r.user_id} className={cn(
-              "flex flex-wrap md:grid md:grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-3 gap-2 items-center border-b border-border/30 last:border-b-0 hover:bg-surface-hover/30 transition-colors text-[12.5px]",
+              "flex flex-wrap md:grid md:grid-cols-[1.5fr_0.8fr_0.8fr_1fr_0.6fr] px-4 py-3 gap-2 items-center border-b border-border/30 last:border-b-0 hover:bg-surface-hover/30 transition-colors text-[13.5px]",
               r.disabled && "opacity-50"
             )}>
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[10px] font-semibold shrink-0">
+                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12px] font-semibold shrink-0">
                   {initials}
                 </div>
                 <div className="min-w-0">
                   <div className="text-foreground truncate">{r.display_name ?? "Unnamed"}</div>
-                  <div className="text-[10.5px] text-muted-foreground truncate">{r.user_id.slice(0, 8)}…</div>
+                  <div className="text-[12px] text-muted-foreground truncate">{r.user_id.slice(0, 8)}…</div>
                 </div>
               </div>
               <div className="text-foreground capitalize">{r.plan ?? "none"}</div>
               <div>
                 <span className={cn(
-                  "inline-flex items-center px-1.5 py-0.5 rounded text-[10.5px]",
+                  "inline-flex items-center px-1.5 py-0.5 rounded text-[12px]",
                   isUserAdmin ? "bg-info/15 text-info" : "bg-surface text-muted-foreground"
                 )}>{isUserAdmin ? "admin" : "user"}</span>
               </div>
-              <div className="text-muted-foreground text-[11.5px]">{new Date(r.created_at).toLocaleDateString()}</div>
+              <div className="text-muted-foreground text-[13px]">{new Date(r.created_at).toLocaleDateString()}</div>
               <div className="flex items-center justify-end gap-1">
                 <button title={isUserAdmin ? "Revoke admin" : "Make admin"}
                   onClick={() => toggleAdmin(r.user_id, !isUserAdmin)}

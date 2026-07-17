@@ -113,14 +113,14 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
           <div className="flex rounded-lg border border-border/50 overflow-hidden">
             {(["all", "unread"] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)}
-                className={cn("px-3 py-1 text-[11px] font-medium capitalize transition-colors",
+                className={cn("px-3 py-1 text-[12.5px] font-medium capitalize transition-colors",
                   filter === f ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
                 {f}{f === "unread" && unread > 0 ? ` (${unread})` : ""}
               </button>
             ))}
           </div>
           {unread > 0 && (
-            <button onClick={markAllRead} className="text-[11px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80 shrink-0">
+            <button onClick={markAllRead} className="text-[12.5px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80 shrink-0">
               <CheckCheck className="h-3.5 w-3.5" /> Mark all read
             </button>
           )}
@@ -135,8 +135,8 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
             <Bell className="h-5 w-5 text-[hsl(var(--primary)/0.5)]" />
           </div>
           <div>
-            <div className="text-[13.5px] font-semibold text-foreground">{filter === "unread" && (items?.length ?? 0) > 0 ? "No unread notifications" : "You're all caught up"}</div>
-            <div className="text-[12px] text-muted-foreground mt-1">
+            <div className="text-[14px] font-semibold text-foreground">{filter === "unread" && (items?.length ?? 0) > 0 ? "No unread notifications" : "You're all caught up"}</div>
+            <div className="text-[13px] text-muted-foreground mt-1">
               {filter === "unread" && (items?.length ?? 0) > 0
                 ? "Switch to All to see earlier notifications."
                 : "Alerts for low balances, budget limits, and upcoming payments will appear here."}
@@ -161,10 +161,10 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className={cn("text-[13px] font-medium leading-snug capitalize", n.read ? "text-foreground/70" : "text-foreground")}>{n.title}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(n.at)}</span>
+                    <span className={cn("text-[14px] font-medium leading-snug capitalize", n.read ? "text-foreground/70" : "text-foreground")}>{n.title}</span>
+                    <span className="text-[12px] text-muted-foreground shrink-0">{timeAgo(n.at)}</span>
                   </div>
-                  {n.body && <div className="text-[12px] text-muted-foreground mt-0.5 leading-snug">{n.body}</div>}
+                  {n.body && <div className="text-[13px] text-muted-foreground mt-0.5 leading-snug">{n.body}</div>}
                 </div>
                 {!n.read && <div className="h-2 w-2 rounded-full bg-[hsl(var(--primary))] shrink-0 mt-1.5" />}
               </button>
@@ -175,7 +175,7 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
 
       <div className="p-4 border-t border-border/20 shrink-0">
         <button onClick={onOpenSettings}
-          className="w-full flex items-center justify-center gap-2 h-9 rounded-lg border border-border text-[12.5px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors">
+          className="w-full flex items-center justify-center gap-2 h-9 rounded-lg border border-border text-[13.5px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors">
           <Settings className="h-3.5 w-3.5" />
           Notification settings
         </button>

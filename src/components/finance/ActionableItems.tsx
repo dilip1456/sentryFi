@@ -17,7 +17,7 @@ export const ActionableItems = () => {
     <section className="surface-card overflow-hidden h-full flex flex-col">
       <div className="px-5 py-3.5 border-b border-border/40 flex items-center justify-between">
         <h2 className="font-display text-base md:text-lg text-primary">Action items</h2>
-        <span className="text-[11px] text-muted-foreground tabular">{visible.length} open</span>
+        <span className="text-[12.5px] text-muted-foreground tabular">{visible.length} open</span>
       </div>
 
       {visible.length === 0 ? (
@@ -38,19 +38,19 @@ export const ActionableItems = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[12.5px] text-foreground font-medium">{item.title}</span>
-                      <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border", m.chip)}>
+                      <span className="text-[13.5px] text-foreground font-medium">{item.title}</span>
+                      <span className={cn("text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border", m.chip)}>
                         {m.label}
                       </span>
                     </div>
-                    <p className="text-[11.5px] text-muted-foreground mt-1 leading-snug">{item.detail}</p>
+                    <p className="text-[13px] text-muted-foreground mt-1 leading-snug">{item.detail}</p>
                     <div className="mt-2 flex items-center gap-2">
-                      <button className="inline-flex items-center gap-1 text-[11px] text-foreground hover:text-info transition-colors">
+                      <button className="inline-flex items-center gap-1 text-[12.5px] text-foreground hover:text-info transition-colors">
                         {item.cta} <ArrowRight className="h-3 w-3" />
                       </button>
                       <button
                         onClick={() => setDone(new Set([...done, item.id]))}
-                        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                        className="text-[12.5px] text-muted-foreground hover:text-foreground transition-colors"
                       >
                         Dismiss
                       </button>

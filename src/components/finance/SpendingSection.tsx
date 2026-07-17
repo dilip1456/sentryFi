@@ -25,7 +25,7 @@ const CategoryTile = ({ c, onClick }: { c: SpendCategory; onClick: () => void })
           <Icon className="h-4 w-4" />
         </div>
         <span className={cn(
-          "text-[10px] tabular px-2 py-0.5 rounded-full",
+          "text-[12px] tabular px-2 py-0.5 rounded-full",
           over ? "bg-negative/15 text-negative" : "bg-secondary text-muted-foreground"
         )}>
           {cPct.toFixed(0)}%
@@ -33,7 +33,7 @@ const CategoryTile = ({ c, onClick }: { c: SpendCategory; onClick: () => void })
       </div>
       <div className="mt-3 text-xs text-muted-foreground">{c.name}</div>
       <div className="mt-0.5 font-display text-lg tabular text-foreground">{fmtUSD(c.spent)}</div>
-      <div className="text-[11px] text-muted-foreground tabular">of {fmtUSD(c.budget)}</div>
+      <div className="text-[12.5px] text-muted-foreground tabular">of {fmtUSD(c.budget)}</div>
       <div className="mt-2 h-1 rounded-full bg-secondary overflow-hidden">
         <div
           className="h-full rounded-full transition-all"
@@ -83,7 +83,7 @@ const CategoryDetail = ({ c, onClose }: { c: SpendCategory | null; onClose: () =
               style={{ width: `${Math.min(cPct, 100)}%`, backgroundColor: over ? "hsl(var(--negative))" : c.color }}
             />
           </div>
-          <div className="mt-1.5 flex justify-between text-[11px] tabular">
+          <div className="mt-1.5 flex justify-between text-[12.5px] tabular">
             <span className="text-muted-foreground">{cPct.toFixed(0)}% used</span>
             <span className={over ? "text-negative" : "text-positive"}>
               {over ? `Over by ${fmtUSD(-remaining)}` : `${fmtUSD(remaining)} left`}
@@ -92,7 +92,7 @@ const CategoryDetail = ({ c, onClose }: { c: SpendCategory | null; onClose: () =
         </div>
 
         <div className="hairline px-6 py-4">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Recent transactions</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-2">Recent transactions</div>
           {txns.length === 0 ? (
             <p className="text-xs text-muted-foreground py-3">No recent transactions in this category.</p>
           ) : (
@@ -101,7 +101,7 @@ const CategoryDetail = ({ c, onClose }: { c: SpendCategory | null; onClose: () =
                 <div key={t.id} className="flex items-center justify-between text-sm">
                   <div className="min-w-0">
                     <div className="text-foreground truncate">{t.merchant}</div>
-                    <div className="text-[11px] text-muted-foreground">{t.card} · {t.date}</div>
+                    <div className="text-[12.5px] text-muted-foreground">{t.card} · {t.date}</div>
                   </div>
                   <div className="font-display tabular text-foreground">−{fmtUSD(Math.abs(t.amount))}</div>
                 </div>
@@ -169,7 +169,7 @@ export const SpendingSection = () => {
             <div className={cn("text-sm tabular", overBudget ? "text-negative" : "text-positive")}>
               {overBudget ? `Over by ${fmtUSD(totalSpent - totalBudget)}` : `${fmtUSD(totalBudget - totalSpent)} remaining`}
             </div>
-            <div className="text-[11px] text-muted-foreground tabular">{pct.toFixed(0)}% used</div>
+            <div className="text-[12.5px] text-muted-foreground tabular">{pct.toFixed(0)}% used</div>
           </div>
         </div>
 

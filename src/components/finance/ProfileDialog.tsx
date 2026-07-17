@@ -176,8 +176,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
         <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
         <div className="p-5 border-b border-border/40 shrink-0">
           <div className="font-display text-base text-foreground">Settings</div>
-          <div className="text-[11.5px] text-muted-foreground mt-0.5">{user?.email}</div>
-          <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[12px] w-fit">
+          <div className="text-[13px] text-muted-foreground mt-0.5">{user?.email}</div>
+          <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[13px] w-fit">
             {([["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"]] as const).map(([tab, label]) => (
               <button key={tab} type="button" onClick={() => setActiveTab(tab)}
                 className={`px-4 py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
@@ -205,13 +205,13 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
               </button>
               <div className="min-w-0">
                 <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                  className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline disabled:opacity-50">
+                  className="text-[13.5px] font-medium text-[hsl(var(--primary))] hover:underline disabled:opacity-50">
                   {uploading ? "Uploading…" : avatarUrl ? "Change photo" : "Upload photo"}
                 </button>
-                <div className="text-[11px] text-muted-foreground mt-0.5">JPG or PNG, up to 5 MB</div>
+                <div className="text-[12.5px] text-muted-foreground mt-0.5">JPG or PNG, up to 5 MB</div>
                 {avatarUrl && (
                   <button type="button" onClick={() => setAvatarUrl("")}
-                    className="text-[11px] text-muted-foreground hover:text-negative mt-0.5">Remove</button>
+                    className="text-[12.5px] text-muted-foreground hover:text-negative mt-0.5">Remove</button>
                 )}
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden"
@@ -223,20 +223,20 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
               { label: "Timezone", value: timezone, set: setTimezone, ph: "America/Los_Angeles", max: 60 },
             ].map((f) => (
               <div key={f.label}>
-                <label className="text-[11px] text-muted-foreground">{f.label}</label>
+                <label className="text-[12.5px] text-muted-foreground">{f.label}</label>
                 <input value={f.value} onChange={(e) => f.set(e.target.value)} placeholder={f.ph} maxLength={f.max}
-                  className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                  className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               </div>
             ))}
             {/* Phone with live US formatting: (555) 123-4567 */}
             <div>
-              <label className="text-[11px] text-muted-foreground">Phone</label>
+              <label className="text-[12.5px] text-muted-foreground">Phone</label>
               <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} placeholder="(555) 123-4567"
                 type="tel" inputMode="tel" maxLength={16}
-                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
             </div>
             <button onClick={save} disabled={busy}
-              className="mt-2 w-full py-2 rounded-md bg-foreground text-background text-[13px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+              className="mt-2 w-full py-2 rounded-md bg-foreground text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save changes
             </button>
@@ -247,29 +247,29 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             <div className="border-t border-negative/20 pt-4">
               {!showDeleteAccount ? (
                 <button onClick={() => setShowDeleteAccount(true)}
-                  className="inline-flex items-center gap-1.5 text-[12px] text-negative hover:underline">
+                  className="inline-flex items-center gap-1.5 text-[13px] text-negative hover:underline">
                   <Trash2 className="h-3.5 w-3.5" /> Delete account
                 </button>
               ) : (
                 <div className="rounded-lg border border-negative/30 bg-negative/5 p-3.5 space-y-2.5">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-negative shrink-0 mt-0.5" />
-                    <div className="text-[12px] text-foreground">
+                    <div className="text-[13px] text-foreground">
                       This permanently deletes your account, disconnects every linked bank, and erases all your data. This can't be undone.
                     </div>
                   </div>
                   <div>
-                    <label className="text-[11px] text-muted-foreground">Type <span className="font-semibold text-foreground">DELETE</span> to confirm</label>
+                    <label className="text-[12.5px] text-muted-foreground">Type <span className="font-semibold text-foreground">DELETE</span> to confirm</label>
                     <input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      className="mt-1 w-full bg-surface/40 border border-negative/30 rounded-md px-3 py-2 text-[13px] text-foreground outline-none focus:border-negative" />
+                      className="mt-1 w-full bg-surface/40 border border-negative/30 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-negative" />
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={deleteAccount} disabled={deleteConfirmText !== "DELETE" || deletingAccount}
-                      className="flex-1 h-9 rounded-md bg-negative text-white text-[12.5px] font-medium hover:opacity-90 disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
+                      className="flex-1 h-9 rounded-md bg-negative text-white text-[13.5px] font-medium hover:opacity-90 disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
                       {deletingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Permanently delete my account
                     </button>
                     <button onClick={() => { setShowDeleteAccount(false); setDeleteConfirmText(""); }}
-                      className="h-9 px-3 rounded-md border border-border-strong text-[12.5px] text-muted-foreground hover:text-foreground">
+                      className="h-9 px-3 rounded-md border border-border-strong text-[13.5px] text-muted-foreground hover:text-foreground">
                       Cancel
                     </button>
                   </div>
@@ -281,11 +281,11 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
 
           {activeTab === "banks" && (
             <div className="p-5">
-              <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
+              <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
               {items === null ? (
                 <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
               ) : items.length === 0 ? (
-                <div className="text-[12px] text-muted-foreground">No banks connected.</div>
+                <div className="text-[13px] text-muted-foreground">No banks connected.</div>
               ) : (
                 <div className="space-y-2">
                   {items.map((item) => (
@@ -294,28 +294,28 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                         <Landmark className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-[12.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
-                        <div className="text-[10px] text-muted-foreground capitalize">{item.status}</div>
+                        <div className="text-[13.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
+                        <div className="text-[12px] text-muted-foreground capitalize">{item.status}</div>
                       </div>
                       {confirmDisconnect?.id === item.id ? (
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button onClick={() => disconnectBank(item)} disabled={disconnectingId === item.id}
-                            className="h-7 px-2.5 rounded-md bg-negative text-white text-[11px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
+                            className="h-7 px-2.5 rounded-md bg-negative text-white text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
                             {disconnectingId === item.id && <Loader2 className="h-3 w-3 animate-spin" />} Confirm
                           </button>
-                          <button onClick={() => setConfirmDisconnect(null)} className="h-7 px-2 rounded-md border border-border-strong text-[11px] text-muted-foreground hover:text-foreground">
+                          <button onClick={() => setConfirmDisconnect(null)} className="h-7 px-2 rounded-md border border-border-strong text-[12.5px] text-muted-foreground hover:text-foreground">
                             Cancel
                           </button>
                         </div>
                       ) : (
                         <button onClick={() => setConfirmDisconnect(item)}
-                          className="text-[11px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
+                          className="text-[12.5px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
                       )}
                     </div>
                   ))}
                 </div>
               )}
-              <div className="text-[10px] text-muted-foreground mt-2">
+              <div className="text-[12px] text-muted-foreground mt-2">
                 Disconnecting fully revokes access with your bank. It doesn't just remove it from this view.
               </div>
             </div>

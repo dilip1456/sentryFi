@@ -132,7 +132,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           </div>
           <div>
             <div className="font-display text-[16px] tracking-tight text-foreground leading-tight">SentryFi</div>
-            <div className="text-[11px] text-muted-foreground leading-tight">Personal Finance</div>
+            <div className="text-[12.5px] text-muted-foreground leading-tight">Personal Finance</div>
           </div>
         </button>
         <div className="flex items-center gap-1">
@@ -151,7 +151,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
               <button className="relative h-10 w-10 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors no-min-h">
                 <Bell className="h-[18px] w-[18px]" />
                 {unread > 0 && (
-                  <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-positive text-background text-[9px] font-semibold grid place-items-center">
+                  <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-positive text-background text-[11px] font-semibold grid place-items-center">
                     {unread}
                   </span>
                 )}
@@ -159,21 +159,21 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80 max-w-[calc(100vw-1rem)] surface-elevated">
               <div className="flex items-center justify-between px-2 py-1.5">
-                <DropdownMenuLabel className="p-0 text-[12px]">Notifications</DropdownMenuLabel>
-                <button onClick={markAll} className="text-[11px] text-muted-foreground hover:text-foreground">Mark all read</button>
+                <DropdownMenuLabel className="p-0 text-[13px]">Notifications</DropdownMenuLabel>
+                <button onClick={markAll} className="text-[12.5px] text-muted-foreground hover:text-foreground">Mark all read</button>
               </div>
               <DropdownMenuSeparator />
               <div className="max-h-[360px] overflow-auto">
                 {notifs.length === 0 && (
-                  <div className="px-3 py-8 text-center text-[12px] text-muted-foreground">All caught up.</div>
+                  <div className="px-3 py-8 text-center text-[13px] text-muted-foreground">All caught up.</div>
                 )}
                 {notifs.map((n) => (
                   <div key={n.id} className={cn("group flex items-start gap-2.5 px-2.5 py-3 hover:bg-surface-hover/50 transition-colors", n.unread && "bg-surface/30")}>
                     <span className={cn("mt-1.5 h-2 w-2 rounded-full shrink-0", toneClass[n.tone])} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] text-foreground font-medium truncate">{n.title}</div>
-                      <div className="text-[12px] text-muted-foreground line-clamp-2 mt-0.5">{n.body}</div>
-                      <div className="text-[11px] text-muted-foreground mt-1">{n.time} ago</div>
+                      <div className="text-[14px] text-foreground font-medium truncate">{n.title}</div>
+                      <div className="text-[13px] text-muted-foreground line-clamp-2 mt-0.5">{n.body}</div>
+                      <div className="text-[12.5px] text-muted-foreground mt-1">{n.time} ago</div>
                     </div>
                     <button onClick={() => clearOne(n.id)} className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition shrink-0">
                       <Trash2 className="h-3.5 w-3.5" />
@@ -186,7 +186,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Avatar/profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-0.5 h-9 w-9 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground overflow-hidden no-min-h">
+              <button className="ml-0.5 h-9 w-9 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden no-min-h">
                 {profile?.avatar_url
                   ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
                   : initials}
@@ -194,22 +194,22 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)] surface-elevated">
               <DropdownMenuLabel>
-                <div className="text-[13px] font-medium text-foreground">{displayName}</div>
-                <div className="text-[11px] text-muted-foreground font-normal">{user?.email}</div>
+                <div className="text-[14px] font-medium text-foreground">{displayName}</div>
+                <div className="text-[12.5px] text-muted-foreground font-normal">{user?.email}</div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[13px] py-3" onClick={() => setProfileOpen(true)}>
+              <DropdownMenuItem className="text-[14px] py-3" onClick={() => setProfileOpen(true)}>
                 <User className="h-4 w-4 mr-2.5" /> Profile & connected banks
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-[13px] py-3" onClick={() => { onAddAccount?.(); }}>
+              <DropdownMenuItem className="text-[14px] py-3" onClick={() => { onAddAccount?.(); }}>
                 <CreditCard className="h-4 w-4 mr-2.5" /> Link a bank account
               </DropdownMenuItem>
-              <DropdownMenuCheckboxItem checked={dark} onCheckedChange={(v) => { setTheme(v ? "dark" : "light"); }} className="text-[13px] py-3">
+              <DropdownMenuCheckboxItem checked={dark} onCheckedChange={(v) => { setTheme(v ? "dark" : "light"); }} className="text-[14px] py-3">
                 {dark ? <Moon className="h-4 w-4 mr-2.5" /> : <Sun className="h-4 w-4 mr-2.5" />}
                 Dark theme
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[13px] py-3 text-negative focus:text-negative"
+              <DropdownMenuItem className="text-[14px] py-3 text-negative focus:text-negative"
                 onClick={async () => { await signOut(); toast.success("Signed out"); navigate("/auth"); }}>
                 <LogOut className="h-4 w-4 mr-2.5" /> Sign out
               </DropdownMenuItem>
@@ -227,7 +227,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           </div>
           <div className="text-left">
             <div className="font-display text-[18px] tracking-tight text-foreground leading-tight">SentryFi</div>
-            <div className="text-[11px] text-muted-foreground leading-tight">Personal Finance</div>
+            <div className="text-[12.5px] text-muted-foreground leading-tight">Personal Finance</div>
           </div>
         </button>
 
@@ -239,7 +239,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                 key={item.k}
                 onClick={() => onChange?.(item.k)}
                 className={cn(
-                  "px-3 py-1.5 rounded-full transition-colors text-[13px]",
+                  "px-3 py-1.5 rounded-full transition-colors text-[14px]",
                   isActive ? "bg-foreground text-background font-medium" : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -252,14 +252,14 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
         <div className="flex items-center gap-1 shrink-0">
           {onSync && (
             <button onClick={onSync} disabled={syncing}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border-strong text-muted-foreground hover:text-foreground transition-colors text-[12px] disabled:opacity-50">
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full border border-border-strong text-muted-foreground hover:text-foreground transition-colors text-[13px] disabled:opacity-50">
               <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
               {syncing ? "Syncing…" : "Sync"}
             </button>
           )}
           {onAddAccount && (
             <button onClick={onAddAccount}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity">
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity">
               <Plus className="h-3.5 w-3.5" /> Link account
             </button>
           )}
@@ -268,11 +268,11 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           <button
             onClick={() => setSearchOpen(true)}
             title="Search (⌘K)"
-            className="h-9 px-3 inline-flex items-center gap-2 rounded-full border border-border/40 hover:border-border-strong text-muted-foreground hover:text-foreground transition-colors text-[11px]"
+            className="h-9 px-3 inline-flex items-center gap-2 rounded-full border border-border/40 hover:border-border-strong text-muted-foreground hover:text-foreground transition-colors text-[12.5px]"
           >
             <Search className="h-3.5 w-3.5" />
             <span className="hidden lg:inline">Search</span>
-            <kbd className="hidden lg:inline-flex items-center text-[9.5px] text-muted-foreground/50 font-mono">⌘K</kbd>
+            <kbd className="hidden lg:inline-flex items-center text-[11px] text-muted-foreground/50 font-mono">⌘K</kbd>
           </button>
 
           {/* Notifications */}
@@ -281,7 +281,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
               <button className="relative h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Bell className="h-4 w-4" />
                 {unread > 0 && (
-                  <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-1 rounded-full bg-positive text-background text-[9px] font-semibold grid place-items-center">
+                  <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-1 rounded-full bg-positive text-background text-[11px] font-semibold grid place-items-center">
                     {unread}
                   </span>
                 )}
@@ -289,21 +289,21 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80 max-w-[calc(100vw-1rem)] surface-elevated">
               <div className="flex items-center justify-between px-2 py-1.5">
-                <DropdownMenuLabel className="p-0 text-[12px]">Notifications</DropdownMenuLabel>
-                <button onClick={markAll} className="text-[10.5px] text-muted-foreground hover:text-foreground">Mark all read</button>
+                <DropdownMenuLabel className="p-0 text-[13px]">Notifications</DropdownMenuLabel>
+                <button onClick={markAll} className="text-[12px] text-muted-foreground hover:text-foreground">Mark all read</button>
               </div>
               <DropdownMenuSeparator />
               <div className="max-h-[360px] overflow-auto">
                 {notifs.length === 0 && (
-                  <div className="px-3 py-8 text-center text-[11.5px] text-muted-foreground">All caught up.</div>
+                  <div className="px-3 py-8 text-center text-[13px] text-muted-foreground">All caught up.</div>
                 )}
                 {notifs.map((n) => (
                   <div key={n.id} className={cn("group flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-surface-hover/50 transition-colors", n.unread && "bg-surface/30")}>
                     <span className={cn("mt-1 h-1.5 w-1.5 rounded-full shrink-0", toneClass[n.tone])} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[12px] text-foreground truncate">{n.title}</div>
-                      <div className="text-[10.5px] text-muted-foreground line-clamp-2">{n.body}</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">{n.time} ago</div>
+                      <div className="text-[13px] text-foreground truncate">{n.title}</div>
+                      <div className="text-[12px] text-muted-foreground line-clamp-2">{n.body}</div>
+                      <div className="text-[12px] text-muted-foreground mt-0.5">{n.time} ago</div>
                     </div>
                     <button onClick={() => clearOne(n.id)} className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition">
                       <Trash2 className="h-3 w-3" />
@@ -322,22 +322,22 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 max-w-[calc(100vw-1rem)] surface-elevated">
-              <DropdownMenuLabel className="text-[12px]">Preferences</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[13px]">Preferences</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem checked={dark} onCheckedChange={(v) => { setTheme(v ? "dark" : "light"); toast(`${v ? "Dark" : "Light"} theme enabled`); }} className="text-[12px]">
+              <DropdownMenuCheckboxItem checked={dark} onCheckedChange={(v) => { setTheme(v ? "dark" : "light"); toast(`${v ? "Dark" : "Light"} theme enabled`); }} className="text-[13px]">
                 {dark ? <Moon className="h-3.5 w-3.5 mr-2" /> : <Sun className="h-3.5 w-3.5 mr-2" />}
                 Dark theme
               </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={demo} onCheckedChange={(v) => { setDemo(!!v); toast(`Demo mode ${v ? "on: showing sample data" : "off: showing your real accounts"}`); }} className="text-[12px]">
+              <DropdownMenuCheckboxItem checked={demo} onCheckedChange={(v) => { setDemo(!!v); toast(`Demo mode ${v ? "on: showing sample data" : "off: showing your real accounts"}`); }} className="text-[13px]">
                 <Sparkles className="h-3.5 w-3.5 mr-2" />
                 Demo mode
               </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[11px] text-muted-foreground font-normal">Alerts</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem checked={alertsEmail} onCheckedChange={(v) => handleAlertsEmail(!!v)} className="text-[12px]">Email alerts</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={alertsPush} onCheckedChange={(v) => handleAlertsPush(!!v)} className="text-[12px]">Push notifications</DropdownMenuCheckboxItem>
+              <DropdownMenuLabel className="text-[12.5px] text-muted-foreground font-normal">Alerts</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem checked={alertsEmail} onCheckedChange={(v) => handleAlertsEmail(!!v)} className="text-[13px]">Email alerts</DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={alertsPush} onCheckedChange={(v) => handleAlertsPush(!!v)} className="text-[13px]">Push notifications</DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[12px]" onClick={() => toast("Help center coming soon")}>
+              <DropdownMenuItem className="text-[13px]" onClick={() => toast("Help center coming soon")}>
                 <HelpCircle className="h-3.5 w-3.5 mr-2" /> Help & support
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -346,7 +346,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[11px] font-semibold text-foreground overflow-hidden">
+              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden">
                 {profile?.avatar_url
                   ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
                   : initials}
@@ -354,25 +354,25 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60 max-w-[calc(100vw-1rem)] surface-elevated">
               <div className="px-2 py-2">
-                <div className="text-[12.5px] text-foreground font-medium truncate">{displayName}</div>
-                <div className="text-[10.5px] text-muted-foreground truncate">{user?.email}</div>
-                <div className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
+                <div className="text-[12px] text-muted-foreground truncate">{user?.email}</div>
+                <div className="mt-1 inline-flex items-center gap-1 text-[12px] uppercase tracking-wider text-muted-foreground">
                   <span className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-foreground">{subscriber?.plan ?? "free"}</span>
                   {isAdmin && <span className="px-1.5 py-0.5 rounded bg-info/15 text-info">admin</span>}
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[12px]" onClick={() => setProfileOpen(true)}>
+              <DropdownMenuItem className="text-[13px]" onClick={() => setProfileOpen(true)}>
                 <User className="h-3.5 w-3.5 mr-2" /> Edit profile
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-[12px]" onClick={() => navigate("/pricing")}>
+              <DropdownMenuItem className="text-[13px]" onClick={() => navigate("/pricing")}>
                 <CreditCard className="h-3.5 w-3.5 mr-2" /> Plans & billing
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-[12px]" onClick={() => { onAddAccount?.(); }}>
+              <DropdownMenuItem className="text-[13px]" onClick={() => { onAddAccount?.(); }}>
                 <ShieldCheck className="h-3.5 w-3.5 mr-2" /> Linked accounts
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[12px] text-negative focus:text-negative"
+              <DropdownMenuItem className="text-[13px] text-negative focus:text-negative"
                 onClick={async () => { await signOut(); toast.success("Signed out"); navigate("/auth"); }}>
                 <LogOut className="h-3.5 w-3.5 mr-2" /> Sign out
               </DropdownMenuItem>
@@ -399,13 +399,13 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                 else if (e.key === "Enter" && matches[searchIdx]) { handleSearchSelect(matches[searchIdx].k); }
               }}
               placeholder="Search tabs, actions, settings…"
-              className="flex-1 bg-transparent outline-none text-[13px] text-foreground placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent outline-none text-[14px] text-foreground placeholder:text-muted-foreground"
             />
-            <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-muted-foreground/50 border border-border/40 rounded px-1 py-0.5 font-mono">⌘K</kbd>
+            <kbd className="hidden sm:inline-flex items-center gap-0.5 text-[12px] text-muted-foreground/50 border border-border/40 rounded px-1 py-0.5 font-mono">⌘K</kbd>
           </div>
           <div className="max-h-[320px] overflow-auto py-1">
             {matches.length === 0 && (
-              <div className="px-4 py-6 text-center text-[12px] text-muted-foreground">No matches.</div>
+              <div className="px-4 py-6 text-center text-[13px] text-muted-foreground">No matches.</div>
             )}
             {matches.map((m, i) => (
               <button
@@ -414,12 +414,12 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                 className={cn("w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors",
                   i === searchIdx ? "bg-surface-hover/60" : "hover:bg-surface-hover/30")}
               >
-                <span className="text-[12.5px] text-foreground">{m.label}</span>
-                <span className="text-[9.5px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground">{m.kind}</span>
+                <span className="text-[13.5px] text-foreground">{m.label}</span>
+                <span className="text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-border/30 text-muted-foreground">{m.kind}</span>
               </button>
             ))}
           </div>
-          <div className="border-t border-border/20 px-3 py-1.5 flex items-center gap-3 text-[10px] text-muted-foreground/50">
+          <div className="border-t border-border/20 px-3 py-1.5 flex items-center gap-3 text-[12px] text-muted-foreground/50">
             <span>↑↓ navigate</span>
             <span>↵ select</span>
             <span>esc close</span>

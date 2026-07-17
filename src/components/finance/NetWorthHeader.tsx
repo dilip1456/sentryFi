@@ -26,13 +26,13 @@ export const NetWorthHeader = ({ netWorth, assets, liabilities }: Props) => {
 
       <div className="relative grid gap-4 md:grid-cols-[1.05fr_1fr] md:gap-8 items-center">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Net worth</div>
+          <div className="text-[12px] uppercase tracking-[0.22em] text-muted-foreground">Net worth</div>
 
           <div className="mt-1 flex items-baseline gap-3 flex-wrap">
             <h2 className="font-display text-3xl md:text-4xl font-medium leading-none tabular text-primary animate-count-in">
               {fmtUSD(animatedNW)}
             </h2>
-            <span className="chip chip-positive !py-0.5 !px-2 !text-[11px] animate-pop-in">
+            <span className="chip chip-positive !py-0.5 !px-2 !text-[12.5px] animate-pop-in">
               <ArrowUpRight className="h-3 w-3" />
               {fmtUSD(change, { signed: true, compact: true })} ({fmtPct(changePct)}) · 12 mo
             </span>
@@ -40,13 +40,13 @@ export const NetWorthHeader = ({ netWorth, assets, liabilities }: Props) => {
 
           <div className="mt-4 grid grid-cols-2 gap-5 max-w-md">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Assets</div>
+              <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Assets</div>
               <div className="font-display text-base mt-0.5 tabular text-positive animate-count-in">
                 {fmtUSD(animatedAss, { compact: true })}
               </div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
+              <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
               <div className="font-display text-base mt-0.5 tabular text-negative animate-count-in">
                 −{fmtUSD(animatedLiab, { compact: true })}
               </div>

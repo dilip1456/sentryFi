@@ -119,7 +119,7 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
       <div className="relative">
         {status && (
           <div className={cn(
-            "inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full mb-1.5",
+            "inline-flex items-center gap-1 text-[12px] font-medium px-1.5 py-0.5 rounded-full mb-1.5",
             status === "expired" ? "bg-negative/90 text-white" : "bg-warning/90 text-warning-foreground"
           )}>
             <Clock className="h-2.5 w-2.5" />
@@ -128,9 +128,9 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
         )}
         <div className="font-display text-2xl tabular text-white leading-none drop-shadow-sm">{fmtUSD(Number(card.balance))}</div>
         <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[12px] text-white/85 font-medium truncate">{card.brand_name}</span>
+          <span className="text-[13px] text-white/85 font-medium truncate">{card.brand_name}</span>
           {card.card_number_last4 && (
-            <span className="text-[11px] text-white/60 font-mono tracking-wider">•••• {card.card_number_last4}</span>
+            <span className="text-[12.5px] text-white/60 font-mono tracking-wider">•••• {card.card_number_last4}</span>
           )}
         </div>
       </div>
@@ -216,17 +216,17 @@ const CardDetailDialog = ({
           <GiftCardTile card={card} />
         </div>
         {cards.length > 1 && (
-          <div className="text-center text-[10.5px] text-muted-foreground -mt-1 mb-1">{index + 1} of {cards.length} · swipe to browse</div>
+          <div className="text-center text-[12px] text-muted-foreground -mt-1 mb-1">{index + 1} of {cards.length} · swipe to browse</div>
         )}
 
         <div className="px-5 pb-5 space-y-4">
           {status && (
-            <div className={cn("flex items-center gap-1.5 text-[12px]", status === "expired" ? "text-negative" : "text-warning")}>
+            <div className={cn("flex items-center gap-1.5 text-[13px]", status === "expired" ? "text-negative" : "text-warning")}>
               <Clock className="h-3.5 w-3.5" /> {status === "expired" ? "This card has expired" : `Expires in ${daysUntil(card.expiry_date!)} days`}
             </div>
           )}
 
-          <div className="flex items-center gap-2 text-[12px]">
+          <div className="flex items-center gap-2 text-[13px]">
             {card.balance_verified ? (
               <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
             ) : (
@@ -239,13 +239,13 @@ const CardDetailDialog = ({
           {(card.card_number || card.card_number_last4 || card.pin) && (
             <div className="surface-card p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</span>
-                <button onClick={() => setReveal(v => !v)} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                <span className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</span>
+                <button onClick={() => setReveal(v => !v)} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
                   {reveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
                 </button>
               </div>
               {(card.card_number || card.card_number_last4) && (
-                <div className="flex items-center justify-between text-[13px]">
+                <div className="flex items-center justify-between text-[14px]">
                   <span className="text-muted-foreground">Number</span>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono tracking-wider text-foreground">
@@ -260,7 +260,7 @@ const CardDetailDialog = ({
                 </div>
               )}
               {card.pin && (
-                <div className="flex items-center justify-between text-[13px]">
+                <div className="flex items-center justify-between text-[14px]">
                   <span className="text-muted-foreground">PIN</span>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
@@ -274,35 +274,35 @@ const CardDetailDialog = ({
           )}
 
           {card.notes && (
-            <div className="text-[12px] text-muted-foreground">
-              <span className="text-[10px] uppercase tracking-wider block mb-1">Notes</span>
+            <div className="text-[13px] text-muted-foreground">
+              <span className="text-[12px] uppercase tracking-wider block mb-1">Notes</span>
               {card.notes}
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-1.5">
-            <button onClick={() => onLogSpend(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => onLogSpend(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
               <MinusCircle className="h-3.5 w-3.5" /> Log spend
             </button>
-            <button onClick={() => onEdit(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => onEdit(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
             {card.balance_check_url && (
               <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[13px] text-foreground hover:bg-secondary transition-colors">
                 <ExternalLink className="h-3.5 w-3.5" /> Check balance
               </a>
             )}
             {card.buy_url && (
               <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[12px] text-foreground hover:bg-secondary transition-colors">
+                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[13px] text-foreground hover:bg-secondary transition-colors">
                 <ShoppingBag className="h-3.5 w-3.5" /> Buy more
               </a>
             )}
           </div>
 
           <button onClick={() => onRemove(card)} disabled={removingId === card.id}
-            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[12px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[13px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
             {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
           </button>
         </div>
@@ -402,7 +402,7 @@ export const GiftCardsSection = () => {
         <div>
           <h2 className="font-display text-base md:text-lg text-primary">Gift cards</h2>
           {cards && cards.length > 0 && (
-            <div className="text-[12px] text-muted-foreground mt-0.5">
+            <div className="text-[13px] text-muted-foreground mt-0.5">
               {cards.length} card{cards.length !== 1 ? "s" : ""} · {fmtUSD(totalBalance)} total balance
             </div>
           )}
@@ -411,18 +411,18 @@ export const GiftCardsSection = () => {
           {cards && cards.length > 0 && (
             <div className="inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
               <button onClick={() => setViewMode("cards")}
-                className={cn("px-2.5 h-7 rounded-[5px] text-[11.5px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                className={cn("px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 Cards
               </button>
               <button onClick={() => setViewMode("table")}
-                className={cn("px-2.5 h-7 rounded-[5px] text-[11.5px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                className={cn("px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 Table
               </button>
             </div>
           )}
           <button
             onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gold text-[12px] font-medium hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="h-3.5 w-3.5" /> Add gift card
           </button>
@@ -432,7 +432,7 @@ export const GiftCardsSection = () => {
       {(expired.length > 0 || expiringSoon.length > 0) && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-3.5 py-2.5 flex items-start gap-2.5">
           <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-          <div className="text-[12px] text-foreground">
+          <div className="text-[13px] text-foreground">
             {expired.length > 0 && (
               <div><span className="font-medium">{expired.length} card{expired.length !== 1 ? "s" : ""} expired:</span> {expired.map(c => c.brand_name).join(", ")}</div>
             )}
@@ -453,11 +453,11 @@ export const GiftCardsSection = () => {
       ) : cards.length === 0 ? (
         <div className="surface-card p-8 text-center">
           <Gift className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-          <div className="text-[13px] text-foreground font-medium">No gift cards yet</div>
-          <div className="text-[12px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
+          <div className="text-[14px] text-foreground font-medium">No gift cards yet</div>
+          <div className="text-[13px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
           <button
             onClick={() => setAddOpen(true)}
-            className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[12.5px] font-medium hover:opacity-90 transition-opacity"
+            className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[13.5px] font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="h-3.5 w-3.5" /> Add your first gift card
           </button>
@@ -471,10 +471,10 @@ export const GiftCardsSection = () => {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-border/30">
-                    <th className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Brand</th>
-                    <th className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
-                    <th className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Expires</th>
-                    <th className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Card #</th>
+                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Brand</th>
+                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
+                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Expires</th>
+                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card #</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/15">
@@ -488,22 +488,22 @@ export const GiftCardsSection = () => {
                         <td className="px-4 py-3 flex items-center gap-2.5">
                           {isActive && <div className="w-1 h-6 rounded-full bg-[hsl(var(--primary))] shrink-0 -ml-1" />}
                           <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={28} />
-                          <span className="text-[13px] font-medium text-foreground truncate">{card.brand_name}</span>
+                          <span className="text-[14px] font-medium text-foreground truncate">{card.brand_name}</span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <span className={cn("text-[13.5px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
+                          <span className={cn("text-[14px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
                             {fmtUSD(Number(card.balance))}
                           </span>
                         </td>
                         <td className="px-4 py-3">
                           {card.expiry_date ? (
-                            <span className={cn("text-[12px] tabular", status === "expired" ? "text-negative font-medium" : status === "expiring-soon" ? "text-warning" : "text-muted-foreground")}>
+                            <span className={cn("text-[13px] tabular", status === "expired" ? "text-negative font-medium" : status === "expiring-soon" ? "text-warning" : "text-muted-foreground")}>
                               {new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
                             </span>
-                          ) : <span className="text-[12px] text-muted-foreground/40">—</span>}
+                          ) : <span className="text-[13px] text-muted-foreground/40">—</span>}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="text-[12px] text-muted-foreground tabular">
+                          <span className="text-[13px] text-muted-foreground tabular">
                             {card.card_number_last4 ? `···· ${card.card_number_last4}` : "—"}
                           </span>
                         </td>
@@ -534,7 +534,7 @@ export const GiftCardsSection = () => {
                     </GiftCardTile>
                     <div className="surface-card p-4 space-y-3">
                       {(card.card_number_last4 || card.pin || card.expiry_date || card.notes) && (
-                        <div className="space-y-2 text-[13px]">
+                        <div className="space-y-2 text-[14px]">
                           {card.card_number_last4 && (
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">Card number</span>
@@ -561,21 +561,21 @@ export const GiftCardsSection = () => {
                               </span>
                             </div>
                           )}
-                          {card.notes && <p className="text-muted-foreground text-[12px]">{card.notes}</p>}
+                          {card.notes && <p className="text-muted-foreground text-[13px]">{card.notes}</p>}
                         </div>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <button onClick={() => setSpendCard(card)}
-                          className="h-9 rounded-lg border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
+                          className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
                           <MinusCircle className="h-3.5 w-3.5" /> Log spend
                         </button>
                         <button onClick={() => setEditCard(card)}
-                          className="h-9 rounded-lg border border-border-strong text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
+                          className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
                           <Pencil className="h-3.5 w-3.5" /> Edit
                         </button>
                         {card.balance_check_url && (
                           <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                            className="col-span-2 h-9 rounded-lg bg-secondary/50 text-[12px] text-foreground hover:bg-secondary transition-colors flex items-center justify-center gap-1.5">
+                            className="col-span-2 h-9 rounded-lg bg-secondary/50 text-[13px] text-foreground hover:bg-secondary transition-colors flex items-center justify-center gap-1.5">
                             <ExternalLink className="h-3.5 w-3.5" /> Check balance on {card.brand_name}
                           </a>
                         )}
@@ -599,20 +599,20 @@ export const GiftCardsSection = () => {
                     className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
                     <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={40} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-medium text-foreground truncate">{card.brand_name}</div>
+                      <div className="text-[15px] font-medium text-foreground truncate">{card.brand_name}</div>
                       <div className="flex items-center gap-2 mt-0.5">
                         {status && (
-                          <span className={cn("text-[11px] font-medium", status === "expired" ? "text-negative" : "text-warning")}>
+                          <span className={cn("text-[12.5px] font-medium", status === "expired" ? "text-negative" : "text-warning")}>
                             {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
                           </span>
                         )}
-                        {card.card_number_last4 && <span className="text-[11px] text-muted-foreground">···· {card.card_number_last4}</span>}
-                        {!status && !card.card_number_last4 && <span className="text-[11px] text-muted-foreground">Tap for details</span>}
+                        {card.card_number_last4 && <span className="text-[12.5px] text-muted-foreground">···· {card.card_number_last4}</span>}
+                        {!status && !card.card_number_last4 && <span className="text-[12.5px] text-muted-foreground">Tap for details</span>}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className={cn("text-[15px] tabular font-semibold", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
-                      <div className="text-[10.5px] text-muted-foreground mt-0.5">balance</div>
+                      <div className="text-[12px] text-muted-foreground mt-0.5">balance</div>
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                   </button>
@@ -778,7 +778,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                 <BrandLogo domain={chosen.domain} logoUrl={chosen.logo_url} name={chosen.name} size={32} />
                 <div className="min-w-0">
                   <div className="font-display text-[15px] text-foreground truncate">{chosen.name}</div>
-                  <div className="text-[11px] text-muted-foreground">Enter card details</div>
+                  <div className="text-[12.5px] text-muted-foreground">Enter card details</div>
                 </div>
               </>
             ) : (
@@ -806,7 +806,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                     <button key={b.name} onClick={() => selectBrand({ name: b.name, domain: b.domain, logo_url: null, balanceCheckUrl: b.balanceCheckUrl, buyUrl: b.buyUrl })}
                       className="flex flex-col items-center gap-2 p-3 rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 active:scale-95 transition-all">
                       <BrandLogo domain={b.domain} name={b.name} size={36} />
-                      <span className="text-[11px] text-foreground leading-tight text-center line-clamp-2">{b.name}</span>
+                      <span className="text-[12.5px] text-foreground leading-tight text-center line-clamp-2">{b.name}</span>
                     </button>
                   ))}
                 </div>
@@ -823,8 +823,8 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                       className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-border/40 hover:border-primary/50 hover:bg-primary/5 transition-colors text-left">
                       <SearchResultLogo name={r.name} domain={r.domain} logo={r.logo} />
                       <div className="min-w-0">
-                        <div className="text-[13px] text-foreground font-medium truncate">{r.name}</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{r.domain}</div>
+                        <div className="text-[14px] text-foreground font-medium truncate">{r.name}</div>
+                        <div className="text-[12.5px] text-muted-foreground truncate">{r.domain}</div>
                       </div>
                     </button>
                   ))}
@@ -835,8 +835,8 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                         <Plus className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <div>
-                        <div className="text-[13px] text-foreground font-medium">Add "{search.trim()}"</div>
-                        <div className="text-[11px] text-muted-foreground">Save without a logo</div>
+                        <div className="text-[14px] text-foreground font-medium">Add "{search.trim()}"</div>
+                        <div className="text-[12.5px] text-muted-foreground">Save without a logo</div>
                       </div>
                     </button>
                   )}
@@ -851,7 +851,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                 <input
                   value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search brands or any company…"
-                  className="w-full h-11 pl-10 pr-10 rounded-xl bg-surface/60 border border-border/60 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors"
+                  className="w-full h-11 pl-10 pr-10 rounded-xl bg-surface/60 border border-border/60 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors"
                 />
                 {search && (
                   <button onClick={() => { setSearch(""); setLookupResults([]); }}
@@ -878,7 +878,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
               {/* Balance — required, prominent */}
               <div>
-                <label className="text-[12px] font-medium text-foreground">Current balance *</label>
+                <label className="text-[13px] font-medium text-foreground">Current balance *</label>
                 <div className="relative mt-1.5">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[15px]">$</span>
                   <input
@@ -891,33 +891,33 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[12px] font-medium text-foreground">Card number</label>
+                  <label className="text-[13px] font-medium text-foreground">Card number</label>
                   <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Optional"
-                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
                 </div>
                 <div>
-                  <label className="text-[12px] font-medium text-foreground">PIN</label>
+                  <label className="text-[13px] font-medium text-foreground">PIN</label>
                   <input value={pin} onChange={e => setPin(e.target.value)} placeholder="Optional"
-                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                    className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
                 </div>
               </div>
 
               <div>
-                <label className="text-[12px] font-medium text-foreground">Expiry date</label>
+                <label className="text-[13px] font-medium text-foreground">Expiry date</label>
                 <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
-                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
               </div>
 
               <div>
-                <label className="text-[12px] font-medium text-foreground">Notes</label>
+                <label className="text-[13px] font-medium text-foreground">Notes</label>
                 <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Birthday gift from mom"
-                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[14px] text-foreground outline-none focus:border-primary/50 transition-colors" />
+                  className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
               </div>
             </div>
 
             <div className="p-4 border-t border-border/40 shrink-0">
               <button onClick={save} disabled={balance === "" || saving}
-                className="w-full h-12 rounded-xl bg-gold text-[14px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                className="w-full h-12 rounded-xl bg-gold text-[15px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center justify-center gap-2">
                 {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Plus className="h-4 w-4" /> Add {chosen?.name ?? "gift card"}</>}
               </button>
             </div>
@@ -962,26 +962,26 @@ const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose
             <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={36} />
             <div>
               <div className="font-display text-base text-foreground">{card.brand_name}</div>
-              <div className="text-[11px] text-muted-foreground">Current balance: {fmtUSD(Number(card.balance))}</div>
+              <div className="text-[12.5px] text-muted-foreground">Current balance: {fmtUSD(Number(card.balance))}</div>
             </div>
           </div>
         </div>
         <div className="p-5 space-y-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">How much did you spend?</label>
+            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">How much did you spend?</label>
             <input type="number" step="0.01" autoFocus value={spent} onChange={e => setSpent(e.target.value)} placeholder="0.00"
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
           </div>
           {spent !== "" && (
-            <div className="text-[12px] text-muted-foreground">New balance: <span className="text-foreground font-medium tabular">{fmtUSD(newBalance)}</span></div>
+            <div className="text-[13px] text-muted-foreground">New balance: <span className="text-foreground font-medium tabular">{fmtUSD(newBalance)}</span></div>
           )}
         </div>
         <div className="p-4 pt-0 flex gap-2">
           <button onClick={save} disabled={saving || spent === ""}
-            className="flex-1 h-10 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 disabled:opacity-50">
+            className="flex-1 h-10 rounded-lg bg-gold text-[14px] font-medium hover:opacity-90 disabled:opacity-50">
             {saving ? "Saving…" : "Update balance"}
           </button>
-          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[12px] text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
@@ -1042,32 +1042,32 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
         <div className="p-5 space-y-4 flex-1 overflow-y-auto min-h-0">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance</label>
+              <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Balance</label>
               <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
             </div>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Expiry date</label>
+              <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Expiry date</label>
               <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
             </div>
           </div>
           {status && (
-            <div className={cn("flex items-center gap-1.5 text-[11px] -mt-2", status === "expired" ? "text-negative" : "text-warning")}>
+            <div className={cn("flex items-center gap-1.5 text-[12.5px] -mt-2", status === "expired" ? "text-negative" : "text-warning")}>
               <Clock className="h-3 w-3" /> {status === "expired" ? "This card has expired" : `Expires in ${daysUntil(expiryDate)} days`}
             </div>
           )}
 
           <div className="flex items-center justify-between">
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Card details</label>
-            <button onClick={() => setRevealSensitive(v => !v)} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</label>
+            <button onClick={() => setRevealSensitive(v => !v)} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
               {revealSensitive ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
             </button>
           </div>
           <div className="grid grid-cols-2 gap-3 -mt-2">
             <div className="relative">
               <input type={revealSensitive ? "text" : "password"} value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card number"
-                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {cardNumber && (
                 <button onClick={() => copyToClipboard(cardNumber.replace(/\s/g, ""), "Card number")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
@@ -1077,7 +1077,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
             </div>
             <div className="relative">
               <input type={revealSensitive ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN"
-                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {pin && (
                 <button onClick={() => copyToClipboard(pin, "PIN")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
@@ -1088,28 +1088,28 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
           </div>
 
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Notes</label>
+            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Notes</label>
             <input value={notes} onChange={e => setNotes(e.target.value)}
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40" />
+              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
           </div>
 
-          <label className="flex items-center gap-2 text-[12px] text-muted-foreground cursor-pointer">
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground cursor-pointer">
             <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="rounded" />
             I just confirmed this balance on {card.brand_name}'s site
           </label>
           {card.buy_url && (
             <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+              className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
               <ShoppingBag className="h-3 w-3" /> Buy another {card.brand_name} gift card
             </a>
           )}
         </div>
         <div className="p-4 pt-0 flex gap-2 shrink-0">
           <button onClick={save} disabled={saving}
-            className="flex-1 h-10 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 disabled:opacity-50">
+            className="flex-1 h-10 rounded-lg bg-gold text-[14px] font-medium hover:opacity-90 disabled:opacity-50">
             {saving ? "Saving…" : "Save changes"}
           </button>
-          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[12px] text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>

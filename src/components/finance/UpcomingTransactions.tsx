@@ -23,11 +23,11 @@ export const UpcomingTransactions = () => {
     <section className="surface-card overflow-hidden">
       <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Next 14 days</div>
+          <div className="text-[12px] uppercase tracking-[0.22em] text-muted-foreground">Next 14 days</div>
           <h3 className="font-display text-lg md:text-xl text-primary mt-0.5">Upcoming transactions</h3>
         </div>
         <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total scheduled</div>
+          <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Total scheduled</div>
           <div className="font-display text-lg tabular text-negative">−{fmtUSD(totalDue, { compact: true })}</div>
         </div>
       </div>
@@ -43,7 +43,7 @@ export const UpcomingTransactions = () => {
           ) : (
             <Calendar className="h-4 w-4 text-positive shrink-0 mt-0.5" />
           )}
-          <div className="flex-1 min-w-0 text-[12px]">
+          <div className="flex-1 min-w-0 text-[13px]">
             <div className={cn("font-medium", isShort ? "text-negative" : "text-foreground")}>
               {isShort
                 ? `${payingAccount.name} is short by ${fmtUSD(shortBy, { compact: true })}`
@@ -55,7 +55,7 @@ export const UpcomingTransactions = () => {
             </div>
           </div>
           {isShort && (
-            <button className="text-[11px] font-medium px-3 py-1.5 rounded-md bg-foreground text-background hover:opacity-90 transition-opacity shrink-0">
+            <button className="text-[12.5px] font-medium px-3 py-1.5 rounded-md bg-foreground text-background hover:opacity-90 transition-opacity shrink-0">
               Move {fmtUSD(shortBy, { compact: true })}
             </button>
           )}
@@ -72,16 +72,16 @@ export const UpcomingTransactions = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[12.5px] text-foreground truncate">{t.label}</span>
+                  <span className="text-[13.5px] text-foreground truncate">{t.label}</span>
                 </div>
-                <div className="text-[10.5px] text-muted-foreground tabular flex items-center gap-1.5">
+                <div className="text-[12px] text-muted-foreground tabular flex items-center gap-1.5">
                   <span className={categoryTone[t.category]}>{t.category}</span>
                   <span className="opacity-40">·</span>
                   <span>{t.date}</span>
                   {t.daysAway <= 1 && <span className="text-warning">· {t.daysAway === 0 ? "Today" : "Tomorrow"}</span>}
                 </div>
               </div>
-              <div className="text-[12.5px] tabular text-negative w-20 text-right">
+              <div className="text-[13.5px] tabular text-negative w-20 text-right">
                 −{fmtUSD(t.amount, { compact: true })}
               </div>
             </div>
