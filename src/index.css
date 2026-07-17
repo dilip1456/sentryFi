@@ -462,7 +462,21 @@ main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 }
 
 /* ── No min-h override (for small buttons) ──────────────────────── */
-.no-min-h { min-height: 0 !important; }
+.no-min-h { min-height: 0 !important; min-width: 0 !important; }
+
+/* ── Accessible tap targets on touch devices ────────────────────────
+   On coarse pointers (phones/tablets) every button/link gets a >=40px hit
+   area so the many small icon buttons (sync, edit, dismiss, refresh) are
+   comfortably tappable. Desktop density is intentionally left untouched, and
+   .no-min-h opts a control out where a tiny target is deliberate. */
+@media (pointer: coarse) {
+  button:not(.no-min-h):not(.nav-item),
+  [role="button"]:not(.no-min-h):not(.nav-item),
+  a[role="button"]:not(.no-min-h) {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
 
 /* ── Focus visible ──────────────────────────────────────────────── */
 :focus-visible {

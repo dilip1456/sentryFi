@@ -3,45 +3,49 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { isNative } from "@/lib/capacitor-oauth";
 import { APK_DOWNLOAD_URL, APP_VERSION } from "@/lib/constants";
+import {
+  Compass, Wallet, Sparkles, CalendarClock, PieChart, Search, Gift, Landmark,
+  type LucideIcon,
+} from "lucide-react";
 
-const FEATURES = [
+const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   {
-    icon: "🗺️",
+    icon: Compass,
     title: "Money Map",
     desc: "Tag every account with a purpose: Spending, Emergency Buffer, Reserve, Investment. Your emergency fund never bleeds into your spendable balance.",
   },
   {
-    icon: "💡",
+    icon: Wallet,
     title: "True Available Funds",
     desc: "See exactly what you can actually spend: income minus planned expenses minus committed savings. Not what your bank says your balance is.",
   },
   {
-    icon: "🔁",
+    icon: Sparkles,
     title: "Smart Suggestions",
     desc: "Overspent on travel this month? SentryFi finds your Travel savings account and suggests moving the exact amount over to cover it.",
   },
   {
-    icon: "📅",
+    icon: CalendarClock,
     title: "Upcoming Expense Forecasting",
     desc: "Detects recurring bills and charges from your history and warns you before they hit, so you're never caught off guard by a predictable expense.",
   },
   {
-    icon: "📊",
+    icon: PieChart,
     title: "Budget by Category",
     desc: "Set monthly limits for any spending category. Track real-time progress with a clear over/under view: all categories on the left, budgeted on the right.",
   },
   {
-    icon: "🔍",
+    icon: Search,
     title: "Transaction Lookup",
     desc: "Search and filter every transaction by category, merchant, date, or amount. Sort by largest or latest. Everything your bank app should have but doesn't.",
   },
   {
-    icon: "🎁",
+    icon: Gift,
     title: "Gift Card Tracker",
     desc: "Track balances across every gift card you own, with brand logos, expiry alerts, card numbers and PINs stored securely. Never forget about a card again.",
   },
   {
-    icon: "🏦",
+    icon: Landmark,
     title: "Real Bank Data via Plaid",
     desc: "Connect any US bank, credit card, loan, or investment account securely. Read-only access. SentryFi can never move or touch your money.",
   },
@@ -161,13 +165,18 @@ const navigate = useNavigate();
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 20 }}>
-          {FEATURES.map(f => (
-            <div key={f.title} style={{ background: "rgba(22,36,63,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "24px 24px 22px" }}>
-              <div style={{ fontSize: 28, marginBottom: 14 }}>{f.icon}</div>
-              <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.01em" }}>{f.title}</h3>
-              <p style={{ fontSize: 13.5, color: "#7A8EA8", lineHeight: 1.65, margin: 0 }}>{f.desc}</p>
-            </div>
-          ))}
+          {FEATURES.map(f => {
+            const Icon = f.icon;
+            return (
+              <div key={f.title} style={{ background: "rgba(22,36,63,0.6)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "24px 24px 22px" }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", background: "hsl(var(--primary)/0.12)", border: "1px solid hsl(var(--primary)/0.25)", marginBottom: 16 }}>
+                  <Icon size={20} color="hsl(var(--primary))" strokeWidth={2} />
+                </div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.01em" }}>{f.title}</h3>
+                <p style={{ fontSize: 13.5, color: "#7A8EA8", lineHeight: 1.65, margin: 0 }}>{f.desc}</p>
+              </div>
+            );
+          })}
         </div>
       </section>
 
