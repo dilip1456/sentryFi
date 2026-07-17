@@ -151,13 +151,13 @@ export const NotificationInbox = ({ onClose, onOpenSettings }: Props) => {
               <button key={n.id} onClick={() => markRead(n.id)}
                 className={cn("w-full text-left px-4 py-3.5 flex gap-3 hover:bg-white/5 transition-colors", !n.read && "bg-[hsl(var(--primary)/0.04)]")}>
                 <div className={cn("h-8 w-8 rounded-full grid place-items-center shrink-0 mt-0.5",
-                  n.type === "low_balance" ? "bg-red-500/10" :
-                  n.type === "budget_threshold" ? "bg-orange-500/10" :
-                  n.type === "payment_due" ? "bg-yellow-500/10" : "bg-[hsl(var(--primary)/0.08)]")}>
+                  n.type === "low_balance" ? "bg-negative/10" :
+                  n.type === "budget_threshold" ? "bg-warning/10" :
+                  n.type === "payment_due" ? "bg-warning/10" : "bg-[hsl(var(--primary)/0.08)]")}>
                   <Icon className={cn("h-4 w-4",
-                    n.type === "low_balance" ? "text-red-400" :
-                    n.type === "budget_threshold" ? "text-orange-400" :
-                    n.type === "payment_due" ? "text-yellow-400" : "text-[hsl(var(--primary))]")} />
+                    n.type === "low_balance" ? "text-negative" :
+                    n.type === "budget_threshold" ? "text-warning" :
+                    n.type === "payment_due" ? "text-warning" : "text-[hsl(var(--primary))]")} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">

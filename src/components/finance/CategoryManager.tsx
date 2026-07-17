@@ -65,21 +65,22 @@ const catIcon = (cat: string | null) => {
   return Tag;
 };
 
+// Muted, professional palette — kept in sync with catColor in LivePlaidDashboard.
 const catColor = (cat: string | null): string => {
   if (!cat) return "hsl(var(--muted-foreground))";
   const c = cat.toLowerCase();
-  if (c.includes("food") || c.includes("dining")) return "hsl(38 92% 60%)";
-  if (c.includes("groceries")) return "hsl(156 72% 55%)";
-  if (c.includes("travel")) return "hsl(210 90% 65%)";
-  if (c.includes("transport")) return "hsl(280 70% 65%)";
-  if (c.includes("util") || c.includes("bills")) return "hsl(50 90% 60%)";
-  if (c.includes("entertain")) return "hsl(330 70% 65%)";
-  if (c.includes("health")) return "hsl(152 60% 50%)";
-  if (c.includes("shopping")) return "hsl(4 78% 64%)";
-  if (c.includes("salary") || c.includes("income")) return "hsl(152 55% 52%)";
-  if (c.includes("invest") || c.includes("dividend")) return "hsl(210 80% 60%)";
-  if (c.includes("unassigned")) return "hsl(var(--warning))";
-  return "hsl(var(--primary))";
+  if (c.includes("food") || c.includes("dining")) return "hsl(35 40% 58%)";
+  if (c.includes("groceries")) return "hsl(155 28% 55%)";
+  if (c.includes("travel")) return "hsl(212 38% 60%)";
+  if (c.includes("transport")) return "hsl(255 24% 63%)";
+  if (c.includes("util") || c.includes("bills")) return "hsl(45 32% 57%)";
+  if (c.includes("entertain")) return "hsl(330 28% 62%)";
+  if (c.includes("health")) return "hsl(172 28% 52%)";
+  if (c.includes("shopping")) return "hsl(6 42% 60%)";
+  if (c.includes("salary") || c.includes("income")) return "hsl(150 32% 50%)";
+  if (c.includes("invest") || c.includes("dividend")) return "hsl(212 38% 60%)";
+  if (c.includes("unassigned")) return "hsl(215 14% 58%)";
+  return "hsl(215 16% 60%)";
 };
 
 // ── Budget editor inline ───────────────────────────────────────
