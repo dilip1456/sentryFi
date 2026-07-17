@@ -266,26 +266,29 @@ const categoryIcon = (cat: string|null) => {
   return ShoppingBag;
 };
 
+// Muted, professional category palette — low saturation so the app reads calm
+// and restrained (not a rainbow), while categories stay distinguishable in the
+// pie/donut. Lightness kept consistent so nothing shouts.
 const catColor = (cat: string): string => {
   const c = cat.toLowerCase();
-  if (c.includes("groceries")) return "hsl(156 72% 45%)";
-  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(38 92% 55%)";
-  if (c.includes("coffee")) return "hsl(25 80% 50%)";
-  if (c.includes("travel") || c.includes("airline") || c.includes("lodging")) return "hsl(210 90% 60%)";
-  if (c.includes("transport") || c.includes("car") || c.includes("auto") || c.includes("gas")) return "hsl(280 70% 60%)";
-  if (c.includes("utilities") || c.includes("bills") || c.includes("electric") || c.includes("telecom")) return "hsl(50 85% 55%)";
-  if (c.includes("entertainment") || c.includes("streaming")) return "hsl(330 70% 60%)";
-  if (c.includes("subscription")) return "hsl(295 60% 60%)";
-  if (c.includes("health") || c.includes("medical")) return "hsl(152 60% 45%)";
-  if (c.includes("shopping") || c.includes("merchandise")) return "hsl(4 78% 58%)";
-  if (c.includes("home") || c.includes("rent")) return "hsl(28 80% 55%)";
-  if (c.includes("education")) return "hsl(190 80% 55%)";
-  if (c.includes("personal")) return "hsl(260 70% 60%)";
-  if (c.includes("salary") || c.includes("income") || c.includes("payroll")) return "hsl(145 60% 45%)";
-  if (c.includes("transfer")) return "hsl(210 20% 55%)";
-  if (c.includes("service") || c.includes("fee")) return "hsl(220 30% 55%)";
-  if (c.includes("charity") || c.includes("giving")) return "hsl(340 60% 55%)";
-  return "hsl(var(--primary))";
+  if (c.includes("groceries")) return "hsl(155 28% 55%)";
+  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(35 40% 58%)";
+  if (c.includes("coffee")) return "hsl(25 32% 55%)";
+  if (c.includes("travel") || c.includes("airline") || c.includes("lodging")) return "hsl(212 38% 60%)";
+  if (c.includes("transport") || c.includes("car") || c.includes("auto") || c.includes("gas")) return "hsl(255 24% 63%)";
+  if (c.includes("utilities") || c.includes("bills") || c.includes("electric") || c.includes("telecom")) return "hsl(45 32% 57%)";
+  if (c.includes("entertainment") || c.includes("streaming")) return "hsl(330 28% 62%)";
+  if (c.includes("subscription")) return "hsl(285 24% 62%)";
+  if (c.includes("health") || c.includes("medical")) return "hsl(172 28% 52%)";
+  if (c.includes("shopping") || c.includes("merchandise")) return "hsl(6 42% 60%)";
+  if (c.includes("home") || c.includes("rent")) return "hsl(28 36% 57%)";
+  if (c.includes("education")) return "hsl(195 34% 56%)";
+  if (c.includes("personal")) return "hsl(260 24% 63%)";
+  if (c.includes("salary") || c.includes("income") || c.includes("payroll")) return "hsl(150 32% 50%)";
+  if (c.includes("transfer")) return "hsl(215 14% 58%)";
+  if (c.includes("service") || c.includes("fee")) return "hsl(220 16% 56%)";
+  if (c.includes("charity") || c.includes("giving")) return "hsl(340 26% 60%)";
+  return "hsl(215 16% 60%)"; // neutral slate default (was gold — too loud for uncategorized)
 };
 
 /** Reconstruct historical net worth from current value + transactions (excludes internal transfers) */
