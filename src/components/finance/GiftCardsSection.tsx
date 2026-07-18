@@ -66,6 +66,17 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
   );
 };
 
+/** Small gift-card-shaped preview shown on every list/table row so no row is a blank. */
+const MiniCardThumb = ({ card }: { card: { brand_name: string; domain?: string | null; logo_url?: string | null } }) => (
+  <div className="relative rounded-[5px] overflow-hidden shrink-0 border border-black/10 shadow-sm"
+    style={{ width: 50, height: 32, background: brandGradient(card.brand_name) }}>
+    <div className="absolute inset-0 grid place-items-center">
+      <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={18} />
+    </div>
+    <div className="absolute left-0 right-0 bottom-0 h-[5px] bg-black/20" />
+  </div>
+);
+
 /** Large, faded brand mark used as a background watermark on the big card tile — falls back to a soft monogram if no image resolves. */
 const BrandWatermark = ({ domain, logoUrl, name }: { domain?: string | null; logoUrl?: string | null; name: string }) => {
   const [attempt, setAttempt] = useState(0);
@@ -471,40 +482,37 @@ export const GiftCardsSection = () => {
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-border/30">
-                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Brand</th>
-                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
-                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Expires</th>
-                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card #</th>
+                    <th className="px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card</th>
+                    <th className="px-4 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/15">
                   {sortedForTable.map(({ card, originalIndex: i }) => {
                     const status = expiryStatus(card.expiry_date);
                     const isActive = i === activeIndex;
+                    const sub: string[] = [];
+                    if (card.expiry_date) sub.push(`Exp ${new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" })}`);
+                    if (card.card_number_last4) sub.push(`···· ${card.card_number_last4}`);
                     return (
                       <tr key={card.id}
                         onClick={() => { goTo(i); setDetailIndex(i); }}
                         className={cn("cursor-pointer transition-colors", isActive ? "bg-[hsl(var(--primary)/0.07)]" : "hover:bg-surface-hover/30")}>
-                        <td className="px-4 py-3 flex items-center gap-2.5">
-                          {isActive && <div className="w-1 h-6 rounded-full bg-[hsl(var(--primary))] shrink-0 -ml-1" />}
-                          <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={28} />
-                          <span className="text-[14px] font-medium text-foreground truncate">{card.brand_name}</span>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2.5">
+                            {isActive && <div className="w-1 h-8 rounded-full bg-[hsl(var(--primary))] shrink-0 -ml-1" />}
+                            <MiniCardThumb card={card} />
+                            <div className="min-w-0">
+                              <div className="text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
+                              <div className="text-[12px] text-muted-foreground truncate flex items-center gap-1.5">
+                                {status && <span className={cn("font-medium", status === "expired" ? "text-negative" : "text-warning")}>{status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d`}</span>}
+                                {sub.length > 0 ? <span className="tabular">{sub.join(" · ")}</span> : (!status && <span>Gift card</span>)}
+                              </div>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-2 text-right align-middle">
                           <span className={cn("text-[14px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
                             {fmtUSD(Number(card.balance))}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {card.expiry_date ? (
-                            <span className={cn("text-[13px] tabular", status === "expired" ? "text-negative font-medium" : status === "expiring-soon" ? "text-warning" : "text-muted-foreground")}>
-                              {new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
-                            </span>
-                          ) : <span className="text-[13px] text-muted-foreground/40">—</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-[13px] text-muted-foreground tabular">
-                            {card.card_number_last4 ? `···· ${card.card_number_last4}` : "—"}
                           </span>
                         </td>
                       </tr>
@@ -596,24 +604,22 @@ export const GiftCardsSection = () => {
                 return (
                   <button key={card.id}
                     onClick={() => { goTo(i); setDetailIndex(i); }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
-                    <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={40} />
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
+                    <MiniCardThumb card={card} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[15px] font-medium text-foreground truncate">{card.brand_name}</div>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="text-[14.5px] font-medium text-foreground truncate">{card.brand_name}</div>
+                      <div className="flex items-center gap-2 mt-0.5 min-w-0">
                         {status && (
-                          <span className={cn("text-[12.5px] font-medium", status === "expired" ? "text-negative" : "text-warning")}>
+                          <span className={cn("text-[12.5px] font-medium shrink-0", status === "expired" ? "text-negative" : "text-warning")}>
                             {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
                           </span>
                         )}
-                        {card.card_number_last4 && <span className="text-[12.5px] text-muted-foreground">···· {card.card_number_last4}</span>}
-                        {!status && !card.card_number_last4 && <span className="text-[12.5px] text-muted-foreground">Tap for details</span>}
+                        {card.card_number_last4
+                          ? <span className="text-[12.5px] text-muted-foreground truncate">···· {card.card_number_last4}</span>
+                          : (!status && <span className="text-[12.5px] text-muted-foreground">Gift card</span>)}
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className={cn("text-[15px] tabular font-semibold", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
-                      <div className="text-[12px] text-muted-foreground mt-0.5">balance</div>
-                    </div>
+                    <div className={cn("text-[15px] tabular font-semibold shrink-0", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
                   </button>
                 );
