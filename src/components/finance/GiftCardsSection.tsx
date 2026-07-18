@@ -68,12 +68,16 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
 
 /** Small gift-card-shaped preview shown on every list/table row so no row is a blank. */
 const MiniCardThumb = ({ card }: { card: { brand_name: string; domain?: string | null; logo_url?: string | null } }) => (
-  <div className="relative rounded-[5px] overflow-hidden shrink-0 border border-black/10 shadow-sm"
-    style={{ width: 50, height: 32, background: brandGradient(card.brand_name) }}>
+  <div className="relative rounded-md overflow-hidden shrink-0 shadow-sm"
+    style={{ width: 54, height: 34, background: brandGradient(card.brand_name) }}>
+    {/* gloss + depth */}
+    <div className="absolute inset-0" style={{ background: "linear-gradient(120deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0) 38%, rgba(0,0,0,0.22) 100%)" }} />
+    {/* tiny EMV chip */}
+    <div className="absolute top-1 left-1 h-[9px] w-[13px] rounded-[2px]" style={{ background: "linear-gradient(135deg, #f4dd93, #b98f2e)" }} />
+    {/* brand logo (BrandLogo already renders on a white chip) */}
     <div className="absolute inset-0 grid place-items-center">
-      <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={18} />
+      <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={20} />
     </div>
-    <div className="absolute left-0 right-0 bottom-0 h-[5px] bg-black/20" />
   </div>
 );
 
@@ -113,36 +117,52 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   const status = expiryStatus(card.expiry_date);
   return (
     <div
-      className="relative rounded-2xl p-4 overflow-hidden flex flex-col justify-between aspect-[1.6/1] shadow-[var(--shadow-card)]"
+      className="relative rounded-2xl overflow-hidden flex flex-col aspect-[1.6/1] shadow-[var(--shadow-card)] text-white"
       style={{ background: brandGradient(card.brand_name) }}
     >
-      <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle at 85% 15%, white, transparent 60%)" }} />
-      {/* Large faded brand watermark — makes the card visually identifiable at a glance, like a real branded gift card */}
+      {/* Depth + plastic gloss so it reads as a physical card, not a flat swatch */}
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(120% 85% at 12% -10%, rgba(255,255,255,0.28), transparent 55%)" }} />
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(118deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 32%, rgba(0,0,0,0.22) 100%)" }} />
+      {/* Large faded brand watermark */}
       <BrandWatermark domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} />
-      {/* Subtle magstripe-style accent near the top, evoking a physical card */}
-      <div className="absolute left-0 right-0 top-[3.1rem] h-2 bg-black/15" />
-      <div className="relative flex items-start justify-between">
-        <div className="h-10 w-10 rounded-lg bg-white grid place-items-center overflow-hidden shrink-0 shadow-sm">
-          <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={40} />
-        </div>
-        {children}
-      </div>
-      <div className="relative">
-        {status && (
-          <div className={cn(
-            "inline-flex items-center gap-1 text-[12px] font-medium px-1.5 py-0.5 rounded-full mb-1.5",
-            status === "expired" ? "bg-negative/90 text-white" : "bg-warning/90 text-warning-foreground"
-          )}>
-            <Clock className="h-2.5 w-2.5" />
-            {status === "expired" ? "Expired" : `Expires in ${daysUntil(card.expiry_date!)}d`}
+
+      <div className="relative flex-1 p-4 flex flex-col justify-between">
+        {/* Top: logo lockup + label/controls */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="h-9 min-w-9 px-1.5 rounded-lg bg-white grid place-items-center overflow-hidden shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.25)]">
+            <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={28} />
           </div>
-        )}
-        <div className="font-display text-2xl tabular text-white leading-none drop-shadow-sm">{fmtUSD(Number(card.balance))}</div>
-        <div className="flex items-center justify-between mt-1.5">
-          <span className="text-[13px] text-white/85 font-medium truncate">{card.brand_name}</span>
-          {card.card_number_last4 && (
-            <span className="text-[12.5px] text-white/60 font-mono tracking-wider">•••• {card.card_number_last4}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">Gift Card</span>
+            {children}
+          </div>
+        </div>
+
+        {/* EMV chip for realism */}
+        <div className="relative h-[26px] w-[34px] rounded-[5px] overflow-hidden shadow-[inset_0_0_0_1px_rgba(0,0,0,0.18)]"
+          style={{ background: "linear-gradient(135deg, #f4dd93 0%, #d8b451 45%, #b98f2e 100%)" }}>
+          <div className="absolute inset-[3px] rounded-[3px]" style={{ background: "repeating-linear-gradient(0deg, transparent 0 4px, rgba(0,0,0,0.16) 4px 5px)" }} />
+          <div className="absolute inset-y-[3px] left-1/2 w-px -translate-x-1/2 bg-black/20" />
+        </div>
+
+        {/* Bottom: balance + brand + masked number */}
+        <div>
+          {status && (
+            <div className={cn(
+              "inline-flex items-center gap-1 text-[12px] font-medium px-1.5 py-0.5 rounded-full mb-1.5",
+              status === "expired" ? "bg-negative/90 text-white" : "bg-warning/90 text-warning-foreground"
+            )}>
+              <Clock className="h-2.5 w-2.5" />
+              {status === "expired" ? "Expired" : `Expires in ${daysUntil(card.expiry_date!)}d`}
+            </div>
           )}
+          <div className="font-display text-[26px] tabular leading-none drop-shadow-sm">{fmtUSD(Number(card.balance))}</div>
+          <div className="flex items-center justify-between mt-1.5 gap-2">
+            <span className="text-[13px] text-white/90 font-medium truncate">{card.brand_name}</span>
+            {card.card_number_last4 && (
+              <span className="text-[12.5px] text-white/70 font-mono tracking-[0.15em] shrink-0">•••• {card.card_number_last4}</span>
+            )}
+          </div>
         </div>
       </div>
     </div>

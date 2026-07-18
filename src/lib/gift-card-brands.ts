@@ -114,10 +114,12 @@ export const searchBrands = async (query: string, signal?: AbortSignal): Promise
   return json.slice(0, 8);
 };
 
-/** Deterministic brand-color gradient so cards without a strong logo color still look distinct. */
+/** Deterministic brand-color gradient with real depth, so each card reads like a
+ *  distinct, richly-colored physical gift card (not a flat dark swatch). */
 export const brandGradient = (seed: string): string => {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   const hue = hash % 360;
-  return `linear-gradient(135deg, hsl(${hue} 55% 22%) 0%, hsl(${(hue + 40) % 360} 60% 14%) 100%)`;
+  const hue2 = (hue + 18) % 360;
+  return `linear-gradient(140deg, hsl(${hue} 64% 46%) 0%, hsl(${hue} 58% 34%) 48%, hsl(${hue2} 62% 22%) 100%)`;
 };
