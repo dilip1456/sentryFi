@@ -4730,131 +4730,102 @@ export const LivePlaidDashboard = ({
             <Plus className="h-3 w-3" />Add account
           </button>
         </div>
-        {accounts.length === 0 ? (
+        {accounts.length === 0 && manualAccounts.length === 0 ? (
           <div className="surface-card p-6 text-center text-[13px] text-muted-foreground">
             No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
           </div>
         ) : (
-          <div className="space-y-3">
-            {/* Composition infographic — assets vs debt at a glance */}
-            {(() => {
-              const buckets = bucketOrder.map(b => {
-                const accs = accounts.filter(a => mapBucket(a.type, a.subtype) === b);
-                const total = accs.reduce((s,a) => s + Math.abs(Number(a.current_balance)||0), 0);
-                return { bucket: b, total, count: accs.length,
-                  color: b==="cash"?"hsl(var(--positive))":b==="credit"?"hsl(var(--warning))":b==="loan"?"hsl(var(--negative))":b==="investment"?"hsl(var(--info))":"hsl(var(--muted-foreground))" };
-              }).filter(x => x.count > 0 && x.total > 0);
-              const grand = buckets.reduce((s,x)=>s+x.total,0) || 1;
-              if (buckets.length === 0) return null;
-              return (
-                <div className="surface-card p-4 space-y-3">
-                  <div className="flex h-3 rounded-full overflow-hidden bg-border/20">
-                    {buckets.map(x => (
-                      <div key={x.bucket} style={{ width: `${(x.total/grand)*100}%`, backgroundColor: x.color }}
-                        className="h-full transition-all" title={`${bucketMeta[x.bucket].label}: ${fmtUSD(x.total)}`} />
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                    {buckets.map(x => (
-                      <div key={x.bucket} className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: x.color }} />
-                        <span className="text-[12.5px] text-muted-foreground">{bucketMeta[x.bucket].label}</span>
-                        <span className="text-[12.5px] font-semibold text-foreground tabular">{fmtUSD(x.total,{compact:true})}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-            {/* Masonry columns so expanded/collapsed cards of different heights
-                pack tightly and fill the row instead of leaving gaps. */}
-            <div className="columns-1 md:columns-2 xl:columns-3 gap-2 [column-fill:balance]">
-              {bucketOrder
-                .filter(bucket => accounts.some(a => mapBucket(a.type, a.subtype) === bucket))
-                .map(bucket => (
-                  <div key={bucket} className="break-inside-avoid mb-2">
-                    <BucketGroup
-                      bucket={bucket}
-                      accounts={accounts.filter(a => mapBucket(a.type, a.subtype) === bucket)}
-                      txns={txns}
-                      accountMeta={accountMeta}
-                      creditDetails={creditDetails}
-                      items={items}
-                      onSelect={a => setDetailAccount(a)}
-                      defaultOpen
-                    />
-                  </div>
-                ))}
-            </div>
-            <button
-              onClick={onAddAccount}
-              className="w-full surface-card border-dashed py-3 inline-flex items-center justify-center gap-2 text-[13px] text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" /> Link a bank, card, loan or brokerage via Plaid
-            </button>
-          </div>
-        )}
-
-        {/* Manual accounts */}
-        {manualAccounts.length > 0 && (
-          <div className="space-y-2 pt-2">
-            <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground px-1">Manually added</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-              {manualAccounts.map(acct => {
-                const isLoan = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
-                const equity = acct.property_value && acct.current_balance
-                  ? acct.property_value - acct.current_balance : null;
+          <div className="surface-card overflow-hidden divide-y divide-border/15">
+            {bucketOrder
+              .filter(bucket => accounts.some(a => mapBucket(a.type, a.subtype) === bucket))
+              .map(bucket => {
+                const list = accounts.filter(a => mapBucket(a.type, a.subtype) === bucket);
+                const total = list.reduce((s,a)=> s + (isDebt(a.type) ? -Math.abs(Number(a.current_balance)||0) : (Number(a.current_balance)||0)), 0);
                 return (
-                  <div key={acct.id} className="surface-card p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[14px] font-semibold text-foreground truncate">{acct.name}</div>
-                        {acct.institution_name && (
-                          <div className="text-[12.5px] text-muted-foreground truncate">{acct.institution_name}</div>
-                        )}
+                  <div key={bucket}>
+                    {/* Section header — visually distinct from rows: tinted bar, uppercase label, group total */}
+                    <div className="flex items-center justify-between px-4 md:px-5 py-2 bg-secondary/30">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{bucketMeta[bucket].label}</span>
+                        <span className="text-[10.5px] text-muted-foreground/50 tabular">{list.length}</span>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {onEditManual && (
-                          <button onClick={() => onEditManual(acct)}
-                            className="h-6 w-6 rounded grid place-items-center text-muted-foreground hover:text-foreground">
-                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                          </button>
-                        )}
-                        {onDeleteManual && (
-                          <button onClick={() => onDeleteManual(acct.id)}
-                            className="h-6 w-6 rounded grid place-items-center text-muted-foreground hover:text-negative">
-                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                          </button>
-                        )}
-                      </div>
+                      <span className={cn("text-[13px] font-semibold tabular", total < 0 ? "text-negative" : "text-foreground")}>
+                        {total < 0 ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
+                      </span>
                     </div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <div>
-                        <div className="text-[12px] text-muted-foreground">{isLoan ? "Balance owed" : "Balance"}</div>
-                        <div className={`text-[17px] font-bold ${isLoan ? "text-negative/80" : "text-foreground"}`}>
-                          {isLoan ? "-" : ""}${(acct.current_balance ?? 0).toLocaleString()}
-                        </div>
-                      </div>
-                      {equity !== null && (
-                        <div className="text-right">
-                          <div className="text-[12px] text-muted-foreground">Equity</div>
-                          <div className="text-[15px] font-semibold text-positive">${equity.toLocaleString()}</div>
-                        </div>
-                      )}
+                    {/* Dense single-line rows — tap opens the detail drawer for the rich info */}
+                    <div className="divide-y divide-border/10">
+                      {list.map(a => {
+                        const Icon = mapIcon(a.type, a.subtype);
+                        const debt = isDebt(a.type);
+                        const bal = Number(a.current_balance) || 0;
+                        const m = accountMeta[a.id] ?? {};
+                        const displayName = m.nickname || a.name || a.official_name || "Account";
+                        const instName = getInstNameFor(a, items);
+                        const iconTone = debt ? "text-negative" : (a.type === "investment" || a.type === "brokerage") ? "text-info" : a.subtype === "savings" ? "text-positive" : "text-gold";
+                        return (
+                          <button key={a.id} onClick={() => setDetailAccount(a)}
+                            className="w-full flex items-center gap-3 px-4 md:px-5 py-2.5 text-left hover:bg-surface-hover/30 transition-colors group">
+                            <div className={cn("h-7 w-7 rounded-lg grid place-items-center bg-secondary/50 shrink-0", iconTone)}>
+                              <Icon className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
+                              <div className="text-[11.5px] text-muted-foreground truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
+                            </div>
+                            <span className={cn("text-[13.5px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
+                              {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                            </span>
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/25 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                          </button>
+                        );
+                      })}
                     </div>
-                    {acct.interest_rate && (
-                      <div className="text-[12.5px] text-muted-foreground">
-                        {acct.interest_rate}% rate
-                        {acct.monthly_payment ? ` · $${acct.monthly_payment.toLocaleString()}/mo` : ""}
-                      </div>
-                    )}
-                    {acct.property_address && (
-                      <div className="text-[12.5px] text-muted-foreground truncate">{acct.property_address}</div>
-                    )}
                   </div>
                 );
               })}
-            </div>
+
+            {/* Manually added — same compact treatment */}
+            {manualAccounts.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-4 md:px-5 py-2 bg-secondary/30">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Manually added</span>
+                  <span className="text-[10.5px] text-muted-foreground/50 tabular">{manualAccounts.length}</span>
+                </div>
+                <div className="divide-y divide-border/10">
+                  {manualAccounts.map(acct => {
+                    const isLoan = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
+                    const bal = Number(acct.current_balance ?? 0);
+                    return (
+                      <div key={acct.id} className="w-full flex items-center gap-3 px-4 md:px-5 py-2.5 group">
+                        <div className="h-7 w-7 rounded-lg grid place-items-center bg-secondary/50 text-muted-foreground shrink-0">
+                          <Landmark className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
+                          <div className="text-[11.5px] text-muted-foreground truncate">
+                            {acct.institution_name || (isLoan ? "Loan" : "Manual")}{acct.interest_rate ? ` · ${acct.interest_rate}% rate` : ""}
+                          </div>
+                        </div>
+                        <span className={cn("text-[13.5px] font-semibold tabular shrink-0", isLoan ? "text-negative" : "text-foreground")}>
+                          {isLoan ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                        </span>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {onEditManual && <button onClick={() => onEditManual(acct)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3 w-3" /></button>}
+                          {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3 w-3" /></button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Add row */}
+            <button onClick={onAddAccount}
+              className="w-full flex items-center justify-center gap-2 py-3 text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-surface-hover/30 transition-colors">
+              <Plus className="h-3.5 w-3.5" /> Link an account
+            </button>
           </div>
         )}
       </section>
