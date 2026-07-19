@@ -271,24 +271,22 @@ const categoryIcon = (cat: string|null) => {
 // pie/donut. Lightness kept consistent so nothing shouts.
 const catColor = (cat: string): string => {
   const c = cat.toLowerCase();
-  if (c.includes("groceries")) return "hsl(155 28% 55%)";
-  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(35 40% 58%)";
-  if (c.includes("coffee")) return "hsl(25 32% 55%)";
-  if (c.includes("travel") || c.includes("airline") || c.includes("lodging")) return "hsl(212 38% 60%)";
-  if (c.includes("transport") || c.includes("car") || c.includes("auto") || c.includes("gas")) return "hsl(255 24% 63%)";
-  if (c.includes("utilities") || c.includes("bills") || c.includes("electric") || c.includes("telecom")) return "hsl(45 32% 57%)";
-  if (c.includes("entertainment") || c.includes("streaming")) return "hsl(330 28% 62%)";
-  if (c.includes("subscription")) return "hsl(285 24% 62%)";
-  if (c.includes("health") || c.includes("medical")) return "hsl(172 28% 52%)";
-  if (c.includes("shopping") || c.includes("merchandise")) return "hsl(6 42% 60%)";
-  if (c.includes("home") || c.includes("rent")) return "hsl(28 36% 57%)";
-  if (c.includes("education")) return "hsl(195 34% 56%)";
-  if (c.includes("personal")) return "hsl(260 24% 63%)";
-  if (c.includes("salary") || c.includes("income") || c.includes("payroll")) return "hsl(150 32% 50%)";
-  if (c.includes("transfer")) return "hsl(215 14% 58%)";
-  if (c.includes("service") || c.includes("fee")) return "hsl(220 16% 56%)";
-  if (c.includes("charity") || c.includes("giving")) return "hsl(340 26% 60%)";
-  return "hsl(215 16% 60%)"; // neutral slate default (was gold — too loud for uncategorized)
+  if (c.includes("groceries"))                                              return "hsl(155 18% 42%)";
+  if (c.includes("food") || c.includes("dining") || c.includes("restaurant")) return "hsl(30 22% 44%)";
+  if (c.includes("travel") || c.includes("airline") || c.includes("lodging"))  return "hsl(210 22% 44%)";
+  if (c.includes("transport") || c.includes("parking") || c.includes("gas"))   return "hsl(250 18% 48%)";
+  if (c.includes("utilities") || c.includes("bills"))                      return "hsl(40 20% 42%)";
+  if (c.includes("entertainment") || c.includes("streaming"))              return "hsl(320 16% 46%)";
+  if (c.includes("health") || c.includes("medical"))                       return "hsl(170 18% 40%)";
+  if (c.includes("shopping"))                                               return "hsl(10 20% 44%)";
+  if (c.includes("home") || c.includes("rent") || c.includes("mortgage"))  return "hsl(25 20% 42%)";
+  if (c.includes("education"))                                              return "hsl(195 20% 42%)";
+  if (c.includes("personal"))                                               return "hsl(260 16% 46%)";
+  if (c.includes("salary") || c.includes("income"))                        return "hsl(148 20% 38%)";
+  if (c.includes("transfer") || c.includes("payment"))                     return "hsl(215 12% 46%)";
+  if (c.includes("insurance"))                                              return "hsl(180 16% 40%)";
+  if (c.includes("business"))                                               return "hsl(230 18% 44%)";
+  return "hsl(215 12% 46%)";
 };
 
 /** Reconstruct historical net worth from current value + transactions (excludes internal transfers) */
@@ -2676,13 +2674,8 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
   const trendUp = netFlow > 0;
   const trendGood = debt ? !trendUp : trendUp;
 
-  const iconBg = debt
-    ? "bg-negative/10 border-negative/20 text-negative"
-    : a.type === "investment" || a.type === "brokerage"
-    ? "bg-info/10 border-info/20 text-info"
-    : a.subtype === "savings"
-    ? "bg-positive/10 border-positive/20 text-positive"
-    : "bg-[hsl(var(--primary)/0.1)] border-[hsl(var(--primary)/0.2)] text-gold";
+  // Neutral icon — muted, not color-coded by account type
+  const iconBg = "bg-muted/60 border-border/40 text-muted-foreground";
 
   return (
     <button
@@ -5431,16 +5424,15 @@ export const LivePlaidDashboard = ({
                   className="w-full h-8 pl-7 pr-7 rounded-lg bg-secondary/40 border border-border/40 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors"/>
                 {txnSearch&&<button onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3"/></button>}
               </div>
-              <select value={txnSort} onChange={e=>setTxnSort(e.target.value as typeof txnSort)}
-                className="h-8 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 focus:outline-none cursor-pointer">
-                <option value="date-desc">Newest first</option>
-                <option value="date-asc">Oldest first</option>
-                <option value="amount-desc">Largest amount</option>
-                <option value="amount-asc">Smallest amount</option>
-                <option value="name-asc">Name A→Z</option>
-                <option value="name-desc">Name Z→A</option>
-                <option value="category-asc">Category A→Z</option>
-              </select>
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+                {([["date-desc","Newest"],["date-asc","Oldest"],["amount-desc","Largest"],["amount-asc","Smallest"],["name-asc","A→Z"],["category-asc","Category"]] as [string,string][]).map(([v,l])=>(
+                  <button key={v} onClick={()=>setTxnSort(v as typeof txnSort)}
+                    className={cn("shrink-0 h-7 px-2.5 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap",
+                      txnSort===v?"bg-foreground text-background":"bg-secondary/40 text-muted-foreground hover:text-foreground border border-border/30")}>
+                    {l}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Flow filter chips + advanced filter toggle */}
@@ -5771,17 +5763,31 @@ export const LivePlaidDashboard = ({
       {editingBudgetCat === "__add__" && (
         <div className="surface-card p-4 space-y-2.5 border border-[hsl(var(--primary)/0.3)]">
           <div className="text-[13px] font-semibold text-foreground">New budget</div>
-          <select value={addCatNameDraft} onChange={e => setAddCatNameDraft(e.target.value)}
-            className="w-full h-10 px-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]">
-            <option value="">Select category...</option>
-            {unbudgetedCats.map(c => (
-              <option key={c.category} value={c.category}>{formatCat(c.category)} ({fmtUSD(c.total)} spent)</option>
-            ))}
-            <option value="__custom__">Custom name...</option>
-          </select>
+          {/* Tap-to-select category grid */}
+          <div className="flex flex-wrap gap-1.5">
+            {unbudgetedCats.map(cc => {
+              const col = catColor(cc.category);
+              const Ic  = categoryIcon(cc.category);
+              return (
+                <button key={cc.category} onClick={() => setAddCatNameDraft(cc.category)}
+                  className={cn("flex items-center gap-1.5 h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
+                    addCatNameDraft === cc.category
+                      ? "border-foreground/50 bg-foreground text-background"
+                      : "border-border/40 text-foreground hover:border-foreground/30")}>
+                  <Ic className="h-3 w-3 shrink-0" style={{ color: col }} />
+                  {formatCat(cc.category)}
+                </button>
+              );
+            })}
+            <button onClick={() => setAddCatNameDraft("__custom__")}
+              className={cn("h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
+                addCatNameDraft === "__custom__" ? "border-foreground/50 bg-foreground text-background" : "border-dashed border-border/40 text-muted-foreground hover:text-foreground")}>
+              + Custom
+            </button>
+          </div>
           {addCatNameDraft === "__custom__" && (
             <input value={addCatCustom} onChange={e => setAddCatCustom(e.target.value)} placeholder="Category name"
-              className="w-full h-10 px-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+              className="w-full h-10 px-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-foreground/40" />
           )}
           <div className="flex gap-2">
             <div className="relative flex-1">
