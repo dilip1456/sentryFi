@@ -323,8 +323,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               {headerMenuOpen && createPortal(
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl border border-border/30 shadow-2xl overflow-hidden"
-                    className="bg-[hsl(var(--popover))] border border-border">
+                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
