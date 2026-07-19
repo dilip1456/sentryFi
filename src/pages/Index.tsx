@@ -21,7 +21,7 @@ import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
-import { NotificationInbox } from "@/components/NotificationInbox";
+import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
@@ -589,21 +589,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </nav>
       </div>
 
-      {showInbox && (
-        <Dialog open onOpenChange={o => { if (!o) { setShowInbox(false); refreshUnread(); } }}>
-          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
-            <DialogTitle className="sr-only">Notifications</DialogTitle>
-            <DialogDescription className="sr-only">Recent alerts and activity</DialogDescription>
-            <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center gap-2">
-              <Bell className="h-4 w-4 text-[hsl(var(--primary))]" />
-              <span className="font-display text-[15px] text-foreground font-semibold">Notifications</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <NotificationInbox onClose={() => setShowInbox(false)} onOpenSettings={() => { setShowInbox(false); setShowProfile(true); }} />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <NotificationInbox
+        supabase={supabase}
+        userId={user?.id ?? ""}
+        open={showInbox && !!user}
+        onClose={() => { setShowInbox(false); refreshUnread(); }}
+      />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
       <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
 
