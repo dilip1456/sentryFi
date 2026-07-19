@@ -1071,10 +1071,29 @@ const PLAID_CATEGORY_MAP: Record<string, string> = {
   "Bills & Utilities":                       "Bills & Utilities",
 };
 
+// Known merchants that Plaid consistently miscategorizes
+const MERCHANT_OVERRIDES: Record<string, string> = {
+  "parkwhiz": "Transportation",
+  "spothero": "Transportation",
+  "parkmobile": "Transportation",
+  "park mobile": "Transportation",
+  "laseraway": "Personal Care",
+  "anthropic": "Business",
+  "openai": "Business",
+  "github": "Business",
+  "vercel": "Business",
+  "digitalocean": "Bills & Utilities",
+};
+
 // Resolve a Plaid category array to an app category name.
-// Takes name+merchant for cases where Plaid's category is ambiguous (e.g. "Payment").
-const normalisePlaidCategory = (cats: string[] | null | undefined): string => {
+const normalisePlaidCategory = (cats: string[] | null | undefined, merchantName?: string | null, txnName?: string | null): string => {
   if (!cats || cats.length === 0) return "Other";
+
+  // Check merchant overrides first — fixes Plaid ML errors like ParkWhiz → Food
+  const merchant = (merchantName ?? txnName ?? "").toLowerCase();
+  for (const [key, cat] of Object.entries(MERCHANT_OVERRIDES)) {
+    if (merchant.includes(key)) return cat;
+  }
 
   // Build lookup key — try most specific first (3-level → 2-level → 1-level)
   const c0 = cats[0] ?? "";
@@ -1111,8 +1130,8 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
-  // 3. Normalised Plaid category
-  return normalisePlaidCategory(t.category);
+  // 3. Normalised Plaid category (with merchant override for known Plaid ML errors)
+  return normalisePlaidCategory(t.category, t.merchant_name, t.name);
 };
 
 // ── Right-panel drawer ─────────────────────────────────────────
