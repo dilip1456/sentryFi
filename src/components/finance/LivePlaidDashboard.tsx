@@ -4271,6 +4271,7 @@ export const LivePlaidDashboard = ({
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
               <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Income this month</div>
               <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">excl. transfers</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
@@ -4282,6 +4283,7 @@ export const LivePlaidDashboard = ({
               <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
                 {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
               </div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">income − spend</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
@@ -4293,6 +4295,7 @@ export const LivePlaidDashboard = ({
               <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
                 {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
             </button>
           </div>
         );
@@ -4383,7 +4386,7 @@ export const LivePlaidDashboard = ({
       {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h2 className="font-display text-base text-primary">Insights</h2>
+            <h2 className="font-display text-lg md:text-xl text-primary">Insights into your spending</h2>
           </div>
 
           {/* Sortable 2-col panel grid — drag the ⠿ handle to reorder */}
@@ -4464,7 +4467,7 @@ export const LivePlaidDashboard = ({
                   </div>
                 ) : (
                   <div className="p-3 grid grid-cols-1 gap-3">
-                    {visibleInsights.slice(0,3).map(insight=>{
+                    {visibleInsights.slice(0,4).map(insight=>{
                       const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
                       const sevDot = insight.severity==="high" ? "bg-negative" : insight.severity==="medium" ? "bg-warning" : "bg-info";
                       return (
@@ -4522,7 +4525,7 @@ export const LivePlaidDashboard = ({
                   <div className="px-4 py-6 text-[13px] text-muted-foreground text-center">No spending data.</div>
                 ) : (
                   <div className="divide-y divide-border/20">
-                    {spendByCategory.slice(0,4).map(c=>{
+                    {spendByCategory.slice(0,5).map(c=>{
                       const Icon=categoryIcon(c.category); const color=catColor(c.category);
                       const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
                       const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
@@ -4708,7 +4711,7 @@ export const LivePlaidDashboard = ({
             return (
               <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
                 <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-stretch">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 items-stretch">
                     {panelOrder.map(id => (
                       <SortableCard key={id} id={id}>
                         {(handleProps) => renderPanel(id, handleProps)}
