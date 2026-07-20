@@ -4519,52 +4519,49 @@ export const LivePlaidDashboard = ({
                   </button>
                 </div>
                 {spendByCategory.length === 0 ? (
-                  <div className="px-4 py-6 text-[13px] text-muted-foreground text-center">No spending data.</div>
-                ) : (
-                  <div className="divide-y divide-border/20">
-                    {spendByCategory.slice(0,4).map(c=>{
-                      const Icon=categoryIcon(c.category); const color=catColor(c.category);
-                      const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
-                      const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
-                      const trend=spendTrends.find(t=>t.category===c.category);
-                      const topTxns=[...c.txns].sort((a,b)=>Number(b.amount)-Number(a.amount));
-                      const sharePct = totalSpend > 0 ? (c.total / totalSpend) * 100 : 0;
-                      return (
-                        <button key={c.category} onClick={()=>{setSpendingPopup(c.category);setSpendPopupLimit(5);}}
-                          className="group relative w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-surface-hover/40 transition-colors overflow-hidden">
-                          <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`, background:`${color}09`}} />
-                          <div className="relative h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105"
-                            style={{backgroundColor:`${color}1f`,color}}>
-                            <Icon className="h-3.5 w-3.5" />
+                  <div className="px-4 py-8 text-[13px] text-muted-foreground text-center">No spending data.</div>
+                ) : (() => {
+                  const top = spendByCategory.slice(0, 6).map(c => ({ name: formatCat(c.category), value: c.total, color: catColor(c.category), category: c.category }));
+                  const otherTotal = spendByCategory.slice(6).reduce((s, c) => s + c.total, 0);
+                  const data = otherTotal > 0 ? [...top, { name: "Other", value: otherTotal, color: "hsl(215 12% 45%)", category: "__other__" }] : top;
+                  const openCat = (cat: string) => { if (cat !== "__other__") { setSpendingPopup(cat); setSpendPopupLimit(5); } else onCategorySelect?.("__spending__"); };
+                  return (
+                    <div className="p-4 flex items-center gap-4">
+                      {/* Donut — the visual centerpiece */}
+                      <div className="relative h-[124px] w-[124px] shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={data} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={2}
+                              stroke="transparent" onClick={(d: any) => openCat(d.category)}>
+                              {data.map((d, i) => <Cell key={i} fill={d.color} style={{ cursor: "pointer" }} />)}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 grid place-items-center pointer-events-none text-center">
+                          <div>
+                            <div className="text-[15px] font-bold tabular text-foreground leading-none">{fmtUSD(totalSpend, { compact: true })}</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">spent</div>
                           </div>
-                          <div className="relative flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[13.5px] text-foreground font-medium truncate">{formatCat(c.category)}</span>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {trend?.pct!=null&&trend.pct!==0&&(
-                                  <span className={cn("text-[12px] tabular px-1.5 py-0.5 rounded-full font-medium",
-                                    trend.delta>0?"bg-negative/10 text-negative":"bg-positive/10 text-positive")}>
-                                    {trend.delta>0?"+":""}{trend.pct}%
-                                  </span>
-                                )}
-                                <span className="text-[14px] tabular font-semibold">{fmtUSD(c.total)}</span>
-                              </div>
-                            </div>
-                            <div className="text-[12px] text-muted-foreground mt-0.5 truncate">
-                              {topTxns[0] ? `${nameOverrides[topTxns[0].id]??topTxns[0].merchant_name??topTxns[0].name??"Unknown"} · ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
-                            </div>
-                            {!!budget && (
-                              <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden">
-                                <div className="h-full rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?"hsl(var(--negative))":near?"hsl(var(--warning))":color}}/>
-                              </div>
-                            )}
-                          </div>
-                          <ChevronRight className="relative h-3.5 w-3.5 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                        </div>
+                      </div>
+                      {/* Compact legend */}
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        {data.slice(0, 5).map(d => {
+                          const sharePct = totalSpend > 0 ? Math.round((d.value / totalSpend) * 100) : 0;
+                          return (
+                            <button key={d.category} onClick={() => openCat(d.category)}
+                              className="w-full flex items-center gap-2 text-left group">
+                              <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.color }} />
+                              <span className="text-[12.5px] text-foreground truncate flex-1 group-hover:text-primary transition-colors">{d.name}</span>
+                              <span className="text-[11px] text-muted-foreground tabular shrink-0">{sharePct}%</span>
+                              <span className="text-[12.5px] tabular font-semibold text-foreground shrink-0 w-14 text-right">{fmtUSD(d.value, { compact: true })}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
 
