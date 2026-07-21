@@ -6080,15 +6080,29 @@ export const LivePlaidDashboard = ({
     }
 
     // ── Suggestion 2: upcoming expenses, reusing the existing recurring-charge detector ──
-    const upcoming = detectRecurring(txns).slice(0, 6);
-    for (const r of upcoming) {
+    // Actually check the spending balance instead of telling the user to check it themselves:
+    // sum every near-term charge due on-or-before each one (they draw from the same pool),
+    // and say plainly whether the balance covers it or falls short by how much.
+    const upcomingAll = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories)
+      .filter(r => {
+        const daysOut = Math.round((r.predictedDate.getTime() - Date.now()) / 86400000);
+        return daysOut >= 0 && daysOut <= 21;
+      })
+      .sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
+    let runningCommitted = 0;
+    for (const r of upcomingAll.slice(0, 6)) {
       const id = `upcoming:${r.merchant}:${r.predictedDate.toISOString().slice(0,10)}`;
       const daysOut = Math.round((r.predictedDate.getTime() - Date.now()) / 86400000);
-      if (daysOut < 0 || daysOut > 21) continue; // only surface genuinely near-term ones here
+      runningCommitted += r.avgAmount;
+      const projectedBalance = spendingBalance - runningCommitted;
+      const atRisk = projectedBalance < 0;
+      const whenText = daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`;
       suggestions.push({
         id, kind: "upcoming",
-        title: `${r.merchant}: ~${fmtUSD(r.avgAmount)} expected ${daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`}`,
-        detail: `Based on ${r.monthsActive} months of history (${r.intervalLabel.toLowerCase()}). Make sure your spending account can cover it.`,
+        title: `${r.merchant}: ~${fmtUSD(r.avgAmount)} expected ${whenText}`,
+        detail: atRisk
+          ? `At risk: your spending balance (${fmtUSD(spendingBalance)}) won't cover this plus other bills due by then. Short by ${fmtUSD(Math.abs(projectedBalance))} — move money in before ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`
+          : `Covered. Your spending balance (${fmtUSD(spendingBalance)}) can absorb this and everything else due by then, with ${fmtUSD(projectedBalance)} left over.`,
         amount: r.avgAmount,
       });
     }
