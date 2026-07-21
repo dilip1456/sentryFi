@@ -6145,6 +6145,10 @@ export const LivePlaidDashboard = ({
         return daysOut >= 0 && daysOut <= 21;
       })
       .sort((a, b) => a.predictedDate.getTime() - b.predictedDate.getTime());
+    // Only surface these as suggestions when they're actually at risk — "you have
+    // enough money" isn't actionable and shouldn't take up space in the list. The
+    // running total still accounts for every upcoming charge (covered or not) so
+    // later at-risk checks are correct.
     let runningCommitted = 0;
     for (const r of upcomingAll.slice(0, 6)) {
       const id = `upcoming:${r.merchant}:${r.predictedDate.toISOString().slice(0,10)}`;
@@ -6152,13 +6156,12 @@ export const LivePlaidDashboard = ({
       runningCommitted += r.avgAmount;
       const projectedBalance = spendingBalance - runningCommitted;
       const atRisk = projectedBalance < 0;
+      if (!atRisk) continue;
       const whenText = daysOut === 0 ? "today" : daysOut === 1 ? "tomorrow" : `in ${daysOut} days`;
       suggestions.push({
         id, kind: "upcoming",
         title: `${r.merchant}: ~${fmtUSD(r.avgAmount)} expected ${whenText}`,
-        detail: atRisk
-          ? `At risk: your spending balance (${fmtUSD(spendingBalance)}) won't cover this plus other bills due by then. Short by ${fmtUSD(Math.abs(projectedBalance))} — move money in before ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`
-          : `Covered. Your spending balance (${fmtUSD(spendingBalance)}) can absorb this and everything else due by then, with ${fmtUSD(projectedBalance)} left over.`,
+        detail: `At risk: your spending balance (${fmtUSD(spendingBalance)}) won't cover this plus other bills due by then. Short by ${fmtUSD(Math.abs(projectedBalance))} — move money in before ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`,
         amount: r.avgAmount,
       });
     }
