@@ -5649,10 +5649,12 @@ export const LivePlaidDashboard = ({
     const overCategories = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0));
     const totalOverage = overCategories.reduce((s,c)=>s+(c.total-(budgets[c.category]??0)),0);
 
-    // Fund allocation for overages
-    const spendingRoleAccounts = accounts.filter(a => {
-      const role = getRole(a.account_id, a.type, a.subtype);
-      return role.role !== "spending";
+    // Eligible funding accounts for covering an overage: everyday accounts only.
+    // Long-term savings (reserve/savings_goal) are excluded on purpose so they stay
+    // untouched; investment and debt accounts aren't sensible "move money from" sources.
+    const fundingAccounts = accounts.filter(a => {
+      const role = getRole(a.account_id, a.type, a.subtype).role;
+      return role !== "reserve" && role !== "savings_goal" && role !== "investment" && role !== "debt";
     });
 
     // Max bar = max of budget or actual across all categories (for aligned scale)
@@ -5756,6 +5758,62 @@ export const LivePlaidDashboard = ({
               </div>
             )}
           </div>
+        );
+      })()}
+
+      {/* Cover overages — pick a funding account for each over-budget category,
+          restricted to everyday accounts (never long-term savings). */}
+      {overCategories.length > 0 && (() => {
+        return (
+        <div className="surface-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/20">
+            <span className="text-[13px] font-semibold text-foreground">Cover overages</span>
+            <span className="text-[12px] text-muted-foreground ml-2">Pick where to move the shortfall from</span>
+          </div>
+          <div className="divide-y divide-border/10">
+            {overCategories.map(c => {
+              const over = c.total - (budgets[c.category] ?? 0);
+              const Icon = categoryIcon(c.category);
+              const color = catColor(c.category);
+              const chosenId = fundAllocations[c.category];
+              const chosen = fundingAccounts.find(a => a.account_id === chosenId);
+              return (
+                <div key={c.category} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-[13px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                    <span className="text-[13px] font-semibold tabular text-negative">{fmtUSD(over)} over</span>
+                  </div>
+                  {fundingAccounts.length === 0 ? (
+                    <div className="ml-9 text-[12px] text-muted-foreground">
+                      No eligible account. Tag a checking account below in Organize accounts.
+                    </div>
+                  ) : (
+                    <div className="ml-9 flex items-center gap-2">
+                      <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
+                        className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                        <option value="">Cover from…</option>
+                        {fundingAccounts.map(a => (
+                          <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSD(Number(a.current_balance) || 0, { compact: true })})</option>
+                        ))}
+                      </select>
+                      {chosen && (
+                        <span className="text-[12px] text-muted-foreground shrink-0">
+                          Move {fmtUSD(over)} from {chosen.name ?? chosen.official_name}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-4 py-2.5 border-t border-border/15 text-[11.5px] text-muted-foreground">
+            These are suggestions — transfers must be made manually in your bank or app.
+          </div>
+        </div>
         );
       })()}
 
@@ -6053,29 +6111,27 @@ export const LivePlaidDashboard = ({
       catTotals[cat] = (catTotals[cat] || 0) + Number(t.amount);
     }
 
-    // ── Suggestion 1: overspend matched to a reserve account by name/label ──
-    type Suggestion = { id: string; kind: "overage" | "upcoming"; title: string; detail: string; amount: number; matchAccount?: string };
+    // ── Suggestion 1: overspend — let the user pick the funding account. Never
+    // auto-suggest or auto-match a reserve/long-term-savings account; those stay
+    // untouched. Eligible = everyday accounts (spending/buffer/unassigned). ──
+    type Suggestion = { id: string; kind: "overage" | "upcoming"; title: string; detail: string; amount: number; category?: string };
     const suggestions: Suggestion[] = [];
+    const fundingAccounts = accountsWithRole.filter(x =>
+      x.info.role !== "reserve" && x.info.role !== "savings_goal" && x.info.role !== "investment" && x.info.role !== "debt"
+    );
 
     for (const [cat, spent] of Object.entries(catTotals)) {
       const budget = budgets[cat];
       if (!budget || spent <= budget) continue;
       const over = spent - budget;
-      const catWords = formatCat(cat).toLowerCase();
-      // Find a reserve/goal account whose label or name loosely matches this category
-      const match = reserveAccts.find(x => {
-        const label = (x.info.label || x.acc.name || x.acc.official_name || "").toLowerCase();
-        return label && (label.includes(catWords) || catWords.includes(label) || catWords.split(" ").some(w => w.length > 3 && label.includes(w)));
-      });
       const id = `overage:${cat}:${periodKey}`;
       suggestions.push({
-        id, kind: "overage",
+        id, kind: "overage", category: cat,
         title: `${formatCat(cat)} is ${fmtUSD(over)} over budget`,
-        detail: match
-          ? `Move ${fmtUSD(over)} from "${match.acc.name}" to cover it. That account looks earmarked for this.`
-          : `No matching reserve account found. Tag a savings account for "${formatCat(cat)}" below so this can suggest covering it automatically.`,
+        detail: fundingAccounts.length > 0
+          ? `Pick an account below to cover the ${fmtUSD(over)} overage. Long-term savings accounts aren't offered, so they stay untouched.`
+          : `No everyday account to cover this from yet. Tag a checking account in Organize accounts below.`,
         amount: over,
-        matchAccount: match?.acc.account_id,
       });
     }
 
@@ -6221,6 +6277,26 @@ export const LivePlaidDashboard = ({
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] text-foreground font-medium">{s.title}</div>
                     <div className="text-[12.5px] text-muted-foreground mt-0.5">{s.detail}</div>
+                    {s.kind === "overage" && s.category && fundingAccounts.length > 0 && (() => {
+                      const chosenId = fundAllocations[s.category];
+                      const chosen = fundingAccounts.find(x => x.acc.account_id === chosenId);
+                      return (
+                        <div className="flex items-center gap-2 mt-2">
+                          <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}
+                            className="h-8 flex-1 max-w-[240px] rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                            <option value="">Cover from…</option>
+                            {fundingAccounts.map(x => (
+                              <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSD(Number(x.acc.current_balance) || 0, { compact: true })})</option>
+                            ))}
+                          </select>
+                          {chosen && (
+                            <span className="text-[12px] text-muted-foreground truncate">
+                              Move {fmtUSD(s.amount)} from {chosen.acc.name ?? chosen.acc.official_name}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-center gap-2 mt-2">
                       <button onClick={() => recordFeedback(s.id, "accepted")}
                         className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-positive/10 text-positive text-[12px] font-medium hover:bg-positive/20 transition-colors">
