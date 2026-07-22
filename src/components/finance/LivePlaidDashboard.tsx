@@ -2820,19 +2820,18 @@ const BucketGroup = ({
     return getInstitutionUrl(instName, accountMeta[a.id]?.customUrl);
   };
 
-  const accentColor = bucket === "cash" ? "hsl(var(--positive))" : bucket === "credit" ? "hsl(var(--warning))" : bucket === "loan" ? "hsl(var(--negative))" : "hsl(var(--info))";
+  const accentColor = "hsl(var(--muted-foreground))";
   const trailingColor = bucket === "cash" ? "text-positive" : bucket === "credit" ? "text-warning" : bucket === "loan" ? "text-negative" : "text-info";
 
   return (
-    <div className="surface-card overflow-hidden" style={{borderLeft:`3px solid ${accentColor}30`}}>
+    <div className="surface-card overflow-hidden" >
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between gap-4 px-4 md:px-5 py-4 hover:bg-surface-hover/30 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0 transition-all", open ? "bg-secondary/60" : "bg-secondary/30")}
-            style={{color: accentColor}}>
-            <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", !open && "-rotate-90")} />
+          <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0 bg-muted/40 text-muted-foreground">
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", !open && "-rotate-90")} />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -3478,35 +3477,52 @@ const RoleBadgeSelect = ({
   setRole: (id: string, info: AccountRoleInfo) => void;
 }) => {
   const current = getRole(accountId, accType, accSubtype);
-  const [editing, setEditing] = useState(false);
+  const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(current.label ?? "");
-  if (editing) {
-    return (
-      <form className="flex items-center gap-1.5" onSubmit={e => {
-        e.preventDefault();
-        setRole(accountId, { role: current.role, label: labelDraft.trim() || undefined });
-        setEditing(false);
-      }}>
-        <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
-          placeholder="e.g. Travel" onKeyDown={e => { if (e.key === "Escape") setEditing(false); }}
-          className="h-7 w-24 px-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[12.5px] text-foreground outline-none" />
-        <button type="submit" className="h-7 px-2 rounded-md bg-gold text-[12px] font-medium">Save</button>
-      </form>
-    );
-  }
+
+  const roles = (Object.keys(ROLE_META) as AccountRole[]).filter(r => r !== "unassigned");
+
   return (
-    <div className="flex items-center gap-1.5">
-      <select value={current.role} onChange={e => setRole(accountId, { role: e.target.value as AccountRole, label: current.label })}
-        className="h-7 px-2 rounded-md bg-surface/60 border border-border/50 text-[12.5px] text-foreground outline-none cursor-pointer">
-        {(Object.keys(ROLE_META) as AccountRole[]).filter(r => r !== "unassigned").map(r => (
-          <option key={r} value={r}>{ROLE_META[r].name}</option>
-        ))}
-      </select>
+    <div className="space-y-2">
+      {/* Role chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {roles.map(r => {
+          const { Icon } = ROLE_OPTIONS.find(o => o.role === r) ?? { Icon: Landmark };
+          const isActive = current.role === r;
+          return (
+            <button key={r} onClick={() => setRole(accountId, { role: r, label: current.label })}
+              className={cn(
+                "flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[11px] font-medium transition-all",
+                isActive
+                  ? "bg-foreground text-background border-foreground"
+                  : "border-border/40 text-muted-foreground hover:text-foreground hover:border-foreground/30"
+              )}>
+              <Icon className="h-3 w-3 shrink-0" />
+              {ROLE_META[r].short}
+            </button>
+          );
+        })}
+      </div>
+      {/* Optional label for reserve/savings_goal */}
       {(current.role === "reserve" || current.role === "savings_goal") && (
-        <button onClick={() => { setLabelDraft(current.label ?? ""); setEditing(true); }}
-          className="text-[12px] text-muted-foreground hover:text-foreground">
-          {current.label ? `"${current.label}"` : "+ label"}
-        </button>
+        editingLabel ? (
+          <form className="flex items-center gap-1.5" onSubmit={e => {
+            e.preventDefault();
+            setRole(accountId, { role: current.role, label: labelDraft.trim() || undefined });
+            setEditingLabel(false);
+          }}>
+            <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+              placeholder="e.g. Emergency fund" onKeyDown={e => { if (e.key === "Escape") setEditingLabel(false); }}
+              className="h-7 flex-1 px-2.5 rounded-lg bg-transparent border border-foreground/30 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/40" />
+            <button type="submit" className="h-7 px-3 rounded-lg bg-foreground text-background text-[11px] font-medium">Save</button>
+          </form>
+        ) : (
+          <button onClick={() => { setLabelDraft(current.label ?? ""); setEditingLabel(true); }}
+            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+            <span className="text-[10px] opacity-40">+</span>
+            {current.label ? `"${current.label}"` : "Add label"}
+          </button>
+        )
       )}
     </div>
   );
@@ -6462,62 +6478,88 @@ export const LivePlaidDashboard = ({
           )}
         </div>
 
-        {/* ── Organize accounts: behind a button, grouped by type in a dialog ── */}
+        {/* ── Organize accounts ── */}
         <div className="surface-card px-5 py-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[13.5px] font-semibold text-foreground">Organize accounts</div>
-            <div className="text-[12.5px] text-muted-foreground mt-0.5">
+            <div className="text-[13.5px] font-semibold text-foreground">Account roles</div>
+            <div className="text-[12px] text-muted-foreground mt-0.5">
               {unassignedAccts.length > 0
-                ? `${unassignedAccts.length} account${unassignedAccts.length > 1 ? "s" : ""} still need a role`
-                : `${accountsWithRole.length} account${accountsWithRole.length !== 1 ? "s" : ""} tagged by role`}
+                ? `${unassignedAccts.length} account${unassignedAccts.length > 1 ? "s need" : " needs"} a role`
+                : `All ${accountsWithRole.length} accounts tagged`}
             </div>
           </div>
           <button onClick={() => setShowOrganize(true)}
-            className={cn("h-9 px-4 rounded-lg text-[13.5px] font-semibold shrink-0 inline-flex items-center gap-1.5",
-              unassignedAccts.length > 0 ? "bg-gold" : "border border-border-strong text-foreground hover:bg-surface-hover/40")}>
-            <Wallet className="h-3.5 w-3.5" /> Organize
-            {unassignedAccts.length > 0 && <span className="ml-0.5 px-1.5 rounded-full bg-background/30 text-[12px]">{unassignedAccts.length}</span>}
+            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
+              unassignedAccts.length > 0 ? "bg-gold" : "border border-border text-muted-foreground hover:text-foreground")}>
+            <Wallet className="h-3 w-3" />
+            {unassignedAccts.length > 0 ? `Tag ${unassignedAccts.length}` : "Edit roles"}
           </button>
         </div>
 
         {showOrganize && (
           <Dialog open onOpenChange={o => { if (!o) setShowOrganize(false); }}>
-            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
-              <DialogTitle className="sr-only">Organize accounts</DialogTitle>
-              <DialogDescription className="sr-only">Assign each account a role, grouped by type.</DialogDescription>
-              <div className="px-5 py-4 border-b border-border/30 shrink-0">
-                <div className="font-display text-[15px] text-foreground font-semibold">Organize accounts</div>
-                <div className="text-[12.5px] text-muted-foreground mt-0.5">Grouped by type. Tag each with a Money Map role.</div>
+            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 max-h-[90dvh] flex flex-col">
+              <DialogTitle className="sr-only">Account roles</DialogTitle>
+              <DialogDescription className="sr-only">Assign each account a role for Money Map.</DialogDescription>
+
+              {/* Header */}
+              <div className="px-5 pt-5 pb-4 border-b border-border/20 shrink-0">
+                <div className="text-[16px] font-bold text-foreground">Account roles</div>
+                <div className="text-[12.5px] text-muted-foreground mt-1">
+                  Tag each account so Money Map knows how to group them.
+                </div>
               </div>
+
+              {/* Role legend */}
+              <div className="px-5 py-3 border-b border-border/10 shrink-0">
+                <div className="flex flex-wrap gap-1.5">
+                  {ROLE_OPTIONS.map(({ role, icon: Icon }) => (
+                    <div key={role} className="flex items-center gap-1 text-[10.5px] text-muted-foreground">
+                      <Icon className="h-2.5 w-2.5" />
+                      <span>{ROLE_META[role].short}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Accounts list */}
               <div className="flex-1 overflow-y-auto min-h-0">
                 {bucketOrder
                   .map(bucket => ({ bucket, list: accountsWithRole.filter(x => mapBucket(x.acc.type, x.acc.subtype) === bucket) }))
                   .filter(g => g.list.length > 0)
                   .map(({ bucket, list }) => (
-                    <div key={bucket} className="border-b border-border/15 last:border-0">
-                      <div className="px-5 py-2 bg-border/10 flex items-center justify-between">
-                        <span className="text-[12px] uppercase tracking-wider text-muted-foreground font-semibold">{bucketMeta[bucket].label}</span>
-                        <span className="text-[12px] text-muted-foreground">{list.length}</span>
+                    <div key={bucket}>
+                      <div className="px-5 py-2.5 sticky top-0 bg-[hsl(var(--surface-elevated))] border-b border-border/10 z-10">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{bucketMeta[bucket].label}</span>
                       </div>
                       <div className="divide-y divide-border/10">
                         {list.map(({ acc }) => {
                           const bal = Number(acc.current_balance) || 0;
                           const isDebtAcc = isDebt(acc.type);
+                          const Icon = mapIcon(acc.type, acc.subtype);
                           return (
-                            <div key={acc.account_id} className="flex items-center gap-3 px-5 py-3">
-                              <div className="flex-1 min-w-0 flex items-center gap-2">
-                                <Landmark className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <div className="min-w-0">
-                                  <div className="text-[13.5px] text-foreground font-medium truncate">{acc.name ?? acc.official_name}</div>
-                                  {acc.mask && <div className="text-[12px] text-muted-foreground">···· {acc.mask}</div>}
+                            <div key={acc.account_id} className="px-5 py-4 space-y-3">
+                              {/* Account info row */}
+                              <div className="flex items-center gap-3">
+                                <div className="h-9 w-9 rounded-xl bg-muted/40 grid place-items-center shrink-0">
+                                  <Icon className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[13px] font-semibold text-foreground truncate">{acc.name ?? acc.official_name}</div>
+                                  {acc.mask && <div className="text-[11px] text-muted-foreground">···· {acc.mask}</div>}
+                                </div>
+                                <div className={cn("text-[14px] tabular font-semibold shrink-0", isDebtAcc ? "text-negative" : "text-foreground")}>
+                                  {isDebtAcc ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
                                 </div>
                               </div>
-                              <div className={cn("text-[14px] tabular font-semibold shrink-0", isDebtAcc ? "text-negative" : "text-foreground")}>
-                                {isDebtAcc ? "-" : ""}{fmtUSD(Math.abs(bal))}
-                              </div>
-                              <div className="shrink-0">
-                                <RoleBadgeSelect accountId={acc.account_id} accType={acc.type} accSubtype={acc.subtype} getRole={getRole} setRole={setRole} />
-                              </div>
+                              {/* Role chips */}
+                              <RoleBadgeSelect
+                                accountId={acc.account_id}
+                                accType={acc.type}
+                                accSubtype={acc.subtype}
+                                getRole={getRole}
+                                setRole={setRole}
+                              />
                             </div>
                           );
                         })}
@@ -6525,8 +6567,12 @@ export const LivePlaidDashboard = ({
                     </div>
                   ))}
               </div>
+
               <div className="p-4 border-t border-border/20 shrink-0">
-                <button onClick={() => setShowOrganize(false)} className="w-full h-10 rounded-lg bg-gold text-[14px] font-semibold">Done</button>
+                <button onClick={() => setShowOrganize(false)}
+                  className="w-full h-11 rounded-xl bg-foreground text-background text-[14px] font-semibold">
+                  Done
+                </button>
               </div>
             </DialogContent>
           </Dialog>
