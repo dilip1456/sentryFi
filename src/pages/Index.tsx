@@ -274,11 +274,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       {/* ── Content area ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
-        {/* Mobile header */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
+        {/* Mobile header — dark ribbon in both modes so the gold bird shows */}
+        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#1a2236] dark:bg-background/95 dark:backdrop-blur shrink-0">
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
-            <span className="text-[15px] font-semibold text-foreground">
+            <span className="text-[15px] font-semibold text-white">
               {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "SentryFi"))}
             </span>
           </button>
@@ -292,7 +292,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Notifications */}
             {user && (
               <button onClick={() => setShowInbox(true)}
-                className="relative h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="relative h-8 w-8 rounded-full border border-white/20 grid place-items-center text-white/70 hover:text-white">
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
@@ -304,20 +304,20 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Sync */}
             {!effectiveDemo && hasItems === true && (
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="h-8 w-8 rounded-full border border-white/20 grid place-items-center text-white/70 hover:text-white">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
             </button>
             )}
             {/* Theme toggle — always visible on mobile */}
             <button onClick={toggleTheme}
               aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-              className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+              className="h-8 w-8 rounded-full border border-white/20 grid place-items-center text-white/70 hover:text-white">
               {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
             </button>
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="h-8 w-8 rounded-full border border-white/20 grid place-items-center text-white/70 hover:text-white">
                 <Settings className="h-3.5 w-3.5" />
               </button>
               {headerMenuOpen && createPortal(
