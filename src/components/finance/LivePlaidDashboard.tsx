@@ -33,7 +33,7 @@ import {
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
   Compass, ShieldAlert, Target, ThumbsUp, ThumbsDown,
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
-  SlidersHorizontal, Wand2,
+  SlidersHorizontal, Wand2, Sliders,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -2177,16 +2177,11 @@ const TxnDetailModal = ({
     setShowCatPicker(false);
   };
 
+  // Keep only the essential info — amount is in header, date is in header subtitle
   const info: [string, string | React.ReactNode][] = [
-    ["Amount", <span className={cn("font-semibold tabular", isIncome ? "text-positive" : "text-foreground")}>{isIncome ? "+" : "−"}{fmtUSD(Math.abs(Number(txn.amount)), { cents: true })}</span>],
-    ["Date", new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })],
-    ...(txn.authorized_date && txn.authorized_date !== txn.date ? [["Auth date", txn.authorized_date] as [string, string]] : []),
     ["Account", account ? `${account.name ?? account.official_name}${account.mask ? ` ···· ${account.mask}` : ""}` : "n/a"],
-    ...(institutionName ? [["Institution", institutionName] as [string, string]] : []),
-    ["Channel", txn.payment_channel ? txn.payment_channel.replace(/_/g," ") : "n/a"],
-    ["Status", txn.pending ? "Pending" : "Posted"],
-    ...(originalPlaidCat ? [["Original category", originalPlaidCat] as [string, string]] : []),
-    ...(txn.transaction_id ? [["Reference", <span className="font-mono text-[12px] text-muted-foreground/70 break-all">{txn.transaction_id}</span>] as [string, React.ReactNode]] : []),
+    ...(txn.pending ? [["Status", <span className="text-warning font-medium">Pending</span>] as [string, React.ReactNode]] : []),
+    ...(recurringInfo ? [["Recurring", recurringInfo.label] as [string, string]] : []),
   ];
 
   return (
@@ -5861,27 +5856,24 @@ export const LivePlaidDashboard = ({
         tabs. Smaller screens keep the Spending|Budget toggle instead. */}
     <div className="xl:grid xl:grid-cols-[1fr_380px] xl:items-start xl:gap-4">
     <div className="space-y-3 animate-fade-up min-w-0">
-      {/* ── Header row ── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="xl:hidden"><SpendBudgetTabs /></div>
+      {/* ── Header row — full width on mobile ── */}
+      <div className="flex items-center gap-2">
+        <div className="xl:hidden shrink-0"><SpendBudgetTabs /></div>
+        <div className="flex-1 min-w-0">
           <PeriodNav state={spendingPeriod} granularities={["day","week","month","year"]}
             onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);onCategorySelect?.("");}} />
         </div>
-        <div className="flex items-center gap-1.5">
-          <button onClick={()=>setShowCatManager(true)} className="h-7 px-2.5 rounded-md border border-border/50 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">Manage</button>
-          <button onClick={()=>setShowRulesManager(true)} className="h-7 px-2.5 rounded-md border border-border/50 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
-            Rules{rules.length>0&&<span className="ml-1 px-1 rounded bg-primary/15 text-[hsl(var(--primary))] text-[12px]">{rules.length}</span>}
-          </button>
-          <button onClick={()=>{
-            const rows=[["Date","Name","Category","Amount","Account","Pending"]];
-            for(const t of filteredSpendingTxns){const acc=accounts.find(a=>a.account_id===t.account_id);rows.push([t.date,nameOverrides[t.id]??t.merchant_name??t.name??"",getEffectiveCategory(t,overrides,getRuleCategory)??"",String(Number(t.amount).toFixed(2)),`${acc?.name??""} ${acc?.mask?`··${acc.mask}`:""}`.trim(),t.pending?"yes":"no"]);}
-            const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-            const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`spending-${getPeriodLabel(spendingPeriod).replace(/\s+/g,"-")}.csv`;a.click();
-          }} className="h-7 px-2.5 rounded-md border border-border/50 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">CSV</button>
-        </div>
+        <button onClick={()=>setShowRulesManager(true)}
+          className="shrink-0 h-8 w-8 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground relative transition-colors"
+          title="Category rules">
+          <Sliders className="h-3.5 w-3.5" />
+          {rules.length > 0 && (
+            <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-[hsl(var(--primary))] text-background text-[9px] font-bold grid place-items-center">
+              {rules.length}
+            </span>
+          )}
+        </button>
       </div>
-
 
             {/* ── Main 2-col layout ── */}
       <div className="lg:grid lg:grid-cols-[340px_minmax(0,1fr)] gap-3 items-start space-y-3 lg:space-y-0">
