@@ -261,10 +261,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Sign out
             </button>
           )}
-          <button onClick={toggleTheme} className="nav-item w-full">
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            {theme === "dark" ? "Light mode" : "Dark mode"}
-          </button>
           <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/30 select-none">
             v{APP_VERSION} · {BUILD_DATE}
           </div>
@@ -308,12 +304,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
             </button>
             )}
-            {/* Theme toggle — always visible on mobile */}
-            <button onClick={toggleTheme}
-              aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-              className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
-              {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-            </button>
+
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)}
@@ -569,18 +560,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     );
                   })}
-                  {user && (
-                    <button onClick={() => { setMoreOpen(false); setShowInbox(true); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
-                      <Bell className="h-4 w-4 opacity-60" />
-                      Notifications
-                    </button>
-                  )}
-                  <button onClick={() => { setMoreOpen(false); toggleTheme(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
-                    {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
-                    {theme === "dark" ? "Light mode" : "Dark mode"}
-                  </button>
                 </div>
               </>
             )}
