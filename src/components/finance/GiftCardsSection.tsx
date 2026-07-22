@@ -210,9 +210,9 @@ const CardDetailDialog = ({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
         <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
-        <DialogDescription className="sr-only">Full details for this gift card. Swipe to browse other cards.</DialogDescription>
+        <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
 
         <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
           <X className="h-4 w-4" />
@@ -230,24 +230,23 @@ const CardDetailDialog = ({
           </>
         )}
 
-        {/* Swipeable card visual at top */}
-        <div
-          className="p-4 select-none"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerLeave={endDrag}
-          style={{
-            transform: `translateX(${dragX}px)`,
-            transition: draggingRef.current ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)",
-            cursor: cards.length > 1 ? "grab" : "default",
-            touchAction: "none",
-          }}
-        >
-          <GiftCardTile card={card} />
+        {/* Swipeable card visual - fixed height container prevents resize */}
+        <div className="shrink-0 overflow-hidden" style={{ touchAction: "none" }}>
+          <div className="p-4 select-none"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerLeave={endDrag}
+            style={{
+              transform: `translateX(${dragX}px)`,
+              transition: draggingRef.current ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)",
+              cursor: cards.length > 1 ? "grab" : "default",
+            }}>
+            <GiftCardTile card={card} />
+          </div>
         </div>
         {cards.length > 1 && (
-          <div className="text-center text-[12px] text-muted-foreground -mt-1 mb-1">{index + 1} of {cards.length} · swipe to browse</div>
+          <div className="text-center text-[12px] text-muted-foreground pb-1 shrink-0">{index + 1} of {cards.length}</div>
         )}
 
         <div className="px-5 pb-5 space-y-4">
@@ -453,9 +452,9 @@ export const GiftCardsSection = () => {
           )}
           <button
             onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity"
+            className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-gold text-[13px] font-semibold hover:opacity-90 transition-opacity shrink-0"
           >
-            <Plus className="h-3.5 w-3.5" /> Add gift card
+            <Plus className="h-3.5 w-3.5 shrink-0" /> <span>Add</span>
           </button>
         </div>
       </div>
@@ -615,36 +614,60 @@ export const GiftCardsSection = () => {
             </div>
           </div>
 
-          {/* ── Mobile: clean list, tap row to open detail sheet ── */}
-          <div className="md:hidden surface-card overflow-hidden">
-            <div className="divide-y divide-border/15">
-              {sortedForTable.map(({ card, originalIndex: i }) => {
-                const status = expiryStatus(card.expiry_date);
-                const bal = Number(card.balance);
-                return (
-                  <button key={card.id}
-                    onClick={() => { goTo(i); setDetailIndex(i); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
-                    <MiniCardThumb card={card} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14.5px] font-medium text-foreground truncate">{card.brand_name}</div>
-                      <div className="flex items-center gap-2 mt-0.5 min-w-0">
-                        {status && (
-                          <span className={cn("text-[12.5px] font-medium shrink-0", status === "expired" ? "text-negative" : "text-warning")}>
-                            {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
-                          </span>
-                        )}
-                        {card.card_number_last4
-                          ? <span className="text-[12.5px] text-muted-foreground truncate">···· {card.card_number_last4}</span>
-                          : (!status && <span className="text-[12.5px] text-muted-foreground">Gift card</span>)}
+          {/* ── Mobile: viewMode controls cards grid vs table list ── */}
+          <div className="md:hidden">
+            {viewMode === "cards" ? (
+              /* Cards grid — 2 columns of visual cards */
+              <div className="grid grid-cols-2 gap-3">
+                {sortedForTable.map(({ card, originalIndex: i }) => {
+                  const status = expiryStatus(card.expiry_date);
+                  const bal = Number(card.balance);
+                  return (
+                    <button key={card.id} onClick={() => { goTo(i); setDetailIndex(i); }}
+                      className="text-left space-y-2">
+                      <GiftCardTile card={card} />
+                      <div className="px-1">
+                        <div className="text-[13px] font-semibold text-foreground truncate">{card.brand_name}</div>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <span className={cn("text-[13px] tabular font-medium", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</span>
+                          {status && <span className={cn("text-[10px] font-semibold", status === "expired" ? "text-negative" : "text-warning")}>{status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d`}</span>}
+                        </div>
                       </div>
-                    </div>
-                    <div className={cn("text-[15px] tabular font-semibold shrink-0", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Table list — compact rows */
+              <div className="surface-card overflow-hidden">
+                <div className="divide-y divide-border/15">
+                  {sortedForTable.map(({ card, originalIndex: i }) => {
+                    const status = expiryStatus(card.expiry_date);
+                    const bal = Number(card.balance);
+                    return (
+                      <button key={card.id}
+                        onClick={() => { goTo(i); setDetailIndex(i); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
+                        <MiniCardThumb card={card} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[14px] font-medium text-foreground truncate">{card.brand_name}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {status && (
+                              <span className={cn("text-[12px] font-medium shrink-0", status === "expired" ? "text-negative" : "text-warning")}>
+                                {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
+                              </span>
+                            )}
+                            {card.card_number_last4 && <span className="text-[12px] text-muted-foreground">···· {card.card_number_last4}</span>}
+                          </div>
+                        </div>
+                        <div className={cn("text-[15px] tabular font-semibold shrink-0", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

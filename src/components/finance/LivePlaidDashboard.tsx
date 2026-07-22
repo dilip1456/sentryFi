@@ -4187,11 +4187,11 @@ export const LivePlaidDashboard = ({
   // ── Period nav pill (reused in monthly + spending tabs) ──────
   // Segmented switch between the merged Spending and Budget views.
   const SpendBudgetTabs = () => (
-    <div className="flex p-0.5 rounded-lg border border-border bg-surface/60 text-[13.5px] font-medium">
+    <div className="flex bg-muted/40 rounded-full p-0.5 text-[13px] font-medium">
       {([["spending", "Spending"], ["budget", "Budget"]] as const).map(([k, label]) => (
         <button key={k} onClick={() => onViewChange?.(k)}
-          className={cn("px-4 py-1.5 rounded-md transition-colors",
-            view === k ? "bg-[hsl(var(--primary))] text-background font-semibold" : "text-muted-foreground hover:text-foreground")}>
+          className={cn("px-5 py-1.5 rounded-full transition-all",
+            view === k ? "bg-background text-foreground font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>
           {label}
         </button>
       ))}
@@ -4200,11 +4200,11 @@ export const LivePlaidDashboard = ({
 
   const PeriodNav = ({ state, onChange, granularities = ["week","month","year"] }: { state: PeriodState; onChange: (s: PeriodState) => void; granularities?: PeriodGranularity[] }) => (
     <div className="flex items-center gap-2 flex-wrap">
-      <div className="flex rounded-full border border-border p-0.5 bg-surface/60">
+      <div className="flex rounded-full bg-muted/40 p-0.5">
         {granularities.map(g=>(
           <button key={g} onClick={()=>onChange({granularity:g,offset:0})}
-            className={cn("px-3 py-1 rounded-full text-[12.5px] font-medium transition-all capitalize",
-              state.granularity===g?"bg-[hsl(var(--primary))] text-primary-foreground":"text-muted-foreground hover:text-foreground")}>
+            className={cn("px-3 py-1.5 rounded-full text-[12px] font-medium transition-all capitalize",
+              state.granularity===g?"bg-background text-foreground shadow-sm":"text-muted-foreground hover:text-foreground")}>
             {g}
           </button>
         ))}
@@ -6372,10 +6372,9 @@ export const LivePlaidDashboard = ({
     const actedSuggestions = suggestions.filter(s => !!getFeedback(s.id));
 
     return (
-      <div className="space-y-4 animate-fade-up">
-        <div>
-          <h2 className="font-display text-xl text-primary flex items-center gap-2"><Compass className="h-5 w-5" /> Money Map</h2>
-          <div className="text-[12.5px] text-muted-foreground mt-0.5">What you actually have available, separate from buffers and reserves</div>
+      <div className="space-y-3 animate-fade-up">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-[18px] text-foreground">Money Map</h2>
         </div>
 
         {/* ── The headline number ── */}
