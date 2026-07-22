@@ -6597,7 +6597,7 @@ export const LivePlaidDashboard = ({
 
   if (view === "benefits") {
     // New AI-powered benefits view — see CardBenefitsView component below
-    return <CardBenefitsView accounts={accounts} supabase={supabase} user={user} />;
+    return <CardBenefitsView accounts={accounts} supabase={supabase} user={user} txns={txns} />;
   }
 
   // Should be unreachable now — view is constrained to overall/monthly/spending/benefits
