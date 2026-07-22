@@ -25,6 +25,17 @@ export interface RecurringDismissal {
   at: string;
 }
 
+export interface PlannedTransfer {
+  id: string;
+  category: string;
+  month: string;        // "2026-07" — the budget period this covers
+  amount: number;
+  fromAccountId: string;
+  fromAccountName: string;
+  createdAt: string;
+  done: boolean;
+}
+
 export interface UserSettings {
   budgets: Record<string, number>;
   accountRoles: Record<string, AccountRoleInfo>;
@@ -41,6 +52,8 @@ export interface UserSettings {
   dismissedActions: string[];
   dismissedRecurring: string[];
   recurringDismissals: RecurringDismissal[];
+  overageFundingPrefs: Record<string, string>; // category -> last-used funding account id (prediction default)
+  plannedTransfers: PlannedTransfer[];          // confirmed "move money" suggestions shown on Home
   panelOrder: string[];
   accountMeta: Record<string, { apr?: number; nickname?: string }>;
   benefitsUsed: Record<string, boolean>;
@@ -52,6 +65,7 @@ const DEFAULTS: UserSettings = {
   customCats: [], nameOverrides: {}, nameRules: {},
   manualIncome: [], manualInternal: [], manualExternal: [],
   dismissedInsights: [], dismissedActions: [], dismissedRecurring: [], recurringDismissals: [],
+  overageFundingPrefs: {}, plannedTransfers: [],
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
 };
 
@@ -98,6 +112,8 @@ const dbToSettings = (row: any): UserSettings => ({
   dismissedActions:   row.dismissed_actions   ?? [],
   dismissedRecurring: Array.isArray(row.dismissed_recurring) ? row.dismissed_recurring : [],
   recurringDismissals: Array.isArray(row.recurring_dismissals) ? row.recurring_dismissals : [],
+  overageFundingPrefs: row.overage_funding_prefs ?? {},
+  plannedTransfers:   Array.isArray(row.planned_transfers) ? row.planned_transfers : [],
   panelOrder:         row.panel_order       ?? [],
   accountMeta:        row.account_meta      ?? {},
   benefitsUsed:       row.benefits_used     ?? {},
@@ -120,6 +136,8 @@ const settingsToDb = (s: UserSettings) => ({
   dismissed_actions:   s.dismissedActions,
   dismissed_recurring: s.dismissedRecurring,
   recurring_dismissals: s.recurringDismissals,
+  overage_funding_prefs: s.overageFundingPrefs,
+  planned_transfers:   s.plannedTransfers,
   panel_order:         s.panelOrder,
   account_meta:        s.accountMeta,
   benefits_used:       s.benefitsUsed,
@@ -313,6 +331,31 @@ export const useUserSettings = (userId: string | undefined) => {
   const clearRecurringDismissals = () =>
     update({ dismissedRecurring: [], recurringDismissals: [] });
 
+  // ── Overage funding: remember which account covered a category last time,
+  // so future overages in that category default (predict) to the same
+  // account while the user can still pick a different one. ──
+  const setOverageFundingPref = (category: string, accountId: string) =>
+    update({ overageFundingPrefs: { ...latestSettings.current.overageFundingPrefs, [category]: accountId } });
+
+  // Confirm a funding choice: records the preference and adds a "you still need
+  // to make this transfer" item shown on Home until marked done or dismissed.
+  const confirmOverageFunding = (t: Omit<PlannedTransfer, "id" | "createdAt" | "done">) => {
+    setOverageFundingPref(t.category, t.fromAccountId);
+    const id = `pt_${t.category}_${t.month}`;
+    update({
+      plannedTransfers: [
+        ...latestSettings.current.plannedTransfers.filter(p => p.id !== id),
+        { ...t, id, createdAt: new Date().toISOString(), done: false },
+      ],
+    });
+  };
+
+  const markTransferDone = (id: string) =>
+    update({ plannedTransfers: latestSettings.current.plannedTransfers.map(p => p.id === id ? { ...p, done: true } : p) });
+
+  const dismissTransfer = (id: string) =>
+    update({ plannedTransfers: latestSettings.current.plannedTransfers.filter(p => p.id !== id) });
+
   const setPanelOrder = (order: string[]) => update({ panelOrder: order });
 
   const setAccountMeta = (accountId: string, meta: { apr?: number; nickname?: string }) =>
@@ -339,6 +382,7 @@ export const useUserSettings = (userId: string | undefined) => {
     addManualIncome, removeManualIncome,
     toggleManualInternal,
     dismissInsight, dismissAction, dismissRecurring, dismissRecurringWithReason, clearRecurringDismissals,
+    setOverageFundingPref, confirmOverageFunding, markTransferDone, dismissTransfer,
     setPanelOrder,
     setAccountMeta,
     setBenefitUsed,

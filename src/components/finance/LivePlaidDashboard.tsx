@@ -324,16 +324,22 @@ const buildNWByPeriod = (netWorth: number, txns: PTxn[], period: Period, interna
   });
 };
 
-const buildMonthlyFlow = (txns: PTxn[]) => {
+const buildMonthlyFlow = (
+  txns: PTxn[],
+  overrides: Record<string,string>,
+  getRuleCategory: (m:string|null)=>string|null,
+  customCategories: { name: string; type: "income" | "expense" }[] = [],
+) => {
   const now = new Date();
   return Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5-i), 1);
     const mo = d.getMonth(); const yr = d.getFullYear();
     const mt = txns.filter(t => { const td = new Date(t.date+"T00:00:00"); return td.getMonth()===mo && td.getFullYear()===yr; });
+    const isInc = (t: PTxn) => isIncomeCategory(getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other", customCategories, Number(t.amount));
     return {
       m: d.toLocaleDateString("en-US", { month: "short" }),
-      income: Math.round(mt.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0)),
-      spend:  Math.round(mt.filter(t=>Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0)),
+      income: Math.round(mt.filter(isInc).reduce((s,t)=>s+Math.abs(Number(t.amount)),0)),
+      spend:  Math.round(mt.filter(t=>!isInc(t)).reduce((s,t)=>s+Number(t.amount),0)),
     };
   });
 };
@@ -386,19 +392,22 @@ const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
 };
 
 /** Month-over-month spend change per category, excluding internal transfers */
-const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null, internalIds: Set<string>) => {
+const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null, internalIds: Set<string>, customCategories: {name:string;type:"income"|"expense"}[] = []) => {
   const now = new Date();
   const thisM = now.getMonth(); const thisY = now.getFullYear();
   const lastM = thisM === 0 ? 11 : thisM - 1;
   const lastY = thisM === 0 ? thisY - 1 : thisY;
   const catMap: Record<string,{this:number;last:number}> = {};
   for (const t of txns) {
-    if (Number(t.amount) <= 0 || internalIds.has(t.id)) continue;
+    if (internalIds.has(t.id)) continue;
+    const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+    // Classify by category type, not sign — a refund into an expense category
+    // reduces that category's total instead of being dropped or counted as income.
+    if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
     const d = new Date(t.date+"T00:00:00");
     const isThis = d.getMonth()===thisM && d.getFullYear()===thisY;
     const isLast = d.getMonth()===lastM && d.getFullYear()===lastY;
     if (!isThis && !isLast) continue;
-    const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
     if (!catMap[cat]) catMap[cat]={this:0,last:0};
     if (isThis) catMap[cat].this += Number(t.amount);
     else catMap[cat].last += Number(t.amount);
@@ -614,6 +623,7 @@ const generateActions = (
   getRuleCategory: (m:string|null)=>string|null,
   budgets: Record<string,number>,
   creditDetails: CreditDetail[],
+  customCategories: { name: string; type: "income" | "expense" }[] = [],
 ): ActionItem[] => {
   const items: ActionItem[] = [];
   const realTxns = txns.filter(t => !internalIds.has(t.id));
@@ -637,10 +647,10 @@ const generateActions = (
     const thisM = now.getMonth(); const thisY = now.getFullYear();
     const thisMonthSpend: Record<string,number> = {};
     for (const t of realTxns) {
-      if (Number(t.amount) <= 0) continue;
+      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
       const d = new Date(t.date+"T00:00:00");
       if (d.getMonth() !== thisM || d.getFullYear() !== thisY) continue;
-      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
       thisMonthSpend[cat] = (thisMonthSpend[cat] ?? 0) + Number(t.amount);
     }
     const overages = Object.entries(budgets)
@@ -665,10 +675,10 @@ const generateActions = (
     const catThis: Record<string,number> = {};
     const catHist: Record<string,number[]> = {};
     for (const t of realTxns) {
-      if (Number(t.amount) <= 0) continue;
+      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
       const d = new Date(t.date+"T00:00:00");
       const mDiff = (thisY - d.getFullYear()) * 12 + (thisM - d.getMonth());
-      const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
       if (mDiff === 0) { catThis[cat] = (catThis[cat] ?? 0) + Number(t.amount); }
       else if (mDiff >= 1 && mDiff <= 3) {
         if (!catHist[cat]) catHist[cat] = [];
@@ -1130,6 +1140,28 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   if (ruleMatch) return ruleMatch;
   // 3. Normalised Plaid category (with merchant override for known Plaid ML errors)
   return normalisePlaidCategory(t.category, t.merchant_name, t.name);
+};
+
+/**
+ * Classify a category as income or expense by ASSIGNMENT, not by the sign of
+ * any one transaction. This is what keeps a refund (a negative-amount credit
+ * back into an expense category like "Shopping") from being counted as
+ * income — it stays grouped under "Shopping" and simply reduces that
+ * category's net total, exactly like a real refund should.
+ * Falls back to the transaction's own sign only for categories the app has
+ * no classification for at all (e.g. an unmapped raw Plaid category).
+ */
+const isIncomeCategory = (
+  cat: string,
+  customCategories: { name: string; type: "income" | "expense" }[] = [],
+  fallbackAmount?: number,
+): boolean => {
+  const custom = customCategories.find(c => c.name.toLowerCase() === cat.toLowerCase());
+  if (custom) return custom.type === "income";
+  if (INCOME_CATEGORIES.some(c => c.toLowerCase() === cat.toLowerCase())) return true;
+  if (EXPENSE_CATEGORIES.some(c => c.toLowerCase() === cat.toLowerCase())) return false;
+  // Unclassified category — fall back to sign (negative = money in) if given.
+  return fallbackAmount != null ? fallbackAmount < 0 : false;
 };
 
 // ── Right-panel drawer ─────────────────────────────────────────
@@ -3961,7 +3993,7 @@ export const LivePlaidDashboard = ({
   const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualAssets;
   const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualLiab;
   const netWorth    = assets-liabilities;
-  const monthlyFlow = buildMonthlyFlow(txns);
+  const monthlyFlow = buildMonthlyFlow(txns, overrides, getRuleCategory, customCategories);
 
   const animatedNW   = useCountUp(netWorth, 1200);
   const animatedAss  = useCountUp(assets, 1000);
@@ -3994,9 +4026,11 @@ export const LivePlaidDashboard = ({
   const now = new Date();
   const curMo = now.getMonth(); const curYr = now.getFullYear();
   const curMonthTxns = txns.filter(t=>{ const d=new Date(t.date+"T00:00:00"); return d.getMonth()===curMo&&d.getFullYear()===curYr; });
+  // Classify by the category's assigned type, not transaction sign — a refund
+  // into an expense category stays grouped there instead of counting as income.
   const curMonthExpenses = curMonthTxns.filter(t=>
     !internalTxnIds.has(t.id) &&
-    Number(t.amount)>0 &&
+    !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)) &&
     !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
   );
 
@@ -4013,18 +4047,22 @@ export const LivePlaidDashboard = ({
     .map(([category,{total,count,txns:catTxns}])=>({category,total,count,txns:catTxns}))
     .sort((a,b)=>b.total-a.total);
   const totalSpend = spendByCategory.reduce((s,c)=>s+c.total,0);
-  const curMonthIncome = curMonthTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+  const curMonthIncome = curMonthTxns.filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
 
   // Period-filtered data for monthly/spending tabs
   const monthlyPeriodTxns = filterByPeriod(txns, monthlyPeriod);
-  const monthlyIncome = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-  const monthlySpend  = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0);
+  const monthlyIncome = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+  const monthlySpend  = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&!isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Number(t.amount),0);
 
-  // Spending-tab period filtered
+  // Spending-tab period filtered — bucket by the CATEGORY's assigned type
+  // (income vs expense), not by the sign of any one transaction. This keeps a
+  // refund (a negative-amount credit back into an expense category like
+  // "Shopping") grouped under "Shopping" — reducing that category's net
+  // total — instead of being swept into income.
   const spendingPeriodTxns = filterByPeriod(txns, spendingPeriod);
   const spendingPeriodExpenses = spendingPeriodTxns.filter(t=>
     !internalTxnIds.has(t.id) &&
-    Number(t.amount)>0 &&
+    !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)) &&
     !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
   );
   const spendingPeriodMap: Record<string,{total:number;count:number}> = {};
@@ -4039,7 +4077,7 @@ export const LivePlaidDashboard = ({
     .sort((a,b)=>b.total-a.total);
   const spendingPeriodTotal = spendingPeriodByCategory.reduce((s,c)=>s+c.total,0);
   const spendingPeriodIncome = spendingPeriodTxns
-    .filter(t=>!internalTxnIds.has(t.id)&&Number(t.amount)<0)
+    .filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)))
     .reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
   // Prior period spend for delta comparison
   const prevSpendingPeriodSpent = filterByPeriod(txns, {...spendingPeriod, offset: spendingPeriod.offset-1})
@@ -4059,10 +4097,10 @@ export const LivePlaidDashboard = ({
     return spendingPeriodTotal / days;
   })();
 
-  const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails);
+  const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
-  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds);
+  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories);
   const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
 
   // Filtered + sorted txns for the spending-tab explorer
@@ -4075,8 +4113,11 @@ export const LivePlaidDashboard = ({
   const filteredSpendingTxns = (() => {
     let base = spendingPeriodTxns;
     if (selectedCategory) base = base.filter(t=>(getEffectiveCategory(t,overrides,getRuleCategory)??"Other")===selectedCategory);
-    if (txnFlowFilter === "expense") base = base.filter(t => Number(t.amount) > 0);
-    if (txnFlowFilter === "income")  base = base.filter(t => Number(t.amount) < 0);
+    // Classify by the category's assigned type, not sign, so a refund into an
+    // expense category shows under "Expenses" (netting the total down) rather
+    // than appearing in "Income".
+    if (txnFlowFilter === "expense") base = base.filter(t => !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)));
+    if (txnFlowFilter === "income")  base = base.filter(t => isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)));
     if (hideInternal) base = base.filter(t => !internalTxnIds.has(t.id));
     if (chartDrillDate) base = base.filter(t => t.date === chartDrillDate);
     if (chartDrillMonth !== null) base = base.filter(t => new Date(t.date+"T00:00:00").getMonth() === chartDrillMonth);
@@ -4152,7 +4193,7 @@ export const LivePlaidDashboard = ({
         {granularities.map(g=>(
           <button key={g} onClick={()=>onChange({granularity:g,offset:0})}
             className={cn("px-3 py-1 rounded-full text-[12.5px] font-medium transition-all capitalize",
-              state.granularity===g?"bg-foreground text-background":"text-muted-foreground hover:text-foreground")}>
+              state.granularity===g?"bg-[hsl(var(--primary))] text-primary-foreground":"text-muted-foreground hover:text-foreground")}>
             {g}
           </button>
         ))}
@@ -4379,6 +4420,43 @@ export const LivePlaidDashboard = ({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Suggested transfers: confirmed from the Budget "Cover overages" picker.
+          These are things the user still needs to actually go do — not auto-executed. ── */}
+      {(() => {
+        const pending = settings.plannedTransfers.filter(p => !p.done);
+        if (pending.length === 0) return null;
+        const monthLabel = (m: string) => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }); };
+        return (
+          <section className="surface-card overflow-hidden border border-[hsl(var(--primary)/0.25)]">
+            <div className="px-5 py-3 border-b border-border/20 flex items-center gap-2">
+              <ArrowRightLeft className="h-3.5 w-3.5 text-[hsl(var(--primary))]" />
+              <h2 className="font-display text-[15px] text-primary flex-1">Suggested transfers</h2>
+              <span className="text-[12px] text-muted-foreground">{pending.length} to do</span>
+            </div>
+            <div className="divide-y divide-border/15">
+              {pending.map(p => (
+                <div key={p.id} className="px-5 py-3.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13.5px] text-foreground">
+                      Move <span className="font-semibold tabular">{fmtUSD(p.amount)}</span> from <span className="font-medium">{p.fromAccountName}</span> to cover <span className="font-medium">{formatCat(p.category)}</span>
+                    </div>
+                    <div className="text-[12px] text-muted-foreground mt-0.5">{monthLabel(p.month)} · you still need to make this transfer</div>
+                  </div>
+                  <button onClick={() => S.markTransferDone(p.id)}
+                    className="h-8 px-3 rounded-lg bg-positive/10 text-positive text-[12px] font-medium hover:bg-positive/20 transition-colors shrink-0 inline-flex items-center gap-1">
+                    <Check className="h-3.5 w-3.5" /> Done
+                  </button>
+                  <button onClick={() => S.dismissTransfer(p.id)}
+                    className="h-8 w-8 grid place-items-center rounded-lg text-muted-foreground/60 hover:text-negative hover:bg-negative/10 transition-colors shrink-0">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Insights — full width ── */}
       <div className="space-y-3 min-w-0">
@@ -5206,6 +5284,516 @@ export const LivePlaidDashboard = ({
   // Monthly view removed - merged into Spending tab
 
     // ── SPENDING & BUDGET ─────────────────────────────────────
+  const renderBudgetPanel = (compact: boolean) => {
+    const budgetPeriodState: PeriodState = { granularity: "month", offset: budgetMonthOffset };
+    const budgetMonthDate = new Date(); budgetMonthDate.setMonth(budgetMonthDate.getMonth() + budgetMonthOffset);
+    const budgetMonthKey = `${budgetMonthDate.getFullYear()}-${String(budgetMonthDate.getMonth() + 1).padStart(2, "0")}`;
+    const budgetTxns = filterByPeriod(txns, budgetPeriodState).filter(t => !internalTxnIds.has(t.id));
+    // Classify by the category's assigned type, not transaction sign, so a
+    // refund into an expense category (e.g. a Shopping return) reduces that
+    // category's spend instead of being counted as income.
+    const budgetExpenseTxns = budgetTxns.filter(t => !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)));
+    const budgetIncomeTxns = budgetTxns.filter(t => isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)));
+
+    // ── Recurring income detection — looks back 3 months for regular paycheck-like deposits ──
+    const detectRecurringIncome = () => {
+      const merchantTotals: Record<string,{dates:string[];amounts:number[]}> = {};
+      for (let i = 1; i <= 3; i++) {
+        const prior = filterByPeriod(txns, { granularity:"month", offset:-i }).filter(t=>Number(t.amount)<0&&!internalTxnIds.has(t.id));
+        for (const t of prior) {
+          const key = t.merchant_name ?? t.name ?? "Unknown";
+          if (!merchantTotals[key]) merchantTotals[key] = { dates:[], amounts:[] };
+          merchantTotals[key].dates.push(t.date);
+          merchantTotals[key].amounts.push(Math.abs(Number(t.amount)));
+        }
+      }
+      const recurring: {merchant:string;avgAmount:number;count:number}[] = [];
+      for (const [merchant, data] of Object.entries(merchantTotals)) {
+        if (data.dates.length >= 2) {
+          const avg = data.amounts.reduce((s,v)=>s+v,0)/data.amounts.length;
+          recurring.push({ merchant, avgAmount: avg, count: data.dates.length });
+        }
+      }
+      return recurring.sort((a,b)=>b.avgAmount-a.avgAmount).slice(0,5);
+    };
+    const recurringIncomeSources = detectRecurringIncome();
+    const addManualIncome = () => {
+      const amt = parseFloat(incomeDraftAmt);
+      if (!incomeDraftLabel.trim() || isNaN(amt) || amt <= 0) return;
+      S.addManualIncome({ id: `mi_${Date.now()}`, label: incomeDraftLabel.trim(), amount: amt });
+      setIncomeDraftLabel(""); setIncomeDraftAmt(""); setShowAddIncome(false);
+    };
+    const removeManualIncome = (id: string) => {
+      S.removeManualIncome(id);
+    };
+
+    const detectedIncomeThisMonth = budgetIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+    const manualIncomeTotal = manualIncome.reduce((s,m)=>s+m.amount,0);
+    const anticipatedIncome = detectedIncomeThisMonth + manualIncomeTotal;
+
+    const catMap: Record<string,{total:number;count:number;txns:PTxn[]}> = {};
+    for (const t of budgetExpenseTxns) {
+      const cat = getEffectiveCategory(t,overrides,getRuleCategory)??"Other";
+      if (!catMap[cat]) catMap[cat] = { total:0, count:0, txns:[] };
+      catMap[cat].total += Number(t.amount);
+      catMap[cat].count += 1;
+      catMap[cat].txns.push(t);
+    }
+    const allCats = Object.entries(catMap).map(([category,v])=>({category,...v})).sort((a,b)=>b.total-a.total);
+    const zeroSpendBudgeted = Object.keys(budgets).filter(cat=>!catMap[cat]).map(cat=>({category:cat,total:0,count:0,txns:[] as PTxn[]}));
+    const allBudgetedCats = [...allCats.filter(c=>!!budgets[c.category]),...zeroSpendBudgeted].sort((a,b)=>(budgets[b.category]??0)-(budgets[a.category]??0));
+    const unbudgetedCats = allCats.filter(c=>!budgets[c.category]);
+
+    const totalAllocated = allBudgetedCats.reduce((s,c)=>s+(budgets[c.category]??0),0);
+    const totalSpent = allCats.reduce((s,c)=>s+c.total,0);
+    const totalSpentBudgeted = allBudgetedCats.reduce((s,c)=>s+c.total,0);
+    const overCount = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0)).length;
+    const left = anticipatedIncome - totalSpent;
+    const overCategories = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0));
+    const totalOverage = overCategories.reduce((s,c)=>s+(c.total-(budgets[c.category]??0)),0);
+
+    // Eligible funding accounts for covering an overage: everyday accounts only.
+    // Long-term savings (reserve/savings_goal) are excluded on purpose so they stay
+    // untouched; investment and debt accounts aren't sensible "move money from" sources.
+    const fundingAccounts = accounts.filter(a => {
+      const role = getRole(a.account_id, a.type, a.subtype).role;
+      return role !== "reserve" && role !== "savings_goal" && role !== "investment" && role !== "debt";
+    });
+
+    // Max bar = max of budget or actual across all categories (for aligned scale)
+    const maxBar = Math.max(...allBudgetedCats.map(c=>Math.max(budgets[c.category]??0, c.total)), 1);
+
+    return (
+    <>
+    {/* Constrained column — a budget reads best in a focused width, not stretched
+        across the whole screen where the progress bars become uncomfortably wide. */}
+    <div className={cn("animate-fade-up space-y-4", !compact && "max-w-2xl mx-auto")}>
+
+      {/* Merged Spending/Budget switch + month nav */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        {!compact && <SpendBudgetTabs />}
+        <div className="flex items-center gap-2">
+          <button onClick={() => setBudgetMonthOffset(o => o - 1)}
+            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-[15px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
+          <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
+            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Hero: this month's budget health ── */}
+      {(() => {
+        const spentOfBudget = totalSpentBudgeted;
+        const leftOfBudget = totalAllocated - spentOfBudget;
+        const usedPct = totalAllocated > 0 ? (spentOfBudget / totalAllocated) * 100 : 0;
+        const now = new Date();
+        const isCurrentMonth = budgetMonthOffset === 0;
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
+        const monthPct = (dayOfMonth / daysInMonth) * 100;
+        const daysLeft = Math.max(daysInMonth - dayOfMonth, 0);
+        const aheadOfPace = isCurrentMonth && totalAllocated > 0 && usedPct > monthPct + 6;
+        const dailyLeft = daysLeft > 0 ? leftOfBudget / daysLeft : leftOfBudget;
+
+        if (totalAllocated === 0) {
+          return (
+            <div className="surface-card p-8 text-center space-y-3">
+              <div className="h-12 w-12 mx-auto rounded-full bg-[hsl(var(--primary)/0.1)] grid place-items-center">
+                <Wallet className="h-6 w-6 text-[hsl(var(--primary))]" />
+              </div>
+              <div>
+                <div className="text-[15px] font-semibold text-foreground">Start a budget</div>
+                <div className="text-[13.5px] text-muted-foreground mt-1 max-w-xs mx-auto">Set a monthly limit for a category and track exactly how much is left to spend.</div>
+              </div>
+              <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-gold text-[14px] font-semibold">
+                <Plus className="h-4 w-4" /> Create your first budget
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div className="surface-card p-5 space-y-4">
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">{leftOfBudget >= 0 ? "Left to spend" : "Over budget"}</div>
+                <div className={cn("text-[34px] font-display font-bold tabular leading-none mt-1.5", leftOfBudget >= 0 ? "text-foreground" : "text-negative")}>
+                  {leftOfBudget < 0 && "-"}{fmtUSD(Math.abs(leftOfBudget))}
+                </div>
+                <div className="text-[13px] text-muted-foreground mt-1.5">{fmtUSD(spentOfBudget)} spent of {fmtUSD(totalAllocated)}</div>
+              </div>
+              {isCurrentMonth && daysLeft > 0 && leftOfBudget > 0 && (
+                <div className="text-right shrink-0">
+                  <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Daily · {daysLeft}d left</div>
+                  <div className="text-[19px] font-display font-bold tabular text-foreground mt-1">{fmtUSD(dailyLeft)}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Progress with a "where you should be" pace marker */}
+            <div>
+              <div className="relative h-3 rounded-full bg-border/30 overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500" style={{
+                  width: `${Math.min(usedPct, 100)}%`,
+                  backgroundColor: usedPct >= 100 ? "hsl(var(--negative))" : aheadOfPace ? "hsl(var(--warning))" : "hsl(var(--positive))",
+                }} />
+                {isCurrentMonth && monthPct < 100 && (
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/60" style={{ left: `${monthPct}%` }} title="Today's pace" />
+                )}
+              </div>
+              <div className="flex justify-between items-center text-[12.5px] mt-2">
+                <span className="text-muted-foreground">{Math.round(usedPct)}% of budget used</span>
+                {isCurrentMonth
+                  ? <span className={cn("font-medium", aheadOfPace ? "text-warning" : "text-positive")}>{aheadOfPace ? "Spending ahead of pace" : "On track"}</span>
+                  : <span className="text-muted-foreground">{allBudgetedCats.length} categories</span>}
+              </div>
+            </div>
+
+            {overCount > 0 && (
+              <div className="flex items-center gap-2 rounded-lg bg-negative/8 border border-negative/20 px-3 py-2">
+                <AlertTriangle className="h-3.5 w-3.5 text-negative shrink-0" />
+                <span className="text-[13px] text-foreground">{overCount} categor{overCount > 1 ? "ies" : "y"} over by <span className="font-semibold text-negative">{fmtUSD(totalOverage)}</span></span>
+              </div>
+            )}
+
+            {compact && (
+              <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
+                className="w-full h-8 rounded-lg border border-dashed border-border/60 text-[12.5px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors inline-flex items-center justify-center gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> New budget
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Cover overages — pick a funding account for each over-budget category,
+          restricted to everyday accounts (never long-term savings). */}
+      {overCategories.length > 0 && (() => {
+        return (
+        <div className="surface-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border/20">
+            <span className="text-[13px] font-semibold text-foreground">Cover overages</span>
+            <span className="text-[12px] text-muted-foreground ml-2">Pick where to move the shortfall from</span>
+          </div>
+          <div className="divide-y divide-border/10">
+            {overCategories.map(c => {
+              const over = c.total - (budgets[c.category] ?? 0);
+              const Icon = categoryIcon(c.category);
+              const color = catColor(c.category);
+              const predictedId = settings.overageFundingPrefs[c.category];
+              // Prefer this session's pick; otherwise predict from what covered this category last time.
+              const chosenId = fundAllocations[c.category] ?? predictedId ?? "";
+              const chosen = fundingAccounts.find(a => a.account_id === chosenId);
+              const transferId = `pt_${c.category}_${budgetMonthKey}`;
+              const confirmed = settings.plannedTransfers.find(p => p.id === transferId && !p.done);
+              const isPredicted = !fundAllocations[c.category] && !!predictedId && chosenId === predictedId;
+              return (
+                <div key={c.category} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-[13px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                    <span className="text-[13px] font-semibold tabular text-negative">{fmtUSD(over)} over</span>
+                  </div>
+                  {fundingAccounts.length === 0 ? (
+                    <div className="ml-9 text-[12px] text-muted-foreground">
+                      No eligible account. Tag a checking account below in Organize accounts.
+                    </div>
+                  ) : (
+                    <div className="ml-9 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <select value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
+                          className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                          <option value="">Cover from…</option>
+                          {fundingAccounts.map(a => (
+                            <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSD(Number(a.current_balance) || 0, { compact: true })})</option>
+                          ))}
+                        </select>
+                        {chosen && !confirmed && (
+                          <button onClick={() => {
+                              S.confirmOverageFunding({ category: c.category, month: budgetMonthKey, amount: over, fromAccountId: chosen.account_id, fromAccountName: chosen.name ?? chosen.official_name ?? "Account" });
+                            }}
+                            className="h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0 whitespace-nowrap">
+                            Suggest transfer
+                          </button>
+                        )}
+                      </div>
+                      {isPredicted && !confirmed && (
+                        <div className="text-[11.5px] text-muted-foreground">Predicted from last time — change above if you'd rather use a different account.</div>
+                      )}
+                      {confirmed && (
+                        <div className="flex items-center gap-1.5 text-[12px] text-positive">
+                          <Check className="h-3 w-3" /> Added to Home as a suggested transfer.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-4 py-2.5 border-t border-border/15 text-[11.5px] text-muted-foreground">
+            These are suggestions — transfers must be made manually in your bank or app.
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ── Add-budget form (opens from header or empty state) ── */}
+      {editingBudgetCat === "__add__" && (
+        <div className="surface-card p-4 space-y-2.5 border border-[hsl(var(--primary)/0.3)]">
+          <div className="text-[13px] font-semibold text-foreground">New budget</div>
+          {/* Tap-to-select category grid */}
+          <div className="flex flex-wrap gap-1.5">
+            {unbudgetedCats.map(cc => {
+              const col = catColor(cc.category);
+              const Ic  = categoryIcon(cc.category);
+              return (
+                <button key={cc.category} onClick={() => setAddCatNameDraft(cc.category)}
+                  className={cn("flex items-center gap-1.5 h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
+                    addCatNameDraft === cc.category
+                      ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary))] text-primary-foreground"
+                      : "border-border/40 text-foreground hover:border-foreground/30")}>
+                  <Ic className="h-3 w-3 shrink-0" style={{ color: col }} />
+                  {formatCat(cc.category)}
+                </button>
+              );
+            })}
+            <button onClick={() => setAddCatNameDraft("__custom__")}
+              className={cn("h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
+                addCatNameDraft === "__custom__" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary))] text-primary-foreground" : "border-dashed border-border/40 text-muted-foreground hover:text-foreground")}>
+              + Custom
+            </button>
+          </div>
+          {addCatNameDraft === "__custom__" && (
+            <input value={addCatCustom} onChange={e => setAddCatCustom(e.target.value)} placeholder="Category name"
+              className="w-full h-10 px-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-foreground/40" />
+          )}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
+              <input type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)} placeholder="Monthly amount"
+                className="w-full h-10 pl-7 pr-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
+            </div>
+            <button onClick={() => {
+              const cat = addCatNameDraft === "__custom__" ? addCatCustom.trim() : addCatNameDraft;
+              const amt = parseFloat(budgetDraft);
+              if (!cat || isNaN(amt) || amt <= 0) return;
+              setBudget(cat, amt); setEditingBudgetCat(null); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom("");
+            }} className="h-10 px-4 rounded-lg bg-gold text-[13.5px] font-semibold shrink-0">Save</button>
+            <button onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); setAddCatNameDraft(""); }}
+              className="h-10 px-3 rounded-lg border border-border-strong text-[13.5px] text-muted-foreground shrink-0">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Category-level budgets now live inline in the Spending "By category" list
+          (click a category there to edit its budget or filter transactions) —
+          this sidebar stays a lean summary instead of repeating that list. */}
+      {!compact && allBudgetedCats.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[13px] font-semibold text-foreground">Categories</span>
+            {editingBudgetCat !== "__add__" && (
+              <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
+                className="text-[13px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80">
+                <Plus className="h-3.5 w-3.5" /> Add budget
+              </button>
+            )}
+          </div>
+          {allBudgetedCats.map(c => {
+            const Icon = categoryIcon(c.category);
+            const color = catColor(c.category);
+            const budget = budgets[c.category] ?? 0;
+            const actual = c.total;
+            const over = actual > budget;
+            const remaining = budget - actual;
+            const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
+            const isEditing = editingBudgetCat === c.category;
+            const barColor = over ? "hsl(var(--negative))" : pct >= 85 ? "hsl(var(--warning))" : color;
+            return (
+              <div key={c.category} className="surface-card p-4">
+                {isEditing ? (
+                  <form className="flex items-center gap-2"
+                    onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
+                    <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <span className="text-[14px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12.5px] text-muted-foreground">$</span>
+                      <input autoFocus type="number" min={0} step={10} value={budgetDraft}
+                        onChange={e => setBudgetDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Escape") { setEditingBudgetCat(null); setBudgetDraft(""); } }}
+                        className="w-24 h-8 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[13px] outline-none" />
+                    </div>
+                    <button type="submit" className="h-8 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Save</button>
+                    <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
+                      className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </form>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setBudgetCatPopup(c.category)}>
+                      <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[14px] font-semibold text-foreground truncate">{formatCat(c.category)}</span>
+                          {over && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative shrink-0">OVER</span>}
+                        </div>
+                        <div className="text-[12.5px] text-muted-foreground">{c.count} transaction{c.count !== 1 ? "s" : ""}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className={cn("text-[15px] font-display font-bold tabular leading-none", over ? "text-negative" : "text-foreground")}>
+                          {over ? `${fmtUSD(-remaining)} over` : `${fmtUSD(remaining)} left`}
+                        </div>
+                        <div className="text-[12.5px] text-muted-foreground tabular mt-1">{fmtUSD(actual)} / {fmtUSD(budget)}</div>
+                      </div>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
+                        className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-border/30 shrink-0">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="h-2 rounded-full bg-border/30 overflow-hidden mt-2.5">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Unbudgeted spending (quick-add chips) — full page only; in the sidebar
+          each unbudgeted category already shows an inline "+ Budget" link in
+          the Spending "By category" list. ── */}
+      {!compact && unbudgetedCats.length > 0 && (
+        <div className="surface-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[13px] font-semibold text-foreground">Not budgeted yet</span>
+            <span className="text-[12px] text-muted-foreground">{fmtUSD(unbudgetedCats.reduce((s, c) => s + c.total, 0))} untracked</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {unbudgetedCats.slice(0, 12).map(c => {
+              const Icon = categoryIcon(c.category);
+              const color = catColor(c.category);
+              return (
+                <button key={c.category} onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(Math.ceil(c.total / 10) * 10)); }}
+                  className="inline-flex items-center gap-1.5 h-8 pl-2 pr-2.5 rounded-full border border-border/60 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
+                  <span className="h-5 w-5 rounded-md grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
+                    <Icon className="h-3 w-3" />
+                  </span>
+                  <span className="text-[13px] text-foreground">{formatCat(c.category)}</span>
+                  <span className="text-[12.5px] text-muted-foreground tabular">{fmtUSD(c.total)}</span>
+                  <Plus className="h-3 w-3 text-[hsl(var(--primary))]" />
+                </button>
+              );
+            })}
+          </div>
+          {/* Inline editor when a chip is chosen */}
+          {unbudgetedCats.some(c => editingBudgetCat === c.category) && (() => {
+            const cat = editingBudgetCat!;
+            return (
+              <form className="flex items-center gap-2 mt-3 pt-3 border-t border-border/20"
+                onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(cat, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
+                <span className="text-[13px] font-medium text-foreground">{formatCat(cat)}</span>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12.5px] text-muted-foreground">$</span>
+                  <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)}
+                    className="w-24 h-8 pl-5 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[13px] outline-none" />
+                </div>
+                <button type="submit" className="h-8 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Set budget</button>
+                <button type="button" onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); }}
+                  className="h-8 px-2.5 rounded-md border border-border-strong text-[12.5px] text-muted-foreground">Cancel</button>
+              </form>
+            );
+          })()}
+        </div>
+      )}
+
+    </div>
+
+        {/* Budget category txn popup */}
+    {budgetCatPopup && (() => {
+      const catTxns = budgetTxns.filter(t => (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === budgetCatPopup).sort((a,b)=>b.date.localeCompare(a.date));
+      const catBudget = budgets[budgetCatPopup] ?? 0;
+      const catTotal = catTxns.reduce((s,t)=>s+Number(t.amount),0);
+      const over = catBudget > 0 && catTotal > catBudget;
+      const Icon = categoryIcon(budgetCatPopup);
+      const color = catColor(budgetCatPopup);
+      return (
+        <Dialog open onOpenChange={o=>{ if(!o) setBudgetCatPopup(null); }}>
+          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
+            <DialogTitle className="sr-only">{formatCat(budgetCatPopup)} transactions</DialogTitle>
+            <DialogDescription className="sr-only">Transactions for {formatCat(budgetCatPopup)}</DialogDescription>
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-border/30 flex items-center gap-3 shrink-0">
+              <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
+                <Icon className="h-5 w-5"/>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[15px] font-semibold text-foreground">{formatCat(budgetCatPopup)}</div>
+                <div className="text-[12.5px] text-muted-foreground mt-0.5">
+                  {fmtUSD(catTotal)} spent
+                  {catBudget > 0 && <span className={cn("ml-1.5 font-medium", over?"text-negative":"text-positive")}>
+                    {over ? `(${fmtUSD(catTotal-catBudget)} over)` : `(${fmtUSD(catBudget-catTotal)} left of ${fmtUSD(catBudget)})`}
+                  </span>}
+                </div>
+              </div>
+              {catBudget > 0 && (
+                <div className="shrink-0 text-right">
+                  <div className="text-[12.5px] text-muted-foreground">Budget</div>
+                  <div className="text-[14px] font-semibold tabular text-foreground">{fmtUSD(catBudget)}</div>
+                </div>
+              )}
+            </div>
+            {/* Txn list */}
+            <div className="flex-1 overflow-y-auto divide-y divide-border/10">
+              {catTxns.length === 0 ? (
+                <div className="px-5 py-10 text-center text-[13px] text-muted-foreground">No transactions this period.</div>
+              ) : catTxns.map(t => {
+                const acc = accounts.find(a=>a.account_id===t.account_id);
+                return (
+                  <button key={t.id} onClick={()=>{ setBudgetCatPopup(null); openDetail(t); }}
+                    className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-surface-hover/30 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-medium text-foreground truncate">{nameOverrides[t.id] ?? t.merchant_name ?? t.name}</div>
+                      <div className="text-[12px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                        <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                        {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
+                        {t.pending && <span className="text-warning font-medium">· Pending</span>}
+                      </div>
+                    </div>
+                    <span className="text-[15px] font-semibold tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0"/>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-border/20 flex items-center justify-between shrink-0">
+              <span className="text-[12.5px] text-muted-foreground">{catTxns.length} transaction{catTxns.length!==1?"s":""}</span>
+              <button onClick={()=>{ setBudgetCatPopup(null); setEditingBudgetCat(budgetCatPopup); setBudgetDraft(String(catBudget||"")); }}
+                className="text-[13px] text-[hsl(var(--primary))] font-medium flex items-center gap-1">
+                <Pencil className="h-3 w-3"/> Edit budget
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      );
+    })()}
+    </>
+    );
+  };
+
   if (view==="spending") {
     // ── Donut data ──
     const donutData = spendingPeriodByCategory.slice(0, 8).map(c => ({
@@ -5252,11 +5840,15 @@ export const LivePlaidDashboard = ({
 
     return (
     <>
-    <div className="space-y-3 animate-fade-up">
+    {/* PC mode: spending as the main column with the full budget panel as a
+        sticky sidebar on the right, so both live in one view without switching
+        tabs. Smaller screens keep the Spending|Budget toggle instead. */}
+    <div className="xl:grid xl:grid-cols-[1fr_380px] xl:items-start xl:gap-4">
+    <div className="space-y-3 animate-fade-up min-w-0">
       {/* ── Header row ── */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <SpendBudgetTabs />
+          <div className="xl:hidden"><SpendBudgetTabs /></div>
           <PeriodNav state={spendingPeriod} granularities={["day","week","month","year"]}
             onChange={p=>{setSpendingPeriod(p);setTxnLimit(150);setChartDrillDate(null);setChartDrillMonth(null);onCategorySelect?.("");}} />
         </div>
@@ -5371,39 +5963,60 @@ export const LivePlaidDashboard = ({
                 <span className="text-[12.5px] font-semibold text-foreground">By category</span>
                 {selectedCategory&&<button onClick={()=>onCategorySelect?.("")} className="text-[12px] text-[hsl(var(--primary))]">Clear ×</button>}
               </div>
-              <div className="divide-y divide-border/10 max-h-[280px] sm:max-h-[360px] overflow-y-auto scrollbar-none">
+              <div className="divide-y divide-border/10 max-h-[280px] sm:max-h-[420px] overflow-y-auto scrollbar-none">
                 {spendingPeriodByCategory.map(c=>{
                   const Icon=categoryIcon(c.category);
                   const color=catColor(c.category);
                   const maxS=spendingPeriodByCategory[0]?.total??1;
                   const barPct=Math.min((c.total/maxS)*100,100);
-                  const sharePct=spendingPeriodTotal>0?Math.round((c.total/spendingPeriodTotal)*100):0;
                   const budget=budgets[c.category];
-                  const budgetBarPct=budget?Math.min((budget/maxS)*100,100):null;
+                  const pctOfBudget=budget?Math.min((c.total/budget)*100,100):0;
                   const over=budget&&c.total>budget;
                   const isActive=selectedCategory===c.category;
+                  const isEditingBudget=editingBudgetCat===c.category;
                   return (
-                    <button key={c.category}
-                      onClick={()=>{
-                        if (window.innerWidth < 1024) { setSpendingCatPopup(c.category); }
-                        else { onCategorySelect?.(isActive?"":c.category); setTxnFlowFilter("expense"); }
-                      }}
-                      className={cn("w-full text-left px-5 py-3 transition-colors",isActive?"bg-[hsl(var(--primary)/0.07)]":"hover:bg-surface-hover/30",selectedCategory&&!isActive?"opacity-40 hover:opacity-70":"")}>
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
-                          <Icon className="h-3 w-3"/>
+                    <div key={c.category} className={cn("transition-colors", isActive?"bg-[hsl(var(--primary)/0.07)]":"", selectedCategory&&!isActive?"opacity-40 hover:opacity-70":"")}>
+                      <button
+                        onClick={()=>{
+                          if (window.innerWidth < 1024) { setSpendingCatPopup(c.category); }
+                          else { onCategorySelect?.(isActive?"":c.category); setTxnFlowFilter("expense"); }
+                        }}
+                        className="w-full text-left px-5 py-2.5 hover:bg-surface-hover/30 transition-colors">
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
+                            <Icon className="h-3 w-3"/>
+                          </div>
+                          <span className="text-[13.5px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
+                          <span className={cn("text-[13.5px] font-semibold tabular",over?"text-negative":"text-foreground")}>{fmtUSD(c.total)}</span>
+                          {budget ? (
+                            <span className="text-[12px] text-muted-foreground tabular shrink-0">/ {fmtUSD(budget,{compact:true})}</span>
+                          ) : (
+                            <button onClick={(e)=>{ e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(String(Math.ceil(c.total/10)*10)); }}
+                              className="text-[11.5px] text-[hsl(var(--primary))] hover:underline shrink-0 font-medium">+ Budget</button>
+                          )}
                         </div>
-                        <span className="text-[13.5px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
-                        <span className="text-[12px] text-muted-foreground tabular">{sharePct}%</span>
-                        <span className={cn("text-[13.5px] font-semibold tabular",over?"text-negative":"text-foreground")}>{fmtUSD(c.total)}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-border/25 relative overflow-visible">
-                        {budgetBarPct!==null&&(
-                          <div className="absolute inset-y-0 w-px bg-foreground/25 z-10" style={{left:`${budgetBarPct}%`}}/>
+                        <div className="h-1.5 rounded-full bg-border/25 relative overflow-visible mt-1.5 ml-8">
+                          <div className="h-full rounded-full transition-all" style={{width:`${budget?pctOfBudget:barPct}%`,backgroundColor:over?"hsl(var(--negative))":color}}/>
+                        </div>
+                        {budget!=null && (
+                          <div className="ml-8 mt-1 text-[11px]">
+                            <span className={over?"text-negative font-medium":"text-positive"}>{over?`${fmtUSD(c.total-budget)} over`:`${fmtUSD(budget-c.total)} left`}</span>
+                          </div>
                         )}
-                        <div className="h-full rounded-full transition-all" style={{width:`${barPct}%`,backgroundColor:over?"hsl(var(--negative))":color}}/>
-                      </div>
-                    </button>
+                      </button>
+                      {isEditingBudget && (
+                        <form className="px-5 pb-2.5 -mt-1 flex items-center gap-1.5 ml-8"
+                          onClick={e=>e.stopPropagation()}
+                          onSubmit={e=>{e.preventDefault();const n=parseFloat(budgetDraft);if(!isNaN(n)&&n>=0)setBudget(c.category,n);setEditingBudgetCat(null);setBudgetDraft("");}}>
+                          <span className="text-[11px] text-muted-foreground">$</span>
+                          <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e=>setBudgetDraft(e.target.value)}
+                            onKeyDown={e=>{if(e.key==="Escape"){setEditingBudgetCat(null);setBudgetDraft("");}}}
+                            className="w-20 h-7 pl-2 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none"/>
+                          <button type="submit" className="h-7 px-2.5 rounded-md bg-gold text-[11px] font-medium">Set</button>
+                          <button type="button" onClick={()=>{setEditingBudgetCat(null);setBudgetDraft("");}} className="h-7 px-2 rounded-md border border-border-strong text-[10.5px] text-muted-foreground">Cancel</button>
+                        </form>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -5428,7 +6041,7 @@ export const LivePlaidDashboard = ({
                 {([["date-desc","Newest"],["date-asc","Oldest"],["amount-desc","Largest"],["amount-asc","Smallest"],["name-asc","A→Z"],["category-asc","Category"]] as [string,string][]).map(([v,l])=>(
                   <button key={v} onClick={()=>setTxnSort(v as typeof txnSort)}
                     className={cn("shrink-0 h-7 px-2.5 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap",
-                      txnSort===v?"bg-foreground text-background":"bg-secondary/40 text-muted-foreground hover:text-foreground border border-border/30")}>
+                      txnSort===v?"bg-[hsl(var(--primary))] text-primary-foreground":"bg-secondary/40 text-muted-foreground hover:text-foreground border border-border/30")}>
                     {l}
                   </button>
                 ))}
@@ -5476,8 +6089,8 @@ export const LivePlaidDashboard = ({
             <div className="flex items-center justify-between text-[12px] text-muted-foreground">
               <span>{filteredSpendingTxns.length} transaction{filteredSpendingTxns.length!==1?"s":""}</span>
               <span className="tabular">{(()=>{
-                const out=filteredSpendingTxns.filter(t=>Number(t.amount)>0).reduce((s,t)=>s+Number(t.amount),0);
-                const inn=filteredSpendingTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+                const out=filteredSpendingTxns.filter(t=>!isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Number(t.amount),0);
+                const inn=filteredSpendingTxns.filter(t=>isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
                 return <>{inn>0&&<span className="text-positive">+{fmtUSD(inn)}</span>}{inn>0&&out>0&&<span className="mx-1">·</span>}{out>0&&<span>−{fmtUSD(out)}</span>}</>;
               })()}</span>
             </div>
@@ -5501,7 +6114,7 @@ export const LivePlaidDashboard = ({
               const groups:{date:string;txns:PTxn[]}[]=[];
               for(const t of shown){const last=groups[groups.length-1];if(last&&last.date===t.date)last.txns.push(t);else groups.push({date:t.date,txns:[t]});}
               content=groups.map(g=>{
-                const daySpend=g.txns.filter(t=>Number(t.amount)>0&&!internalTxnIds.has(t.id)).reduce((s,t)=>s+Number(t.amount),0);
+                const daySpend=g.txns.filter(t=>!internalTxnIds.has(t.id)&&!isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Number(t.amount),0);
                 return(<Fragment key={g.date}>
                   <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-1 bg-card/96 backdrop-blur-sm border-b border-border/20">
                     <span className="text-[12px] uppercase tracking-widest text-muted-foreground font-semibold">{dayLabel(g.date)}</span>
@@ -5571,10 +6184,16 @@ export const LivePlaidDashboard = ({
       />
     </div>
 
+    {/* Budget sidebar — PC mode only; smaller screens use the Spending|Budget toggle */}
+    <div className="hidden xl:block xl:sticky xl:top-0">
+      {renderBudgetPanel(true)}
+    </div>
+    </div>
+
     {/* Mobile category popup */}
     {spendingCatPopup && <SpendingCatPopup
       cat={spendingCatPopup}
-      txns={txns.filter(t => Number(t.amount) > 0 && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === spendingCatPopup).sort((a,b) => b.date.localeCompare(a.date))}
+      txns={txns.filter(t => (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === spendingCatPopup).sort((a,b) => b.date.localeCompare(a.date))}
       accounts={accounts}
       nameOverrides={nameOverrides}
       onClose={() => setSpendingCatPopup(null)}
@@ -5586,481 +6205,7 @@ export const LivePlaidDashboard = ({
 
 
   // ── BUDGET (dedicated tab) ────────────────────────────────
-  if (view === "budget") {
-    const budgetPeriodState: PeriodState = { granularity: "month", offset: budgetMonthOffset };
-    const budgetTxns = filterByPeriod(txns, budgetPeriodState).filter(t => !internalTxnIds.has(t.id));
-    const budgetExpenseTxns = budgetTxns.filter(t => Number(t.amount) > 0);
-    const budgetIncomeTxns = budgetTxns.filter(t => Number(t.amount) < 0);
-
-    // ── Recurring income detection — looks back 3 months for regular paycheck-like deposits ──
-    const detectRecurringIncome = () => {
-      const merchantTotals: Record<string,{dates:string[];amounts:number[]}> = {};
-      for (let i = 1; i <= 3; i++) {
-        const prior = filterByPeriod(txns, { granularity:"month", offset:-i }).filter(t=>Number(t.amount)<0&&!internalTxnIds.has(t.id));
-        for (const t of prior) {
-          const key = t.merchant_name ?? t.name ?? "Unknown";
-          if (!merchantTotals[key]) merchantTotals[key] = { dates:[], amounts:[] };
-          merchantTotals[key].dates.push(t.date);
-          merchantTotals[key].amounts.push(Math.abs(Number(t.amount)));
-        }
-      }
-      const recurring: {merchant:string;avgAmount:number;count:number}[] = [];
-      for (const [merchant, data] of Object.entries(merchantTotals)) {
-        if (data.dates.length >= 2) {
-          const avg = data.amounts.reduce((s,v)=>s+v,0)/data.amounts.length;
-          recurring.push({ merchant, avgAmount: avg, count: data.dates.length });
-        }
-      }
-      return recurring.sort((a,b)=>b.avgAmount-a.avgAmount).slice(0,5);
-    };
-    const recurringIncomeSources = detectRecurringIncome();
-    const addManualIncome = () => {
-      const amt = parseFloat(incomeDraftAmt);
-      if (!incomeDraftLabel.trim() || isNaN(amt) || amt <= 0) return;
-      S.addManualIncome({ id: `mi_${Date.now()}`, label: incomeDraftLabel.trim(), amount: amt });
-      setIncomeDraftLabel(""); setIncomeDraftAmt(""); setShowAddIncome(false);
-    };
-    const removeManualIncome = (id: string) => {
-      S.removeManualIncome(id);
-    };
-
-    const detectedIncomeThisMonth = budgetIncomeTxns.reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-    const manualIncomeTotal = manualIncome.reduce((s,m)=>s+m.amount,0);
-    const anticipatedIncome = detectedIncomeThisMonth + manualIncomeTotal;
-
-    const catMap: Record<string,{total:number;count:number;txns:PTxn[]}> = {};
-    for (const t of budgetExpenseTxns) {
-      const cat = getEffectiveCategory(t,overrides,getRuleCategory)??"Other";
-      if (!catMap[cat]) catMap[cat] = { total:0, count:0, txns:[] };
-      catMap[cat].total += Number(t.amount);
-      catMap[cat].count += 1;
-      catMap[cat].txns.push(t);
-    }
-    const allCats = Object.entries(catMap).map(([category,v])=>({category,...v})).sort((a,b)=>b.total-a.total);
-    const zeroSpendBudgeted = Object.keys(budgets).filter(cat=>!catMap[cat]).map(cat=>({category:cat,total:0,count:0,txns:[] as PTxn[]}));
-    const allBudgetedCats = [...allCats.filter(c=>!!budgets[c.category]),...zeroSpendBudgeted].sort((a,b)=>(budgets[b.category]??0)-(budgets[a.category]??0));
-    const unbudgetedCats = allCats.filter(c=>!budgets[c.category]);
-
-    const totalAllocated = allBudgetedCats.reduce((s,c)=>s+(budgets[c.category]??0),0);
-    const totalSpent = allCats.reduce((s,c)=>s+c.total,0);
-    const totalSpentBudgeted = allBudgetedCats.reduce((s,c)=>s+c.total,0);
-    const overCount = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0)).length;
-    const left = anticipatedIncome - totalSpent;
-    const overCategories = allBudgetedCats.filter(c=>c.total>(budgets[c.category]??0));
-    const totalOverage = overCategories.reduce((s,c)=>s+(c.total-(budgets[c.category]??0)),0);
-
-    // Eligible funding accounts for covering an overage: everyday accounts only.
-    // Long-term savings (reserve/savings_goal) are excluded on purpose so they stay
-    // untouched; investment and debt accounts aren't sensible "move money from" sources.
-    const fundingAccounts = accounts.filter(a => {
-      const role = getRole(a.account_id, a.type, a.subtype).role;
-      return role !== "reserve" && role !== "savings_goal" && role !== "investment" && role !== "debt";
-    });
-
-    // Max bar = max of budget or actual across all categories (for aligned scale)
-    const maxBar = Math.max(...allBudgetedCats.map(c=>Math.max(budgets[c.category]??0, c.total)), 1);
-
-    return (
-    <>
-    {/* Constrained column — a budget reads best in a focused width, not stretched
-        across the whole screen where the progress bars become uncomfortably wide. */}
-    <div className="animate-fade-up space-y-4 max-w-2xl mx-auto">
-
-      {/* Merged Spending/Budget switch + month nav */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <SpendBudgetTabs />
-        <div className="flex items-center gap-2">
-          <button onClick={() => setBudgetMonthOffset(o => o - 1)}
-            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <span className="text-[15px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
-          <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
-            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* ── Hero: this month's budget health ── */}
-      {(() => {
-        const spentOfBudget = totalSpentBudgeted;
-        const leftOfBudget = totalAllocated - spentOfBudget;
-        const usedPct = totalAllocated > 0 ? (spentOfBudget / totalAllocated) * 100 : 0;
-        const now = new Date();
-        const isCurrentMonth = budgetMonthOffset === 0;
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
-        const monthPct = (dayOfMonth / daysInMonth) * 100;
-        const daysLeft = Math.max(daysInMonth - dayOfMonth, 0);
-        const aheadOfPace = isCurrentMonth && totalAllocated > 0 && usedPct > monthPct + 6;
-        const dailyLeft = daysLeft > 0 ? leftOfBudget / daysLeft : leftOfBudget;
-
-        if (totalAllocated === 0) {
-          return (
-            <div className="surface-card p-8 text-center space-y-3">
-              <div className="h-12 w-12 mx-auto rounded-full bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-                <Wallet className="h-6 w-6 text-[hsl(var(--primary))]" />
-              </div>
-              <div>
-                <div className="text-[15px] font-semibold text-foreground">Start a budget</div>
-                <div className="text-[13.5px] text-muted-foreground mt-1 max-w-xs mx-auto">Set a monthly limit for a category and track exactly how much is left to spend.</div>
-              </div>
-              <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
-                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-gold text-[14px] font-semibold">
-                <Plus className="h-4 w-4" /> Create your first budget
-              </button>
-            </div>
-          );
-        }
-
-        return (
-          <div className="surface-card p-5 space-y-4">
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground">{leftOfBudget >= 0 ? "Left to spend" : "Over budget"}</div>
-                <div className={cn("text-[34px] font-display font-bold tabular leading-none mt-1.5", leftOfBudget >= 0 ? "text-foreground" : "text-negative")}>
-                  {leftOfBudget < 0 && "-"}{fmtUSD(Math.abs(leftOfBudget))}
-                </div>
-                <div className="text-[13px] text-muted-foreground mt-1.5">{fmtUSD(spentOfBudget)} spent of {fmtUSD(totalAllocated)}</div>
-              </div>
-              {isCurrentMonth && daysLeft > 0 && leftOfBudget > 0 && (
-                <div className="text-right shrink-0">
-                  <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Daily · {daysLeft}d left</div>
-                  <div className="text-[19px] font-display font-bold tabular text-foreground mt-1">{fmtUSD(dailyLeft)}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Progress with a "where you should be" pace marker */}
-            <div>
-              <div className="relative h-3 rounded-full bg-border/30 overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-500" style={{
-                  width: `${Math.min(usedPct, 100)}%`,
-                  backgroundColor: usedPct >= 100 ? "hsl(var(--negative))" : aheadOfPace ? "hsl(var(--warning))" : "hsl(var(--positive))",
-                }} />
-                {isCurrentMonth && monthPct < 100 && (
-                  <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/60" style={{ left: `${monthPct}%` }} title="Today's pace" />
-                )}
-              </div>
-              <div className="flex justify-between items-center text-[12.5px] mt-2">
-                <span className="text-muted-foreground">{Math.round(usedPct)}% of budget used</span>
-                {isCurrentMonth
-                  ? <span className={cn("font-medium", aheadOfPace ? "text-warning" : "text-positive")}>{aheadOfPace ? "Spending ahead of pace" : "On track"}</span>
-                  : <span className="text-muted-foreground">{allBudgetedCats.length} categories</span>}
-              </div>
-            </div>
-
-            {overCount > 0 && (
-              <div className="flex items-center gap-2 rounded-lg bg-negative/8 border border-negative/20 px-3 py-2">
-                <AlertTriangle className="h-3.5 w-3.5 text-negative shrink-0" />
-                <span className="text-[13px] text-foreground">{overCount} categor{overCount > 1 ? "ies" : "y"} over by <span className="font-semibold text-negative">{fmtUSD(totalOverage)}</span></span>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Cover overages — pick a funding account for each over-budget category,
-          restricted to everyday accounts (never long-term savings). */}
-      {overCategories.length > 0 && (() => {
-        return (
-        <div className="surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border/20">
-            <span className="text-[13px] font-semibold text-foreground">Cover overages</span>
-            <span className="text-[12px] text-muted-foreground ml-2">Pick where to move the shortfall from</span>
-          </div>
-          <div className="divide-y divide-border/10">
-            {overCategories.map(c => {
-              const over = c.total - (budgets[c.category] ?? 0);
-              const Icon = categoryIcon(c.category);
-              const color = catColor(c.category);
-              const chosenId = fundAllocations[c.category];
-              const chosen = fundingAccounts.find(a => a.account_id === chosenId);
-              return (
-                <div key={c.category} className="px-4 py-3 space-y-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </div>
-                    <span className="text-[13px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
-                    <span className="text-[13px] font-semibold tabular text-negative">{fmtUSD(over)} over</span>
-                  </div>
-                  {fundingAccounts.length === 0 ? (
-                    <div className="ml-9 text-[12px] text-muted-foreground">
-                      No eligible account. Tag a checking account below in Organize accounts.
-                    </div>
-                  ) : (
-                    <div className="ml-9 flex items-center gap-2">
-                      <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
-                        className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
-                        <option value="">Cover from…</option>
-                        {fundingAccounts.map(a => (
-                          <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSD(Number(a.current_balance) || 0, { compact: true })})</option>
-                        ))}
-                      </select>
-                      {chosen && (
-                        <span className="text-[12px] text-muted-foreground shrink-0">
-                          Move {fmtUSD(over)} from {chosen.name ?? chosen.official_name}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <div className="px-4 py-2.5 border-t border-border/15 text-[11.5px] text-muted-foreground">
-            These are suggestions — transfers must be made manually in your bank or app.
-          </div>
-        </div>
-        );
-      })()}
-
-      {/* ── Add-budget form (opens from header or empty state) ── */}
-      {editingBudgetCat === "__add__" && (
-        <div className="surface-card p-4 space-y-2.5 border border-[hsl(var(--primary)/0.3)]">
-          <div className="text-[13px] font-semibold text-foreground">New budget</div>
-          {/* Tap-to-select category grid */}
-          <div className="flex flex-wrap gap-1.5">
-            {unbudgetedCats.map(cc => {
-              const col = catColor(cc.category);
-              const Ic  = categoryIcon(cc.category);
-              return (
-                <button key={cc.category} onClick={() => setAddCatNameDraft(cc.category)}
-                  className={cn("flex items-center gap-1.5 h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
-                    addCatNameDraft === cc.category
-                      ? "border-foreground/50 bg-foreground text-background"
-                      : "border-border/40 text-foreground hover:border-foreground/30")}>
-                  <Ic className="h-3 w-3 shrink-0" style={{ color: col }} />
-                  {formatCat(cc.category)}
-                </button>
-              );
-            })}
-            <button onClick={() => setAddCatNameDraft("__custom__")}
-              className={cn("h-8 px-2.5 rounded-full border text-[11.5px] font-medium transition-all",
-                addCatNameDraft === "__custom__" ? "border-foreground/50 bg-foreground text-background" : "border-dashed border-border/40 text-muted-foreground hover:text-foreground")}>
-              + Custom
-            </button>
-          </div>
-          {addCatNameDraft === "__custom__" && (
-            <input value={addCatCustom} onChange={e => setAddCatCustom(e.target.value)} placeholder="Category name"
-              className="w-full h-10 px-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-foreground/40" />
-          )}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted-foreground">$</span>
-              <input type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)} placeholder="Monthly amount"
-                className="w-full h-10 pl-7 pr-3 rounded-lg bg-surface/60 border border-border/60 text-[13.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
-            </div>
-            <button onClick={() => {
-              const cat = addCatNameDraft === "__custom__" ? addCatCustom.trim() : addCatNameDraft;
-              const amt = parseFloat(budgetDraft);
-              if (!cat || isNaN(amt) || amt <= 0) return;
-              setBudget(cat, amt); setEditingBudgetCat(null); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom("");
-            }} className="h-10 px-4 rounded-lg bg-gold text-[13.5px] font-semibold shrink-0">Save</button>
-            <button onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); setAddCatNameDraft(""); }}
-              className="h-10 px-3 rounded-lg border border-border-strong text-[13.5px] text-muted-foreground shrink-0">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Budget category cards ── */}
-      {allBudgetedCats.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[13px] font-semibold text-foreground">Categories</span>
-            {editingBudgetCat !== "__add__" && (
-              <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
-                className="text-[13px] text-[hsl(var(--primary))] font-medium inline-flex items-center gap-1 hover:opacity-80">
-                <Plus className="h-3.5 w-3.5" /> Add budget
-              </button>
-            )}
-          </div>
-          {allBudgetedCats.map(c => {
-            const Icon = categoryIcon(c.category);
-            const color = catColor(c.category);
-            const budget = budgets[c.category] ?? 0;
-            const actual = c.total;
-            const over = actual > budget;
-            const remaining = budget - actual;
-            const pct = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0;
-            const isEditing = editingBudgetCat === c.category;
-            const barColor = over ? "hsl(var(--negative))" : pct >= 85 ? "hsl(var(--warning))" : color;
-            return (
-              <div key={c.category} className="surface-card p-4">
-                {isEditing ? (
-                  <form className="flex items-center gap-2"
-                    onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(c.category, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
-                    <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <span className="text-[14px] font-medium text-foreground flex-1 truncate">{formatCat(c.category)}</span>
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12.5px] text-muted-foreground">$</span>
-                      <input autoFocus type="number" min={0} step={10} value={budgetDraft}
-                        onChange={e => setBudgetDraft(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Escape") { setEditingBudgetCat(null); setBudgetDraft(""); } }}
-                        className="w-24 h-8 pl-5 pr-1 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[13px] outline-none" />
-                    </div>
-                    <button type="submit" className="h-8 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Save</button>
-                    <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
-                      className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
-                  </form>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setBudgetCatPopup(c.category)}>
-                      <div className="h-8 w-8 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[14px] font-semibold text-foreground truncate">{formatCat(c.category)}</span>
-                          {over && <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-negative/15 text-negative shrink-0">OVER</span>}
-                        </div>
-                        <div className="text-[12.5px] text-muted-foreground">{c.count} transaction{c.count !== 1 ? "s" : ""}</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className={cn("text-[15px] font-display font-bold tabular leading-none", over ? "text-negative" : "text-foreground")}>
-                          {over ? `${fmtUSD(-remaining)} over` : `${fmtUSD(remaining)} left`}
-                        </div>
-                        <div className="text-[12.5px] text-muted-foreground tabular mt-1">{fmtUSD(actual)} / {fmtUSD(budget)}</div>
-                      </div>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
-                        className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-border/30 shrink-0">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="h-2 rounded-full bg-border/30 overflow-hidden mt-2.5">
-                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: barColor }} />
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Unbudgeted spending (quick-add chips) ── */}
-      {unbudgetedCats.length > 0 && (
-        <div className="surface-card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-[13px] font-semibold text-foreground">Not budgeted yet</span>
-            <span className="text-[12px] text-muted-foreground">{fmtUSD(unbudgetedCats.reduce((s, c) => s + c.total, 0))} untracked</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {unbudgetedCats.slice(0, 12).map(c => {
-              const Icon = categoryIcon(c.category);
-              const color = catColor(c.category);
-              return (
-                <button key={c.category} onClick={() => { setEditingBudgetCat(c.category); setBudgetDraft(String(Math.ceil(c.total / 10) * 10)); }}
-                  className="inline-flex items-center gap-1.5 h-8 pl-2 pr-2.5 rounded-full border border-border/60 hover:border-[hsl(var(--primary)/0.4)] hover:bg-surface-hover/40 transition-colors">
-                  <span className="h-5 w-5 rounded-md grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                    <Icon className="h-3 w-3" />
-                  </span>
-                  <span className="text-[13px] text-foreground">{formatCat(c.category)}</span>
-                  <span className="text-[12.5px] text-muted-foreground tabular">{fmtUSD(c.total)}</span>
-                  <Plus className="h-3 w-3 text-[hsl(var(--primary))]" />
-                </button>
-              );
-            })}
-          </div>
-          {/* Inline editor when a chip is chosen */}
-          {unbudgetedCats.some(c => editingBudgetCat === c.category) && (() => {
-            const cat = editingBudgetCat!;
-            return (
-              <form className="flex items-center gap-2 mt-3 pt-3 border-t border-border/20"
-                onSubmit={e => { e.preventDefault(); const n = parseFloat(budgetDraft); if (!isNaN(n) && n >= 0) setBudget(cat, n); setEditingBudgetCat(null); setBudgetDraft(""); }}>
-                <span className="text-[13px] font-medium text-foreground">{formatCat(cat)}</span>
-                <div className="relative">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12.5px] text-muted-foreground">$</span>
-                  <input autoFocus type="number" min={0} step={10} value={budgetDraft} onChange={e => setBudgetDraft(e.target.value)}
-                    className="w-24 h-8 pl-5 rounded-md bg-surface/60 border border-[hsl(var(--primary)/0.4)] text-[13px] outline-none" />
-                </div>
-                <button type="submit" className="h-8 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Set budget</button>
-                <button type="button" onClick={() => { setEditingBudgetCat(null); setBudgetDraft(""); }}
-                  className="h-8 px-2.5 rounded-md border border-border-strong text-[12.5px] text-muted-foreground">Cancel</button>
-              </form>
-            );
-          })()}
-        </div>
-      )}
-
-    </div>
-
-        {/* Budget category txn popup */}
-    {budgetCatPopup && (() => {
-      const catTxns = budgetTxns.filter(t => Number(t.amount) > 0 && (getEffectiveCategory(t,overrides,getRuleCategory)??"Other") === budgetCatPopup).sort((a,b)=>b.date.localeCompare(a.date));
-      const catBudget = budgets[budgetCatPopup] ?? 0;
-      const catTotal = catTxns.reduce((s,t)=>s+Number(t.amount),0);
-      const over = catBudget > 0 && catTotal > catBudget;
-      const Icon = categoryIcon(budgetCatPopup);
-      const color = catColor(budgetCatPopup);
-      return (
-        <Dialog open onOpenChange={o=>{ if(!o) setBudgetCatPopup(null); }}>
-          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85dvh] flex flex-col">
-            <DialogTitle className="sr-only">{formatCat(budgetCatPopup)} transactions</DialogTitle>
-            <DialogDescription className="sr-only">Transactions for {formatCat(budgetCatPopup)}</DialogDescription>
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-border/30 flex items-center gap-3 shrink-0">
-              <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
-                <Icon className="h-5 w-5"/>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[15px] font-semibold text-foreground">{formatCat(budgetCatPopup)}</div>
-                <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                  {fmtUSD(catTotal)} spent
-                  {catBudget > 0 && <span className={cn("ml-1.5 font-medium", over?"text-negative":"text-positive")}>
-                    {over ? `(${fmtUSD(catTotal-catBudget)} over)` : `(${fmtUSD(catBudget-catTotal)} left of ${fmtUSD(catBudget)})`}
-                  </span>}
-                </div>
-              </div>
-              {catBudget > 0 && (
-                <div className="shrink-0 text-right">
-                  <div className="text-[12.5px] text-muted-foreground">Budget</div>
-                  <div className="text-[14px] font-semibold tabular text-foreground">{fmtUSD(catBudget)}</div>
-                </div>
-              )}
-            </div>
-            {/* Txn list */}
-            <div className="flex-1 overflow-y-auto divide-y divide-border/10">
-              {catTxns.length === 0 ? (
-                <div className="px-5 py-10 text-center text-[13px] text-muted-foreground">No transactions this period.</div>
-              ) : catTxns.map(t => {
-                const acc = accounts.find(a=>a.account_id===t.account_id);
-                return (
-                  <button key={t.id} onClick={()=>{ setBudgetCatPopup(null); openDetail(t); }}
-                    className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-surface-hover/30 transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-medium text-foreground truncate">{nameOverrides[t.id] ?? t.merchant_name ?? t.name}</div>
-                      <div className="text-[12px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                        <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
-                        {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
-                        {t.pending && <span className="text-warning font-medium">· Pending</span>}
-                      </div>
-                    </div>
-                    <span className="text-[15px] font-semibold tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0"/>
-                  </button>
-                );
-              })}
-            </div>
-            {/* Footer */}
-            <div className="px-5 py-3 border-t border-border/20 flex items-center justify-between shrink-0">
-              <span className="text-[12.5px] text-muted-foreground">{catTxns.length} transaction{catTxns.length!==1?"s":""}</span>
-              <button onClick={()=>{ setBudgetCatPopup(null); setEditingBudgetCat(budgetCatPopup); setBudgetDraft(String(catBudget||"")); }}
-                className="text-[13px] text-[hsl(var(--primary))] font-medium flex items-center gap-1">
-                <Pencil className="h-3 w-3"/> Edit budget
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      );
-    })()}
-    </>
-    );
-  }
+  if (view === "budget") return renderBudgetPanel(false);
 
 
 
@@ -6097,8 +6242,8 @@ export const LivePlaidDashboard = ({
     // ── True Available: income this period minus planned expenses minus committed
     //    savings transfers, period. Buffer/reserve balances never enter this number
     //    at all -- they're informational, shown separately. ──
-    const incomeThisPeriod = periodTxns.filter(t => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-    const expensesThisPeriod = periodTxns.filter(t => Number(t.amount) > 0).reduce((s, t) => s + Number(t.amount), 0);
+    const incomeThisPeriod = periodTxns.filter(t => isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
+    const expensesThisPeriod = periodTxns.filter(t => !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s, t) => s + Number(t.amount), 0);
     const totalBudgeted = Object.values(budgets).reduce((s, b) => s + b, 0);
     const trueAvailable = spendingBalance; // current real balance in spending-role accounts is the ground truth
     const projectedRemaining = incomeThisPeriod - expensesThisPeriod; // this period's net flow so far
@@ -6106,8 +6251,8 @@ export const LivePlaidDashboard = ({
     // ── Spend-by-category this period, for overspend detection ──
     const catTotals: Record<string, number> = {};
     for (const t of periodTxns) {
-      if (Number(t.amount) <= 0) continue;
       const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+      if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
       catTotals[cat] = (catTotals[cat] || 0) + Number(t.amount);
     }
 
