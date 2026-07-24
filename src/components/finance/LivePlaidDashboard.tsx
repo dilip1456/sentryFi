@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -135,6 +136,14 @@ const loadAllMeta = (): Record<string, AccountMeta> => {
 
 // ── Constants ──────────────────────────────────────────────────
 const PERIODS: Period[] = ["1W", "1M", "3M", "1Y", "ALL"];
+
+type TxnSort = "date-desc"|"date-asc"|"amount-desc"|"amount-asc"|"name-asc"|"name-desc"|"category-asc";
+const SORT_LABELS: Record<TxnSort, string> = {
+  "date-desc": "Newest first", "date-asc": "Oldest first",
+  "amount-desc": "Largest amount", "amount-asc": "Smallest amount",
+  "name-asc": "Name A→Z", "name-desc": "Name Z→A",
+  "category-asc": "Category",
+};
 
 const EXPENSE_CATEGORIES = [
   // Food
@@ -3742,7 +3751,7 @@ export const LivePlaidDashboard = ({
   // Transaction explorer (spending tab) — search / filter / sort
   const [txnSearch, setTxnSearch] = useState("");
   const [txnFlowFilter, setTxnFlowFilter] = useState<"all"|"expense"|"income">("all");
-  const [txnSort, setTxnSort] = useState<"date-desc"|"date-asc"|"amount-desc"|"amount-asc"|"name-asc"|"name-desc"|"category-asc">("date-desc");
+  const [txnSort, setTxnSort] = useState<TxnSort>("date-desc");
   const [hideInternal, setHideInternal] = useState(true);
   const [txnLimit, setTxnLimit] = useState(150);
   // Drill-down: clicking a bar in the spend-trend chart narrows the txn list to that exact day/month
@@ -5390,13 +5399,13 @@ export const LivePlaidDashboard = ({
         across the whole screen where the progress bars become uncomfortably wide. */}
     <div className={cn("animate-fade-up space-y-4", !compact && "max-w-2xl mx-auto")}>
 
-      {/* Switch + month nav — in the sidebar (compact) this just reflects the
-          Spending toolbar's month nav above rather than duplicating it */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        {!compact && <SpendBudgetTabs />}
-        {compact ? (
-          <span className="text-[13px] font-semibold text-muted-foreground">{getPeriodLabel(budgetPeriodState)}</span>
-        ) : (
+      {/* Switch + month nav — the sidebar (compact) has neither: it reflects
+          whatever month the Spending toolbar above is already showing, so
+          repeating the control here would just be a second way to change
+          the same thing. Only the standalone Budget page gets its own nav. */}
+      {!compact && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <SpendBudgetTabs />
           <div className="flex items-center gap-2">
             <button onClick={() => setBudgetMonthOffset(o => o - 1)}
               className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
@@ -5408,8 +5417,8 @@ export const LivePlaidDashboard = ({
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── Hero: this month's budget health ── */}
       {(() => {
@@ -5417,7 +5426,7 @@ export const LivePlaidDashboard = ({
         const leftOfBudget = totalAllocated - spentOfBudget;
         const usedPct = totalAllocated > 0 ? (spentOfBudget / totalAllocated) * 100 : 0;
         const now = new Date();
-        const isCurrentMonth = budgetMonthOffset === 0;
+        const isCurrentMonth = effectiveBudgetOffset === 0;
         const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
         const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
         const monthPct = (dayOfMonth / daysInMonth) * 100;
@@ -6088,46 +6097,57 @@ export const LivePlaidDashboard = ({
                   className="w-full h-8 pl-7 pr-7 rounded-lg bg-secondary/40 border border-border/40 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors"/>
                 {txnSearch&&<button onClick={()=>setTxnSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3"/></button>}
               </div>
-              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
-                {([["date-desc","Newest"],["date-asc","Oldest"],["amount-desc","Largest"],["amount-asc","Smallest"],["name-asc","A→Z"],["category-asc","Category"]] as [string,string][]).map(([v,l])=>(
-                  <button key={v} onClick={()=>setTxnSort(v as typeof txnSort)}
-                    className={cn("shrink-0 h-7 px-2.5 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap",
-                      txnSort===v?"bg-[hsl(var(--primary))] text-primary-foreground":"bg-secondary/40 text-muted-foreground hover:text-foreground border border-border/30")}>
-                    {l}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border/40 bg-secondary/40 text-[12.5px] font-medium text-foreground hover:border-border-strong transition-colors">
+                    <ArrowUpDown className="h-3 w-3 text-muted-foreground"/>
+                    {SORT_LABELS[txnSort]}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[150px]">
+                  {(Object.entries(SORT_LABELS) as [typeof txnSort, string][]).map(([v,l])=>(
+                    <DropdownMenuItem key={v} onClick={()=>setTxnSort(v)}
+                      className={cn("text-[13px]", txnSort===v&&"font-semibold text-[hsl(var(--primary))]")}>
+                      {l}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Flow filter + advanced filter toggle */}
+            <div className="flex items-center justify-between gap-1.5 flex-wrap">
+              <div className="inline-flex p-0.5 rounded-lg border border-border/40 bg-secondary/30">
+                {(["all","expense","income"] as const).map(f=>(
+                  <button key={f} onClick={()=>setTxnFlowFilter(f)}
+                    className={cn("h-6 px-2.5 rounded-md text-[12px] font-medium transition-colors",
+                      txnFlowFilter===f?"bg-[hsl(var(--primary))] text-primary-foreground":"text-muted-foreground hover:text-foreground")}>
+                    {f==="all"?"All":f==="expense"?"Expenses":"Income"}
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Flow filter chips + advanced filter toggle */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {(["all","expense","income"] as const).map(f=>(
-                <button key={f} onClick={()=>setTxnFlowFilter(f)}
-                  className={cn("h-6 px-2.5 rounded-full text-[12px] font-medium transition-colors",
-                    txnFlowFilter===f?"bg-primary/15 text-[hsl(var(--primary))] border border-[hsl(var(--primary)/0.3)]":"border border-border/40 text-muted-foreground hover:text-foreground")}>
-                  {f==="all"?"All":f==="expense"?"Expenses":"Income"}
-                </button>
-              ))}
-              {selectedCategory&&(
-                <div className="flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium bg-secondary text-foreground border border-border">
-                  {formatCat(selectedCategory)}
-                  <button onClick={()=>onCategorySelect?.("")}><X className="h-2.5 w-2.5 ml-0.5"/></button>
-                </div>
-              )}
-              {(() => {
-                const activeCount = filterSet.conditions.filter(c=>(c.value??"").trim()!==""||c.field==="pending").length;
-                return (
-                  <button onClick={()=>{
-                      const base = filterSet.conditions.length===0 ? { match:"all" as const, conditions:[emptyCondition()] } : filterSet;
-                      setFilterDraft(base);
-                      setShowFilterBuilder(v=>!v);
-                    }}
-                    className={cn("inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium border transition-colors",
-                      showFilterBuilder||activeCount>0?"bg-primary/15 text-[hsl(var(--primary))] border-[hsl(var(--primary)/0.3)]":"border border-border/40 text-muted-foreground hover:text-foreground")}>
-                    <SlidersHorizontal className="h-2.5 w-2.5"/> Filters{activeCount>0&&<span className="ml-0.5">· {activeCount}</span>}
-                  </button>
-                );
-              })()}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {selectedCategory&&(
+                  <div className="flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium bg-secondary text-foreground border border-border">
+                    {formatCat(selectedCategory)}
+                    <button onClick={()=>onCategorySelect?.("")}><X className="h-2.5 w-2.5 ml-0.5"/></button>
+                  </div>
+                )}
+                {(() => {
+                  const activeCount = filterSet.conditions.filter(c=>(c.value??"").trim()!==""||c.field==="pending").length;
+                  return (
+                    <button onClick={()=>{
+                        const base = filterSet.conditions.length===0 ? { match:"all" as const, conditions:[emptyCondition()] } : filterSet;
+                        setFilterDraft(base);
+                        setShowFilterBuilder(v=>!v);
+                      }}
+                      className={cn("inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium border transition-colors",
+                        showFilterBuilder||activeCount>0?"bg-primary/15 text-[hsl(var(--primary))] border-[hsl(var(--primary)/0.3)]":"border border-border/40 text-muted-foreground hover:text-foreground")}>
+                      <SlidersHorizontal className="h-2.5 w-2.5"/> Filters{activeCount>0&&<span className="ml-0.5">· {activeCount}</span>}
+                    </button>
+                  );
+                })()}
+              </div>
             </div>
 
             {showFilterBuilder&&filterDraft&&(
