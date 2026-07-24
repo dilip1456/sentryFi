@@ -3751,6 +3751,9 @@ export const LivePlaidDashboard = ({
   // Advanced filter — a full condition set (all/any across every field)
   const [filterSet, setFilterSet] = useState<ConditionSet>({ match: "all", conditions: [] });
   const [showFilterBuilder, setShowFilterBuilder] = useState(false);
+  // Draft copy edited while the filter popup is open — only committed to
+  // filterSet (which actually filters the list) when the user hits Apply.
+  const [filterDraft, setFilterDraft] = useState<ConditionSet | null>(null);
   const [otherCatsExpanded, setOtherCatsExpanded] = useState(false);
   const [incomeExpanded, setIncomeExpanded] = useState(false);
   const [monthlyFlowFilter, setMonthlyFlowFilter] = useState<"all"|"expense"|"income">("all");
@@ -5296,8 +5299,15 @@ export const LivePlaidDashboard = ({
 
     // ── SPENDING & BUDGET ─────────────────────────────────────
   const renderBudgetPanel = (compact: boolean) => {
-    const budgetPeriodState: PeriodState = { granularity: "month", offset: budgetMonthOffset };
-    const budgetMonthDate = new Date(); budgetMonthDate.setMonth(budgetMonthDate.getMonth() + budgetMonthOffset);
+    // In the merged desktop layout the sidebar shares the Spending toolbar's
+    // month nav instead of showing its own (was two separate month togglers
+    // for the same period). Falls back to the current month when Spending is
+    // browsing a non-month granularity, since budgets are always monthly.
+    const effectiveBudgetOffset = compact
+      ? (spendingPeriod.granularity === "month" ? spendingPeriod.offset : 0)
+      : budgetMonthOffset;
+    const budgetPeriodState: PeriodState = { granularity: "month", offset: effectiveBudgetOffset };
+    const budgetMonthDate = new Date(); budgetMonthDate.setMonth(budgetMonthDate.getMonth() + effectiveBudgetOffset);
     const budgetMonthKey = `${budgetMonthDate.getFullYear()}-${String(budgetMonthDate.getMonth() + 1).padStart(2, "0")}`;
     const budgetTxns = filterByPeriod(txns, budgetPeriodState).filter(t => !internalTxnIds.has(t.id));
     // Classify by the category's assigned type, not transaction sign, so a
@@ -5380,20 +5390,25 @@ export const LivePlaidDashboard = ({
         across the whole screen where the progress bars become uncomfortably wide. */}
     <div className={cn("animate-fade-up space-y-4", !compact && "max-w-2xl mx-auto")}>
 
-      {/* Merged Spending/Budget switch + month nav */}
+      {/* Switch + month nav — in the sidebar (compact) this just reflects the
+          Spending toolbar's month nav above rather than duplicating it */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         {!compact && <SpendBudgetTabs />}
-        <div className="flex items-center gap-2">
-          <button onClick={() => setBudgetMonthOffset(o => o - 1)}
-            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <span className="text-[15px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
-          <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
-            className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
+        {compact ? (
+          <span className="text-[13px] font-semibold text-muted-foreground">{getPeriodLabel(budgetPeriodState)}</span>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBudgetMonthOffset(o => o - 1)}
+              className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-[15px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
+            <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
+              className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Hero: this month's budget health ── */}
@@ -5965,8 +5980,29 @@ export const LivePlaidDashboard = ({
           </div>
 
           {/* Category breakdown — compact rows with overflow bars */}
-          {spendingPeriodByCategory.length > 0 && (
+          {spendingPeriodByCategory.length > 0 && (() => {
+            const totalBudgeted = spendingPeriodByCategory.reduce((s,c)=>s+(budgets[c.category]??0),0);
+            const overallAnticipated = totalBudgeted > 0 ? totalBudgeted : spendingPeriodIncome;
+            const overallScale = Math.max(overallAnticipated, spendingPeriodTotal, 1);
+            const overallTrackPct = overallAnticipated ? Math.min((overallAnticipated/overallScale)*100,100) : 0;
+            const overallActualPct = Math.min((spendingPeriodTotal/overallScale)*100,100);
+            const overallOver = overallAnticipated>0 && spendingPeriodTotal>overallAnticipated;
+            return (
             <div className="surface-card overflow-hidden">
+              {overallAnticipated>0 && (
+                <div className="px-5 pt-3 pb-2.5 border-b border-border/15">
+                  <div className="flex items-center justify-between text-[12px] mb-1.5">
+                    <span className="text-muted-foreground">{fmtUSD(spendingPeriodTotal,{compact:true})} spent of {fmtUSD(overallAnticipated,{compact:true})} {totalBudgeted>0?"budgeted":"income"}</span>
+                    <span className={cn("font-semibold tabular", overallOver?"text-negative":"text-positive")}>
+                      {overallOver?`${fmtUSD(spendingPeriodTotal-overallAnticipated,{compact:true})} over`:`${fmtUSD(overallAnticipated-spendingPeriodTotal,{compact:true})} left`}
+                    </span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-border/15 relative overflow-visible">
+                    <div className="absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--primary)/0.25)]" style={{width:`${overallTrackPct}%`}}/>
+                    <div className="absolute inset-y-0 left-0 h-full rounded-full transition-all" style={{width:`${overallActualPct}%`,backgroundColor:overallOver?"hsl(var(--negative))":"hsl(var(--primary))"}}/>
+                  </div>
+                </div>
+              )}
               <div className="px-5 py-3 border-b border-border/15 flex items-center justify-between">
                 <span className="text-[12.5px] font-semibold text-foreground">By category</span>
                 {selectedCategory&&<button onClick={()=>onCategorySelect?.("")} className="text-[12px] text-[hsl(var(--primary))]">Clear ×</button>}
@@ -5975,10 +6011,13 @@ export const LivePlaidDashboard = ({
                 {spendingPeriodByCategory.map(c=>{
                   const Icon=categoryIcon(c.category);
                   const color=catColor(c.category);
-                  const maxS=spendingPeriodByCategory[0]?.total??1;
-                  const barPct=Math.min((c.total/maxS)*100,100);
                   const budget=budgets[c.category];
-                  const pctOfBudget=budget?Math.min((c.total/budget)*100,100):0;
+                  // Footprint bar: a translucent track marks the anticipated
+                  // budget, a solid fill shows actual spend on top of it — the
+                  // solid overtakes the translucent region once spend exceeds budget.
+                  const barScale=Math.max(budget??0,c.total,1);
+                  const budgetTrackPct=budget?Math.min((budget/barScale)*100,100):100;
+                  const actualPct=Math.min((c.total/barScale)*100,100);
                   const over=budget&&c.total>budget;
                   const isActive=selectedCategory===c.category;
                   const isEditingBudget=editingBudgetCat===c.category;
@@ -5989,7 +6028,7 @@ export const LivePlaidDashboard = ({
                           if (window.innerWidth < 1024) { setSpendingCatPopup(c.category); }
                           else { onCategorySelect?.(isActive?"":c.category); setTxnFlowFilter("expense"); }
                         }}
-                        className="w-full text-left px-5 py-2.5 hover:bg-surface-hover/30 transition-colors">
+                        className="w-full text-left px-5 py-1.5 hover:bg-surface-hover/30 transition-colors">
                         <div className="flex items-center gap-2.5">
                           <div className="h-6 w-6 rounded-md grid place-items-center shrink-0" style={{backgroundColor:`${color}20`,color}}>
                             <Icon className="h-3 w-3"/>
@@ -6003,8 +6042,11 @@ export const LivePlaidDashboard = ({
                               className="text-[11.5px] text-[hsl(var(--primary))] hover:underline shrink-0 font-medium">+ Budget</button>
                           )}
                         </div>
-                        <div className="h-1.5 rounded-full bg-border/25 relative overflow-visible mt-1.5 ml-8">
-                          <div className="h-full rounded-full transition-all" style={{width:`${budget?pctOfBudget:barPct}%`,backgroundColor:over?"hsl(var(--negative))":color}}/>
+                        <div className="h-1.5 rounded-full bg-border/15 relative overflow-visible mt-1.5 ml-8">
+                          {budget!=null && (
+                            <div className="absolute inset-y-0 left-0 rounded-full" style={{width:`${budgetTrackPct}%`,backgroundColor:`${color}30`}}/>
+                          )}
+                          <div className="absolute inset-y-0 left-0 h-full rounded-full transition-all" style={{width:`${actualPct}%`,backgroundColor:over?"hsl(var(--negative))":color}}/>
                         </div>
                         {budget!=null && (
                           <div className="ml-8 mt-1 text-[11px]">
@@ -6029,7 +6071,8 @@ export const LivePlaidDashboard = ({
                 })}
               </div>
             </div>
-          )}
+            );
+          })()}
 
         </div>
 
@@ -6074,7 +6117,11 @@ export const LivePlaidDashboard = ({
               {(() => {
                 const activeCount = filterSet.conditions.filter(c=>(c.value??"").trim()!==""||c.field==="pending").length;
                 return (
-                  <button onClick={()=>{ if(filterSet.conditions.length===0){setFilterSet({match:"all",conditions:[emptyCondition()]});} setShowFilterBuilder(v=>!v); }}
+                  <button onClick={()=>{
+                      const base = filterSet.conditions.length===0 ? { match:"all" as const, conditions:[emptyCondition()] } : filterSet;
+                      setFilterDraft(base);
+                      setShowFilterBuilder(v=>!v);
+                    }}
                     className={cn("inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium border transition-colors",
                       showFilterBuilder||activeCount>0?"bg-primary/15 text-[hsl(var(--primary))] border-[hsl(var(--primary)/0.3)]":"border border-border/40 text-muted-foreground hover:text-foreground")}>
                     <SlidersHorizontal className="h-2.5 w-2.5"/> Filters{activeCount>0&&<span className="ml-0.5">· {activeCount}</span>}
@@ -6083,13 +6130,16 @@ export const LivePlaidDashboard = ({
               })()}
             </div>
 
-            {showFilterBuilder&&(
+            {showFilterBuilder&&filterDraft&&(
               <div className="p-3 rounded-lg bg-secondary/30 border border-border/30 space-y-3">
-                <ConditionRows set={filterSet} onChange={s=>{setFilterSet(s);setTxnLimit(150);}}
+                <ConditionRows set={filterDraft} onChange={s=>setFilterDraft(s)}
                   accounts={accounts} categoryOptions={allCategoryNames} compact />
                 <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/20">
-                  <button onClick={()=>{setFilterSet({match:"all",conditions:[]});}} className="text-[12.5px] text-muted-foreground hover:text-foreground">Clear all</button>
-                  <button onClick={()=>setShowFilterBuilder(false)} className="h-7 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Done</button>
+                  <button onClick={()=>{setFilterDraft({match:"all",conditions:[emptyCondition()]});}} className="text-[12.5px] text-muted-foreground hover:text-foreground">Clear all</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setShowFilterBuilder(false)} className="h-7 px-3 rounded-md border border-border-strong text-[12.5px] text-muted-foreground hover:text-foreground">Cancel</button>
+                    <button onClick={()=>{setFilterSet(filterDraft);setTxnLimit(150);setShowFilterBuilder(false);}} className="h-7 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Apply</button>
+                  </div>
                 </div>
               </div>
             )}

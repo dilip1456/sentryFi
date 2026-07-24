@@ -410,16 +410,20 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         >
           <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
 
-            {/* Page header on desktop */}
+            {/* Page header on desktop — Spending/Budget skip the title+date row
+                since the in-page toolbar (period nav, Manage/Rules/CSV) already
+                covers it and the space is better spent on content. */}
             <div className="hidden md:flex items-center justify-between">
-              <div>
-                <h1 className="font-display text-2xl text-foreground">
-                  {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "Dashboard")}
-                </h1>
-                <p className="text-[13px] text-muted-foreground mt-0.5">
-                  {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                </p>
-              </div>
+              {view !== "spending" && view !== "budget" ? (
+                <div>
+                  <h1 className="font-display text-2xl text-foreground">
+                    {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
+                  </h1>
+                  <p className="text-[13px] text-muted-foreground mt-0.5">
+                    {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                  </p>
+                </div>
+              ) : <div />}
 
               {/* Top button bar */}
               <div className="flex items-center gap-2">

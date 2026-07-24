@@ -233,14 +233,14 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
 
         <nav className="flex items-center gap-0.5 text-sm flex-1 justify-center">
           {navItems.map((item) => {
-            const isActive = active === item.k;
+            const isActive = active === item.k || (item.k === "spending" && active === "budget");
             return (
               <button
                 key={item.k}
                 onClick={() => onChange?.(item.k)}
                 className={cn(
                   "px-3 py-1.5 rounded-full transition-colors text-[14px]",
-                  isActive ? "bg-foreground text-background font-medium" : "text-muted-foreground hover:text-foreground"
+                  isActive ? "bg-[hsl(var(--primary))] text-primary-foreground font-semibold" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {item.label}
