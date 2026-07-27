@@ -4,25 +4,24 @@ import { fmtUSD } from "@/lib/format";
 import { ChevronLeft, ChevronRight, Filter, X, Check, ChevronDown, Plus, Pencil } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
-// ── Inline types ──────────────────────────────────────────────────────────────
 interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:any; }
 interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; mask:string|null; type:string|null; subtype:string|null; current_balance:number|null; [k:string]:any; }
 
 export interface SpendingBudgetViewProps {
-  txns: PTxn[]; accounts: PAccount[]; budgets: Record<string,number>;
-  nameOverrides: Record<string,string>; setBudget:(c:string,n:number)=>void;
+  txns:PTxn[]; accounts:PAccount[]; budgets:Record<string,number>;
+  nameOverrides:Record<string,string>; setBudget:(c:string,n:number)=>void;
   getEffectiveCategory:(t:PTxn)=>string; formatCat:(s:string)=>string;
   catColor:(s:string)=>string; onOpenDetail:(t:PTxn)=>void; internalTxnIds:Set<string>;
 }
 
-interface Filters { cats:Set<string>; accts:Set<string>; type:"all"|"expense"|"income"; status:"all"|"posted"|"pending"; min:string; max:string; }
-const E:Filters={cats:new Set(),accts:new Set(),type:"all",status:"all",min:"",max:""};
-const hasF=(f:Filters)=>f.cats.size>0||f.accts.size>0||f.type!=="all"||f.status!=="all"||!!f.min||!!f.max;
-const fCount=(f:Filters)=>f.cats.size+f.accts.size+(f.type!=="all"?1:0)+(f.status!=="all"?1:0)+(f.min||f.max?1:0);
+interface Fil { cats:Set<string>; accts:Set<string>; type:"all"|"expense"|"income"; status:"all"|"posted"|"pending"; min:string; max:string; }
+const EF:Fil={cats:new Set(),accts:new Set(),type:"all",status:"all",min:"",max:""};
+const hasF=(f:Fil)=>f.cats.size>0||f.accts.size>0||f.type!=="all"||f.status!=="all"||!!f.min||!!f.max;
+const cntF=(f:Fil)=>f.cats.size+f.accts.size+(f.type!=="all"?1:0)+(f.status!=="all"?1:0)+(f.min||f.max?1:0);
 
-function relDate(s:string){const d=new Date(s+"T00:00:00"),t=new Date();t.setHours(0,0,0,0);const y=new Date(t);y.setDate(t.getDate()-1);if(+d===+t)return"Today";if(+d===+y)return"Yesterday";return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});}
-function getPeriod(off:number){const n=new Date();const s=new Date(n.getFullYear(),n.getMonth()+off,1);const e=new Date(n.getFullYear(),n.getMonth()+off+1,0);return{start:s.toISOString().slice(0,10),end:e.toISOString().slice(0,10),label:s.toLocaleDateString("en-US",{month:"long",year:"numeric"}),days:e.getDate(),day:off===0?n.getDate():e.getDate()};}
-function fc(n:number){const v=Math.abs(n);if(v>=1000)return"$"+(v/1000).toFixed(0)+"k";return"$"+v.toFixed(v%1<0.005?0:2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
+function rDate(s:string){const d=new Date(s+"T00:00:00"),t=new Date();t.setHours(0,0,0,0);const y=new Date(t);y.setDate(t.getDate()-1);if(+d===+t)return"Today";if(+d===+y)return"Yesterday";return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});}
+function getPer(off:number){const n=new Date();const s=new Date(n.getFullYear(),n.getMonth()+off,1);const e=new Date(n.getFullYear(),n.getMonth()+off+1,0);return{start:s.toISOString().slice(0,10),end:e.toISOString().slice(0,10),label:s.toLocaleDateString("en-US",{month:"long",year:"numeric"}),days:e.getDate(),day:off===0?n.getDate():e.getDate()};}
+function fs(n:number){const v=Math.abs(n);if(v>=1000)return"$"+(v/1000).toFixed(0)+"k";return"$"+v.toFixed(v%1<0.005?0:2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
 
 export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds}:SpendingBudgetViewProps){
   const [off,setOff]=useState(0);
@@ -31,32 +30,28 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [hov,setHov]=useState<number|null>(null);
   const [sort,setSort]=useState<"date"|"amount"|"name">("date");
   const [sortD,setSortD]=useState<"desc"|"asc">("desc");
-  const [F,setF]=useState<Filters>(E);
+  const [F,setF]=useState<Fil>(EF);
   const [fo,setFo]=useState(false);
-  const [editCat,setEditCat]=useState<string|null>(null);
-  const [editDraft,setEditDraft]=useState("");
+  const [eCat,setECat]=useState<string|null>(null);
+  const [eDraft,setEDraft]=useState("");
   const fRef=useRef<HTMLDivElement>(null);
-  const isCur=off===0;
 
   useEffect(()=>{if(!fo)return;const h=(e:MouseEvent)=>{if(fRef.current&&!fRef.current.contains(e.target as Node))setFo(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[fo]);
 
-  const p=getPeriod(off);
-  const periodTxns=useMemo(()=>txns.filter(t=>t.date>=p.start&&t.date<=p.end&&!internalTxnIds.has(t.id)),[txns,p,internalTxnIds]);
-  const expenses=useMemo(()=>periodTxns.filter(t=>Number(t.amount)>0),[periodTxns]);
+  const per=getPer(off);
+  const isCur=off===0;
+  const pTxns=useMemo(()=>txns.filter(t=>t.date>=per.start&&t.date<=per.end&&!internalTxnIds.has(t.id)),[txns,per,internalTxnIds]);
+  const exp=useMemo(()=>pTxns.filter(t=>Number(t.amount)>0),[pTxns]);
+  const cats=useMemo(()=>{const m:Record<string,number>={};for(const t of exp){const c=getEffectiveCategory(t)??"Other";m[c]=(m[c]||0)+Number(t.amount);}return Object.entries(m).sort(([,a],[,b])=>b-a);},[exp,getEffectiveCategory]);
+  const tot=cats.reduce((s,[,v])=>s+v,0);
+  const totB=Object.values(budgets).reduce((s,v)=>s+v,0);
+  const rem=totB-tot;
+  const donut=cats.slice(0,8).map(([c,v])=>({cat:c,value:v,color:catColor(c)}));
+  if(cats.slice(8).length>0)donut.push({cat:"Other",value:cats.slice(8).reduce((s,[,v])=>s+v,0),color:"hsl(215 12% 46%)"});
+  const acctNms=useMemo(()=>[...new Set(txns.map(t=>{const a=accounts.find(x=>x.account_id===t.account_id);return a?.name??"Unknown";}))],[txns,accounts]);
 
-  const catTotals=useMemo(()=>{const m:Record<string,number>={};for(const t of expenses){const c=getEffectiveCategory(t)??"Other";m[c]=(m[c]||0)+Number(t.amount);}return Object.entries(m).sort(([,a],[,b])=>b-a);},[expenses,getEffectiveCategory]);
-  const totalSpent=catTotals.reduce((s,[,v])=>s+v,0);
-  const totalBudget=Object.values(budgets).reduce((s,v)=>s+v,0);
-  const remaining=totalBudget-totalSpent;
-
-  const donutData=catTotals.slice(0,8).map(([cat,v])=>({cat,value:v,color:catColor(cat)}));
-  const otherAmt=catTotals.slice(8).reduce((s,[,v])=>s+v,0);
-  if(otherAmt>0)donutData.push({cat:"Other",value:otherAmt,color:"hsl(215 12% 46%)"});
-
-  const acctNames=useMemo(()=>[...new Set(txns.map(t=>{const a=accounts.find(x=>x.account_id===t.account_id);return a?.name??"Unknown";}))],[txns,accounts]);
-
-  const visible=useMemo(()=>{
-    let t=[...expenses];
+  const vis=useMemo(()=>{
+    let t=[...exp];
     if(sel)t=t.filter(x=>(getEffectiveCategory(x)??"Other")===sel);
     if(F.cats.size>0)t=t.filter(x=>F.cats.has(getEffectiveCategory(x)??"Other"));
     if(F.accts.size>0)t=t.filter(x=>{const a=accounts.find(acc=>acc.account_id===x.account_id);return F.accts.has(a?.name??"Unknown");});
@@ -65,202 +60,143 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if(F.min)t=t.filter(x=>Number(x.amount)>=parseFloat(F.min));
     if(F.max)t=t.filter(x=>Number(x.amount)<=parseFloat(F.max));
     return t.sort((a,b)=>{const[va,vb]=sort==="date"?[a.date,b.date]:sort==="amount"?[Number(a.amount),Number(b.amount)]:[(a.merchant_name??a.name??"").toLowerCase(),(b.merchant_name??b.name??"").toLowerCase()];const c=va<vb?-1:va>vb?1:0;return sortD==="desc"?-c:c;});
-  },[expenses,sel,F,sort,sortD,accounts,getEffectiveCategory]);
+  },[exp,sel,F,sort,sortD,accounts,getEffectiveCategory]);
 
-  const groups=useMemo(()=>{if(sort!=="date")return null;const g:Record<string,PTxn[]>={};for(const t of visible)(g[t.date]=g[t.date]||[]).push(t);return Object.entries(g).sort(([a],[b])=>b.localeCompare(a));},[visible,sort]);
-
-  const handleSort=(col:"date"|"amount"|"name")=>{if(sort===col)setSortD(d=>d==="desc"?"asc":"desc");else{setSort(col);setSortD("desc");}};
+  const grps=useMemo(()=>{if(sort!=="date")return null;const g:Record<string,PTxn[]>={};for(const t of vis)(g[t.date]=g[t.date]||[]).push(t);return Object.entries(g).sort(([a],[b])=>b.localeCompare(a));},[vis,sort]);
+  const hs=(col:"date"|"amount"|"name")=>{if(sort===col)setSortD(d=>d==="desc"?"asc":"desc");else{setSort(col);setSortD("desc");}};
   const tog=(k:"cats"|"accts",v:string)=>setF(f=>{const s=new Set(f[k]);s.has(v)?s.delete(v):s.add(v);return{...f,[k]:s};});
-  const clear=()=>{setF(E);setSel(null);};
-  const fc_=fCount(F);
+  const clr=()=>{setF(EF);setSel(null);};
+  const fc=cntF(F);
 
-  // Rocket Money color palette
-  const rm={
-    bg:"hsl(var(--background))",
-    card:"hsl(var(--card))",
-    border:"hsl(var(--border))",
-    text:"hsl(var(--foreground))",
-    sub:"hsl(var(--muted-foreground))",
-    accent:"hsl(var(--primary))",
-    positive:"hsl(var(--positive))",
-    negative:"hsl(var(--negative))",
-    warning:"hsl(var(--warning))",
-  };
-
-  const SortIcon=({col}:{col:string})=>sort!==col?<span className="opacity-30 text-[9px] ml-0.5">↕</span>:<span className="text-[10px] ml-0.5" style={{color:rm.accent}}>{sortD==="desc"?"↓":"↑"}</span>;
-
-  const TxnRow=({t,showDate=false}:{t:PTxn;showDate?:boolean})=>{
+  const Row=({t,sd=false}:{t:PTxn;sd?:boolean})=>{
     const acc=accounts.find(a=>a.account_id===t.account_id);
     const cat=getEffectiveCategory(t)??"Other";
     const col=catColor(cat);
     const nm=nameOverrides[t.id]??t.merchant_name??t.name??"";
-    const init=(nm[0]??"?").toUpperCase();
     return(
-      <button onClick={()=>onOpenDetail(t)} className="w-full flex items-center gap-3.5 px-5 py-3.5 text-left transition-colors border-b border-border/40 last:border-0" style={{"--hover":"hsl(var(--muted)/0.3)"} as any}
-        onMouseEnter={e=>(e.currentTarget.style.background="hsl(var(--muted)/0.25)")}
-        onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-        {/* Merchant initial circle */}
-        <div className="h-10 w-10 rounded-full shrink-0 grid place-items-center text-[15px] font-bold text-white" style={{background:col}}>{init}</div>
-        {/* Details */}
+      <div onClick={()=>onOpenDetail(t)} className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/30 last:border-0">
+        <div className="h-10 w-10 rounded-full shrink-0 grid place-items-center text-[15px] font-bold text-white" style={{background:col}}>{(nm[0]??"?").toUpperCase()}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-medium text-foreground truncate">{nm}</span>
-            {t.pending&&<span className="text-[10px] font-semibold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full shrink-0">Pending</span>}
+            {t.pending&&<span className="text-[10px] font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full shrink-0">Pending</span>}
           </div>
-          <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-            <span style={{color:col}} className="font-medium">{formatCat(cat)}</span>
-            {acc&&<><span className="opacity-30">·</span><span className="truncate">{acc.name}</span></>}
-            {showDate&&<><span className="opacity-30">·</span><span className="shrink-0">{relDate(t.date)}</span></>}
+          <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+            <span className="font-semibold shrink-0" style={{color:col}}>{formatCat(cat)}</span>
+            {acc?.name&&<><span className="opacity-30">·</span><span className="truncate">{acc.name}</span></>}
+            {sd&&<><span className="opacity-30">·</span><span className="shrink-0">{rDate(t.date)}</span></>}
           </div>
         </div>
-        {/* Amount */}
-        <div className="text-[15px] font-bold text-foreground shrink-0">{fmtUSD(Number(t.amount))}</div>
-      </button>
+        <span className="text-[15px] font-bold text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
+      </div>
     );
   };
 
   return(
-    <div className="flex flex-col h-full bg-background">
+    <div className="-mx-4 md:-mx-8 -mt-6">
 
-      {/* ═══ PERIOD NAV — Rocket Money style: centered month ═══════════════ */}
-      <div className="shrink-0 bg-card border-b border-border px-6 py-3 flex items-center gap-4">
-        {/* Spending | Budgets toggle */}
-        <div className="flex bg-muted/50 rounded-xl p-1 text-[13px] font-semibold">
+      {/* ═══ TOP BAR ══════════════════════════════════════════════════════ */}
+      <div className="bg-card border-b border-border px-4 md:px-8 py-3 flex items-center gap-4">
+        <div className="flex bg-muted/50 rounded-xl p-1 text-[13px] font-semibold shrink-0">
           {(["spending","budgets"]as const).map(t=>(
             <button key={t} onClick={()=>setTab(t)} className={cn("px-5 py-1.5 rounded-lg transition-all capitalize",tab===t?"bg-card shadow text-foreground":"text-muted-foreground")}>
               {t.charAt(0).toUpperCase()+t.slice(1)}
             </button>
           ))}
         </div>
-
-        {/* ← Month → */}
         <div className="flex items-center gap-3 mx-auto">
-          <button onClick={()=>setOff(o=>o-1)} className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"><ChevronLeft className="h-4 w-4"/></button>
-          <span className="text-[16px] font-bold text-foreground min-w-[148px] text-center">{p.label}</span>
-          <button onClick={()=>setOff(o=>Math.min(o+1,0))} disabled={off>=0} className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-20"><ChevronRight className="h-4 w-4"/></button>
+          <button onClick={()=>setOff(o=>o-1)} className="h-8 w-8 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"><ChevronLeft className="h-4 w-4"/></button>
+          <span className="text-[16px] font-bold text-foreground min-w-[160px] text-center">{per.label}</span>
+          <button onClick={()=>setOff(o=>Math.min(o+1,0))} disabled={off>=0} className="h-8 w-8 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-20"><ChevronRight className="h-4 w-4"/></button>
         </div>
-
-        {/* Filter button */}
-        <div className="relative" ref={fRef}>
-          <button onClick={()=>setFo(o=>!o)} className={cn("flex items-center gap-2 h-8 px-4 rounded-full border text-[13px] font-medium transition-all",fo||fc_>0?"bg-foreground text-background border-foreground":"border-border text-muted-foreground hover:text-foreground")}>
-            <Filter className="h-3.5 w-3.5"/>
-            Filter
-            {fc_>0&&<span className="h-4.5 min-w-[18px] px-1 rounded-full text-[10px] font-bold grid place-items-center" style={{background:fo?"rgba(255,255,255,0.3)":rm.accent,color:fo?"white":"black"}}>{fc_}</span>}
+        <div className="relative shrink-0" ref={fRef}>
+          <button onClick={()=>setFo(o=>!o)} className={cn("flex items-center gap-2 h-8 px-4 rounded-full border text-[13px] font-medium transition-all",fo||fc>0?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground hover:text-foreground")}>
+            <Filter className="h-3.5 w-3.5"/>Filter{fc>0&&<span className="h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold grid place-items-center bg-[hsl(var(--primary))] text-background">{fc}</span>}
           </button>
           {fo&&(
-            <div className="absolute right-0 top-[calc(100%+8px)] z-[200] w-80 rounded-2xl border border-border bg-popover shadow-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
-                <span className="text-[14px] font-bold text-foreground">Filter</span>
-                {hasF(F)&&<button onClick={clear} className="text-[12px] font-semibold text-muted-foreground hover:text-foreground">Clear all</button>}
+            <div className="absolute right-0 top-[calc(100%+8px)] z-[300] w-80 rounded-2xl border border-border bg-popover shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
+                <span className="text-[14px] font-bold text-foreground">Filters</span>
+                {hasF(F)&&<button onClick={clr} className="text-[12px] text-muted-foreground hover:text-foreground font-medium">Clear all</button>}
               </div>
               <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
-                {/* Type */}
-                <div>
-                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Type</div>
-                  <div className="flex gap-2">{(["all","expense","income"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,type:v}))} className={cn("flex-1 h-8 rounded-full text-[12px] font-medium border transition-all",F.type===v?"bg-foreground text-background border-foreground":"border-border text-muted-foreground hover:border-foreground/40")}>{v==="all"?"All":v==="expense"?"Expenses":"Income"}</button>)}</div>
+                <div><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Type</div>
+                  <div className="flex gap-2">{(["all","expense","income"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,type:v}))} className={cn("flex-1 h-8 rounded-full text-[12px] font-medium border transition-all",F.type===v?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground")}>{v==="all"?"All":v==="expense"?"Expenses":"Income"}</button>)}</div>
                 </div>
-                {/* Status */}
-                <div>
-                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Status</div>
-                  <div className="flex gap-2">{(["all","posted","pending"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,status:v}))} className={cn("flex-1 h-8 rounded-full text-[12px] font-medium border capitalize transition-all",F.status===v?"bg-foreground text-background border-foreground":"border-border text-muted-foreground hover:border-foreground/40")}>{v}</button>)}</div>
+                <div><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Status</div>
+                  <div className="flex gap-2">{(["all","posted","pending"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,status:v}))} className={cn("flex-1 h-8 rounded-full text-[12px] font-medium border capitalize transition-all",F.status===v?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground")}>{v}</button>)}</div>
                 </div>
-                {/* Category */}
-                <div>
-                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Category</div>
-                  <div className="flex flex-wrap gap-2">{catTotals.map(([cat])=>{const a=F.cats.has(cat);return(<button key={cat} onClick={()=>tog("cats",cat)} className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border text-muted-foreground hover:border-foreground/40")}>{a&&<Check className="h-3 w-3"/>}<div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(cat)}}/>{formatCat(cat)}</button>);})}</div>
+                <div><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Category</div>
+                  <div className="flex flex-wrap gap-2">{cats.map(([cat])=>{const a=F.cats.has(cat);return(<button key={cat} onClick={()=>tog("cats",cat)} className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground")}>{a&&<Check className="h-3 w-3"/>}<div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(cat)}}/>{formatCat(cat)}</button>);})}</div>
                 </div>
-                {/* Account */}
-                <div>
-                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Account</div>
-                  <div className="flex flex-wrap gap-2">{acctNames.map(acc=>{const a=F.accts.has(acc);return(<button key={acc} onClick={()=>tog("accts",acc)} className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border text-muted-foreground hover:border-foreground/40")}>{a&&<Check className="h-3 w-3"/>}{acc}</button>);})}</div>
+                <div><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Account</div>
+                  <div className="flex flex-wrap gap-2">{acctNms.map(acc=>{const a=F.accts.has(acc);return(<button key={acc} onClick={()=>tog("accts",acc)} className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground")}>{a&&<Check className="h-3 w-3"/>}{acc}</button>);})}</div>
                 </div>
-                {/* Amount */}
-                <div>
-                  <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Amount</div>
+                <div><div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Amount</div>
                   <div className="flex items-center gap-3">
-                    {(["min","max"]as const).map(k=>(
-                      <div key={k} className="flex-1 relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
-                        <input value={F[k]} onChange={e=>setF(f=>({...f,[k]:e.target.value}))} placeholder={k==="min"?"Min":"Max"} type="number" min="0" className="w-full h-9 pl-7 pr-3 rounded-xl bg-muted/30 border border-border text-[13px] text-foreground outline-none focus:border-foreground/50"/>
-                      </div>
-                    ))}
+                    {(["min","max"]as const).map(k=><div key={k} className="flex-1 relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span><input value={F[k]} onChange={e=>setF(f=>({...f,[k]:e.target.value}))} placeholder={k==="min"?"Min":"Max"} type="number" min="0" className="w-full h-9 pl-7 pr-3 rounded-xl bg-muted/30 border border-border/60 text-[13px] text-foreground outline-none focus:border-foreground/50"/></div>)}
                   </div>
                 </div>
               </div>
-              <div className="px-5 py-4 border-t border-border/50">
-                <button onClick={()=>setFo(false)} className="w-full h-10 rounded-xl bg-foreground text-background text-[14px] font-bold">Show {visible.length} transactions</button>
+              <div className="px-5 py-4 border-t border-border/30">
+                <button onClick={()=>setFo(false)} className="w-full h-10 rounded-xl bg-foreground text-background text-[14px] font-bold">Show {vis.length} transactions</button>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ═══ MAIN BODY ══════════════════════════════════════════════════════ */}
-      <div className="flex-1 min-h-0 overflow-hidden flex">
+      {/* ═══ MOBILE: category chips ════════════════════════════════════════ */}
+      <div className="md:hidden bg-card border-b border-border/30 overflow-x-auto scrollbar-none">
+        <div className="flex gap-2 px-4 py-3 whitespace-nowrap">
+          <button onClick={()=>setSel(null)} className={cn("h-7 px-3 rounded-full text-[12px] font-semibold border shrink-0 transition-all",!sel?"bg-foreground text-background border-foreground":"border-border/60 text-muted-foreground")}>All</button>
+          {cats.map(([cat,sp])=>{const col=catColor(cat);const act=sel===cat;return(<button key={cat} onClick={()=>setSel(act?null:cat)} className="h-7 px-3 rounded-full text-[12px] font-semibold border shrink-0 flex items-center gap-1.5 transition-all" style={{background:act?col:"transparent",color:act?"white":"hsl(var(--muted-foreground))",borderColor:act?col:undefined}}><div className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:act?"rgba(255,255,255,0.7)":col}}/>{formatCat(cat)} {fs(sp)}</button>);})}
+        </div>
+      </div>
 
-        {/* ═══ LEFT SIDEBAR — Rocket Money style ════════════════════════════ */}
-        <div className="w-[300px] shrink-0 border-r border-border flex flex-col overflow-y-auto bg-card">
+      {/* ═══ BODY: sidebar + transactions ═════════════════════════════════ */}
+      <div className="md:flex md:items-start md:gap-0">
 
-          {tab==="spending" ? (
+        {/* LEFT SIDEBAR — sticky on desktop */}
+        <div className="hidden md:block w-[290px] shrink-0 border-r border-border/30 sticky top-0 self-start" style={{maxHeight:"calc(100vh - 120px)",overflowY:"auto"}}>
+          {tab==="spending"?(
             <>
-              {/* Donut + total */}
-              <div className="px-6 pt-6 pb-2">
-                <div className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                  {isCur?"Spent this month":"Total spent"}
-                </div>
-                <div className="text-[32px] font-black text-foreground tracking-tight">{fmtUSD(totalSpent)}</div>
+              <div className="px-6 pt-6 pb-0">
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{isCur?"Spent this month":"Total spent"}</div>
+                <div className="text-[34px] font-black text-foreground tracking-tight leading-none mb-5">{fmtUSD(tot)}</div>
               </div>
-
-              {/* Donut chart */}
-              <div className="relative mx-6 mb-2" style={{height:180}}>
+              {/* Donut */}
+              <div className="relative px-2" style={{height:200}}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={donutData} dataKey="value" cx="50%" cy="50%"
-                      innerRadius={60} outerRadius={82} paddingAngle={2} startAngle={90} endAngle={-270}
-                      onMouseEnter={(_,i)=>setHov(i)} onMouseLeave={()=>setHov(null)}>
-                      {donutData.map((d,i)=>(
-                        <Cell key={i} fill={d.color}
-                          opacity={hov===null||hov===i?1:0.3}
-                          stroke="transparent" strokeWidth={0}/>
-                      ))}
+                  <PieChart margin={{top:0,right:0,bottom:0,left:0}}>
+                    <Pie data={donut} dataKey="value" cx="50%" cy="50%" innerRadius={64} outerRadius={86} paddingAngle={2} startAngle={90} endAngle={-270} onMouseEnter={(_,i)=>setHov(i)} onMouseLeave={()=>setHov(null)} stroke="none">
+                      {donut.map((d,i)=><Cell key={i} fill={d.color} opacity={hov===null||hov===i?1:0.25} strokeWidth={0}/>)}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
-                {/* Center label */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  {hov!==null&&donutData[hov]?(
-                    <>
-                      <div className="text-[12px] text-muted-foreground font-medium">{formatCat(donutData[hov].cat)}</div>
-                      <div className="text-[20px] font-black text-foreground">{fmtUSD(donutData[hov].value)}</div>
-                      <div className="text-[12px] text-muted-foreground">{Math.round(donutData[hov].value/totalSpent*100)}%</div>
-                    </>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                  {hov!==null&&donut[hov]?(
+                    <><div className="text-[11px] font-semibold text-muted-foreground">{formatCat(donut[hov].cat)}</div><div className="text-[22px] font-black text-foreground">{fs(donut[hov].value)}</div><div className="text-[11px] text-muted-foreground">{Math.round(donut[hov].value/tot*100)}%</div></>
                   ):(
-                    <>
-                      <div className="text-[11px] text-muted-foreground">Total</div>
-                      <div className="text-[22px] font-black text-foreground">{fc(totalSpent)}</div>
-                    </>
+                    <><div className="text-[11px] text-muted-foreground">{cats.length} categories</div><div className="text-[20px] font-black text-foreground">{fs(tot)}</div></>
                   )}
                 </div>
               </div>
-
               {/* Category list */}
-              <div className="flex-1">
-                {/* All */}
-                <button onClick={()=>setSel(null)} className={cn("flex items-center gap-3 w-full px-6 py-3 text-left transition-colors",!sel?"bg-muted/50":"hover:bg-muted/25")}>
-                  <div className="w-1 h-8 rounded-full bg-foreground/20 shrink-0"/>
-                  <span className="flex-1 text-[14px] font-medium text-foreground">All categories</span>
-                  <span className="text-[14px] font-bold text-foreground">{fmtUSD(totalSpent)}</span>
+              <div className="mt-2 pb-6">
+                <button onClick={()=>setSel(null)} className={cn("flex items-center gap-3 w-full px-6 py-3 text-left transition-colors",!sel?"bg-muted/40":"hover:bg-muted/20")}>
+                  <div className="w-1 self-stretch rounded-full bg-foreground/15 shrink-0"/>
+                  <span className="flex-1 text-[13.5px] font-medium text-foreground">All categories</span>
+                  <span className="text-[13.5px] font-bold text-foreground">{fmtUSD(tot)}</span>
                 </button>
-                {catTotals.map(([cat,spent],i)=>{
-                  const col=catColor(cat);
-                  const isAct=sel===cat;
-                  const pct=Math.round(spent/totalSpent*100);
+                {cats.map(([cat,sp])=>{
+                  const col=catColor(cat);const act=sel===cat;const pct=Math.round(sp/tot*100);
                   return(
-                    <button key={cat} onClick={()=>setSel(isAct?null:cat)} className={cn("flex items-center gap-3 w-full px-6 py-3 text-left transition-colors border-t border-border/30",isAct?"bg-muted/50":"hover:bg-muted/25")}>
-                      <div className="w-1 h-8 rounded-full shrink-0" style={{background:col}}/>
-                      <span className="flex-1 text-[14px] font-medium text-foreground truncate">{formatCat(cat)}</span>
-                      <div className="text-right shrink-0">
-                        <div className="text-[14px] font-bold text-foreground">{fmtUSD(spent)}</div>
+                    <button key={cat} onClick={()=>setSel(act?null:cat)} className={cn("flex items-center gap-3 w-full px-6 py-3 text-left border-t border-border/20 transition-colors",act?"bg-muted/40":"hover:bg-muted/20")}>
+                      <div className="w-1 self-stretch rounded-full shrink-0" style={{background:col,minHeight:28}}/>
+                      <span className="flex-1 text-[13.5px] font-medium text-foreground truncate">{formatCat(cat)}</span>
+                      <div className="text-right shrink-0 ml-2">
+                        <div className="text-[13.5px] font-bold text-foreground">{fmtUSD(sp)}</div>
                         <div className="text-[11px] text-muted-foreground">{pct}%</div>
                       </div>
                     </button>
@@ -269,63 +205,45 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               </div>
             </>
           ):(
-            /* ─── BUDGETS tab ─── */
+            /* BUDGETS sidebar */
             <>
               <div className="px-6 pt-6 pb-4">
-                <div className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Budget overview</div>
-                <div className="text-[32px] font-black" style={{color:remaining>=0?"hsl(var(--positive))":"hsl(var(--negative))"}}>{remaining>=0?"+":"-"}{fmtUSD(Math.abs(remaining))}</div>
-                <div className="text-[13px] text-muted-foreground mt-0.5">{remaining>=0?"under budget":"over budget"}</div>
-                <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{width:`${Math.min(totalSpent/Math.max(totalBudget,1)*100,100)}%`,background:totalSpent>totalBudget?"hsl(var(--negative))":totalSpent/totalBudget>0.8?"hsl(var(--warning))":"hsl(var(--positive))"}}/>
+                <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Budget overview</div>
+                <div className="text-[34px] font-black leading-none tracking-tight" style={{color:rem>=0?"hsl(var(--positive))":"hsl(var(--negative))"}}>{rem>=0?"+":"-"}{fs(Math.abs(rem))}</div>
+                <div className="text-[12px] text-muted-foreground mt-1">{rem>=0?"under budget this month":"over budget this month"}</div>
+                <div className="mt-4 h-2.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(tot/Math.max(totB,1)*100,100)}%`,background:tot>totB?"hsl(var(--negative))":tot/totB>0.8?"hsl(var(--warning))":"hsl(var(--positive))"}}/>
                 </div>
-                <div className="flex justify-between mt-2 text-[12px] text-muted-foreground">
-                  <span>{fmtUSD(totalSpent)} spent</span><span>{fmtUSD(totalBudget)} budget</span>
+                <div className="flex justify-between mt-1.5 text-[11px] text-muted-foreground">
+                  <span>{fmtUSD(tot)} spent</span><span>{fmtUSD(totB)} budgeted</span>
                 </div>
               </div>
-              <div className="flex-1 divide-y divide-border/40 overflow-y-auto">
-                {catTotals.map(([cat,spent])=>{
-                  const col=catColor(cat);
-                  const b=budgets[cat];
-                  const over=b&&spent>b;
-                  const pct=b?Math.min(spent/b*100,100):0;
-                  const isEd=editCat===cat;
+              <div className="divide-y divide-border/30 pb-6">
+                {cats.map(([cat,sp])=>{
+                  const col=catColor(cat);const b=budgets[cat];const over=b&&sp>b;const pct=b?Math.min(sp/b*100,100):0;const isE=eCat===cat;
                   return(
                     <div key={cat} className="px-6 py-4">
                       <div className="flex items-center gap-3 mb-2.5">
-                        <div className="w-1 h-8 rounded-full shrink-0" style={{background:col}}/>
-                        <span className="flex-1 text-[14px] font-medium text-foreground truncate">{formatCat(cat)}</span>
-                        {over&&<span className="text-[10px] font-black text-negative bg-negative/10 px-2 py-0.5 rounded-full">OVER</span>}
-                        <div className="text-right">
-                          <div className="text-[14px] font-bold" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(spent)}</div>
-                          {isEd?(
-                            <form className="flex items-center gap-1 mt-0.5 justify-end" onSubmit={e=>{e.preventDefault();const n=parseFloat(editDraft);if(!isNaN(n)&&n>=0)setBudget(cat,n);setEditCat(null);}}>
-                              <span className="text-[11px] text-muted-foreground">$</span>
-                              <input autoFocus value={editDraft} onChange={e=>setEditDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setEditCat(null);}} type="number" min="0" className="w-16 h-5 px-1.5 rounded-lg bg-muted border border-foreground/30 text-[11px] outline-none text-foreground"/>
+                        <div className="w-1 shrink-0 rounded-full" style={{background:col,height:32}}/>
+                        <span className="flex-1 text-[13.5px] font-medium text-foreground truncate">{formatCat(cat)}</span>
+                        {over&&<span className="text-[10px] font-black text-negative bg-negative/10 px-1.5 py-0.5 rounded-full shrink-0">OVER</span>}
+                        <div className="text-right shrink-0">
+                          <div className="text-[13.5px] font-bold" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(sp)}</div>
+                          {isE?(
+                            <form className="flex items-center gap-1 justify-end" onSubmit={e=>{e.preventDefault();const n=parseFloat(eDraft);if(!isNaN(n)&&n>=0)setBudget(cat,n);setECat(null);}}>
+                              <span className="text-[10px] text-muted-foreground">$</span>
+                              <input autoFocus value={eDraft} onChange={e=>setEDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setECat(null);}} type="number" min="0" className="w-16 h-5 px-1 rounded bg-muted border border-foreground/30 text-[11px] outline-none text-foreground"/>
                               <button type="submit" className="text-[11px] text-positive font-bold">✓</button>
                             </form>
                           ):(
-                            <button onClick={()=>{setEditCat(cat);setEditDraft(String(b||""));}} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-0.5 block text-right">
-                              {b?`of ${fmtUSD(b)}`:"+ set budget"} <Pencil className="h-2.5 w-2.5 inline opacity-50"/>
+                            <button onClick={()=>{setECat(cat);setEDraft(String(b||""));}} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 justify-end">
+                              {b?`of ${fmtUSD(b)}`:"+ set budget"}<Pencil className="h-2.5 w-2.5 ml-0.5 opacity-40"/>
                             </button>
                           )}
                         </div>
                       </div>
-                      {b&&(
-                        <div className="ml-4">
-                          <div className="h-2 rounded-full bg-muted overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:over?"hsl(var(--negative))":pct>80?"hsl(var(--warning))":col}}/>
-                          </div>
-                          <div className="flex justify-between mt-1 text-[11px] text-muted-foreground">
-                            <span>{Math.round(pct)}% used</span>
-                            <span style={{color:over?"hsl(var(--negative))":"inherit"}}>{over?`${fmtUSD(spent-b)} over`:`${fmtUSD(b-spent)} left`}</span>
-                          </div>
-                        </div>
-                      )}
-                      {!b&&(
-                        <button onClick={()=>{setEditCat(cat);setEditDraft("");}} className="ml-4 text-[11px] text-muted-foreground/60 hover:text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Plus className="h-3 w-3"/>Set budget
-                        </button>
-                      )}
+                      {b&&<div className="ml-4"><div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:over?"hsl(var(--negative))":pct>80?"hsl(var(--warning))":col}}/></div><div className="flex justify-between mt-1 text-[11px] text-muted-foreground"><span>{Math.round(pct)}%</span><span style={{color:over?"hsl(var(--negative))":"inherit"}}>{over?`${fmtUSD(sp-b)} over`:`${fmtUSD(b-sp)} left`}</span></div></div>}
+                      {!b&&<button onClick={()=>{setECat(cat);setEDraft("");}} className="ml-4 text-[11px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1"><Plus className="h-3 w-3"/>Set budget</button>}
                     </div>
                   );
                 })}
@@ -334,46 +252,40 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           )}
         </div>
 
-        {/* ═══ RIGHT: Transaction feed ═══════════════════════════════════════ */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {/* Toolbar */}
-          <div className="shrink-0 px-5 py-2.5 border-b border-border bg-card flex items-center gap-3 flex-wrap">
-            {sel&&(
-              <div className="flex items-center gap-1.5 h-7 px-3 rounded-full border border-border bg-muted/40 text-[12px] font-medium text-foreground">
-                <div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(sel)}}/>
-                {formatCat(sel)}
-                <button onClick={()=>setSel(null)} className="ml-0.5 text-muted-foreground hover:text-foreground"><X className="h-3 w-3"/></button>
-              </div>
-            )}
-            {(hasF(F)&&!sel)&&<button onClick={clear} className="text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1"><X className="h-3 w-3"/>Clear filters</button>}
-            <div className="flex bg-muted/40 rounded-full p-0.5 ml-auto text-[12px]">
+        {/* RIGHT: Transactions */}
+        <div className="flex-1 min-w-0">
+          {/* Txn toolbar */}
+          <div className="px-4 md:px-6 py-2.5 border-b border-border/30 bg-card flex items-center gap-2.5 flex-wrap sticky top-0 z-20 backdrop-blur-sm">
+            {sel&&<div className="flex items-center gap-1.5 h-7 px-3 rounded-full border border-border/60 bg-muted/40 text-[12px] font-medium text-foreground"><div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(sel)}}/>{formatCat(sel)}<button onClick={()=>setSel(null)} className="ml-1 text-muted-foreground hover:text-foreground"><X className="h-3 w-3"/></button></div>}
+            {hasF(F)&&!sel&&<button onClick={clr} className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"><X className="h-3 w-3"/>Clear</button>}
+            <div className="flex bg-muted/40 rounded-full p-0.5 ml-auto">
               {(["date","amount","name"]as const).map(k=>(
-                <button key={k} onClick={()=>handleSort(k)} className={cn("px-3 py-1.5 rounded-full font-medium capitalize transition-all",sort===k?"bg-background shadow text-foreground":"text-muted-foreground")}>
-                  {k}<SortIcon col={k}/>
+                <button key={k} onClick={()=>hs(k)} className={cn("px-3 py-1.5 rounded-full text-[12px] font-medium capitalize transition-all",sort===k?"bg-card shadow text-foreground":"text-muted-foreground")}>
+                  {k}{sort===k&&<span className="ml-0.5 text-[10px]" style={{color:"hsl(var(--primary))"}}>{sortD==="desc"?"↓":"↑"}</span>}
                 </button>
               ))}
             </div>
-            <span className="text-[12px] text-muted-foreground shrink-0">{visible.length} transactions</span>
+            <span className="text-[12px] text-muted-foreground shrink-0">{vis.length}</span>
           </div>
 
           {/* Transactions */}
-          <div className="flex-1 overflow-y-auto">
-            {visible.length===0?(
-              <div className="flex flex-col items-center justify-center h-full text-center p-12">
-                <div className="text-[40px] mb-3">🔍</div>
-                <div className="text-[15px] font-semibold text-foreground mb-1">No transactions</div>
+          <div className="bg-card">
+            {vis.length===0?(
+              <div className="py-20 flex flex-col items-center text-center gap-3">
+                <div className="text-[44px]">🔍</div>
+                <div className="text-[15px] font-semibold text-foreground">No transactions found</div>
                 <div className="text-[13px] text-muted-foreground">Try adjusting your filters</div>
+                {(hasF(F)||sel)&&<button onClick={clr} className="mt-2 h-8 px-4 rounded-full border border-border/60 text-[13px] text-muted-foreground hover:text-foreground">Clear filters</button>}
               </div>
-            ):groups?groups.map(([date,txns])=>(
+            ):grps?grps.map(([date,txns])=>(
               <div key={date}>
-                {/* Date group header — Rocket Money style */}
-                <div className="px-5 py-3 bg-muted/30 border-b border-border/40 flex items-center justify-between sticky top-0 z-10 backdrop-blur-sm">
-                  <span className="text-[13px] font-bold text-foreground">{relDate(date)}</span>
+                <div className="px-5 py-3 bg-muted/40 border-b border-border/30 border-t border-t-border/20 flex items-center justify-between">
+                  <span className="text-[13px] font-bold text-foreground">{rDate(date)}</span>
                   <span className="text-[12px] font-semibold text-muted-foreground">{fmtUSD(txns.reduce((s,t)=>s+Number(t.amount),0))}</span>
                 </div>
-                {txns.map(t=><TxnRow key={t.id} t={t}/>)}
+                {txns.map(t=><Row key={t.id} t={t}/>)}
               </div>
-            )):visible.map(t=><TxnRow key={t.id} t={t} showDate/>)}
+            )):vis.map(t=><Row key={t.id} t={t} sd/>)}
           </div>
         </div>
       </div>

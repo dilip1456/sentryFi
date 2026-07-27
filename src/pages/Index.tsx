@@ -408,7 +408,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
-          <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
+          <div className={cn("content-max space-y-5", (view === "spending" || view === "budget") ? "" : "px-4 md:px-8 pt-6 pb-10")}>
 
             {/* Page header on desktop — Spending/Budget skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
