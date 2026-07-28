@@ -2142,12 +2142,88 @@ const TxnDetailModal = ({
     return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : null;
   })();
 
-  const [tab, setTab] = useState<"info"|"edit"|"rule">("info");
+  const [tab, setTab] = useState<"info"|"edit"|"rule"|"obligations">("info");
   const [nameDraft, setNameDraft] = useState(currentDisplayName);
   const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
   const [applyAllCat, setApplyAllCat] = useState(samemerchantTxns.length > 0);
   const [saved, setSaved] = useState(false);
+
+  // Obligations tab state
+  interface ObItem { id:string; name:string; type:"fixed"|"flex"|"envelope"|"goal"; amount:number; merchant_hint?:string; }
+  const [obligations, setObligations] = useState<ObItem[]>([]);
+  const [obLoading, setObLoading] = useState(false);
+  const [assignedId, setAssignedId] = useState<string|null>(null);
+  const [newObName, setNewObName] = useState(currentDisplayName);
+  const [newObType, setNewObType] = useState<"fixed"|"flex"|"envelope">("fixed");
+  const [newObAmt, setNewObAmt] = useState(() => {
+    // suggest avg of same merchant txns
+    const all = [txn, ...samemerchantTxns].map(t => Math.abs(Number(t.amount)));
+    return all.length ? String(Math.round(all.reduce((s,v)=>s+v,0)/all.length)) : "";
+  });
+  const [showNewOb, setShowNewOb] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "obligations") return;
+    setObLoading(true);
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) return;
+      const { data: obs } = await supabase
+        .from("obligations")
+        .select("id,name,type,amount,merchant_hint")
+        .eq("user_id", data.user.id)
+        .eq("active", true)
+        .order("type").order("name");
+      setObligations((obs ?? []) as ObItem[]);
+      // check if already assigned
+      const existing = (obs ?? []).find((o: ObItem) => merchant && o.merchant_hint?.toLowerCase().includes(merchant.toLowerCase()));
+      if (existing) setAssignedId(existing.id);
+      setObLoading(false);
+    });
+  }, [tab]);
+
+  const assignToObligation = async (obId: string) => {
+    if (!merchant) return;
+    const ob = obligations.find(o => o.id === obId);
+    if (!ob) return;
+    // append merchant to existing hint (keep others)
+    const existing = ob.merchant_hint ? ob.merchant_hint.split(",").map(s=>s.trim()).filter(Boolean) : [];
+    if (!existing.includes(merchant)) existing.push(merchant);
+    await supabase.from("obligations").update({ merchant_hint: existing.join(", ") }).eq("id", obId);
+    setAssignedId(obId);
+    setObligations(prev => prev.map(o => o.id === obId ? { ...o, merchant_hint: existing.join(", ") } : o));
+    toast.success(`"${currentDisplayName}" → ${ob.name}`);
+  };
+
+  const unassignFromObligation = async (obId: string) => {
+    if (!merchant) return;
+    const ob = obligations.find(o => o.id === obId);
+    if (!ob) return;
+    const remaining = (ob.merchant_hint ?? "").split(",").map(s=>s.trim()).filter(s => s && !s.toLowerCase().includes(merchant.toLowerCase()));
+    await supabase.from("obligations").update({ merchant_hint: remaining.join(", ") || null }).eq("id", obId);
+    setAssignedId(null);
+    setObligations(prev => prev.map(o => o.id === obId ? { ...o, merchant_hint: remaining.join(", ") || undefined } : o));
+    toast.success("Removed from obligation");
+  };
+
+  const createAndAssign = async () => {
+    if (!newObName.trim()) return;
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return;
+    const { data: ob } = await supabase.from("obligations").insert({
+      user_id: userData.user.id,
+      name: newObName.trim(),
+      type: newObType,
+      amount: parseFloat(newObAmt) || 0,
+      merchant_hint: merchant ?? null,
+    }).select().single();
+    if (ob) {
+      setObligations(prev => [...prev, ob as ObItem]);
+      setAssignedId(ob.id);
+      setShowNewOb(false);
+      toast.success(`Created "${newObName}" obligation`);
+    }
+  };
 
   const handleSaveName = () => {
     const trimmed = nameDraft.trim();
@@ -2206,11 +2282,11 @@ const TxnDetailModal = ({
 
           {/* Tab row */}
           <div className="flex gap-1 mt-4 bg-muted/50 rounded-xl p-1">
-            {(["info","edit","rule"] as const).map(t => (
+            {(["info","edit","rule","obligations"] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={cn("flex-1 py-1.5 rounded-lg text-[12px] font-medium transition-all capitalize",
+                className={cn("flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-all",
                   tab === t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
-                {t === "info" ? "Details" : t === "edit" ? "Edit" : "Create Rule"}
+                {t === "info" ? "Details" : t === "edit" ? "Edit" : t === "rule" ? "Rule" : "Obligate"}
               </button>
             ))}
           </div>
@@ -2375,6 +2451,126 @@ const TxnDetailModal = ({
                 className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40">
                 Create rule → {humanizeCategory(rawCat, Number(txn.amount))}
               </button>
+            </div>
+          )}
+
+          {/* ── OBLIGATIONS TAB ── */}
+          {tab === "obligations" && (
+            <div className="px-5 pb-5 space-y-3">
+              <p className="text-[12px] text-muted-foreground">
+                Tag <span className="font-medium text-foreground">"{currentDisplayName}"</span> as part of an obligation.
+                Every matching transaction each month will count toward it automatically.
+              </p>
+
+              {obLoading ? (
+                <div className="py-8 flex justify-center">
+                  <div className="h-5 w-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin"/>
+                </div>
+              ) : (
+                <>
+                  {/* Existing obligations */}
+                  {obligations.length > 0 && (
+                    <div className="space-y-1.5">
+                      {(["fixed","flex","envelope","goal"] as const).map(type => {
+                        const items = obligations.filter(o => o.type === type);
+                        if (!items.length) return null;
+                        const typeLabel = type === "fixed" ? "🔒 Fixed" : type === "flex" ? "⚡ Flex Bills" : type === "envelope" ? "🛍 Envelopes" : "🎯 Goals";
+                        return (
+                          <div key={type}>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 mt-2">{typeLabel}</p>
+                            {items.map(ob => {
+                              const isAssigned = assignedId === ob.id;
+                              return (
+                                <button
+                                  key={ob.id}
+                                  onClick={() => isAssigned ? unassignFromObligation(ob.id) : assignToObligation(ob.id)}
+                                  className={cn(
+                                    "w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left",
+                                    isAssigned
+                                      ? "border-primary/50 bg-primary/8 text-foreground"
+                                      : "border-border/60 hover:border-border hover:bg-muted/30 text-foreground"
+                                  )}>
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className={cn("h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
+                                      isAssigned ? "border-primary bg-primary" : "border-muted-foreground/40")}>
+                                      {isAssigned && <span className="text-[9px] text-primary-foreground font-bold">✓</span>}
+                                    </div>
+                                    <span className="text-[13px] font-medium truncate">{ob.name}</span>
+                                  </div>
+                                  <span className="text-[12px] text-muted-foreground shrink-0 ml-2">
+                                    {ob.amount > 0 ? fmtUSD(ob.amount) + "/mo" : "no limit"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {obligations.length === 0 && !showNewOb && (
+                    <p className="text-center text-[12px] text-muted-foreground py-4">No obligations set up yet.</p>
+                  )}
+
+                  {/* New obligation inline form */}
+                  {showNewOb ? (
+                    <div className="border border-border/60 rounded-xl p-3.5 space-y-3 mt-2">
+                      <p className="text-[12px] font-semibold text-foreground">New obligation</p>
+
+                      {/* Type chips */}
+                      <div className="flex gap-1.5">
+                        {(["fixed","flex","envelope"] as const).map(t => (
+                          <button key={t} onClick={() => setNewObType(t)}
+                            className={cn("flex-1 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
+                              newObType === t ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
+                            {t === "fixed" ? "Fixed" : t === "flex" ? "Flex" : "Envelope"}
+                          </button>
+                        ))}
+                      </div>
+
+                      <input
+                        value={newObName}
+                        onChange={e => setNewObName(e.target.value)}
+                        placeholder="Name (e.g. Mortgage)"
+                        className="w-full bg-muted/40 border border-border rounded-xl px-3 py-2 text-[13px] outline-none focus:border-primary/50"
+                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
+                        <input
+                          value={newObAmt}
+                          onChange={e => setNewObAmt(e.target.value.replace(/[^0-9.]/g,""))}
+                          placeholder="Monthly amount"
+                          inputMode="decimal"
+                          className="w-full bg-muted/40 border border-border rounded-xl pl-6 pr-3 py-2 text-[13px] outline-none focus:border-primary/50"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowNewOb(false)}
+                          className="flex-1 py-2 rounded-xl border border-border/60 text-[12px] text-muted-foreground">
+                          Cancel
+                        </button>
+                        <button onClick={createAndAssign} disabled={!newObName.trim()}
+                          className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-[12px] font-semibold disabled:opacity-40">
+                          Create & assign
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowNewOb(true)}
+                      className="w-full py-2.5 rounded-xl border border-dashed border-border/60 text-[12px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors mt-1">
+                      + New obligation for this merchant
+                    </button>
+                  )}
+
+                  {assignedId && (
+                    <p className="text-center text-[11px] text-muted-foreground/60 pt-1">
+                      All "{merchant}" transactions will count toward this obligation each month
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
