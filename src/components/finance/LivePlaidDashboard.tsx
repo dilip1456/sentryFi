@@ -2128,217 +2128,251 @@ const TxnDetailModal = ({
   const merchant = txn.merchant_name ?? txn.name ?? null;
   const rawCat = getEffectiveCategory(txn, overrides, getRuleCategory);
   const isIncome = Number(txn.amount) < 0;
-  const Icon = isIncome ? ArrowDownLeft : categoryIcon(rawCat);
-  const color = isIncome ? "hsl(var(--positive))" : catColor(rawCat);
+  const color = isIncome ? "hsl(var(--positive))" : catColor(rawCat ?? "Other");
   const currentDisplayName = nameOverride ?? (merchant ? (nameRules[merchant] ?? merchant) : "Transaction");
-  const originalPlaidCat = txn.category?.[0] ?? null;
   const account = accounts.find(a => a.account_id === txn.account_id);
-  const item = account ? items.find(it => it.id === account.id.split("_")[0] || account.account_id === txn.account_id) : null;
-  // get institution via item_id on txn
-  const txnItem = txn.item_id ? items.find(it => it.id === txn.item_id) : null;
-  const institutionName = txnItem?.institution_name ?? account?.official_name?.split(" ")?.[0] ?? null;
-
   const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant) : [];
-  const recurringInfo = (() => {
-    if (samemerchantTxns.length < 1) return null;
+
+  // Detect recurring
+  const recurringLabel = (() => {
+    if (samemerchantTxns.length < 2) return null;
     const dates = [txn, ...samemerchantTxns].map(t => t.date).sort().reverse();
-    if (dates.length < 2) return null;
     const intervals = dates.slice(0,-1).map((d,i) => Math.round((new Date(d+"T00:00:00").getTime() - new Date(dates[i+1]+"T00:00:00").getTime()) / 86400000));
     const avg = intervals.reduce((s,v)=>s+v,0)/intervals.length;
-    const label = avg <= 8 ? "weekly" : avg <= 16 ? "biweekly" : avg <= 35 ? "monthly" : avg <= 100 ? "quarterly" : null;
-    return label ? { label, count: dates.length } : null;
+    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : null;
   })();
 
+  const [tab, setTab] = useState<"info"|"edit"|"rule">("info");
   const [nameDraft, setNameDraft] = useState(currentDisplayName);
   const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
-  const [showAddRule, setShowAddRule] = useState(false);
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
-  const [ruleMatchType, setRuleMatchType] = useState<RuleMatchType>("contains");
-  const [renameReq, setRenameReq] = useState<RenameRequest | null>(null);
-  const [applyAll, setApplyAll] = useState(true);
-  const [createRule, setCreateRule] = useState(true);
-  const [applyAllCat, setApplyAllCat] = useState(false);
+  const [applyAllCat, setApplyAllCat] = useState(samemerchantTxns.length > 0);
+  const [saved, setSaved] = useState(false);
 
-  const handleCommitName = () => {
+  const handleSaveName = () => {
     const trimmed = nameDraft.trim();
     if (!trimmed || trimmed === currentDisplayName) return;
-    setRenameReq({ txnId: txn.id, merchant, newName: trimmed, matchingCount: samemerchantTxns.length });
-  };
-
-  const applyRename = (all: boolean, rule: boolean) => {
-    if (!renameReq) return;
-    onSaveNameOverride(txn.id, renameReq.newName);
-    if (all && samemerchantTxns.length > 0) onBulkRename(samemerchantTxns.map(t => t.id), renameReq.newName);
-    if (rule && renameReq.merchant) onSaveNameRule(renameReq.merchant, renameReq.newName);
-    setRenameReq(null);
-    toast.success("Renamed" + (rule ? " + rule created" : ""));
+    onSaveNameOverride(txn.id, trimmed);
+    if (applyAllCat && samemerchantTxns.length > 0) onBulkRename(samemerchantTxns.map(t => t.id), trimmed);
+    if (merchant) onSaveNameRule(merchant, trimmed);
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+    toast.success("Saved");
   };
 
   const handleCatSelect = (cat: string) => {
     onSelect(txn.id, cat);
-    // If apply-all is on, bulk-override every txn from same merchant
     if (applyAllCat && merchant) {
-      const ids = samemerchantTxns.map(t => t.id);
-      ids.forEach(id => onSelect(id, cat));
-      if (ids.length > 0) toast.success(`Category applied to ${ids.length + 1} transactions`);
-      // also create a rule so future txns are categorized automatically
+      samemerchantTxns.forEach(t => onSelect(t.id, cat));
       onAddRule(merchant, cat);
+      if (samemerchantTxns.length > 0) toast.success(`Applied to ${samemerchantTxns.length + 1} transactions`);
     }
     setShowCatPicker(false);
   };
 
-  // Keep only the essential info — amount is in header, date is in header subtitle
-  const info: [string, string | React.ReactNode][] = [
-    ["Account", account ? `${account.name ?? account.official_name}${account.mask ? ` ···· ${account.mask}` : ""}` : "n/a"],
-    ...(txn.pending ? [["Status", <span className="text-warning font-medium">Pending</span>] as [string, React.ReactNode]] : []),
-    ...(recurringInfo ? [["Recurring", recurringInfo.label] as [string, string]] : []),
-  ];
+  const handleCreateRule = () => {
+    if (!ruleDraft.trim() || !rawCat) return;
+    onAddRule(ruleDraft.trim(), rawCat);
+    toast.success("Rule created → " + humanizeCategory(rawCat, Number(txn.amount)));
+    setTab("info");
+  };
+
+  const amt = Math.abs(Number(txn.amount));
+  const dateStr = new Date(txn.date+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
+      <DialogContent className="max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl">
         <DialogTitle className="sr-only">Transaction details</DialogTitle>
-        <DialogDescription className="sr-only">Edit transaction name or category.</DialogDescription>
+        <DialogDescription className="sr-only">Transaction info, edit, and rules.</DialogDescription>
 
-        {/* Compact header */}
-        <div className="px-4 pt-4 pb-3 border-b border-border/30 flex items-center gap-3 shrink-0">
-          <div className="h-9 w-9 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-            <Icon className="h-4.5 w-4.5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <input value={nameDraft} onChange={e => setNameDraft(e.target.value)}
-              onBlur={handleCommitName}
-              onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-              className="w-full bg-transparent text-[15px] font-semibold text-foreground outline-none border-b border-transparent focus:border-[hsl(var(--primary)/0.4)] pb-0.5 truncate" />
-            <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-              {account && <span className="font-medium text-foreground/70">{account.name}</span>}
-              {account && <span>·</span>}
-              <span>{new Date(txn.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
-              {txn.payment_channel && <><span>·</span><span className="capitalize">{txn.payment_channel.replace(/_/g," ")}</span></>}
-              {txn.pending && <span className="text-warning font-medium">· Pending</span>}
-              {recurringInfo && <span className="text-info font-medium">· {recurringInfo.label}</span>}
+        {/* ── Header ── */}
+        <div className="px-5 pt-5 pb-4 shrink-0">
+          <div className="flex items-start gap-3">
+            {/* Category color dot */}
+            <div className="h-10 w-10 rounded-xl shrink-0 flex items-center justify-center text-lg font-bold" style={{background:`${color}20`, color}}>
+              {(merchant ?? "?").charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[15px] font-semibold text-foreground truncate">{currentDisplayName}</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">{dateStr}{account ? ` · ${account.name}` : ""}{txn.pending ? " · Pending" : ""}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
+                {isIncome ? "+" : "−"}{fmtUSD(amt, {cents: true})}
+              </p>
+              {recurringLabel && <p className="text-[10px] text-muted-foreground/70">{recurringLabel}</p>}
             </div>
           </div>
-          <div className={cn("text-[16px] font-display tabular shrink-0 font-bold", isIncome ? "text-positive" : "text-foreground")}>
-            {isIncome ? "+" : "−"}{fmtUSD(Math.abs(Number(txn.amount)), { cents: true })}
+
+          {/* Tab row */}
+          <div className="flex gap-1 mt-4 bg-muted/50 rounded-xl p-1">
+            {(["info","edit","rule"] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={cn("flex-1 py-1.5 rounded-lg text-[12px] font-medium transition-all capitalize",
+                  tab === t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
+                {t === "info" ? "Details" : t === "edit" ? "Edit" : "Create Rule"}
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0">
-          {/* Rename confirmation */}
-          {renameReq && (
-            <div className="px-5 py-4 border-b border-border/20 bg-[hsl(var(--primary)/0.04)] space-y-2.5 shrink-0">
-              <div className="text-[13px] font-semibold text-foreground">Apply rename to:</div>
-              <div className="space-y-2">
-                {samemerchantTxns.length > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" checked={applyAll} onChange={e => setApplyAll(e.target.checked)} className="h-4 w-4 rounded accent-[hsl(var(--primary))]" />
-                    <span className="text-[13px] text-foreground">All {samemerchantTxns.length} other "{merchant}" transactions</span>
-                  </label>
-                )}
-                {renameReq.merchant && (
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" checked={createRule} onChange={e => setCreateRule(e.target.checked)} className="h-4 w-4 rounded accent-[hsl(var(--primary))]" />
-                    <span className="text-[13px] text-foreground">Create rule for future transactions</span>
-                  </label>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => applyRename(applyAll, createRule)} className="flex-1 h-8 rounded-lg bg-gold text-[13px] font-semibold hover:opacity-90">Apply</button>
-                <button onClick={() => applyRename(false, false)} className="h-8 px-3 rounded-lg border border-border text-[12.5px] text-muted-foreground">Just this</button>
-                <button onClick={() => { setRenameReq(null); setNameDraft(currentDisplayName); }} className="h-8 w-8 rounded-lg border border-border grid place-items-center text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
-              </div>
-            </div>
-          )}
 
-          {/* Category row */}
-          <button onClick={() => setShowCatPicker(s => !s)}
-            className="w-full px-5 py-4 flex items-center justify-between border-b border-border/15 hover:bg-surface-hover/20 transition-colors">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg grid place-items-center shrink-0" style={{ backgroundColor: `${color}20`, color }}>
-                <Icon className="h-3.5 w-3.5" />
-              </div>
-              <div className="text-left">
-                <div className="text-[13.5px] font-medium text-foreground">{humanizeCategory(rawCat, Number(txn.amount))}</div>
-                {originalPlaidCat && rawCat !== originalPlaidCat && (
-                  <div className="text-[12px] text-muted-foreground/60">Plaid: {originalPlaidCat}</div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-[hsl(var(--primary))]">Change</span>
-              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0", showCatPicker && "rotate-180")} />
-            </div>
-          </button>
-
-          {showCatPicker && (
-            <div>
-              {samemerchantTxns.length > 0 && (
-                <label className="flex items-center gap-2 px-5 py-3 bg-[hsl(var(--primary)/0.04)] border-b border-border/15 cursor-pointer select-none">
-                  <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-[hsl(var(--primary))]" />
-                  <span className="text-[13px] text-foreground">Apply to all {samemerchantTxns.length + 1} "{merchant}" transactions + create rule</span>
-                </label>
-              )}
-              <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
-                existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
-                customCategories={customCategories}
-                onSelect={handleCatSelect}
-                onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
-                onClose={() => setShowCatPicker(false)} />
-            </div>
-          )}
-
-          {/* Compact info grid */}
-          <div className="px-5 py-4 space-y-0 divide-y divide-border/10">
-            {info.map(([label, value]) => (
-              <div key={label as string} className="flex items-start justify-between gap-3 py-2">
-                <span className="text-[12px] text-muted-foreground shrink-0">{label}</span>
-                <span className="text-[12.5px] text-foreground text-right">{value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Action strip */}
-          <div className="px-5 py-4 border-t border-border/15 grid grid-cols-2 gap-2">
-            <button
-              onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
-              disabled={!merchant}
-              className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40">
-              <Search className="h-3.5 w-3.5" /> Find similar
-            </button>
-            <button
-              onClick={() => setShowAddRule(s => !s)}
-              className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground flex items-center justify-center gap-1.5 transition-colors">
-              <Plus className="h-3.5 w-3.5" /> Add rule
-            </button>
-            <button
-              onClick={() => onToggleInternal(txn.id)}
-              className={cn("h-9 rounded-lg border text-[13px] flex items-center justify-center gap-1.5 transition-colors col-span-2",
-                (isManualInternal || isAutoInternal) && !isManualExternal
-                  ? "border-info/40 text-info bg-info/5"
-                  : "border-border-strong text-muted-foreground hover:text-foreground")}>
-              <EyeOff className="h-3.5 w-3.5" />
-              {(isManualInternal || isAutoInternal) && !isManualExternal ? "Marked as internal transfer" : "Mark as internal transfer"}
-            </button>
-          </div>
-
-          {/* Add rule inline */}
-          {showAddRule && (
-            <div className="px-4 pb-4 pt-1 space-y-2.5 border-t border-border/15">
-              <div className="text-[12.5px] font-semibold text-foreground">New rule</div>
-              <div className="flex items-center gap-2">
-                <select value={ruleMatchType} onChange={e => setRuleMatchType(e.target.value as RuleMatchType)}
-                  className="h-8 px-2 rounded-md bg-surface/60 border border-border/60 text-[12.5px] text-foreground outline-none shrink-0">
-                  <option value="contains">contains</option>
-                  <option value="exact">exact</option>
-                  <option value="starts_with">starts with</option>
-                </select>
-                <input value={ruleDraft} onChange={e => setRuleDraft(e.target.value)} placeholder="pattern…"
-                  className="flex-1 h-8 px-2.5 rounded-md bg-surface/60 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]" />
-              </div>
+          {/* ── INFO TAB ── */}
+          {tab === "info" && (
+            <div className="px-5 pb-5 space-y-3">
+              {/* Category chip */}
               <button
-                onClick={() => { if (ruleDraft.trim() && rawCat) { onAddRule(ruleDraft.trim(), rawCat); setShowAddRule(false); toast.success("Rule created"); } }}
-                className="w-full h-8 rounded-lg bg-gold text-[13px] font-semibold hover:opacity-90">
+                onClick={() => { setTab("edit"); setTimeout(() => setShowCatPicker(true), 50); }}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-6 w-6 rounded-md shrink-0" style={{background:`${color}25`}}>
+                    <div className="h-full w-full rounded-md flex items-center justify-center" style={{color}}>
+                      <span className="text-[10px] font-bold">{(rawCat ?? "?").charAt(0).toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <span className="text-[13px] font-medium">{humanizeCategory(rawCat, Number(txn.amount))}</span>
+                </div>
+                <span className="text-[11px] text-primary">Change →</span>
+              </button>
+
+              {/* Info rows */}
+              {[
+                ["Merchant", merchant ?? "Unknown"],
+                ["Account", account ? `${account.name}${account.mask ? ` ····${account.mask}` : ""}` : "—"],
+                ["Status", txn.pending ? "Pending" : "Posted"],
+                ["Channel", txn.payment_channel?.replace(/_/g," ") ?? "—"],
+                ...(recurringLabel ? [["Recurring", recurringLabel]] : []),
+                ...(samemerchantTxns.length > 0 ? [[`Past transactions`, `${samemerchantTxns.length} from this merchant`]] : []),
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between py-1.5 border-b border-border/10 last:border-0">
+                  <span className="text-[12px] text-muted-foreground">{label}</span>
+                  <span className="text-[12.5px] text-foreground capitalize">{value}</span>
+                </div>
+              ))}
+
+              {/* Quick actions */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => onToggleInternal(txn.id)}
+                  className={cn("flex-1 py-2 rounded-xl border text-[12px] font-medium transition-colors",
+                    (isManualInternal || isAutoInternal) && !isManualExternal
+                      ? "border-blue-500/40 text-blue-400 bg-blue-500/8"
+                      : "border-border/60 text-muted-foreground hover:text-foreground")}>
+                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "✓ Internal transfer" : "Mark internal"}
+                </button>
+                <button
+                  onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
+                  disabled={!merchant}
+                  className="flex-1 py-2 rounded-xl border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                  Find similar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── EDIT TAB ── */}
+          {tab === "edit" && (
+            <div className="px-5 pb-5 space-y-4">
+              {/* Rename */}
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Display name</label>
+                <input
+                  value={nameDraft}
+                  onChange={e => setNameDraft(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleSaveName()}
+                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50"
+                />
+                {samemerchantTxns.length > 0 && (
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
+                    <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} {merchant} transactions</span>
+                  </label>
+                )}
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
+                <button
+                  onClick={() => setShowCatPicker(s => !s)}
+                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-muted/40 border border-border rounded-xl text-[13.5px] text-foreground hover:border-primary/50 transition-colors">
+                  <span>{humanizeCategory(rawCat, Number(txn.amount))}</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showCatPicker && "rotate-180")} />
+                </button>
+
+                {showCatPicker && (
+                  <div className="mt-1 border border-border/50 rounded-xl overflow-hidden">
+                    {samemerchantTxns.length > 0 && (
+                      <label className="flex items-center gap-2 px-3.5 py-2.5 bg-muted/20 border-b border-border/30 cursor-pointer">
+                        <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
+                        <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} + create rule</span>
+                      </label>
+                    )}
+                    <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
+                      existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
+                      customCategories={customCategories}
+                      onSelect={handleCatSelect}
+                      onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
+                      onClose={() => setShowCatPicker(false)} />
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleSaveName}
+                disabled={!nameDraft.trim() || nameDraft === currentDisplayName}
+                className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40 transition-opacity">
+                {saved ? "✓ Saved" : "Save changes"}
+              </button>
+            </div>
+          )}
+
+          {/* ── RULE TAB ── */}
+          {tab === "rule" && (
+            <div className="px-5 pb-5 space-y-4">
+              <p className="text-[12.5px] text-muted-foreground">
+                Rules auto-categorize future transactions matching a merchant or keyword.
+              </p>
+
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">When transaction name contains</label>
+                <input
+                  value={ruleDraft}
+                  onChange={e => setRuleDraft(e.target.value)}
+                  placeholder={merchant ?? "keyword…"}
+                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] outline-none focus:border-primary/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Assign category</label>
+                <div className="px-3.5 py-2.5 bg-muted/40 border border-border rounded-xl text-[13.5px] flex items-center justify-between">
+                  <span>{humanizeCategory(rawCat, Number(txn.amount))}</span>
+                  <button onClick={() => setShowCatPicker(s=>!s)} className="text-[11px] text-primary">Change</button>
+                </div>
+                {showCatPicker && (
+                  <div className="mt-1 border border-border/50 rounded-xl overflow-hidden">
+                    <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
+                      existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
+                      customCategories={customCategories}
+                      onSelect={cat => { onSelect(txn.id, cat); setShowCatPicker(false); }}
+                      onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
+                      onClose={() => setShowCatPicker(false)} />
+                  </div>
+                )}
+              </div>
+
+              {samemerchantTxns.length > 0 && (
+                <div className="p-3 rounded-xl bg-muted/30 text-[12px] text-muted-foreground">
+                  This will also recategorize {samemerchantTxns.length} existing {merchant} transactions.
+                </div>
+              )}
+
+              <button
+                onClick={handleCreateRule}
+                disabled={!ruleDraft.trim()}
+                className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40">
                 Create rule → {humanizeCategory(rawCat, Number(txn.amount))}
               </button>
             </div>
@@ -5832,18 +5866,21 @@ export const LivePlaidDashboard = ({
 
   if (view==="spending" || view==="budget") {
     return (
-      <SpendingBudgetView
-        txns={txns}
-        accounts={accounts}
-        budgets={budgets}
-        nameOverrides={nameOverrides}
-        setBudget={setBudget}
-        getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
-        formatCat={formatCat}
-        catColor={catColor}
-        onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
-        internalTxnIds={internalTxnIds}
-      />
+      <>
+        <SpendingBudgetView
+          txns={txns}
+          accounts={accounts}
+          budgets={budgets}
+          nameOverrides={nameOverrides}
+          setBudget={setBudget}
+          getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
+          formatCat={formatCat}
+          catColor={catColor}
+          onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+          internalTxnIds={internalTxnIds}
+        />
+        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
+      </>
     );
   }
 

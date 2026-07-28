@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, ChevronDown, Plus, Pencil, TrendingDown, TrendingUp } from "lucide-react";
@@ -416,13 +417,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               </button>
             </div>
 
-            {/* FIX 1: Filter panel — separate from button, correct ref ─────── */}
-            {fo && (
+            {/* Filter panel — portal-rendered to escape transform contexts */}
+            {fo && createPortal(
               <>
-                {/* Mobile backdrop */}
-                <div onClick={() => setFo(false)} className="sm:hidden fixed inset-0 bg-black/50 z-[299]"/>
-                {/* Panel */}
-                <div ref={fPanelRef} className="fixed sm:absolute bottom-0 sm:bottom-auto left-0 sm:left-auto right-0 sm:right-4 top-auto sm:top-[calc(100%+4px)] z-[300] sm:w-72 rounded-t-2xl sm:rounded-2xl border-t sm:border border-border bg-card shadow-2xl overflow-hidden">
+                {/* Backdrop */}
+                <div onClick={() => setFo(false)} className="fixed inset-0 bg-black/50 z-[299]"/>
+                {/* Panel: bottom sheet on mobile, popover on desktop */}
+                <div ref={fPanelRef} className="fixed bottom-0 left-0 right-0 sm:left-auto sm:right-4 sm:bottom-auto sm:top-[120px] z-[300] w-full sm:w-80 rounded-t-2xl sm:rounded-2xl border-t sm:border border-border bg-card shadow-2xl overflow-hidden">
+                  {/* Mobile drag handle */}
+                  <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+                    <div className="w-9 h-1 rounded-full bg-muted-foreground/30"/>
+                  </div>
                   <div className="px-5 py-3.5 border-b border-border/30 flex items-center justify-between">
                     <span className="text-[14px] font-bold text-foreground">Sort & Filter</span>
                     {(hasF(F)||sel||F.sort!=="date-desc") && <button onClick={() => { clr(); }} className="text-[12px] text-muted-foreground hover:text-foreground font-medium">Reset all</button>}
@@ -519,7 +524,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </button>
                   </div>
                 </div>
-              </>
+              </>,
+              document.body
             )}
           </div>
 
