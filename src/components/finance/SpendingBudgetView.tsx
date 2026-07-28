@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, ChevronDown, Plus, Pencil, TrendingDown, TrendingUp } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-import { ObligationsView } from "./ObligationsView";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:any; }
@@ -42,7 +41,6 @@ function fc2(n:number){ const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toF
 // ── Component ─────────────────────────────────────────────────────────────────
 export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds}:SpendingBudgetViewProps) {
   const [off, setOff]     = useState(0);
-  const [tab, setTab]     = useState<"spending"|"obligations">("spending");
   const [sel, setSel]     = useState<string|null>(null);    // selected category (left panel)
   const [hov, setHov]     = useState<number|null>(null);    // donut hover index
   const [F,   setF]       = useState<Fil>(EF);              // filters incl. sort
@@ -306,46 +304,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
       {/* ═══ TOP BAR ════════════════════════════════════════════════════════ */}
       <div className="bg-card border-b border-border px-4 md:px-8 py-3 flex items-center gap-3">
-        {/* Spending | Budgets toggle */}
-        <div className="flex bg-muted/50 rounded-xl p-1 text-[13px] font-semibold shrink-0">
-          {(["spending","obligations"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} className={cn("px-4 py-1.5 rounded-lg transition-all", tab===t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
-              {t === "spending" ? "Spending" : "Obligations"}
-            </button>
-          ))}
-        </div>
-
-        {/* ← Month → — FIX 9 fix: centered */}
+        {/* ← Month → */}
         <div className="flex items-center gap-2 mx-auto">
           <button onClick={() => setOff(o => o-1)} className="h-8 w-8 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"><ChevronLeft className="h-4 w-4"/></button>
           <span className="text-[15px] font-bold text-foreground min-w-[140px] text-center">{per.label}</span>
           <button onClick={() => setOff(o => Math.min(o+1,0))} disabled={off>=0} className="h-8 w-8 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-20"><ChevronRight className="h-4 w-4"/></button>
         </div>
 
-        {/* Spacer to balance toggle on left */}
-        <div className="shrink-0 w-[110px] md:w-[130px]"/>
-      </div>
-
-      {/* ═══ MOBILE: budget overview strip when on budget tab ══════════════ */}
-      {/* Obligations tab is now fully handled by ObligationsView below */}
-
-      {/* ═══ OBLIGATIONS TAB — new full component ══════════════════════════ */}
-      {tab === "obligations" && (
-        <ObligationsView
-          txns={txns as any}
-          month={per.key}
-          formatCat={formatCat}
-          catColor={catColor}
-          getEffectiveCategory={getEffectiveCategory as any}
-        />
-      )}
-
-      {/* ═══ SPENDING TAB CONTENT ═══════════════════════════════════════════ */}
-      {tab === "spending" && <>
+        {/* Filter button */}
 
       {/* ═══ MOBILE: category chips when on spending tab ═══════════════════ */}
-      {tab === "spending" && (
-        <div className="md:hidden bg-card border-b border-border/30 overflow-x-auto scrollbar-none">
+      <div className="md:hidden bg-card border-b border-border/30 overflow-x-auto scrollbar-none">
           <div className="flex gap-1.5 px-4 py-2.5 whitespace-nowrap">
             <button onClick={() => setSel(null)} className={cn("h-7 px-3 rounded-full text-[12px] font-semibold border shrink-0 transition-all", !sel ? "bg-foreground text-background border-foreground" : "border-border/60 text-muted-foreground")}>All</button>
             {catRows.map(([cat,sp]) => { const col=catColor(cat); const act=sel===cat; return (
@@ -357,7 +326,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             ); })}
           </div>
         </div>
-      )}
+      </div>
 
       {/* ═══ BODY ══════════════════════════════════════════════════════════ */}
       <div className="md:flex md:items-start">
@@ -550,8 +519,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
         </div>
       </div>
-
-      </>} {/* end tab === "spending" */}
     </div>
   );
 }
