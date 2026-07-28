@@ -300,7 +300,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   );
 
   return (
-    <div className="-mx-4 md:-mx-8 -mt-6">
+    <div className="flex flex-col min-h-full">
 
       {/* ═══ TOP BAR ════════════════════════════════════════════════════════ */}
       <div className="bg-card border-b border-border px-4 md:px-8 py-3 flex items-center gap-3">
