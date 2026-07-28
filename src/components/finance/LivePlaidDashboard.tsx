@@ -18,6 +18,7 @@ import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules"
 import { CategoryManager } from "@/components/finance/CategoryManager";
 import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
+import { BudgetView } from "@/components/finance/BudgetView";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -6060,7 +6061,7 @@ export const LivePlaidDashboard = ({
     );
   };
 
-  if (view==="spending" || view==="budget") {
+  if (view==="spending") {
     return (
       <>
         <SpendingBudgetView
@@ -6077,6 +6078,16 @@ export const LivePlaidDashboard = ({
         />
         {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
       </>
+    );
+  }
+
+  if (view==="budget") {
+    const currentMonth = (() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    })();
+    return (
+      <BudgetView txns={txns} accounts={accounts} month={currentMonth} />
     );
   }
 
