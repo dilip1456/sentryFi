@@ -245,36 +245,37 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform",fo&&"rotate-180")}/>
                 </button>
 
-                {fo&&(
-                  <div className="absolute right-0 top-[calc(100%+6px)] z-[300] w-72 rounded-2xl border border-border bg-popover shadow-2xl overflow-hidden">
+                {fo&&(<>
+                  <div onClick={()=>setFo(false)} className="sm:hidden fixed inset-0 bg-black/40 z-[299]"/>
+                  <div className="fixed sm:absolute bottom-0 sm:bottom-auto left-0 sm:left-auto right-0 sm:right-0 top-auto sm:top-[calc(100%+6px)] z-[300] sm:w-72 rounded-t-2xl sm:rounded-2xl border border-border bg-popover shadow-2xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between">
                       <span className="text-[14px] font-bold text-foreground">Sort & Filter</span>
                       {(hasF(F)||sel||sort!=="date"||sortD!=="desc")&&<button onClick={()=>{clr();setSort("date");setSortD("desc");}} className="text-[12px] text-muted-foreground hover:text-foreground font-medium">Reset all</button>}
                     </div>
-                    <div className="p-4 space-y-5 max-h-[72vh] overflow-y-auto">
+                    <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 max-h-[60vh] overflow-y-auto">
 
                       {/* Sort */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Sort by</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Sort by</div>
                         <div className="grid grid-cols-2 gap-1.5">
                           {([["date","Date: newest","desc"],["date","Date: oldest","asc"],["amount","Largest amount","desc"],["amount","Smallest amount","asc"],["name","Name: A → Z","asc"],["name","Name: Z → A","desc"]]as[typeof sort,string,typeof sortD][]).map(([col,label,dir])=>{
                             const act=sort===col&&sortD===dir;
-                            return(<button key={col+dir} onClick={()=>{setSort(col);setSortD(dir);}} className={cn("h-8 px-3 rounded-lg text-[12px] font-medium border text-left flex items-center justify-between gap-1 transition-all",act?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}><span>{label}</span>{act&&<Check className="h-3 w-3 shrink-0"/>}</button>);
+                            return(<button key={col+dir} onClick={()=>{setSort(col);setSortD(dir);}} className={cn("h-7 px-2.5 rounded-lg text-[11.5px] font-medium border text-left flex items-center justify-between gap-1 transition-all",act?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}><span>{label}</span>{act&&<Check className="h-3 w-3 shrink-0"/>}</button>);
                           })}
                         </div>
                       </div>
 
                       {/* Type */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Type</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Type</div>
                         <div className="flex gap-1.5">
-                          {(["all","expense","income"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,type:v}))} className={cn("flex-1 h-8 rounded-lg text-[12.5px] font-medium border transition-all",F.type===v?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{v==="all"?"All":v==="expense"?"Expenses":"Income"}</button>)}
+                          {(["all","expense","income"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,type:v}))} className={cn("flex-1 h-7 rounded-lg text-[12px] font-medium border transition-all",F.type===v?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{v==="all"?"All":v==="expense"?"Expenses":"Income"}</button>)}
                         </div>
                       </div>
 
                       {/* Status */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Status</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Status</div>
                         <div className="flex gap-1.5">
                           {(["all","posted","pending"]as const).map(v=><button key={v} onClick={()=>setF(f=>({...f,status:v}))} className={cn("flex-1 h-8 rounded-lg text-[12.5px] font-medium border capitalize transition-all",F.status===v?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{v}</button>)}
                         </div>
@@ -282,32 +283,33 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
                       {/* Category */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Category</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Category</div>
                         <div className="flex flex-wrap gap-1.5">
-                          {cats.map(([cat])=>{const a=F.cats.has(cat);return(<button key={cat} onClick={()=>tog("cats",cat)} className={cn("h-7 px-2.5 rounded-lg text-[11.5px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{a?<Check className="h-3 w-3 shrink-0"/>:<div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(cat)}}/>}{formatCat(cat)}</button>);})}
+                          {cats.map(([cat])=>{const a=F.cats.has(cat);return(<button key={cat} onClick={()=>tog("cats",cat)} className={cn("h-6.5 px-2 rounded-lg text-[11px] font-medium border flex items-center gap-1 transition-all",a?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{a?<Check className="h-3 w-3 shrink-0"/>:<div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(cat)}}/>}{formatCat(cat)}</button>);})}
                         </div>
                       </div>
 
                       {/* Account */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Account</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Account</div>
                         <div className="flex flex-wrap gap-1.5">
-                          {acctNms.map(acc=>{const a=F.accts.has(acc);return(<button key={acc} onClick={()=>tog("accts",acc)} className={cn("h-7 px-2.5 rounded-lg text-[11.5px] font-medium border flex items-center gap-1.5 transition-all",a?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{a&&<Check className="h-3 w-3 shrink-0"/>}{acc}</button>);})}
+                          {acctNms.map(acc=>{const a=F.accts.has(acc);return(<button key={acc} onClick={()=>tog("accts",acc)} className={cn("h-6.5 px-2 rounded-lg text-[11px] font-medium border flex items-center gap-1 transition-all",a?"bg-foreground text-background border-foreground":"border-border/50 text-foreground/70 hover:text-foreground hover:border-foreground/30")}>{a&&<Check className="h-3 w-3 shrink-0"/>}{acc}</button>);})}
                         </div>
                       </div>
 
                       {/* Amount */}
                       <div>
-                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Amount</div>
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Amount</div>
                         <div className="flex items-center gap-2">
                           {(["min","max"]as const).map(k=><div key={k} className="flex-1 relative"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-[12px]">$</span><input value={F[k]} onChange={e=>setF(f=>({...f,[k]:e.target.value}))} placeholder={k==="min"?"Min":"Max"} type="number" min="0" className="w-full h-8 pl-6 pr-2 rounded-lg bg-muted/30 border border-border/50 text-[12.5px] text-foreground outline-none focus:border-foreground/40"/></div>)}
                         </div>
                       </div>
                     </div>
-                    <div className="px-4 py-3 border-t border-border/30">
-                      <button onClick={()=>setFo(false)} className="w-full h-9 rounded-xl bg-foreground text-background text-[13.5px] font-bold">Show {vis.length} results</button>
+                    <div className="px-3 py-2.5 border-t border-border/30">
+                      <button onClick={()=>setFo(false)} className="w-full h-8 rounded-xl bg-foreground text-background text-[13px] font-bold">Show {vis.length} results</button>
                     </div>
                   </div>
+                </>
                 )}
               </div>
             </div>
