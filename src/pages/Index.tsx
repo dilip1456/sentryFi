@@ -143,7 +143,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive  = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards";
+  const showLive  = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "budget";
   const showEmpty = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -413,7 +413,43 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
-          <div className={cn("content-max space-y-5", (view === "spending" || view === "budget") ? "" : "px-4 md:px-8 pt-6 pb-10")}>
+          {/* Spending/Budget view renders full-bleed outside the padded container */}
+          {(view === "spending" || view === "budget") && (
+            <>
+              {showLive && (
+                <LivePlaidDashboard
+                  hasItems
+                  onAddAccount={() => setLinkOpen(true)}
+                  view={view}
+                  onViewChange={(v) => setView(v as View)}
+                  syncTrigger={syncTrigger}
+                  onSyncingChange={setSyncing}
+                  selectedCategory={selectedCategory}
+                  onCategorySelect={handleCategorySelect}
+                  manualAccounts={manualAccounts}
+                  onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
+                  onDeleteManual={removeManual}
+                />
+              )}
+              {effectiveDemo && (
+                <LivePlaidDashboard
+                  demo
+                  guestDemo={guestDemo}
+                  hasItems={false}
+                  onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
+                  view={view}
+                  onViewChange={(v) => setView(v as View)}
+                  syncTrigger={0}
+                  selectedCategory={selectedCategory}
+                  onCategorySelect={handleCategorySelect}
+                />
+              )}
+            </>
+          )}
+
+          {/* All other views inside padded container */}
+          {view !== "spending" && view !== "budget" && (
+          <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
 
             {/* Page header on desktop — Spending/Budget skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
@@ -500,7 +536,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               />
             )}
 
-            {effectiveDemo && view !== "giftcards" && view !== "admin" && (
+            {effectiveDemo && view !== "giftcards" && view !== "admin" && view !== "spending" && view !== "budget" && (
               <LivePlaidDashboard
                 demo
                 guestDemo={guestDemo}
@@ -521,6 +557,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
+          )} {/* end: view !== spending/budget */}
         </main>
 
         {/* Mobile bottom tabs */}
