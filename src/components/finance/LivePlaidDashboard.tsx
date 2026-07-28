@@ -27,7 +27,7 @@ import {
 import { fmtUSD } from "@/lib/format";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
-  Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home,
+  Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
   ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
   ArrowDownLeft, ArrowUpRight, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
@@ -174,12 +174,12 @@ const priorityMeta = {
   info:   { label: "FYI",    dot: "bg-info",     text: "text-info",     chip: "border-info/30 bg-info/10 text-info" },
 };
 
-const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive"|"negative"|"info"|"warning" }> = {
-  cash:       { label: "Checking & Savings", sub: "Everyday spending and savings",            tone: "positive" },
-  credit:     { label: "Credit Cards",       sub: "Statements due this cycle",                tone: "warning" },
-  loan:       { label: "Loans & Mortgages",  sub: "Only monthly payment affects cash flow",   tone: "negative" },
-  investment: { label: "Investments",        sub: "Brokerage & retirement accounts",          tone: "info" },
-  other:      { label: "Other",              sub: "Uncategorized accounts",                   tone: "info" },
+const bucketMeta: Record<Bucket, { label: string; sub: string; tone: "positive"|"negative"|"info"|"warning"; icon: React.ElementType }> = {
+  cash:       { label: "Checking & Savings", sub: "Everyday spending and savings",            tone: "positive",  icon: Landmark   },
+  credit:     { label: "Credit Cards",       sub: "Statements due this cycle",                tone: "warning",   icon: CreditCard },
+  loan:       { label: "Loans & Mortgages",  sub: "Only monthly payment affects cash flow",   tone: "negative",  icon: Building2  },
+  investment: { label: "Investments",        sub: "Brokerage & retirement accounts",          tone: "info",      icon: TrendingUp },
+  other:      { label: "Other",              sub: "Uncategorized accounts",                   tone: "info",      icon: Landmark   },
 };
 
 const bucketOrder: Bucket[] = ["cash", "credit", "loan", "investment", "other"];
@@ -3272,6 +3272,162 @@ const GrantConsentButton = ({ itemId, onGranted }: { itemId: string; onGranted: 
 };
 
 // ── Account detail dialog ──────────────────────────────────────
+// ── AccountsPanel — collapsible buckets + account rows ──────────
+const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onSelect, onAddAccount, onEditManual, onDeleteManual }: {
+  accounts: PAccount[];
+  manualAccounts: ManualAccount[];
+  accountMeta: Record<string, AccountMeta>;
+  items: PlaidItem[];
+  txns: PTxn[];
+  onSelect: (a: PAccount) => void;
+  onAddAccount: () => void;
+  onEditManual?: (a: ManualAccount) => void;
+  onDeleteManual?: (id: string) => void;
+}) => {
+  const [openBuckets, setOpenBuckets] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setOpenBuckets(p => ({ ...p, [k]: !p[k] }));
+
+  const activeBuckets = bucketOrder.filter(b => accounts.some(a => mapBucket(a.type, a.subtype) === b));
+  const hasManual = manualAccounts.length > 0;
+
+  // Net cash computed across depository accounts
+  const cashAccounts = accounts.filter(a => a.type === "depository");
+  const creditAccounts = accounts.filter(a => a.type === "credit");
+  const totalCash = cashAccounts.reduce((s,a)=> s + (Number(a.current_balance)||0), 0);
+  const totalCards = creditAccounts.reduce((s,a)=> s + (Number(a.current_balance)||0), 0);
+  const netCash = totalCash - totalCards;
+
+  return (
+    <div className="surface-card overflow-hidden divide-y divide-border/15">
+      {/* Net cash summary strip */}
+      {cashAccounts.length > 0 && creditAccounts.length > 0 && (
+        <div className="flex items-center justify-between px-4 md:px-5 py-3 bg-secondary/20">
+          <span className="text-[12px] text-muted-foreground">Net Cash</span>
+          <span className={cn("text-[15px] font-bold tabular", netCash >= 0 ? "text-positive" : "text-negative")}>
+            {netCash < 0 ? "−" : ""}{fmtUSD(Math.abs(netCash), { compact: true })}
+          </span>
+        </div>
+      )}
+
+      {/* Collapsible buckets */}
+      {activeBuckets.map(bucket => {
+        const list = accounts.filter(a => mapBucket(a.type, a.subtype) === bucket);
+        const total = list.reduce((s,a)=> s + (isDebt(a.type) ? -Math.abs(Number(a.current_balance)||0) : (Number(a.current_balance)||0)), 0);
+        const open = !!openBuckets[bucket];
+        const BucketIcon = bucketMeta[bucket].icon ?? Building2;
+        const debt = total < 0;
+        return (
+          <div key={bucket}>
+            {/* Bucket header — tap to expand */}
+            <button onClick={() => toggle(bucket)}
+              className="w-full flex items-center gap-3 px-4 md:px-5 py-3.5 hover:bg-surface-hover/20 transition-colors text-left">
+              <div className="h-8 w-8 rounded-xl bg-secondary/60 grid place-items-center shrink-0">
+                <BucketIcon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-[14px] font-semibold text-foreground">{bucketMeta[bucket].label}</span>
+                <span className="ml-2 text-[11px] text-muted-foreground/50">{list.length}</span>
+              </div>
+              <span className={cn("text-[15px] font-bold tabular shrink-0 mr-1", debt ? "text-negative" : "text-foreground")}>
+                {debt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
+              </span>
+              <ChevronDown className={cn("h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
+            </button>
+
+            {/* Account rows — shown when bucket is open */}
+            {open && (
+              <div className="border-t border-border/15 divide-y divide-border/10 bg-secondary/5">
+                {list.map(a => {
+                  const Icon = mapIcon(a.type, a.subtype);
+                  const debt = isDebt(a.type);
+                  const bal = Number(a.current_balance) || 0;
+                  const m = accountMeta[a.id] ?? {};
+                  const displayName = m.nickname || a.name || a.official_name || "Account";
+                  const instName = getInstNameFor(a, items);
+                  const logoChar = instName.charAt(0).toUpperCase();
+                  return (
+                    <button key={a.id} onClick={() => onSelect(a)}
+                      className="w-full flex items-center gap-3 px-5 md:px-6 py-3 text-left hover:bg-surface-hover/30 transition-colors group">
+                      {/* Bank initial avatar */}
+                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500/20 to-blue-600/30 border border-blue-500/20 grid place-items-center shrink-0">
+                        <span className="text-[13px] font-bold text-blue-300">{logoChar}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
+                        <div className="text-[11.5px] text-muted-foreground/70 truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
+                      </div>
+                      <span className={cn("text-[14px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
+                        {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                      </span>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Manual accounts bucket */}
+      {hasManual && (() => {
+        const open = !!openBuckets["__manual__"];
+        return (
+          <div>
+            <button onClick={() => toggle("__manual__")}
+              className="w-full flex items-center gap-3 px-4 md:px-5 py-3.5 hover:bg-surface-hover/20 transition-colors text-left">
+              <div className="h-8 w-8 rounded-xl bg-secondary/60 grid place-items-center shrink-0">
+                <Landmark className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-[14px] font-semibold text-foreground">Manual</span>
+                <span className="ml-2 text-[11px] text-muted-foreground/50">{manualAccounts.length}</span>
+              </div>
+              <ChevronDown className={cn("h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
+            </button>
+            {open && (
+              <div className="border-t border-border/15 divide-y divide-border/10 bg-secondary/5">
+                {manualAccounts.map(acct => {
+                  const isLoanType = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
+                  const bal = Number(acct.current_balance ?? 0);
+                  const logoChar = (acct.institution_name || acct.name || "M").charAt(0).toUpperCase();
+                  return (
+                    <div key={acct.id} className="w-full flex items-center gap-3 px-5 md:px-6 py-3 group">
+                      <div className="h-8 w-8 rounded-full bg-secondary/60 grid place-items-center shrink-0">
+                        <span className="text-[13px] font-bold text-muted-foreground">{logoChar}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
+                        <div className="text-[11.5px] text-muted-foreground/70 truncate">
+                          {acct.institution_name || (isLoanType ? "Loan" : "Manual")}{acct.interest_rate ? ` · ${acct.interest_rate}%` : ""}
+                        </div>
+                      </div>
+                      <span className={cn("text-[14px] font-semibold tabular shrink-0", isLoanType ? "text-negative" : "text-foreground")}>
+                        {isLoanType ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                      </span>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {onEditManual && <button onClick={() => onEditManual(acct)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3 w-3" /></button>}
+                        {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3 w-3" /></button>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Add account */}
+      <button onClick={onAddAccount}
+        className="w-full flex items-center justify-center gap-2 py-3 text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-surface-hover/20 transition-colors">
+        <Plus className="h-3.5 w-3.5" /> Link an account
+      </button>
+    </div>
+  );
+};
+
+// ── AccountDetailPanel — Rocket Money–style popup ───────────────
 const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, onEdit, onRemove, onClose, onGranted }: {
   a: PAccount; txns: PTxn[]; meta: AccountMeta; credit?: CreditDetail;
   instName: string; instUrl: string | null; itemId: string | null;
@@ -3281,31 +3437,24 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
   const isCredit = a.type === "credit";
   const isSavings = a.type === "depository" && a.subtype === "savings";
   const isChecking = a.type === "depository" && a.subtype === "checking";
-  const isInvestment = a.type === "investment" || a.type === "brokerage";
   const bal = Number(a.current_balance) || 0;
   const avail = Number(a.available_balance) || 0;
   const creditLimit = isCredit && avail >= 0 ? Math.abs(bal) + avail : 0;
   const utilization = isCredit && creditLimit > 0 ? Math.abs(bal) / creditLimit : null;
   const displayName = meta.nickname || a.name || a.official_name || "Account";
-  const cardInfo = isCredit ? getCardInfo(a.name, a.official_name) : null;
   const hysa = isHYSA(a, instName, meta.apr);
   const isPromo = meta.promoApr != null;
   const promoExpired = meta.promoEndDate ? new Date(meta.promoEndDate) < new Date() : false;
   const daysUntilPromoEnd = meta.promoEndDate
     ? Math.ceil((new Date(meta.promoEndDate).getTime() - Date.now()) / 86400000) : null;
-  const Icon = mapIcon(a.type, a.subtype);
-  const accentColor = debt ? "hsl(var(--negative))" : "hsl(var(--positive))";
-
-  // 30-day net flow
-  const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
-  const recentAll = txns.slice(0, 5);
-  const accTxns30 = txns.filter(t => new Date(t.date) >= thirtyAgo);
-  const netFlow30 = accTxns30.reduce((s, t) => s - Number(t.amount), 0);
-  const trendGood = debt ? netFlow30 < 0 : netFlow30 > 0;
-
-  // Annual interest / earnings
+  const logoChar = instName.charAt(0).toUpperCase() || displayName.charAt(0).toUpperCase();
   const aprRate = meta.apr ?? null;
   const yearlyAmount = aprRate != null ? Math.abs(bal) * aprRate / 100 : 0;
+
+  const thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+  const recentTxns = txns.filter(t => !t.pending).slice(0, 5);
+  const accTxns30 = txns.filter(t => new Date(t.date) >= thirtyAgo);
+  const netFlow30 = accTxns30.reduce((s, t) => s - Number(t.amount), 0);
 
   const dueDate = credit?.next_payment_due_date
     ? new Date(credit.next_payment_due_date + "T00:00:00") : null;
@@ -3313,286 +3462,190 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-md surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col rounded-2xl">
         <DialogTitle className="sr-only">{displayName}</DialogTitle>
         <DialogDescription className="sr-only">Account details for {displayName}</DialogDescription>
 
         {/* Header */}
-        <div className="flex items-start gap-3 px-5 pt-5 pb-4 border-b shrink-0" style={{ borderColor: "var(--gold-border)" }}>
-          <div className="h-10 w-10 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor:`${accentColor}1a`, color:accentColor }}>
-            <Icon className="h-5 w-5" />
+        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-border/40 shrink-0">
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500/25 to-blue-700/30 border border-blue-500/20 grid place-items-center shrink-0">
+            <span className="text-[15px] font-bold text-blue-300">{logoChar}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-display text-lg text-foreground leading-snug">{displayName}</span>
-              {hysa && <span className="text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-positive/30 text-positive bg-positive/10">High Yield</span>}
-              {isCredit && credit?.is_overdue && <span className="text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-negative/30 text-negative bg-negative/10">Overdue</span>}
-            </div>
-            <div className="text-[12.5px] text-muted-foreground mt-0.5">
-              {smartSubtypeLabel(a, instName, meta.apr)} · {instName}{a.mask ? ` ··${a.mask}` : ""}
-            </div>
+            <p className="text-[14px] font-semibold text-foreground truncate">{displayName}</p>
+            <p className="text-[11.5px] text-muted-foreground truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</p>
           </div>
-          <button onClick={onClose} className="shrink-0 h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+          <button onClick={onClose} className="h-7 w-7 grid place-items-center rounded-full bg-secondary/60 text-muted-foreground hover:text-foreground shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto min-h-0">
-          <div className="px-5 py-4 space-y-4">
 
-            {/* Balance row */}
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">
-                  {isCredit ? "Current balance" : isSavings ? "Savings balance" : isChecking ? "Checking balance" : "Balance"}
-                </div>
-                <div className={cn("font-display text-3xl tabular leading-none", debt ? "text-negative" : "text-foreground")}>
-                  {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
-                </div>
+          {/* Big balance */}
+          <div className="px-5 pt-5 pb-4">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1">
+              {isCredit ? "Current Balance" : isSavings ? "Savings Balance" : isChecking ? "Checking Balance" : "Balance"}
+            </p>
+            <p className={cn("text-[34px] font-bold tabular leading-none", debt ? "text-negative" : "text-foreground")}>
+              {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
+            </p>
+            {accTxns30.length > 0 && (
+              <div className={cn("inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full text-[11.5px] font-medium",
+                (debt ? netFlow30 < 0 : netFlow30 > 0) ? "bg-positive/10 text-positive" : "bg-negative/10 text-negative"
+              )}>
+                {netFlow30 >= 0 ? "↑" : "↓"} {fmtUSD(Math.abs(netFlow30))} since 30 days ago
               </div>
-              {avail > 0 && avail !== bal && (
-                <div className="text-right">
-                  <div className="text-[12px] text-muted-foreground">{isCredit ? "Available credit" : "Available"}</div>
-                  <div className={cn("text-[15px] tabular font-medium", isCredit ? "text-positive" : "text-foreground")}>
-                    {fmtUSD(avail)}
+            )}
+          </div>
+
+          {/* Credit card specifics */}
+          {isCredit && (
+            <div className="px-5 pb-4 space-y-3">
+              {utilization !== null && creditLimit > 0 && (
+                <div className="rounded-xl bg-secondary/40 p-3 space-y-2">
+                  <div className="flex justify-between text-[12.5px]">
+                    <span className="text-muted-foreground">Credit utilization</span>
+                    <span className={cn("font-semibold tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
+                      {(utilization * 100).toFixed(0)}% of {fmtUSD(creditLimit, { compact: true })}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{
+                      width: `${Math.min(utilization * 100, 100)}%`,
+                      backgroundColor: utilization > 0.5 ? "hsl(var(--negative))" : utilization > 0.3 ? "hsl(var(--warning))" : "hsl(var(--positive))"
+                    }} />
                   </div>
                 </div>
               )}
+              {(credit?.last_statement_balance != null || dueDate || credit?.minimum_payment_amount != null) && (
+                <div className="grid grid-cols-2 gap-2">
+                  {credit?.last_statement_balance != null && (
+                    <div className="rounded-xl bg-secondary/40 p-3">
+                      <p className="text-[11px] text-muted-foreground/70 uppercase tracking-wider">Statement</p>
+                      <p className="text-[14px] font-semibold mt-1 text-warning tabular">{fmtUSD(credit.last_statement_balance)}</p>
+                    </div>
+                  )}
+                  {dueDate && (
+                    <div className={cn("rounded-xl bg-secondary/40 p-3", credit?.is_overdue && "border border-negative/30")}>
+                      <p className="text-[11px] text-muted-foreground/70 uppercase tracking-wider">Due date</p>
+                      <p className={cn("text-[14px] font-semibold mt-1", credit?.is_overdue ? "text-negative" : dueSoon ? "text-warning" : "text-foreground")}>
+                        {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {dueSoon && !credit?.is_overdue && <span className="ml-1 text-[11px] font-normal text-warning">soon</span>}
+                      </p>
+                    </div>
+                  )}
+                  {credit?.minimum_payment_amount != null && (
+                    <div className="rounded-xl bg-secondary/40 p-3">
+                      <p className="text-[11px] text-muted-foreground/70 uppercase tracking-wider">Min payment</p>
+                      <p className="text-[14px] font-semibold mt-1 text-warning tabular">{fmtUSD(credit.minimum_payment_amount)}</p>
+                    </div>
+                  )}
+                  {avail > 0 && (
+                    <div className="rounded-xl bg-secondary/40 p-3">
+                      <p className="text-[11px] text-muted-foreground/70 uppercase tracking-wider">Available</p>
+                      <p className="text-[14px] font-semibold mt-1 text-positive tabular">{fmtUSD(avail)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {isPromo && !promoExpired && (
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-positive/10 text-positive text-[12px] font-medium">
+                  <Sparkles className="h-3 w-3" />
+                  {daysUntilPromoEnd != null && daysUntilPromoEnd > 0 ? `0% APR · ${daysUntilPromoEnd}d left` : "0% APR active"}
+                </div>
+              )}
             </div>
+          )}
 
-            {/* Credit card specifics */}
-            {isCredit && (
-              <>
-                {/* Utilization bar */}
-                {utilization !== null && creditLimit > 0 && (
-                  <div className="surface-card p-3 space-y-2">
-                    <div className="flex justify-between text-[12.5px]">
-                      <span className="text-muted-foreground">Credit utilization</span>
-                      <span className={cn("font-medium tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
-                        {(utilization * 100).toFixed(0)}% of {fmtUSD(creditLimit, { compact: true })} limit
+          {/* APR / rate */}
+          {aprRate != null && (
+            <div className="mx-5 mb-4 rounded-xl bg-secondary/40 p-3 flex justify-between items-center">
+              <span className="text-[12.5px] text-muted-foreground">{debt ? "APR" : "APY"}</span>
+              <div className="text-right">
+                <span className="text-[13px] font-semibold text-foreground">{aprRate.toFixed(2)}%</span>
+                <span className="text-[11px] text-muted-foreground ml-2">≈ {fmtUSD(yearlyAmount, { compact: true })}/yr</span>
+              </div>
+            </div>
+          )}
+
+          {/* Recent transactions */}
+          {recentTxns.length > 0 && (
+            <div className="mx-5 mb-4">
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">Recent Transactions</p>
+              <div className="rounded-xl overflow-hidden divide-y divide-border/20 border border-border/30">
+                {recentTxns.map(t => {
+                  const amt = Number(t.amount);
+                  const name = t.merchant_name || t.name || "Transaction";
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 px-3 py-2.5 bg-card/40">
+                      <div className="h-7 w-7 rounded-full bg-secondary/60 grid place-items-center shrink-0">
+                        <span className="text-[11px] font-bold text-muted-foreground">{name.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12.5px] text-foreground truncate">{name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {t.pending && <span className="ml-1.5 text-warning">· Pending</span>}
+                        </p>
+                      </div>
+                      <span className={cn("text-[12.5px] font-semibold tabular shrink-0", amt < 0 ? "text-positive" : t.pending ? "text-muted-foreground/60" : "text-foreground")}>
+                        {amt < 0 ? "+" : ""}{fmtUSD(Math.abs(amt))}
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{
-                        width: `${Math.min(utilization * 100, 100)}%`,
-                        backgroundColor: utilization > 0.5 ? "hsl(var(--negative))" : utilization > 0.3 ? "hsl(var(--warning))" : "hsl(var(--positive))"
-                      }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Statement / due date grid */}
-                {(credit?.last_statement_balance != null || dueDate || credit?.minimum_payment_amount != null || credit?.last_payment_amount != null) && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {credit?.last_statement_balance != null && (
-                      <div className="surface-card p-3">
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Statement balance</div>
-                        <div className="font-display text-[15px] mt-1 tabular text-warning">{fmtUSD(credit.last_statement_balance)}</div>
-                      </div>
-                    )}
-                    {dueDate && (
-                      <div className={cn("surface-card p-3", credit?.is_overdue && "border border-negative/30")}>
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Payment due</div>
-                        <div className={cn("font-display text-[15px] mt-1", credit.is_overdue ? "text-negative" : dueSoon ? "text-warning" : "text-foreground")}>
-                          {dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                          {dueSoon && !credit?.is_overdue && <span className="ml-1 text-[12px] text-warning font-normal">soon</span>}
-                        </div>
-                      </div>
-                    )}
-                    {credit?.minimum_payment_amount != null && (
-                      <div className="surface-card p-3">
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Min payment</div>
-                        <div className="font-display text-[15px] mt-1 tabular">{fmtUSD(credit.minimum_payment_amount)}</div>
-                      </div>
-                    )}
-                    {credit?.last_payment_amount != null && (
-                      <div className="surface-card p-3">
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Last payment</div>
-                        <div className="font-display text-[15px] mt-1 tabular text-positive">{fmtUSD(credit.last_payment_amount)}</div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {!credit && itemId && (
-                  <div className="surface-card p-3">
-                    <div className="text-[12.5px] text-muted-foreground mb-2">
-                      This card was linked before statement balance, due date, and APR tracking existed. Grant a bit of extra access to unlock it.
-                    </div>
-                    <GrantConsentButton itemId={itemId} onGranted={onGranted} />
-                  </div>
-                )}
-
-                {/* Promo APR banner */}
-                {isPromo && !promoExpired && (
-                  <div className="inline-flex items-center gap-1.5 chip chip-positive text-[12.5px]">
-                    <Sparkles className="h-3 w-3" />
-                    {daysUntilPromoEnd != null && daysUntilPromoEnd > 0
-                      ? `0% promo APR · ${daysUntilPromoEnd}d left${meta.promoEndDate ? ` (ends ${new Date(meta.promoEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })})` : ""}`
-                      : "0% APR active"}
-                  </div>
-                )}
-                {isPromo && promoExpired && (
-                  <div className="inline-flex items-center gap-1.5 chip chip-negative text-[12.5px]">
-                    0% promo APR expired. Regular APR now applies.
-                  </div>
-                )}
-                {!isPromo && aprRate != null && (
-                  <div className="flex items-center justify-between surface-card px-3 py-2.5">
-                    <span className="text-[13px] text-muted-foreground">APR</span>
-                    <span className="text-[13px] font-medium text-negative tabular">{aprRate.toFixed(2)}%</span>
-                  </div>
-                )}
-
-                {/* Card purpose & rewards */}
-                {cardInfo && (
-                  <div className="space-y-2">
-                    <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</div>
-                    <div className="surface-card p-3 space-y-2.5">
-                      <div>
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">Best used for</div>
-                        <div className="text-[13.5px] text-foreground">{cardInfo.bestFor}</div>
-                      </div>
-                      <div>
-                        <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">Rewards</div>
-                        <div className="text-[13.5px] text-foreground leading-relaxed">{cardInfo.rewards}</div>
-                      </div>
-                      {cardInfo.notes && (
-                        <div>
-                          <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">Special perks</div>
-                          <div className="text-[13.5px] text-foreground leading-relaxed">{cardInfo.notes}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Savings / checking specifics */}
-            {(isSavings || isChecking) && (
-              <>
-                <div className="grid grid-cols-2 gap-2">
-                  {Math.abs(netFlow30) > 1 && (
-                    <div className="surface-card p-3">
-                      <div className="text-[12px] uppercase tracking-wider text-muted-foreground">30-day flow</div>
-                      <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
-                        {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                        {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
-                      </div>
-                    </div>
-                  )}
-                  {aprRate != null && (
-                    <div className="surface-card p-3">
-                      <div className="text-[12px] uppercase tracking-wider text-muted-foreground">APY</div>
-                      <div className="font-display text-[15px] mt-1 tabular text-positive">{aprRate.toFixed(2)}%</div>
-                    </div>
-                  )}
-                  {aprRate != null && (
-                    <div className="surface-card p-3">
-                      <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Est. annual yield</div>
-                      <div className="font-display text-[15px] mt-1 tabular text-positive">+{fmtUSD(yearlyAmount, { compact: true })}</div>
-                    </div>
-                  )}
-                </div>
-                {hysa && (
-                  <div className="surface-card px-3 py-2.5 flex items-start gap-2.5">
-                    <PiggyBank className="h-4 w-4 text-positive shrink-0 mt-0.5" />
-                    <div>
-                      <div className="text-[13px] text-foreground font-medium">High-Yield Savings Account</div>
-                      <div className="text-[12.5px] text-muted-foreground mt-0.5 leading-relaxed">
-                        Earns significantly more than a standard savings account.
-                        {aprRate != null ? ` At ${aprRate.toFixed(2)}% APY, your balance earns ${fmtUSD(yearlyAmount, { compact: true })}/yr.` : " Set your APY in Edit to see estimated earnings."}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {isSavings && !hysa && (
-                  <div className="surface-card px-3 py-2.5 flex items-start gap-2.5">
-                    <Coins className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <div className="text-[12.5px] text-muted-foreground leading-relaxed">
-                      Standard savings account. Consider moving idle cash to a High-Yield Savings Account (HYSA) to earn more interest.
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Investment specifics */}
-            {isInvestment && Math.abs(netFlow30) > 1 && (
-              <div className="surface-card p-3">
-                <div className="text-[12px] uppercase tracking-wider text-muted-foreground">30-day change</div>
-                <div className={cn("font-display text-[15px] mt-1 tabular flex items-center gap-1", trendGood ? "text-positive" : "text-negative")}>
-                  {netFlow30 > 0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
-                  {netFlow30 > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow30), { compact: true })}
-                </div>
+                  );
+                })}
               </div>
-            )}
-
-            {/* Recent transactions */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Recent charges</div>
-                {txns.length > 5 && (
-                  <button onClick={onClose} className="text-[12px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
-                    View all {txns.length} <ChevronRight className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-              {recentAll.length > 0 ? (
-                <div className="surface-card overflow-hidden divide-y divide-border/20">
-                  {recentAll.map(t => {
-                    const isInc = Number(t.amount) < 0;
-                    return (
-                      <div key={t.id} className="flex items-center gap-2.5 px-3 py-2.5">
-                        <div className={cn("h-6 w-6 rounded grid place-items-center shrink-0",
-                          isInc ? "bg-positive/10 text-positive" : "bg-secondary/50 text-muted-foreground")}>
-                          {isInc ? <ArrowDownLeft className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] text-foreground truncate">{t.merchant_name ?? t.name ?? "Transaction"}</div>
-                          <div className="text-[12px] text-muted-foreground">
-                            {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                            {t.pending && " · Pending"}
-                          </div>
-                        </div>
-                        <span className={cn("text-[13px] tabular font-medium shrink-0", isInc ? "text-positive" : "text-foreground")}>
-                          {isInc ? "+" : "−"}{fmtUSD(Math.abs(Number(t.amount)), { cents: true })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-4 text-[13px] text-muted-foreground">No recent transactions.</div>
-              )}
             </div>
-
-          </div>
-        </div>
-
-        {/* Footer actions */}
-        <div className="shrink-0 px-5 py-3 border-t flex gap-2" style={{ borderColor: "var(--gold-border)" }}>
-          {instUrl && (
-            <a href={instUrl} target="_blank" rel="noopener noreferrer"
-              className="flex-1 inline-flex items-center justify-center gap-2 h-9 rounded-lg bg-gold text-[13px] font-medium hover:opacity-90 transition-opacity">
-              <ExternalLink className="h-3.5 w-3.5" /> Open bank
-            </a>
           )}
-          <button onClick={onEdit} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-border text-[13px] text-muted-foreground hover:text-foreground transition-colors">
-            <Pencil className="h-3.5 w-3.5" /> Edit
-          </button>
-          <button onClick={() => { onClose(); onRemove(); }} className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg border border-negative/30 text-[13px] text-negative hover:bg-negative/10 transition-colors">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+
+          {/* Details */}
+          <div className="mx-5 mb-4 rounded-xl overflow-hidden divide-y divide-border/20 border border-border/30">
+            {instName && (
+              <div className="flex justify-between items-center px-3 py-2.5 bg-card/40">
+                <span className="text-[12px] text-muted-foreground">Institution</span>
+                <span className="text-[12.5px] font-medium text-foreground">{instName}</span>
+              </div>
+            )}
+            {a.mask && (
+              <div className="flex justify-between items-center px-3 py-2.5 bg-card/40">
+                <span className="text-[12px] text-muted-foreground">Account #</span>
+                <span className="text-[12.5px] font-medium text-foreground">··{a.mask}</span>
+              </div>
+            )}
+            {a.subtype && (
+              <div className="flex justify-between items-center px-3 py-2.5 bg-card/40">
+                <span className="text-[12px] text-muted-foreground">Type</span>
+                <span className="text-[12.5px] font-medium text-foreground capitalize">{a.subtype.replace(/_/g, " ")}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="mx-5 mb-5 flex flex-col gap-2">
+            {instUrl && (
+              <a href={instUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-secondary/50 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+                <ExternalLink className="h-3.5 w-3.5" /> Open at {instName}
+              </a>
+            )}
+            <button onClick={onEdit}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-secondary/50 text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Edit details
+            </button>
+            <button onClick={onRemove}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-negative/5 border border-negative/20 text-[13px] text-negative/70 hover:text-negative transition-colors">
+              <Trash2 className="h-3.5 w-3.5" /> Remove account
+            </button>
+          </div>
+
         </div>
       </DialogContent>
     </Dialog>
   );
 };
 
-// ── Money Map subcomponents (module-level to preserve React identity) ──────────
-type AccountEntry = { acc: PAccount; info: AccountRoleInfo };
 
 const ROLE_OPTIONS: { role: AccountRole; icon: typeof Wallet }[] = [
   { role: "spending",     icon: Wallet },
@@ -5080,98 +5133,17 @@ export const LivePlaidDashboard = ({
             No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
           </div>
         ) : (
-          <div className="surface-card overflow-hidden divide-y divide-border/15">
-            {bucketOrder
-              .filter(bucket => accounts.some(a => mapBucket(a.type, a.subtype) === bucket))
-              .map(bucket => {
-                const list = accounts.filter(a => mapBucket(a.type, a.subtype) === bucket);
-                const total = list.reduce((s,a)=> s + (isDebt(a.type) ? -Math.abs(Number(a.current_balance)||0) : (Number(a.current_balance)||0)), 0);
-                return (
-                  <div key={bucket}>
-                    {/* Section header — visually distinct from rows: tinted bar, uppercase label, group total */}
-                    <div className="flex items-center justify-between px-4 md:px-5 py-2 bg-secondary/30">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{bucketMeta[bucket].label}</span>
-                        <span className="text-[10.5px] text-muted-foreground/50 tabular">{list.length}</span>
-                      </div>
-                      <span className={cn("text-[13px] font-semibold tabular", total < 0 ? "text-negative" : "text-foreground")}>
-                        {total < 0 ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
-                      </span>
-                    </div>
-                    {/* Dense single-line rows — tap opens the detail drawer for the rich info */}
-                    <div className="divide-y divide-border/10">
-                      {list.map(a => {
-                        const Icon = mapIcon(a.type, a.subtype);
-                        const debt = isDebt(a.type);
-                        const bal = Number(a.current_balance) || 0;
-                        const m = accountMeta[a.id] ?? {};
-                        const displayName = m.nickname || a.name || a.official_name || "Account";
-                        const instName = getInstNameFor(a, items);
-                        const iconTone = debt ? "text-negative" : (a.type === "investment" || a.type === "brokerage") ? "text-info" : a.subtype === "savings" ? "text-positive" : "text-gold";
-                        return (
-                          <button key={a.id} onClick={() => setDetailAccount(a)}
-                            className="w-full flex items-center gap-3 px-4 md:px-5 py-2.5 text-left hover:bg-surface-hover/30 transition-colors group">
-                            <div className={cn("h-7 w-7 rounded-lg grid place-items-center bg-secondary/50 shrink-0", iconTone)}>
-                              <Icon className="h-3.5 w-3.5" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
-                              <div className="text-[11.5px] text-muted-foreground truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
-                            </div>
-                            <span className={cn("text-[13.5px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
-                              {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
-                            </span>
-                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/25 shrink-0 group-hover:text-muted-foreground transition-colors" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-
-            {/* Manually added — same compact treatment */}
-            {manualAccounts.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between px-4 md:px-5 py-2 bg-secondary/30">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Manually added</span>
-                  <span className="text-[10.5px] text-muted-foreground/50 tabular">{manualAccounts.length}</span>
-                </div>
-                <div className="divide-y divide-border/10">
-                  {manualAccounts.map(acct => {
-                    const isLoan = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
-                    const bal = Number(acct.current_balance ?? 0);
-                    return (
-                      <div key={acct.id} className="w-full flex items-center gap-3 px-4 md:px-5 py-2.5 group">
-                        <div className="h-7 w-7 rounded-lg grid place-items-center bg-secondary/50 text-muted-foreground shrink-0">
-                          <Landmark className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
-                          <div className="text-[11.5px] text-muted-foreground truncate">
-                            {acct.institution_name || (isLoan ? "Loan" : "Manual")}{acct.interest_rate ? ` · ${acct.interest_rate}% rate` : ""}
-                          </div>
-                        </div>
-                        <span className={cn("text-[13.5px] font-semibold tabular shrink-0", isLoan ? "text-negative" : "text-foreground")}>
-                          {isLoan ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
-                        </span>
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          {onEditManual && <button onClick={() => onEditManual(acct)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3 w-3" /></button>}
-                          {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3 w-3" /></button>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Add row */}
-            <button onClick={onAddAccount}
-              className="w-full flex items-center justify-center gap-2 py-3 text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-surface-hover/30 transition-colors">
-              <Plus className="h-3.5 w-3.5" /> Link an account
-            </button>
-          </div>
+          <AccountsPanel
+            accounts={accounts}
+            manualAccounts={manualAccounts ?? []}
+            accountMeta={accountMeta}
+            items={items}
+            txns={txns}
+            onSelect={a => setDetailAccount(a)}
+            onAddAccount={onAddAccount}
+            onEditManual={onEditManual}
+            onDeleteManual={onDeleteManual}
+          />
         )}
       </section>
 
