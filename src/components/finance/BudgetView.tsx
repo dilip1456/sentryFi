@@ -286,7 +286,7 @@ function SectionCard({
   total: number;
   accent: string;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   return (
     <div className="rounded-2xl border border-border/60 overflow-hidden bg-card/60">
