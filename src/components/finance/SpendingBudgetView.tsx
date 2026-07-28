@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, ChevronDown, Plus, Pencil, TrendingDown, TrendingUp } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { ObligationsView } from "./ObligationsView";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:any; }
@@ -325,49 +326,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       </div>
 
       {/* ═══ MOBILE: budget overview strip when on budget tab ══════════════ */}
+      {/* Obligations tab is now fully handled by ObligationsView below */}
+
+      {/* ═══ OBLIGATIONS TAB — new full component ══════════════════════════ */}
       {tab === "obligations" && (
-        <div className="md:hidden bg-card border-b border-border/30">
-          <div className="px-5 py-4">
-            <div className="flex items-center gap-4 mb-3">
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Spent</div>
-                <div className="text-[20px] font-black text-foreground">{fmtUSD(totalSpent)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Budget</div>
-                <div className="text-[20px] font-black text-muted-foreground">{fmtUSD(totalBudget)}</div>
-              </div>
-              <div className="ml-auto">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{remaining>=0?"Remaining":"Over"}</div>
-                <div className="text-[20px] font-black" style={{color:remaining>=0?"hsl(var(--positive))":"hsl(var(--negative))"}}>{remaining>=0?"+":"-"}{fc2(Math.abs(remaining))}</div>
-              </div>
-            </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full transition-all" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--positive))"}}/>
-            </div>
-          </div>
-          {/* Mobile budget list */}
-          <div className="divide-y divide-border/20 pb-2">
-            {catRows.map(([cat,spent]) => {
-              const col=catColor(cat); const b=budgets[cat]; const over=b&&spent>b; const pct=b?Math.min(spent/b*100,100):0;
-              return(
-                <div key={cat} className="px-5 py-3">
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <div className="w-1 h-7 rounded-full shrink-0" style={{background:col}}/>
-                    <span className="flex-1 text-[13px] font-medium text-foreground truncate">{formatCat(cat)}</span>
-                    {over&&<span className="text-[9px] font-black text-negative bg-negative/10 px-1.5 py-0.5 rounded-full shrink-0">OVER</span>}
-                    <div className="text-right shrink-0">
-                      <div className="text-[13px] font-bold" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(spent)}</div>
-                      <div className="text-[10px] text-muted-foreground">{b?`planned: ${fmtUSD(b)}`:"not set"}</div>
-                    </div>
-                  </div>
-                  {b&&<div className="ml-4 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{width:`${pct}%`,background:over?"hsl(var(--negative))":pct>80?"hsl(var(--warning))":col}}/></div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <ObligationsView
+          txns={txns as any}
+          month={per.key}
+          formatCat={formatCat}
+          catColor={catColor}
+        />
       )}
+
+      {/* ═══ SPENDING TAB CONTENT ═══════════════════════════════════════════ */}
+      {tab === "spending" && <>
 
       {/* ═══ MOBILE: category chips when on spending tab ═══════════════════ */}
       {tab === "spending" && (
@@ -390,7 +362,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
         {/* LEFT SIDEBAR (desktop only) */}
         <div className="hidden md:block w-[280px] shrink-0 border-r border-border/30 sticky top-0 self-start bg-card" style={{maxHeight:"calc(100vh - 56px)", overflowY:"auto"}}>
-          {tab === "spending" ? <SpendingContent/> : <BudgetContent/>}
+          <SpendingContent/>
         </div>
 
         {/* RIGHT: Transactions */}
@@ -571,6 +543,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
         </div>
       </div>
+
+      </>} {/* end tab === "spending" */}
     </div>
   );
 }
