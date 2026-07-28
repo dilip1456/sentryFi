@@ -215,99 +215,71 @@ const mapIcon = (type: string|null, subtype: string|null) => {
 };
 
 /** Smart human-readable subtype label — detects HYSA/money market from account + bank name or APR */
-// ── Bank logo URLs via Clearbit (free, no API key) ────────────────────────────
-const INST_DOMAIN_MAP: Record<string, string> = {
-  "chase":              "chase.com",
-  "bank of america":    "bankofamerica.com",
-  "wells fargo":        "wellsfargo.com",
-  "citibank":           "citi.com",
-  "citi":               "citi.com",
-  "capital one":        "capitalone.com",
-  "discover":           "discover.com",
-  "american express":   "americanexpress.com",
-  "amex":               "americanexpress.com",
-  "ally":               "ally.com",
-  "usaa":               "usaa.com",
-  "td bank":            "td.com",
-  "us bank":            "usbank.com",
-  "pnc":                "pnc.com",
-  "truist":             "truist.com",
-  "suntrust":           "truist.com",
-  "bb&t":               "truist.com",
-  "regions":            "regions.com",
-  "fifth third":        "53.com",
-  "citizens":           "citizensbank.com",
-  "svb":                "svb.com",
-  "marcus":             "marcus.com",
-  "synchrony":          "synchronybank.com",
-  "barclays":           "barclays.com",
-  "navy federal":       "navyfederal.org",
-  "robinhood":          "robinhood.com",
-  "fidelity":           "fidelity.com",
-  "vanguard":           "vanguard.com",
-  "schwab":             "schwab.com",
-  "e*trade":            "etrade.com",
-  "etrade":             "etrade.com",
-  "coinbase":           "coinbase.com",
-  "sofi":               "sofi.com",
-  "chime":              "chime.com",
-  "paypal":             "paypal.com",
-  "venmo":              "venmo.com",
-  "apple":              "apple.com",
-  "amazon":             "amazon.com",
-  "google":             "google.com",
-  "betterment":         "betterment.com",
-  "wealthfront":        "wealthfront.com",
-  "m1 finance":         "m1finance.com",
-  "acorns":             "acorns.com",
-};
-
-function getBankLogoUrl(instName: string): string | null {
-  const lower = instName.toLowerCase();
-  for (const [key, domain] of Object.entries(INST_DOMAIN_MAP)) {
-    if (lower.includes(key)) return `https://logo.clearbit.com/${domain}?size=64`;
-  }
-  return null;
-}
-
-// Color per institution for fallback avatar
-const INST_COLORS: [string, string][] = [
-  ["chase",           "#1d6fa5"],
-  ["bank of america", "#e31837"],
-  ["wells fargo",     "#cc0000"],
-  ["citi",            "#003b8e"],
-  ["capital one",     "#d03027"],
-  ["discover",        "#f76400"],
-  ["amex",            "#016fd0"],
-  ["american express","#016fd0"],
-  ["ally",            "#6e3aff"],
-  ["usaa",            "#003087"],
-  ["td bank",         "#34b233"],
-  ["us bank",         "#002868"],
-  ["pnc",             "#f58025"],
-  ["truist",          "#6b0099"],
-  ["robinhood",       "#00c805"],
-  ["fidelity",        "#538234"],
-  ["vanguard",        "#951415"],
-  ["schwab",          "#00a9e0"],
-  ["sofi",            "#7b2d8b"],
-  ["chime",           "#38c172"],
-  ["paypal",          "#003087"],
-  ["marcus",          "#8347ad"],
-  ["synchrony",       "#2f578f"],
+// ── Bank colors & abbreviated names (no external logo fetch needed) ───────────
+const BANK_BRANDS: [string, { color: string; bg: string; abbr: string }][] = [
+  ["chase",           { color:"#fff", bg:"#1d6fa5", abbr:"C"  }],
+  ["jpmorgan",        { color:"#fff", bg:"#1d6fa5", abbr:"JP" }],
+  ["bank of america", { color:"#fff", bg:"#e31837", abbr:"BA" }],
+  ["bofa",            { color:"#fff", bg:"#e31837", abbr:"BA" }],
+  ["wells fargo",     { color:"#fff", bg:"#cc0000", abbr:"WF" }],
+  ["citibank",        { color:"#fff", bg:"#003b8e", abbr:"C"  }],
+  ["citi",            { color:"#fff", bg:"#003b8e", abbr:"C"  }],
+  ["capital one",     { color:"#fff", bg:"#d03027", abbr:"C1" }],
+  ["american express",{ color:"#fff", bg:"#016fd0", abbr:"AX" }],
+  ["amex",            { color:"#fff", bg:"#016fd0", abbr:"AX" }],
+  ["discover",        { color:"#fff", bg:"#f76400", abbr:"D"  }],
+  ["ally",            { color:"#fff", bg:"#6e3aff", abbr:"A"  }],
+  ["usaa",            { color:"#fff", bg:"#003087", abbr:"U"  }],
+  ["navy federal",    { color:"#fff", bg:"#003087", abbr:"NF" }],
+  ["td bank",         { color:"#fff", bg:"#34b233", abbr:"TD" }],
+  ["us bank",         { color:"#fff", bg:"#002868", abbr:"US" }],
+  ["pnc",             { color:"#fff", bg:"#f58025", abbr:"P"  }],
+  ["truist",          { color:"#fff", bg:"#6b0099", abbr:"T"  }],
+  ["suntrust",        { color:"#fff", bg:"#6b0099", abbr:"ST" }],
+  ["regions",         { color:"#fff", bg:"#005b30", abbr:"R"  }],
+  ["fifth third",     { color:"#fff", bg:"#003366", abbr:"53" }],
+  ["citizens",        { color:"#fff", bg:"#009947", abbr:"CB" }],
+  ["marcus",          { color:"#fff", bg:"#8347ad", abbr:"M"  }],
+  ["goldman",         { color:"#fff", bg:"#2c2c2c", abbr:"GS" }],
+  ["synchrony",       { color:"#fff", bg:"#2f578f", abbr:"SY" }],
+  ["barclays",        { color:"#fff", bg:"#00aeef", abbr:"BA" }],
+  ["robinhood",       { color:"#fff", bg:"#00c805", abbr:"RH" }],
+  ["fidelity",        { color:"#fff", bg:"#538234", abbr:"F"  }],
+  ["vanguard",        { color:"#fff", bg:"#951415", abbr:"V"  }],
+  ["schwab",          { color:"#fff", bg:"#00a9e0", abbr:"CS" }],
+  ["sofi",            { color:"#fff", bg:"#7b2d8b", abbr:"SF" }],
+  ["chime",           { color:"#fff", bg:"#38c172", abbr:"CH" }],
+  ["paypal",          { color:"#fff", bg:"#003087", abbr:"PP" }],
+  ["venmo",           { color:"#fff", bg:"#3d95ce", abbr:"V"  }],
+  ["apple",           { color:"#fff", bg:"#555555", abbr:"AP" }],
+  ["coinbase",        { color:"#fff", bg:"#0052ff", abbr:"CB" }],
+  ["betterment",      { color:"#fff", bg:"#0f7cf0", abbr:"BT" }],
+  ["wealthfront",     { color:"#fff", bg:"#00afc1", abbr:"WF" }],
+  ["acorns",          { color:"#fff", bg:"#3aa74c", abbr:"AC" }],
+  ["nelnet",          { color:"#fff", bg:"#003da5", abbr:"NL" }],
+  ["sallie mae",      { color:"#fff", bg:"#0063a5", abbr:"SM" }],
+  ["truist",          { color:"#fff", bg:"#6b0099", abbr:"TR" }],
 ];
 
-function getBankColor(instName: string): string {
+function getBankBrand(instName: string): { color: string; bg: string; abbr: string } {
   const lower = instName.toLowerCase();
-  for (const [key, color] of INST_COLORS) {
-    if (lower.includes(key)) return color;
+  for (const [key, brand] of BANK_BRANDS) {
+    if (lower.includes(key)) return brand;
   }
-  // Hash to a muted color from instName
+  // Hash to a stable hue
   let hash = 0;
   for (let i = 0; i < lower.length; i++) hash = lower.charCodeAt(i) + ((hash << 5) - hash);
   const hue = Math.abs(hash) % 360;
-  return `hsl(${hue} 55% 42%)`;
+  const abbr = instName.slice(0,2).toUpperCase();
+  return { color:"#fff", bg:`hsl(${hue} 55% 38%)`, abbr };
 }
+
+// Keep these for backward compat — some call sites use them
+function getBankLogoUrl(_instName: string): string | null { return null; }
+function getBankColor(instName: string): string { return getBankBrand(instName).bg; }
+
+// Color per institution for fallback avatar
+
 
 
 const smartSubtypeLabel = (a: PAccount, instName = "", apr?: number | null): string => {
@@ -3423,7 +3395,7 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
         <div className="flex items-center justify-between px-4 md:px-5 py-3 bg-secondary/20">
           <span className="text-[12px] text-muted-foreground">Net Cash</span>
           <span className={cn("text-[15px] font-bold tabular", netCash >= 0 ? "text-positive" : "text-negative")}>
-            {netCash < 0 ? "−" : ""}{fmtUSD(Math.abs(netCash), { compact: true })}
+            {fmtUSD(Math.abs(netCash))}
           </span>
         </div>
       )}
@@ -3448,7 +3420,7 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                 <span className="ml-2 text-[11px] text-muted-foreground/50">{list.length}</span>
               </div>
               <span className={cn("text-[15px] font-bold tabular shrink-0 mr-1", debt ? "text-negative" : "text-foreground")}>
-                {debt ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
+                {fmtUSD(Math.abs(total))}
               </span>
               <ChevronDown className={cn("h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
             </button>
@@ -3463,25 +3435,21 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                   const m = accountMeta[a.id] ?? {};
                   const displayName = m.nickname || a.name || a.official_name || "Account";
                   const instName = getInstNameFor(a, items);
-                  const logoChar = instName.charAt(0).toUpperCase() || "B";
-                  const logoUrl = getBankLogoUrl(instName);
-                  const bankColor = getBankColor(instName);
+                  const brand = getBankBrand(instName);
                   return (
                     <button key={a.id} onClick={() => onSelect(a)}
                       className="w-full flex items-center gap-3 px-5 md:px-6 py-3 text-left hover:bg-surface-hover/30 transition-colors group">
-                      {/* Bank logo or colored initial */}
-                      <div className="h-8 w-8 rounded-full shrink-0 overflow-hidden border border-border/20" style={{ backgroundColor: bankColor }}>
-                        {logoUrl
-                          ? <img src={logoUrl} alt={instName} className="h-full w-full object-contain p-0.5 bg-white" onError={e => { const el = e.target as HTMLImageElement; el.style.display="none"; el.parentElement!.style.backgroundColor=bankColor; el.parentElement!.innerHTML=`<span style="display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;font-weight:700;color:white">${logoChar}</span>`; }} />
-                          : <span className="flex items-center justify-center h-full text-[13px] font-bold text-white">{logoChar}</span>
-                        }
+                      {/* Bank brand avatar */}
+                      <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
+                        style={{ backgroundColor: brand.bg }}>
+                        <span className="text-[11px] font-extrabold tracking-tight" style={{ color: brand.color }}>{brand.abbr}</span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
                         <div className="text-[11.5px] text-muted-foreground/70 truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
                       </div>
                       <span className={cn("text-[14px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
-                        {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                        {fmtUSD(Math.abs(bal))}
                       </span>
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
                     </button>
@@ -3512,22 +3480,36 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
             {open && (
               <div className="border-t border-border/15 divide-y divide-border/10 bg-secondary/5">
                 {manualAccounts.map(acct => {
-                  const isLoanType = ["mortgage","auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
-                  const bal = Number(acct.current_balance ?? 0);
-                  const logoChar = (acct.institution_name || acct.name || "M").charAt(0).toUpperCase();
+                  const isMortgage = acct.type === "mortgage" || acct.type === "home_loan";
+                  const isLoanType = isMortgage || ["auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
+                  const bal = Math.abs(Number(acct.current_balance ?? 0));
+                  const instBrand = getBankBrand(acct.institution_name || acct.name || "M");
+                  const emi = isMortgage && acct.original_loan_amount && acct.interest_rate && acct.loan_term_years
+                    ? (() => { const r = acct.interest_rate!/100/12; const n = acct.loan_term_years!*12; return r===0 ? acct.original_loan_amount!/n : acct.original_loan_amount! * r * Math.pow(1+r,n) / (Math.pow(1+r,n)-1); })()
+                    : acct.monthly_payment ?? null;
+                  const equity = isMortgage && acct.property_value ? (Number(acct.property_value) - bal) : null;
                   return (
                     <div key={acct.id} className="w-full flex items-center gap-3 px-5 md:px-6 py-3 group">
-                      <div className="h-8 w-8 rounded-full bg-secondary/60 grid place-items-center shrink-0">
-                        <span className="text-[13px] font-bold text-muted-foreground">{logoChar}</span>
+                      <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
+                        style={{ backgroundColor: instBrand.bg }}>
+                        <span className="text-[11px] font-extrabold tracking-tight" style={{ color: instBrand.color }}>{instBrand.abbr}</span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
                         <div className="text-[11.5px] text-muted-foreground/70 truncate">
-                          {acct.institution_name || (isLoanType ? "Loan" : "Manual")}{acct.interest_rate ? ` · ${acct.interest_rate}%` : ""}
+                          {acct.institution_name || (isMortgage ? "Mortgage" : isLoanType ? "Loan" : "Manual")}
+                          {acct.interest_rate ? ` · ${acct.interest_rate}%` : ""}
+                          {emi ? ` · EMI ${fmtUSD(emi)}` : ""}
                         </div>
+                        {equity !== null && (
+                          <div className={cn("text-[11px] font-medium", equity >= 0 ? "text-positive" : "text-negative")}>
+                            {equity >= 0 ? "Equity" : "Underwater"}: {fmtUSD(Math.abs(equity))}
+                            {acct.property_value ? ` · Home: ${fmtUSD(Number(acct.property_value))}` : ""}
+                          </div>
+                        )}
                       </div>
                       <span className={cn("text-[14px] font-semibold tabular shrink-0", isLoanType ? "text-negative" : "text-foreground")}>
-                        {isLoanType ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                        {fmtUSD(bal)}
                       </span>
                       <div className="flex items-center gap-0.5 shrink-0">
                         {onEditManual && <button onClick={() => onEditManual(acct)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3 w-3" /></button>}
@@ -3593,14 +3575,11 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
         {/* Header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-border/40 shrink-0">
           {(() => {
-            const detailLogoUrl = getBankLogoUrl(instName);
-            const detailBankColor = getBankColor(instName);
+            const detailBrand = getBankBrand(instName || displayName);
             return (
-              <div className="h-9 w-9 rounded-full shrink-0 overflow-hidden border border-border/20" style={{ backgroundColor: detailBankColor }}>
-                {detailLogoUrl
-                  ? <img src={detailLogoUrl} alt={instName} className="h-full w-full object-contain p-0.5 bg-white" onError={e => { const el = e.target as HTMLImageElement; el.style.display="none"; el.parentElement!.style.backgroundColor=detailBankColor; el.parentElement!.innerHTML=`<span style="display:flex;align-items:center;justify-content:center;height:100%;font-size:15px;font-weight:700;color:white">${logoChar}</span>`; }} />
-                  : <span className="flex items-center justify-center h-full text-[15px] font-bold text-white">{logoChar}</span>
-                }
+              <div className="h-9 w-9 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
+                style={{ backgroundColor: detailBrand.bg }}>
+                <span className="text-[13px] font-extrabold tracking-tight" style={{ color: detailBrand.color }}>{detailBrand.abbr}</span>
               </div>
             );
           })()}
@@ -3622,7 +3601,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
               {isCredit ? "Current Balance" : isSavings ? "Savings Balance" : isChecking ? "Checking Balance" : "Balance"}
             </p>
             <p className={cn("text-[34px] font-bold tabular leading-none", debt ? "text-negative" : "text-foreground")}>
-              {debt ? "−" : ""}{fmtUSD(Math.abs(bal))}
+              {fmtUSD(Math.abs(bal))}
             </p>
             {accTxns30.length > 0 && (
               <div className={cn("inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full text-[11.5px] font-medium",
@@ -4429,10 +4408,37 @@ export const LivePlaidDashboard = ({
   useEffect(()=>{ setOpenPickerTxn(null); setEditingBudgetCat(null); },[view]);
 
   // ── Computed (before any early return) ────────────────────
-  const manualAssets = manualAccounts.filter(a => a.role !== "debt").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
-  const manualLiab   = manualAccounts.filter(a => a.role === "debt").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
-  const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualAssets;
-  const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualLiab;
+
+  // Helper: compute remaining loan balance for a manual mortgage/loan
+  // If the account is a mortgage AND has property_value set, use equity (not just balance)
+  // Net worth contribution = property_value - current_balance (outstanding loan)
+  const manualAccountNWValue = (a: ReturnType<typeof manualAccounts>[0]): number => {
+    const bal = Number(a.current_balance) || 0;
+    if ((a.type === "mortgage" || a.type === "home_loan") && a.property_value) {
+      // Equity = property value - outstanding loan balance (positive = equity, negative = underwater)
+      return (Number(a.property_value) || 0) - Math.abs(bal);
+    }
+    if (a.role === "debt") return -Math.abs(bal);
+    return bal;
+  };
+
+  // EMI calculator for display in account detail
+  const calcEMI = (principal: number, annualRate: number, termYears: number): number => {
+    if (!principal || !annualRate || !termYears) return 0;
+    const r = annualRate / 100 / 12;
+    const n = termYears * 12;
+    if (r === 0) return principal / n;
+    return principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
+  };
+
+  const manualAssets = manualAccounts.filter(a => a.role !== "debt" && a.type !== "mortgage" && a.type !== "home_loan").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
+  const manualLiab   = manualAccounts.filter(a => a.role === "debt" && a.type !== "mortgage" && a.type !== "home_loan").reduce((s,a)=>s+(Number(a.current_balance)||0),0);
+  // Mortgage/home loans: add equity (property_value - loan) as asset contribution
+  const mortgageEquity = manualAccounts
+    .filter(a => a.type === "mortgage" || a.type === "home_loan")
+    .reduce((s, a) => s + manualAccountNWValue(a), 0);
+  const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualAssets + (mortgageEquity > 0 ? mortgageEquity : 0);
+  const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualLiab + (mortgageEquity < 0 ? Math.abs(mortgageEquity) : 0);
   const netWorth    = assets-liabilities;
   const monthlyFlow = buildMonthlyFlow(txns, overrides, getRuleCategory, customCategories);
 
