@@ -52,6 +52,8 @@ interface DetectedItem {
   lastDate: string;
   accountId?: string;
   isVerified?: boolean; // user explicitly confirmed
+  isRecurring?: boolean; // appeared in ≥2 of last 3 months
+  isOneOff?: boolean;    // only appeared once — not counted in budget
 }
 
 interface Section {
@@ -149,38 +151,64 @@ function detectSections(txns: PTxn[], accounts: PAccount[], month: string): {
     merchantMap.get(key)!.dates.push(t.date);
   }
 
-  // Income: negative amounts in Plaid = money coming in
-  const incomeItems: DetectedItem[] = [];
-  const currentIncomeItems: DetectedItem[] = [];
+  // ── Income detection ──────────────────────────────────────────────────────
+  // Recurring = same merchant appeared as a credit (negative Plaid amount)
+  // in at least 2 distinct calendar months out of the last 3.
+  // One-off = appeared only once — displayed but NOT counted in budget total.
 
+  const INTEREST_KEYWORDS = ["interest","dividend","yield","apy","savings reward"];
+
+  function isInterest(merchant: string): boolean {
+    const m = merchant.toLowerCase();
+    return INTEREST_KEYWORDS.some(k => m.includes(k));
+  }
+
+  // Build per-merchant month sets from 3-month history
+  const incomeByMerchant = new Map<string, { amounts: number[]; months: Set<string>; lastDate: string }>();
+  for (const t of recent) {
+    const amt = Number(t.amount);
+    if (amt >= 0) continue; // only credits
+    const absAmt = Math.abs(amt);
+    if (absAmt < 20) continue; // skip tiny credits (refunds, etc)
+    const key = (t.merchant_name || t.name || "Deposit").trim();
+    const mo = t.date.slice(0, 7); // "YYYY-MM"
+    if (!incomeByMerchant.has(key)) incomeByMerchant.set(key, { amounts: [], months: new Set(), lastDate: t.date });
+    const entry = incomeByMerchant.get(key)!;
+    entry.amounts.push(absAmt);
+    entry.months.add(mo);
+    if (t.date > entry.lastDate) entry.lastDate = t.date;
+  }
+
+  // Separate current-month income into recurring vs one-off
+  const currentIncomeItems: DetectedItem[] = [];
   for (const t of currentMonth) {
     const amt = Number(t.amount);
-    if (amt >= 0) continue; // only income (negative in Plaid)
+    if (amt >= 0) continue;
     const absAmt = Math.abs(amt);
-    if (absAmt < 50) continue;
+    if (absAmt < 20) continue;
     const key = (t.merchant_name || t.name || "Deposit").trim();
+    const history = incomeByMerchant.get(key);
+    // Recurring: appeared in ≥2 months in history, OR is interest/dividend
+    const monthCount = history?.months.size ?? 1;
+    const recurring = monthCount >= 2 || isInterest(key);
     const existing = currentIncomeItems.find(i => i.merchant === key);
-    if (existing) { existing.avgAmount += absAmt; existing.count++; }
-    else currentIncomeItems.push({ merchant: key, avgAmount: absAmt, count: 1, variance: 0, lastDate: t.date });
+    if (existing) {
+      existing.avgAmount += absAmt;
+      existing.count++;
+    } else {
+      currentIncomeItems.push({
+        merchant: key,
+        avgAmount: absAmt,
+        count: 1,
+        variance: 0,
+        lastDate: t.date,
+        isRecurring: recurring,
+        isOneOff: !recurring,
+      });
+    }
   }
 
-  // For income detection across 3 months
-  for (const [merchant, data] of merchantMap) {
-    const hasIncome = recent.filter(t =>
-      (t.merchant_name || t.name || "").trim() === merchant && Number(t.amount) < 0
-    );
-    if (hasIncome.length === 0) continue;
-    const amounts = hasIncome.map(t => Math.abs(Number(t.amount)));
-    const avg = amounts.reduce((s, v) => s + v, 0) / amounts.length;
-    if (avg < 50) continue;
-    incomeItems.push({
-      merchant,
-      avgAmount: avg,
-      count: hasIncome.length,
-      variance: 0,
-      lastDate: hasIncome[hasIncome.length - 1].date,
-    });
-  }
+  const incomeItems = currentIncomeItems; // keep single list, flag drives display
 
   // Expense detection — group expenses by merchant, classify
   const obligations: DetectedItem[] = [];
@@ -241,6 +269,7 @@ function detectSections(txns: PTxn[], accounts: PAccount[], month: string): {
     expenses: expenses.sort(byAmt),
     incomeSources: currentIncomeItems.sort(byAmt),
   };
+  // Note: incomeSources = same as income (kept for compat)
 }
 
 // ─── Section card ─────────────────────────────────────────────────────────────
@@ -282,20 +311,26 @@ function SectionCard({
       {open && items.length > 0 && (
         <div className="divide-y divide-border/20 border-t border-border/40">
           {items.map((item, i) => (
-            <div key={i} className="flex items-center gap-3 px-4 py-3">
+            <div key={i} className={cn("flex items-center gap-3 px-4 py-3", item.isOneOff && "opacity-60")}>
               <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center text-[11px] font-bold shrink-0", bg, color)}>
                 {item.merchant.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] text-foreground truncate font-medium">{item.merchant}</p>
                 <p className="text-[11px] text-muted-foreground">
-                  {item.count > 1 ? `${item.count}× ` : ""}
-                  {item.variance < 10 ? "fixed" : item.variance < 30 ? "~fixed" : "varies"}
+                  {item.isOneOff
+                    ? "one-time · not counted in budget"
+                    : item.isRecurring
+                      ? "recurring"
+                      : (item.count > 1 ? `${item.count}× ` : "") + (item.variance < 10 ? "fixed" : item.variance < 30 ? "~fixed" : "varies")
+                  }
                 </p>
               </div>
-              <p className={cn("text-[13px] font-semibold tabular shrink-0", accent)}>
-                {fmtUSD(item.avgAmount)}
-              </p>
+              <div className="text-right shrink-0">
+                <p className={cn("text-[13px] font-semibold tabular", item.isOneOff ? "text-muted-foreground line-through" : accent)}>
+                  {fmtUSD(item.avgAmount)}
+                </p>
+              </div>
             </div>
           ))}
         </div>
@@ -323,7 +358,8 @@ export function BudgetView({ txns, accounts, month }: Props) {
     [txns, accounts, month]
   );
 
-  const totalIncome      = detected.incomeSources.reduce((s, i) => s + i.avgAmount, 0);
+  // Only recurring deposits count toward the budget baseline
+  const totalIncome = detected.incomeSources.filter(i => !i.isOneOff).reduce((s, i) => s + i.avgAmount, 0);
   const totalObligations = detected.obligations.reduce((s, i) => s + i.avgAmount, 0);
   const totalErrands     = detected.errands.reduce((s, i) => s + i.avgAmount, 0);
   const totalSavings     = detected.savings.reduce((s, i) => s + i.avgAmount, 0);
@@ -339,7 +375,7 @@ export function BudgetView({ txns, accounts, month }: Props) {
     {
       key: "income",
       label: "Income",
-      sublabel: "Detected deposits & payroll",
+      sublabel: "Recurring deposits & payroll only",
       icon: TrendingUp,
       color: "text-emerald-400",
       bg: "bg-emerald-500/12",
