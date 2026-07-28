@@ -40,7 +40,7 @@ function fc2(n:number){ const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toF
 // ── Component ─────────────────────────────────────────────────────────────────
 export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds}:SpendingBudgetViewProps) {
   const [off, setOff]     = useState(0);
-  const [tab, setTab]     = useState<"spending"|"budgets">("spending");
+  const [tab, setTab]     = useState<"spending"|"obligations">("spending");
   const [sel, setSel]     = useState<string|null>(null);    // selected category (left panel)
   const [hov, setHov]     = useState<number|null>(null);    // donut hover index
   const [F,   setF]       = useState<Fil>(EF);              // filters incl. sort
@@ -165,7 +165,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         <div className="text-[30px] font-black leading-none tracking-tight mb-0.5" style={{color:remaining>=0?"hsl(var(--positive))":"hsl(var(--negative))"}}>
           {remaining >= 0 ? "+" : "-"}{fc2(Math.abs(remaining))}
         </div>
-        <div className="text-[12px] text-muted-foreground">{remaining >= 0 ? "under budget" : "over budget"}</div>
+        <div className="text-[12px] text-muted-foreground">{remaining >= 0 ? "under planned" : "over planned"}</div>
         <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
           <div className="h-full rounded-full transition-all duration-500 relative" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--positive))"}}>
             {isCur && <div className="absolute right-0 top-0 bottom-0 w-px opacity-0"/>}
@@ -208,7 +208,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </form>
                   ) : (
                     <button onClick={() => { setECat(cat); setEDraft(String(b||"")); }} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 justify-end mt-0.5">
-                      {b ? `of ${fmtUSD(b)}` : <span className="text-[hsl(var(--primary))] font-semibold">+ Set budget</span>}
+                      {b ? `planned: ${fmtUSD(b)}` : <span className="text-[hsl(var(--primary))] font-semibold">+ Set budget</span>}
                       {b && <Pencil className="h-2.5 w-2.5 ml-0.5 opacity-40"/>}
                     </button>
                   )}
@@ -306,9 +306,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       <div className="bg-card border-b border-border px-4 md:px-8 py-3 flex items-center gap-3">
         {/* Spending | Budgets toggle */}
         <div className="flex bg-muted/50 rounded-xl p-1 text-[13px] font-semibold shrink-0">
-          {(["spending","budgets"] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} className={cn("px-4 py-1.5 rounded-lg transition-all capitalize", tab===t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
-              {t.charAt(0).toUpperCase()+t.slice(1)}
+          {(["spending","obligations"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} className={cn("px-4 py-1.5 rounded-lg transition-all", tab===t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
+              {t === "spending" ? "Spending" : "Obligations"}
             </button>
           ))}
         </div>
@@ -325,7 +325,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       </div>
 
       {/* ═══ MOBILE: budget overview strip when on budget tab ══════════════ */}
-      {tab === "budgets" && (
+      {tab === "obligations" && (
         <div className="md:hidden bg-card border-b border-border/30">
           <div className="px-5 py-4">
             <div className="flex items-center gap-4 mb-3">
@@ -338,7 +338,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 <div className="text-[20px] font-black text-muted-foreground">{fmtUSD(totalBudget)}</div>
               </div>
               <div className="ml-auto">
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{remaining>=0?"Left":"Over"}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{remaining>=0?"Remaining":"Over"}</div>
                 <div className="text-[20px] font-black" style={{color:remaining>=0?"hsl(var(--positive))":"hsl(var(--negative))"}}>{remaining>=0?"+":"-"}{fc2(Math.abs(remaining))}</div>
               </div>
             </div>
@@ -358,7 +358,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     {over&&<span className="text-[9px] font-black text-negative bg-negative/10 px-1.5 py-0.5 rounded-full shrink-0">OVER</span>}
                     <div className="text-right shrink-0">
                       <div className="text-[13px] font-bold" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(spent)}</div>
-                      <div className="text-[10px] text-muted-foreground">{b?`of ${fmtUSD(b)}`:"no budget"}</div>
+                      <div className="text-[10px] text-muted-foreground">{b?`planned: ${fmtUSD(b)}`:"not set"}</div>
                     </div>
                   </div>
                   {b&&<div className="ml-4 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{width:`${pct}%`,background:over?"hsl(var(--negative))":pct>80?"hsl(var(--warning))":col}}/></div>}

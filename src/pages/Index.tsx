@@ -143,8 +143,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive  = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "budget";
-  const showEmpty = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
+  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "budget";
+  const showLiveSpending = !effectiveDemo && hasItems === true  && (view === "spending" || view === "budget");
+  const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
   const NavItem = ({ tab }: { tab: typeof TABS[0] }) => {
@@ -416,7 +417,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           {/* Spending/Budget view renders full-bleed outside the padded container */}
           {(view === "spending" || view === "budget") && (
             <>
-              {showLive && (
+              {showLiveSpending && (
                 <LivePlaidDashboard
                   hasItems
                   onAddAccount={() => setLinkOpen(true)}
