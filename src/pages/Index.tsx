@@ -49,11 +49,12 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "overall",   label: "Home",       icon: LayoutDashboard },
   { k: "moneymap",  label: "Money Map",  icon: Compass         },
   { k: "spending",  label: "Spending",   icon: PieChart        },
+  { k: "budget",    label: "Budget",     icon: Wallet          },
   { k: "giftcards", label: "Gift Cards", icon: Gift            },
   { k: "benefits",  label: "Benefits",   icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "spending", "moneymap", "giftcards"];
+const MOBILE_PRIMARY: View[] = ["overall", "spending", "budget", "moneymap"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
@@ -144,7 +145,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   };
 
   const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "budget";
-  const showLiveSpending = !effectiveDemo && hasItems === true  && (view === "spending" || view === "budget");
+  const showLiveSpending = !effectiveDemo && hasItems === true  && view === "spending";
+  const showLiveBudget   = !effectiveDemo && hasItems === true  && view === "budget";
   const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -414,8 +416,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
-          {/* Spending/Budget view renders full-bleed outside the padded container */}
-          {(view === "spending" || view === "budget") && (
+          {/* Spending — full-bleed */}
+          {view === "spending" && (
             <>
               {showLiveSpending && (
                 <LivePlaidDashboard
@@ -443,6 +445,27 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   syncTrigger={0}
                   selectedCategory={selectedCategory}
                   onCategorySelect={handleCategorySelect}
+                />
+              )}
+            </>
+          )}
+
+          {/* Budget — full-bleed, own BudgetView component */}
+          {view === "budget" && (
+            <>
+              {showLiveBudget && (
+                <LivePlaidDashboard
+                  hasItems
+                  onAddAccount={() => setLinkOpen(true)}
+                  view={view}
+                  onViewChange={(v) => setView(v as View)}
+                  syncTrigger={syncTrigger}
+                  onSyncingChange={setSyncing}
+                  selectedCategory={selectedCategory}
+                  onCategorySelect={handleCategorySelect}
+                  manualAccounts={manualAccounts}
+                  onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
+                  onDeleteManual={removeManual}
                 />
               )}
             </>
