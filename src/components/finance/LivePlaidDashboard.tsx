@@ -215,6 +215,101 @@ const mapIcon = (type: string|null, subtype: string|null) => {
 };
 
 /** Smart human-readable subtype label — detects HYSA/money market from account + bank name or APR */
+// ── Bank logo URLs via Clearbit (free, no API key) ────────────────────────────
+const INST_DOMAIN_MAP: Record<string, string> = {
+  "chase":              "chase.com",
+  "bank of america":    "bankofamerica.com",
+  "wells fargo":        "wellsfargo.com",
+  "citibank":           "citi.com",
+  "citi":               "citi.com",
+  "capital one":        "capitalone.com",
+  "discover":           "discover.com",
+  "american express":   "americanexpress.com",
+  "amex":               "americanexpress.com",
+  "ally":               "ally.com",
+  "usaa":               "usaa.com",
+  "td bank":            "td.com",
+  "us bank":            "usbank.com",
+  "pnc":                "pnc.com",
+  "truist":             "truist.com",
+  "suntrust":           "truist.com",
+  "bb&t":               "truist.com",
+  "regions":            "regions.com",
+  "fifth third":        "53.com",
+  "citizens":           "citizensbank.com",
+  "svb":                "svb.com",
+  "marcus":             "marcus.com",
+  "synchrony":          "synchronybank.com",
+  "barclays":           "barclays.com",
+  "navy federal":       "navyfederal.org",
+  "robinhood":          "robinhood.com",
+  "fidelity":           "fidelity.com",
+  "vanguard":           "vanguard.com",
+  "schwab":             "schwab.com",
+  "e*trade":            "etrade.com",
+  "etrade":             "etrade.com",
+  "coinbase":           "coinbase.com",
+  "sofi":               "sofi.com",
+  "chime":              "chime.com",
+  "paypal":             "paypal.com",
+  "venmo":              "venmo.com",
+  "apple":              "apple.com",
+  "amazon":             "amazon.com",
+  "google":             "google.com",
+  "betterment":         "betterment.com",
+  "wealthfront":        "wealthfront.com",
+  "m1 finance":         "m1finance.com",
+  "acorns":             "acorns.com",
+};
+
+function getBankLogoUrl(instName: string): string | null {
+  const lower = instName.toLowerCase();
+  for (const [key, domain] of Object.entries(INST_DOMAIN_MAP)) {
+    if (lower.includes(key)) return `https://logo.clearbit.com/${domain}?size=64`;
+  }
+  return null;
+}
+
+// Color per institution for fallback avatar
+const INST_COLORS: [string, string][] = [
+  ["chase",           "#1d6fa5"],
+  ["bank of america", "#e31837"],
+  ["wells fargo",     "#cc0000"],
+  ["citi",            "#003b8e"],
+  ["capital one",     "#d03027"],
+  ["discover",        "#f76400"],
+  ["amex",            "#016fd0"],
+  ["american express","#016fd0"],
+  ["ally",            "#6e3aff"],
+  ["usaa",            "#003087"],
+  ["td bank",         "#34b233"],
+  ["us bank",         "#002868"],
+  ["pnc",             "#f58025"],
+  ["truist",          "#6b0099"],
+  ["robinhood",       "#00c805"],
+  ["fidelity",        "#538234"],
+  ["vanguard",        "#951415"],
+  ["schwab",          "#00a9e0"],
+  ["sofi",            "#7b2d8b"],
+  ["chime",           "#38c172"],
+  ["paypal",          "#003087"],
+  ["marcus",          "#8347ad"],
+  ["synchrony",       "#2f578f"],
+];
+
+function getBankColor(instName: string): string {
+  const lower = instName.toLowerCase();
+  for (const [key, color] of INST_COLORS) {
+    if (lower.includes(key)) return color;
+  }
+  // Hash to a muted color from instName
+  let hash = 0;
+  for (let i = 0; i < lower.length; i++) hash = lower.charCodeAt(i) + ((hash << 5) - hash);
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 55% 42%)`;
+}
+
+
 const smartSubtypeLabel = (a: PAccount, instName = "", apr?: number | null): string => {
   const sub  = (a.subtype ?? "").toLowerCase();
   const type = (a.type ?? "").toLowerCase();
@@ -738,21 +833,45 @@ const generateActions = (
     } else if (dueDate) {
       const due = new Date(dueDate + "T00:00:00");
       const daysUntil = Math.round((due.getTime() - Date.now()) / 86400000);
+
+      // Check if user is a full-balance payer — suppress generic "pay" nudge if so.
+      // Full-balance payer = last payment >= last statement balance (or within 5%).
+      const lastPay    = detail?.last_payment_amount ?? 0;
+      const lastStmt   = detail?.last_statement_balance ?? 0;
+      const paysInFull = lastPay > 0 && lastStmt > 0 && lastPay >= lastStmt * 0.95;
+
       if (daysUntil <= 7 && daysUntil >= 0) {
+        // Only surface if NOT already paying full balance — those users don't need reminders.
+        if (!paysInFull) {
+          // Determine if checking account has enough to cover this payment
+          const checkingAccounts = accounts.filter(a => a.type === "depository" && a.subtype === "checking");
+          const checkingTotal = checkingAccounts.reduce((s, a) => s + (Number(a.current_balance) || 0), 0);
+          const canCover = checkingTotal >= bal;
+          const coverNote = checkingAccounts.length > 0
+            ? canCover
+              ? ` Checking has ${fmtUSD(checkingTotal)} — sufficient.`
+              : ` Checking has ${fmtUSD(checkingTotal)} — short by ${fmtUSD(bal - checkingTotal)}. Fund before due date.`
+            : "";
+          items.push({
+            id: `cc-due-${cc.id}`, priority: daysUntil <= 3 ? "urgent" : "soon",
+            title: `${shortName} due in ${daysUntil === 0 ? "today" : `${daysUntil}d`}`,
+            detail: `${fmtUSD(bal)} balance${minPay ? ` · min ${fmtUSD(minPay)}` : ""} due ${due.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.${coverNote}`,
+            cta: canCover ? "Schedule payment" : "Fund checking", icon: CreditCard,
+          });
+        }
+      }
+    } else if (bal > 1000) {
+      const lastPay  = detail?.last_payment_amount ?? 0;
+      const lastStmt = detail?.last_statement_balance ?? 0;
+      const paysInFull = lastPay > 0 && lastStmt > 0 && lastPay >= lastStmt * 0.95;
+      if (!paysInFull) {
         items.push({
-          id: `cc-due-${cc.id}`, priority: daysUntil <= 3 ? "urgent" : "soon",
-          title: `${shortName} due in ${daysUntil === 0 ? "today" : `${daysUntil}d`}`,
-          detail: `${fmtUSD(bal)} balance${minPay ? ` · min payment ${fmtUSD(minPay)}` : ""} due ${due.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`,
+          id: `cc-${cc.id}`, priority: "soon",
+          title: `${shortName} balance due`,
+          detail: `${fmtUSD(bal)} balance. Schedule payment before due date.`,
           cta: "Schedule payment", icon: CreditCard,
         });
       }
-    } else if (bal > 1000) {
-      items.push({
-        id: `cc-${cc.id}`, priority: "soon",
-        title: `${shortName} balance due`,
-        detail: `${fmtUSD(bal)} balance. Schedule payment before due date.`,
-        cta: "Schedule payment", icon: CreditCard,
-      });
     }
   });
 
@@ -3344,13 +3463,18 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                   const m = accountMeta[a.id] ?? {};
                   const displayName = m.nickname || a.name || a.official_name || "Account";
                   const instName = getInstNameFor(a, items);
-                  const logoChar = instName.charAt(0).toUpperCase();
+                  const logoChar = instName.charAt(0).toUpperCase() || "B";
+                  const logoUrl = getBankLogoUrl(instName);
+                  const bankColor = getBankColor(instName);
                   return (
                     <button key={a.id} onClick={() => onSelect(a)}
                       className="w-full flex items-center gap-3 px-5 md:px-6 py-3 text-left hover:bg-surface-hover/30 transition-colors group">
-                      {/* Bank initial avatar */}
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500/20 to-blue-600/30 border border-blue-500/20 grid place-items-center shrink-0">
-                        <span className="text-[13px] font-bold text-blue-300">{logoChar}</span>
+                      {/* Bank logo or colored initial */}
+                      <div className="h-8 w-8 rounded-full shrink-0 overflow-hidden border border-border/20" style={{ backgroundColor: bankColor }}>
+                        {logoUrl
+                          ? <img src={logoUrl} alt={instName} className="h-full w-full object-contain p-0.5 bg-white" onError={e => { const el = e.target as HTMLImageElement; el.style.display="none"; el.parentElement!.style.backgroundColor=bankColor; el.parentElement!.innerHTML=`<span style="display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;font-weight:700;color:white">${logoChar}</span>`; }} />
+                          : <span className="flex items-center justify-center h-full text-[13px] font-bold text-white">{logoChar}</span>
+                        }
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
@@ -3468,9 +3592,18 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
 
         {/* Header */}
         <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-border/40 shrink-0">
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500/25 to-blue-700/30 border border-blue-500/20 grid place-items-center shrink-0">
-            <span className="text-[15px] font-bold text-blue-300">{logoChar}</span>
-          </div>
+          {(() => {
+            const detailLogoUrl = getBankLogoUrl(instName);
+            const detailBankColor = getBankColor(instName);
+            return (
+              <div className="h-9 w-9 rounded-full shrink-0 overflow-hidden border border-border/20" style={{ backgroundColor: detailBankColor }}>
+                {detailLogoUrl
+                  ? <img src={detailLogoUrl} alt={instName} className="h-full w-full object-contain p-0.5 bg-white" onError={e => { const el = e.target as HTMLImageElement; el.style.display="none"; el.parentElement!.style.backgroundColor=detailBankColor; el.parentElement!.innerHTML=`<span style="display:flex;align-items:center;justify-content:center;height:100%;font-size:15px;font-weight:700;color:white">${logoChar}</span>`; }} />
+                  : <span className="flex items-center justify-center h-full text-[15px] font-bold text-white">{logoChar}</span>
+                }
+              </div>
+            );
+          })()}
           <div className="flex-1 min-w-0">
             <p className="text-[14px] font-semibold text-foreground truncate">{displayName}</p>
             <p className="text-[11.5px] text-muted-foreground truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</p>
@@ -4343,9 +4476,13 @@ export const LivePlaidDashboard = ({
   );
 
   // Category aggregation for current month (homepage High Spending + spending tab)
+  // Categories to exclude from spending display (they're financial obligations, not discretionary)
+  const SPEND_EXCLUDE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student Loan", "Loan", "Loan Payment", "Internal Transfer"]);
+
   const spendMap: Record<string,{total:number;count:number;txns:PTxn[]}> = {};
   for (const t of curMonthExpenses) {
     const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+    if (SPEND_EXCLUDE_CATS.has(cat)) continue; // mortgage/loans not discretionary spend
     if (!spendMap[cat]) spendMap[cat]={total:0,count:0,txns:[]};
     spendMap[cat].total += Number(t.amount);
     spendMap[cat].count += 1;
