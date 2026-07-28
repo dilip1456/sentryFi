@@ -75,6 +75,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showAppBanner, setShowAppBanner] = useState(() => !localStorage.getItem("sentryfi_apk_banner_dismissed"));
   const { isAdmin, user, signOut, profile } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
@@ -375,15 +376,19 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </div>
         </header>
 
-        {/* APK banner — always show on mobile web, ignore dismiss state */}
-        {!isNative() && (
-          <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.12)] border-b border-[hsl(var(--primary)/0.25)] px-4 py-3 flex items-center gap-3">
+        {/* APK banner — shown once, dismissed forever via localStorage */}
+        {!isNative() && showAppBanner && (
+          <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.20)] px-4 py-2.5 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[13.5px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
+            <span className="text-[13px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
             <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[13px] font-bold px-3 py-1.5 rounded-full bg-gold">
+              className="shrink-0 text-[12.5px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
             </a>
+            <button onClick={() => { setShowAppBanner(false); localStorage.setItem("sentryfi_apk_banner_dismissed", "1"); }}
+              className="shrink-0 text-muted-foreground hover:text-foreground p-1 -mr-1">
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
 
