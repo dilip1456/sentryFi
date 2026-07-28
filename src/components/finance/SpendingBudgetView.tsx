@@ -335,6 +335,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           month={per.key}
           formatCat={formatCat}
           catColor={catColor}
+          getEffectiveCategory={getEffectiveCategory as any}
         />
       )}
 
