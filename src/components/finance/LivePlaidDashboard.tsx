@@ -168,6 +168,8 @@ const INCOME_CATEGORIES = [
   "Refund / Reimbursement", "Transfer In", "Other Income",
 ];
 
+const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+
 const priorityMeta = {
   urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative" },
   soon:   { label: "Soon",   dot: "bg-warning",  text: "text-warning",  chip: "border-warning/30 bg-warning/10 text-warning" },
@@ -518,7 +520,7 @@ const detectRecurring = (
   suppressCategories: Set<string> = new Set(),
 ): RecurringCharge[] => {
   const now = new Date(); now.setHours(0,0,0,0);
-  const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);  // 12mo lookback
   const lookahead = new Date(now.getTime() + 15 * 86400000);
 
   const INTERVAL_BUCKETS = [
@@ -542,7 +544,7 @@ const detectRecurring = (
   const expenses = txns.filter(t => {
     if (Number(t.amount) <= 0 || t.pending) return false;
     if (internalIds.has(t.id)) return false; // app-detected internal transfers
-    if (new Date(t.date) < threeMonthsAgo) return false;
+    if (new Date(t.date) < twelveMonthsAgo) return false;
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
     if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
@@ -572,7 +574,7 @@ const detectRecurring = (
 
     // Deduplicate same-day charges
     const deduped = sorted.filter((t, i) => i === 0 || t.date !== sorted[i-1].date);
-    if (deduped.length < 2) continue;
+    if (deduped.length < 3) continue;  // require at least 3 occurrences for recurring
 
     // Amount consistency check
     const amounts = deduped.map(t => Number(t.amount));
@@ -592,7 +594,7 @@ const detectRecurring = (
     let matchedInterval: typeof INTERVAL_BUCKETS[0] | null = null;
     for (const bucket of INTERVAL_BUCKETS) {
       const matching = gaps.filter(g => Math.abs(g - bucket.days) <= bucket.tolerance);
-      if (matching.length >= Math.max(1, Math.floor(gaps.length * 0.55))) { // ≥55% of gaps match
+      if (matching.length >= Math.max(2, Math.floor(gaps.length * 0.65))) { // ≥65% of gaps match
         matchedInterval = bucket;
         break;
       }
@@ -2255,6 +2257,15 @@ const TxnDetailModal = ({
   });
   const [showNewOb, setShowNewOb] = useState(false);
 
+  // Rule builder state (tab=rule)
+  const [txnRuleDraft, setTxnRuleDraft] = useState<{match:"all"|"any";conditions:import("@/lib/txn-rules").Condition[]}>({
+    match: "all",
+    conditions: [{ id: Math.random().toString(36).slice(2), field: "merchant" as const, op: "contains" as const, value: merchant ?? "" }],
+  });
+  const [txnRuleActions, setTxnRuleActions] = useState<RuleAction[]>([
+    { type: "set_category", value: rawCat ?? "Other" }
+  ]);
+
   useEffect(() => {
     if (tab !== "obligations") return;
     setObLoading(true);
@@ -2389,20 +2400,18 @@ const TxnDetailModal = ({
           {/* ── INFO TAB ── */}
           {tab === "info" && (
             <div className="px-5 pb-5 space-y-3">
-              {/* Category chip */}
-              <button
-                onClick={() => { setTab("edit"); setTimeout(() => setShowCatPicker(true), 50); }}
-                className="w-full flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-muted/30 transition-colors">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-6 w-6 rounded-md shrink-0" style={{background:`${color}25`}}>
-                    <div className="h-full w-full rounded-md flex items-center justify-center" style={{color}}>
-                      <span className="text-[10px] font-bold">{(rawCat ?? "?").charAt(0).toUpperCase()}</span>
-                    </div>
-                  </div>
-                  <span className="text-[13px] font-medium">{humanizeCategory(rawCat, Number(txn.amount))}</span>
-                </div>
-                <span className="text-[11px] text-primary">Change →</span>
-              </button>
+              {/* Category — inline select */}
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
+                <select
+                  value={rawCat ?? "Other"}
+                  onChange={e => handleCatSelect(e.target.value, false)}
+                  className="w-full bg-muted/40 border border-border/60 rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50">
+                  {[...ALL_CATEGORIES, ...customCategories.map(c=>c.name)].map(cat => (
+                    <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+                  ))}
+                </select>
+              </div>
 
               {/* Info rows */}
               {[
@@ -2427,7 +2436,7 @@ const TxnDetailModal = ({
                     (isManualInternal || isAutoInternal) && !isManualExternal
                       ? "border-blue-500/40 text-blue-400 bg-blue-500/8"
                       : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "✓ Internal transfer" : "Mark internal"}
+                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "✓ Internal" : "Mark internal"}
                 </button>
                 <button
                   onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
@@ -2459,31 +2468,22 @@ const TxnDetailModal = ({
                 )}
               </div>
 
-              {/* Category */}
+              {/* Category — simple dropdown */}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
-                <button
-                  onClick={() => setShowCatPicker(s => !s)}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-muted/40 border border-border rounded-xl text-[13.5px] text-foreground hover:border-primary/50 transition-colors">
-                  <span>{humanizeCategory(rawCat, Number(txn.amount))}</span>
-                  <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", showCatPicker && "rotate-180")} />
-                </button>
-
-                {showCatPicker && (
-                  <div className="mt-1 border border-border/50 rounded-xl overflow-hidden">
-                    {samemerchantTxns.length > 0 && (
-                      <label className="flex items-center gap-2 px-3.5 py-2.5 bg-muted/20 border-b border-border/30 cursor-pointer">
-                        <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
-                        <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} + create rule</span>
-                      </label>
-                    )}
-                    <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
-                      existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
-                      customCategories={customCategories}
-                      onSelect={handleCatSelect}
-                      onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
-                      onClose={() => setShowCatPicker(false)} />
-                  </div>
+                <select
+                  value={rawCat ?? "Other"}
+                  onChange={e => handleCatSelect(e.target.value, applyAllCat)}
+                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50">
+                  {[...ALL_CATEGORIES, ...customCategories.map(c=>c.name)].map(cat => (
+                    <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+                  ))}
+                </select>
+                {samemerchantTxns.length > 0 && (
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                    <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
+                    <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} {merchant} transactions</span>
+                  </label>
                 )}
               </div>
 
@@ -2496,52 +2496,116 @@ const TxnDetailModal = ({
             </div>
           )}
 
-          {/* ── RULE TAB ── */}
+          {/* ── RULE TAB — full if/then builder ── */}
           {tab === "rule" && (
             <div className="px-5 pb-5 space-y-4">
-              <p className="text-[12.5px] text-muted-foreground">
-                Rules auto-categorize future transactions matching a merchant or keyword.
-              </p>
-
+              {/* Rule name */}
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">When transaction name contains</label>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Rule name</label>
                 <input
                   value={ruleDraft}
                   onChange={e => setRuleDraft(e.target.value)}
-                  placeholder={merchant ?? "keyword…"}
+                  placeholder={`Rule for ${merchant ?? "this transaction"}…`}
                   className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] outline-none focus:border-primary/50"
                 />
               </div>
 
+              {/* IF */}
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Assign category</label>
-                <div className="px-3.5 py-2.5 bg-muted/40 border border-border rounded-xl text-[13.5px] flex items-center justify-between">
-                  <span>{humanizeCategory(rawCat, Number(txn.amount))}</span>
-                  <button onClick={() => setShowCatPicker(s=>!s)} className="text-[11px] text-primary">Change</button>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">If</label>
+                  <select
+                    value={txnRuleDraft.match}
+                    onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
+                    className="h-7 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none">
+                    <option value="all">ALL conditions match</option>
+                    <option value="any">ANY condition matches</option>
+                  </select>
                 </div>
-                {showCatPicker && (
-                  <div className="mt-1 border border-border/50 rounded-xl overflow-hidden">
-                    <InlineCategoryPicker txn={txn} current={rawCat ?? "Other"}
-                      existingRule={getRuleCategory(txn.merchant_name ?? txn.name ?? null) ?? undefined}
-                      customCategories={customCategories}
-                      onSelect={cat => { onSelect(txn.id, cat); setShowCatPicker(false); }}
-                      onAddCategory={onAddCategory} onAddRule={onAddRule} onRemoveCustom={onRemoveCustom}
-                      onClose={() => setShowCatPicker(false)} />
-                  </div>
-                )}
+                <ConditionRows
+                  set={txnRuleDraft}
+                  onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))}
+                  accounts={accounts}
+                  categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)]}
+                />
               </div>
 
-              {samemerchantTxns.length > 0 && (
-                <div className="p-3 rounded-xl bg-muted/30 text-[12px] text-muted-foreground">
-                  This will also recategorize {samemerchantTxns.length} existing {merchant} transactions.
+              {/* THEN */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Then</label>
+                  <button
+                    onClick={() => setTxnRuleActions(a => [...a, {type:"set_category",value:""}])}
+                    className="text-[11px] text-primary font-medium">+ Add action</button>
                 </div>
-              )}
+                <div className="space-y-2">
+                  {txnRuleActions.map((action, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <select
+                        value={action.type}
+                        onChange={e => {
+                          const type = e.target.value as RuleAction["type"];
+                          const next = [...txnRuleActions];
+                          if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
+                          else if (type === "split") next[i] = {type, splits:[{label:"Part 1",amount:0}]} as RuleAction;
+                          else next[i] = {type, value:""} as RuleAction;
+                          setTxnRuleActions(next);
+                        }}
+                        className="h-8 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none shrink-0">
+                        <option value="set_category">Set category</option>
+                        <option value="rename">Rename to</option>
+                        <option value="mark_internal">Mark as internal</option>
+                        <option value="ignore">Ignore / hide</option>
+                        <option value="split">Split into parts</option>
+                      </select>
+                      {action.type === "set_category" && (
+                        <select
+                          value={(action as {type:"set_category";value:string}).value}
+                          onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
+                          className="flex-1 h-8 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none min-w-0">
+                          <option value="">Pick category…</option>
+                          {[...ALL_CATEGORIES,...customCategories.map(cx=>cx.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                        </select>
+                      )}
+                      {action.type === "rename" && (
+                        <input
+                          value={(action as {type:"rename";value:string}).value}
+                          onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
+                          placeholder="New display name…"
+                          className="flex-1 h-8 px-2.5 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none min-w-0"
+                        />
+                      )}
+                      {action.type === "split" && (
+                        <div className="flex-1 space-y-1 min-w-0">
+                          {(action as {type:"split";splits:{label:string;amount:number}[]}).splits.map((sp,si)=>(
+                            <div key={si} className="flex gap-1 items-center">
+                              <input value={sp.label} onChange={e=>{const n=[...txnRuleActions];(n[i] as any).splits[si]={...sp,label:e.target.value};setTxnRuleActions(n);}} placeholder="Label…" className="flex-1 h-7 px-2 rounded bg-muted/40 border border-border/40 text-[11.5px] outline-none min-w-0"/>
+                              <span className="text-[12px] text-muted-foreground shrink-0">$</span>
+                              <input type="number" value={sp.amount||""} onChange={e=>{const n=[...txnRuleActions];(n[i] as any).splits[si]={...sp,amount:Number(e.target.value)};setTxnRuleActions(n);}} placeholder="0" className="w-16 h-7 px-2 rounded bg-muted/40 border border-border/40 text-[11.5px] outline-none"/>
+                              {si>0&&<button onClick={()=>{const n=[...txnRuleActions];(n[i] as any).splits=(n[i] as any).splits.filter((_:unknown,x:number)=>x!==si);setTxnRuleActions(n);}} className="h-7 w-6 text-negative text-[14px] grid place-items-center shrink-0">×</button>}
+                            </div>
+                          ))}
+                          <button onClick={()=>{const n=[...txnRuleActions];(n[i] as any).splits=[...(n[i] as any).splits,{label:"",amount:0}];setTxnRuleActions(n);}} className="text-[11px] text-primary">+ Add split</button>
+                        </div>
+                      )}
+                      {txnRuleActions.length > 1 && (
+                        <button onClick={() => setTxnRuleActions(a => a.filter((_,x)=>x!==i))} className="h-8 w-7 text-muted-foreground hover:text-negative grid place-items-center shrink-0 mt-0">×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <button
-                onClick={handleCreateRule}
+                onClick={() => {
+                  if (!ruleDraft.trim()) return;
+                  const catAction = txnRuleActions.find(a => a.type === "set_category") as {type:"set_category";value:string}|undefined;
+                  onAddRule(ruleDraft.trim(), catAction?.value ?? rawCat ?? "Other");
+                  onClose();
+                }}
                 disabled={!ruleDraft.trim()}
                 className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40">
-                Create rule → {humanizeCategory(rawCat, Number(txn.amount))}
+                Save rule
               </button>
             </div>
           )}
@@ -5426,7 +5490,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); setTimeout(() => setTxnSearch(""), 100); }} />}
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
@@ -6190,8 +6254,9 @@ export const LivePlaidDashboard = ({
           catColor={catColor}
           onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
           internalTxnIds={internalTxnIds}
+          initialSearch={txnSearch}
         />
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
+        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); setTimeout(() => setTxnSearch(""), 100); }} />}
       </>
     );
   }

@@ -36,7 +36,9 @@ export interface ConditionSet {
 export type RuleAction =
   | { type: "set_category"; value: string }
   | { type: "rename"; value: string }
-  | { type: "mark_internal" };
+  | { type: "mark_internal" }
+  | { type: "ignore" }
+  | { type: "split"; splits: { label: string; amount: number }[] };
 
 export interface SmartRule {
   id: string;

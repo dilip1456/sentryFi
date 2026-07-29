@@ -208,7 +208,8 @@ function detectSections(txns: PTxn[], accounts: PAccount[], month: string): {
     }
   }
 
-  const incomeItems = currentIncomeItems; // keep single list, flag drives display
+  // Only show recurring income — one-offs are excluded entirely from Budget view
+  const incomeItems = currentIncomeItems.filter(i => !i.isOneOff);
 
   // Expense detection — group expenses by merchant, classify
   const obligations: DetectedItem[] = [];
@@ -311,19 +312,14 @@ function SectionCard({
       {open && items.length > 0 && (
         <div className="divide-y divide-border/20 border-t border-border/40">
           {items.map((item, i) => (
-            <div key={i} className={cn("flex items-center gap-3 px-4 py-3", item.isOneOff && "opacity-60")}>
+            <div key={i} className={cn("flex items-center gap-3 px-4 py-3", "opacity-100")}>
               <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center text-[11px] font-bold shrink-0", bg, color)}>
                 {item.merchant.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] text-foreground truncate font-medium">{item.merchant}</p>
                 <p className="text-[11px] text-muted-foreground">
-                  {item.isOneOff
-                    ? "one-time · not counted in budget"
-                    : item.isRecurring
-                      ? "recurring"
-                      : (item.count > 1 ? `${item.count}× ` : "") + (item.variance < 10 ? "fixed" : item.variance < 30 ? "~fixed" : "varies")
-                  }
+                  {item.isRecurring ? "recurring" : (item.count > 1 ? `${item.count}× ` : "") + (item.variance < 10 ? "fixed" : item.variance < 30 ? "~fixed" : "varies")}
                 </p>
               </div>
               <div className="text-right shrink-0">
