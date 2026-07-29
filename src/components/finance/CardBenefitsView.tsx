@@ -179,17 +179,25 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
     }
 
     // Build cashback rate map: category → [{ account_id, rate, card_name }]
-    const rateMap: Record<string, { account_id: string; rate: number; card_name: string }[]> = {};
+    // Deduplicate: keep only highest rate per account_id per category
+    const rateMapRaw: Record<string, Map<string, { account_id: string; rate: number; card_name: string }>> = {};
     for (const card of cards) {
       for (const b of card.benefits) {
         if (!b.cashback_rate || !b.cashback_category) continue;
-        if (!rateMap[b.cashback_category]) rateMap[b.cashback_category] = [];
-        rateMap[b.cashback_category].push({
-          account_id: card.account_id,
-          rate: b.cashback_rate,
-          card_name: card.official_name || card.name,
-        });
+        if (!rateMapRaw[b.cashback_category]) rateMapRaw[b.cashback_category] = new Map();
+        const existing = rateMapRaw[b.cashback_category].get(card.account_id);
+        if (!existing || b.cashback_rate > existing.rate) {
+          rateMapRaw[b.cashback_category].set(card.account_id, {
+            account_id: card.account_id,
+            rate: b.cashback_rate,
+            card_name: card.official_name || card.name,
+          });
+        }
       }
+    }
+    const rateMap: Record<string, { account_id: string; rate: number; card_name: string }[]> = {};
+    for (const [cat, map] of Object.entries(rateMapRaw)) {
+      rateMap[cat] = [...map.values()];
     }
 
     const suggestions: SpendCategory[] = [];
@@ -224,7 +232,10 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
       });
     }
 
-    setSpendOpt(suggestions.sort((a, b) => b.annual_gain - a.annual_gain));
+    // Final dedup by category (shouldn't be needed now but just in case)
+    const seen = new Set<string>();
+    const deduped = suggestions.filter(s => { if (seen.has(s.category)) return false; seen.add(s.category); return true; });
+    setSpendOpt(deduped.sort((a, b) => b.annual_gain - a.annual_gain));
   };
 
   useEffect(() => { loadBenefits(); }, [user?.id]);
