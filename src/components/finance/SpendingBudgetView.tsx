@@ -88,7 +88,8 @@ function getBarPeriods(dur: Duration, off: number): { bars: { key: string; label
     d.setDate(now.getDate() + off - 13 + i);
     const iso = d.toISOString().slice(0, 10);
     return {
-      key: iso, label: d.toLocaleDateString("en-US", { weekday: "short" }),
+      key: iso,
+      label: d.toLocaleDateString("en-US", { day: "numeric" }) + "/" + d.toLocaleDateString("en-US", { month: "short" }),
       start: iso, end: iso,
     };
   });
@@ -404,36 +405,48 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
         {/* Bar chart — clickable period selector */}
         <div className="pb-1">
-          <div className="flex items-end gap-1 h-14">
-            {barData.map(b => {
-              const pct = maxBar > 0 ? (b.spend / maxBar) : 0;
-              const isSelected = barSel === b.key;
-              const isCurrentPeriod = b.key === bars[bars.length-1].key && off === 0;
-              return (
-                <button
-                  key={b.key}
-                  onClick={() => setBarSel(prev => prev === b.key ? null : b.key)}
-                  className="flex-1 flex flex-col items-center gap-0.5 group min-w-0"
-                  title={`${b.label}: ${fmtUSD(b.spend)}`}
-                >
-                  <div className="w-full flex items-end" style={{height:44}}>
-                    <div
-                      className={cn(
-                        "w-full rounded-t-sm transition-all duration-200",
-                        isSelected ? "bg-primary" :
-                        isCurrentPeriod ? "bg-primary/50" :
-                        b.spend > 0 ? "bg-primary/25 group-hover:bg-primary/45" : "bg-border/30"
-                      )}
-                      style={{height: b.spend > 0 ? `${Math.max(pct * 100, 6)}%` : "4px"}}
-                    />
-                  </div>
-                  <span className={cn("text-[9px] truncate w-full text-center transition-colors",
-                    isSelected ? "text-primary font-bold" : "text-muted-foreground/60 group-hover:text-muted-foreground")}>
-                    {b.label}
-                  </span>
-                </button>
-              );
-            })}
+          <div className={cn(dur === "day" ? "overflow-x-auto scrollbar-none" : "")}>
+            <div className={cn("flex items-end gap-1", dur === "day" ? "h-20" : "h-14")}
+              style={dur === "day" ? { minWidth: barData.length * 36 } : {}}>
+              {barData.map(b => {
+                const pct = maxBar > 0 ? (b.spend / maxBar) : 0;
+                const isSelected = barSel === b.key;
+                const isCurrentPeriod = b.key === bars[bars.length-1].key && off === 0;
+                const [dayNum, monStr] = b.label.split("/");
+                return (
+                  <button
+                    key={b.key}
+                    onClick={() => setBarSel(prev => prev === b.key ? null : b.key)}
+                    className={cn("flex flex-col items-center gap-0.5 group",
+                      dur === "day" ? "w-8 shrink-0" : "flex-1 min-w-0")}
+                    title={`${b.label}: ${fmtUSD(b.spend)}`}
+                  >
+                    <div className="w-full flex items-end" style={{height: dur === "day" ? 52 : 44}}>
+                      <div
+                        className={cn(
+                          "w-full rounded-t-sm transition-all duration-200",
+                          isSelected ? "bg-primary" :
+                          isCurrentPeriod ? "bg-primary/50" :
+                          b.spend > 0 ? "bg-primary/25 group-hover:bg-primary/45" : "bg-border/30"
+                        )}
+                        style={{height: b.spend > 0 ? `${Math.max(pct * 100, 6)}%` : "4px"}}
+                      />
+                    </div>
+                    {dur === "day" ? (
+                      <div className="flex flex-col items-center leading-none">
+                        <span className={cn("text-[10px] font-bold", isSelected ? "text-primary" : "text-muted-foreground/80")}>{dayNum}</span>
+                        <span className={cn("text-[8px]", isSelected ? "text-primary/70" : "text-muted-foreground/40")}>{monStr}</span>
+                      </div>
+                    ) : (
+                      <span className={cn("text-[9px] truncate w-full text-center transition-colors",
+                        isSelected ? "text-primary font-bold" : "text-muted-foreground/60 group-hover:text-muted-foreground")}>
+                        {b.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           {/* Period label + total */}
           <div className="flex items-baseline justify-between pt-1 pb-2">
