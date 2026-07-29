@@ -40,11 +40,45 @@ async function sendPush(tokens: string[], title: string, body: string) {
 }
 
 async function saveAlert(admin: any, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, any> = {}) {
-  // Check dedup
   const { data: ex } = await admin.from("alert_log").select("id").eq("user_id", userId).eq("alert_key", alertKey).maybeSingle();
   if (ex) return false;
   await admin.from("alert_log").insert({ user_id: userId, alert_type: alertType, alert_key: alertKey, title, body, payload, created_at: new Date().toISOString() });
   return true;
+}
+
+// Keywords that indicate a credit card payment / transfer (NOT a real deposit)
+const CC_PAYMENT_PATTERNS = [
+  /autopay/i, /auto.?pay/i,
+  /payment.{0,20}thank/i, /thank.{0,20}payment/i,
+  /online payment/i, /mobile payment/i,
+  /payment received/i, /payment posted/i,
+  /credit card payment/i, /card payment/i,
+  /e-payment/i, /epayment/i,
+  /transfer from/i, /xfer from/i,
+  /ach credit/i,
+  /citi payment/i, /chase payment/i, /amex payment/i,
+  /discover payment/i, /capital one payment/i,
+  /bank of america payment/i,
+];
+
+const TRANSFER_PATTERNS = [
+  /transfer/i, /zelle/i, /venmo/i, /cash app/i, /paypal/i,
+  /square cash/i, /google pay/i, /apple pay send/i,
+];
+
+// Classify what a negative-amount transaction (credit) actually is
+function classifyCredit(t: { name: string | null; merchant_name: string | null; category: string[] | null }): "cc_payment" | "transfer" | "refund" | "deposit" {
+  const name = (t.merchant_name ?? t.name ?? "").toLowerCase();
+  const cats = (t.category ?? []).map((c: string) => c.toLowerCase());
+
+  // Plaid category hints
+  if (cats.some(c => c.includes("credit card") || c.includes("loan payment") || c.includes("transfer"))) return "cc_payment";
+
+  // Name pattern matching
+  if (CC_PAYMENT_PATTERNS.some(rx => rx.test(name))) return "cc_payment";
+  if (TRANSFER_PATTERNS.some(rx => rx.test(name))) return "transfer";
+
+  return "deposit";
 }
 
 Deno.serve(async (req) => {
@@ -122,54 +156,82 @@ Deno.serve(async (req) => {
         .select("transaction_id,name,merchant_name,amount,date,category,account_id")
         .eq("user_id", userId).gte("date", yesterday).gt("amount", 0).order("amount", { ascending: false }).limit(50);
 
-      // Compute avg monthly spend for comparison
       const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
       const { data: histTxns } = await admin.from("plaid_transactions")
         .select("amount").eq("user_id", userId).gte("date", threeMonthsAgo).lt("date", yesterday).gt("amount", 0);
       const avgMonthly = (histTxns ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0) / 3;
-      const largeThreshold = Math.max(avgMonthly * 0.15, 150); // 15% of avg monthly or $150
+      const largeThreshold = Math.max(avgMonthly * 0.15, 150);
 
       for (const t of recentTxns ?? []) {
         const amt = Number(t.amount);
-        if (amt < largeThreshold) break; // sorted desc so rest are smaller
+        if (amt < largeThreshold) break;
         const merchant = t.merchant_name ?? t.name;
-        const title = `💰 Large transaction: ${merchant}`;
+        const title = `💰 Large charge: ${merchant}`;
         const body = `$${amt.toFixed(2)} — ${t.category?.[0] ?? ""}`;
         const added = await saveAlert(admin, userId, "large_txn", `large_txn:${t.transaction_id}`, title, body,
           { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
         if (added) notifications.push({ title, body });
       }
 
-      // ── 5. Deposits detected ─────────────────────────────────────────
-      const { data: deposits } = await admin.from("plaid_transactions")
-        .select("transaction_id,name,merchant_name,amount,date,account_id")
-        .eq("user_id", userId).gte("date", yesterday).lt("amount", -50); // negative = money in
-      for (const t of deposits ?? []) {
-        const amt = Math.abs(Number(t.amount));
-        const merchant = t.merchant_name ?? t.name;
-        const title = `📥 Deposit received: $${amt.toFixed(2)}`;
-        const body = `${merchant}`;
-        const added = await saveAlert(admin, userId, "deposit", `deposit:${t.transaction_id}`, title, body,
-          { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
-        if (added) notifications.push({ title, body });
-      }
-
-      // ── 6. Refunds received ──────────────────────────────────────────
-      const { data: refunds } = await admin.from("plaid_transactions")
+      // ── 5. Credits: classify before alerting ─────────────────────────
+      // Negative amount = money coming in (deposit, refund, CC payment, transfer)
+      // We split into buckets and message accordingly. CC payments and internal
+      // transfers are silently skipped — they are NOT deposits.
+      const { data: credits } = await admin.from("plaid_transactions")
         .select("transaction_id,name,merchant_name,amount,date,account_id,category")
-        .eq("user_id", userId).gte("date", yesterday).lt("amount", 0).gt("amount", -50); // small credits
-      for (const t of refunds ?? []) {
+        .eq("user_id", userId).gte("date", yesterday).lt("amount", 0);
+
+      for (const t of credits ?? []) {
         const amt = Math.abs(Number(t.amount));
         if (amt < 1) continue;
-        const merchant = t.merchant_name ?? t.name;
-        const title = `↩️ Refund: $${amt.toFixed(2)} from ${merchant}`;
-        const body = `Credit applied to your account`;
-        const added = await saveAlert(admin, userId, "refund", `refund:${t.transaction_id}`, title, body,
-          { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
-        if (added) notifications.push({ title, body });
+        const merchant = t.merchant_name ?? t.name ?? "Unknown";
+        const kind = classifyCredit(t);
+
+        if (kind === "cc_payment") {
+          // This is a credit card payment being received by the card — not a deposit
+          // Notify as a payment confirmation, not deposit
+          const acct = (accounts ?? []).find((a: any) => a.account_id === t.account_id);
+          const title = `✅ Payment posted: ${acct?.name ?? merchant}`;
+          const body = `$${amt.toFixed(2)} payment applied to your account`;
+          const added = await saveAlert(admin, userId, "cc_payment_posted", `cc_payment:${t.transaction_id}`, title, body,
+            { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
+          if (added) notifications.push({ title, body });
+          continue;
+        }
+
+        if (kind === "transfer") {
+          // Transfer between accounts — only alert if > $200 to avoid noise
+          if (amt < 200) continue;
+          const title = `↔️ Transfer: $${amt.toFixed(2)}`;
+          const body = `From ${merchant}`;
+          const added = await saveAlert(admin, userId, "transfer", `transfer:${t.transaction_id}`, title, body,
+            { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
+          if (added) notifications.push({ title, body });
+          continue;
+        }
+
+        if (kind === "refund") {
+          // Refunds under $5 are noise
+          if (amt < 5) continue;
+          const title = `↩️ Refund: $${amt.toFixed(2)} from ${merchant}`;
+          const body = `Credit applied to your account`;
+          const added = await saveAlert(admin, userId, "refund", `refund:${t.transaction_id}`, title, body,
+            { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
+          if (added) notifications.push({ title, body });
+          continue;
+        }
+
+        // True deposit (paycheck, ACH income, etc.)
+        if (kind === "deposit" && amt >= 50) {
+          const title = `📥 Deposit: $${amt.toFixed(2)}`;
+          const body = `From ${merchant}`;
+          const added = await saveAlert(admin, userId, "deposit", `deposit:${t.transaction_id}`, title, body,
+            { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
+          if (added) notifications.push({ title, body });
+        }
       }
 
-      // ── 7. New high-severity AI insights ────────────────────────────
+      // ── 6. High-severity AI insights ─────────────────────────────────
       const { data: lastInsight } = await admin.from("ai_insights").select("created_at,insights").eq("user_id", userId).maybeSingle();
       if (lastInsight?.insights) {
         const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as any[] : [];
