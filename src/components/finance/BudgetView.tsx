@@ -4,13 +4,13 @@
  * Tap any item to see all historical txns behind the detection.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import {
   TrendingUp, Lock, Zap, PiggyBank, ShoppingBag,
   ChevronDown, AlertTriangle, CheckCircle2,
-  ArrowRight, Sparkles, Info, X, Calendar
+  ArrowRight, Sparkles, Info, X, Calendar, Trash2
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -48,7 +48,17 @@ const matchKw = (merchant: string, kws: string[]) => { const m = merchant.toLowe
 
 // ─── Detection ───────────────────────────────────────────────────────────────
 
-function detectSections(txns: PTxn[], accounts: PAccount[], month: string) {
+const SUPPRESS_KEY = "budget_suppressed_v1";
+
+function getSuppressed(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(SUPPRESS_KEY) ?? "[]")); } catch { return new Set(); }
+}
+function addSuppressed(merchant: string) {
+  const s = getSuppressed(); s.add(merchant.toLowerCase().trim());
+  localStorage.setItem(SUPPRESS_KEY, JSON.stringify([...s]));
+}
+
+function detectSections(txns: PTxn[], accounts: PAccount[], month: string, suppressed: Set<string>) {
   // 12 months back from start of selected month
   const monthDate     = new Date(month + "-01");
   const twelveAgo     = new Date(monthDate); twelveAgo.setMonth(twelveAgo.getMonth() - 12);
@@ -75,6 +85,7 @@ function detectSections(txns: PTxn[], accounts: PAccount[], month: string) {
     const monthsFound = hist?.months.size ?? 1;
     const recurring = monthsFound >= 2 || matchKw(key, INTEREST_KW);
     if (!recurring) continue; // skip one-offs entirely
+    if (suppressed.has(key.toLowerCase().trim())) continue; // user dismissed
 
     const existing = incomeItems.find(i => i.merchant === key);
     if (existing) { existing.avgAmount += Math.abs(amt); existing.count++; }
@@ -114,6 +125,7 @@ function detectSections(txns: PTxn[], accounts: PAccount[], month: string) {
   const expenses:    DetectedItem[] = [];
 
   for (const [merchant, { total, count, lastDate }] of curExpMap) {
+    if (suppressed.has(merchant.toLowerCase().trim())) continue; // user dismissed
     const hist = expHistMap.get(merchant);
     const histAmts = hist?.txns.map(t => Number(t.amount)) ?? [total];
     const avg = histAmts.reduce((s, v) => s + v, 0) / histAmts.length;
@@ -206,10 +218,11 @@ function TxnHistorySheet({ item, onClose }: { item: DetectedItem; onClose: () =>
 
 // ─── SectionCard ─────────────────────────────────────────────────────────────
 
-function SectionCard({ icon: Icon, label, sublabel, color, bg, accent, items, total }: {
+function SectionCard({ icon: Icon, label, sublabel, color, bg, accent, items, total, onDismiss }: {
   icon: React.ElementType; label: string; sublabel: string;
   color: string; bg: string; accent: string;
   items: DetectedItem[]; total: number;
+  onDismiss: (merchant: string) => void;
 }) {
   const [open, setOpen]         = useState(false);
   const [drill, setDrill]       = useState<DetectedItem | null>(null);
@@ -242,28 +255,36 @@ function SectionCard({ icon: Icon, label, sublabel, color, bg, accent, items, to
             {items.length === 0 ? (
               <p className="px-4 py-5 text-center text-[12px] text-muted-foreground/60">None detected this month</p>
             ) : items.map((item, i) => (
-              <button
-                key={i}
-                onClick={() => setDrill(item)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left"
-              >
-                <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center text-[11px] font-bold shrink-0", bg, color)}>
-                  {item.merchant.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] text-foreground truncate font-medium">{item.merchant}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {item.monthsFound} of last 12 months
-                    {item.variance < 10 ? " · fixed" : item.variance < 30 ? " · ~fixed" : " · varies"}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className={cn("text-[13px] font-semibold tabular", accent)}>{fmtUSD(item.avgAmount)}</p>
-                  {item.historicalTxns.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground/60">{item.historicalTxns.length} txns ›</p>
-                  )}
-                </div>
-              </button>
+              <div key={i} className="flex items-center">
+                <button
+                  onClick={() => setDrill(item)}
+                  className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left min-w-0"
+                >
+                  <div className={cn("h-7 w-7 rounded-lg flex items-center justify-center text-[11px] font-bold shrink-0", bg, color)}>
+                    {item.merchant.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] text-foreground truncate font-medium">{item.merchant}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {item.monthsFound} of last 12 months
+                      {item.variance < 10 ? " · fixed" : item.variance < 30 ? " · ~fixed" : " · varies"}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={cn("text-[13px] font-semibold tabular", accent)}>{fmtUSD(item.avgAmount)}</p>
+                    {item.historicalTxns.length > 0 && (
+                      <p className="text-[10px] text-muted-foreground/60">{item.historicalTxns.length} txns ›</p>
+                    )}
+                  </div>
+                </button>
+                <button
+                  onClick={() => onDismiss(item.merchant)}
+                  title="Remove from budget"
+                  className="h-10 w-10 flex items-center justify-center text-muted-foreground/30 hover:text-negative transition-colors shrink-0"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -279,7 +300,14 @@ function SectionCard({ icon: Icon, label, sublabel, color, bg, accent, items, to
 
 export function BudgetView({ txns, accounts, month }: Props) {
   const monthLabel = useMemo(() => new Date(month + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" }), [month]);
-  const detected   = useMemo(() => detectSections(txns, accounts, month), [txns, accounts, month]);
+  const [suppressed, setSuppressed] = useState<Set<string>>(() => getSuppressed());
+
+  const dismiss = useCallback((merchant: string) => {
+    addSuppressed(merchant);
+    setSuppressed(getSuppressed());
+  }, []);
+
+  const detected   = useMemo(() => detectSections(txns, accounts, month, suppressed), [txns, accounts, month, suppressed]);
 
   const totalIncome      = detected.income     .reduce((s, i) => s + i.avgAmount, 0);
   const totalObligations = detected.obligations.reduce((s, i) => s + i.avgAmount, 0);
@@ -396,7 +424,7 @@ export function BudgetView({ txns, accounts, month }: Props) {
           </div>
         )}
 
-        {SECTIONS.map(s => <SectionCard key={s.key} {...s} />)}
+        {SECTIONS.map(s => <SectionCard key={s.key} {...s} onDismiss={dismiss} />)}
 
         {!isOver && free > 0 && (
           <div className="rounded-2xl bg-emerald-500/8 border border-emerald-500/20 p-4 flex items-center gap-3">

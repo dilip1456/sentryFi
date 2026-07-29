@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
-import { ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, ChevronDown, Plus, Pencil, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, ChevronDown, Plus, Pencil, TrendingDown, TrendingUp, Search } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -42,16 +42,15 @@ function fc2(n:number){ const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toF
 // ── Component ─────────────────────────────────────────────────────────────────
 export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch}:SpendingBudgetViewProps) {
   const [off, setOff]     = useState(0);
+  const [search, setSearch] = useState(initialSearch ?? "");
+  useEffect(() => { if (initialSearch) setSearch(initialSearch); }, [initialSearch]);
   const [sel, setSel]     = useState<string|null>(null);    // selected category (left panel)
   const [hov, setHov]     = useState<number|null>(null);    // donut hover index
   const [F,   setF]       = useState<Fil>(EF);              // filters incl. sort
   const [fo,  setFo]      = useState(false);                // filter panel open
-  const [search, setSearch] = useState(initialSearch ?? "");  // text search, also set by find-similar
   const [eCat,setECat]    = useState<string|null>(null);    // budget edit cat
   const [eDraft,setEDraft]= useState("");
   const fBtnRef = useRef<HTMLButtonElement>(null);
-  // Sync find-similar search from parent
-  useEffect(() => { if (initialSearch) setSearch(initialSearch); }, [initialSearch]);
   const fPanelRef = useRef<HTMLDivElement>(null);
 
   // FIX 1: Correct outside-click handler — checks both button and panel
@@ -77,16 +76,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const incomeTotal = useMemo(() => Math.abs(pTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Number(t.amount),0)), [pTxns]);
 
   // Category totals
-  // Apply text search (from initialSearch / find-similar)
-  const visibleBeforeSearch = useMemo(() => {
-    if (!search.trim()) return null;
-    const q = search.trim().toLowerCase();
-    return (txns: typeof pTxns) => txns.filter(t => 
-      (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").toLowerCase().includes(q) ||
-      getEffectiveCategory(t).toLowerCase().includes(q)
-    );
-  }, [search, nameOverrides, getEffectiveCategory]);
-
   const catRows = useMemo(() => {
     const m: Record<string,number> = {};
     for (const t of expenses) { const c = getEffectiveCategory(t)??"Other"; m[c]=(m[c]||0)+Number(t.amount); }
@@ -122,12 +111,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (F.status === "posted")  t = t.filter(x => !x.pending);
     if (F.min) t = t.filter(x => Number(x.amount) >= parseFloat(F.min));
     if (F.max) t = t.filter(x => Number(x.amount) <= parseFloat(F.max));
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      t = t.filter(x =>
+        (nameOverrides[x.id] ?? x.merchant_name ?? x.name ?? "").toLowerCase().includes(q) ||
+        getEffectiveCategory(x).toLowerCase().includes(q)
+      );
+    }
     return t.sort((a,b) => {
       const [va,vb] = sortKey==="date" ? [a.date,b.date] : sortKey==="amount" ? [Number(a.amount),Number(b.amount)] : [(a.merchant_name??a.name??"").toLowerCase(),(b.merchant_name??b.name??"").toLowerCase()];
       const cmp = va<vb?-1:va>vb?1:0;
       return sortDir==="desc" ? -cmp : cmp;
     });
-  }, [expenses, pTxns, sel, F, sortKey, sortDir, accounts, getEffectiveCategory]);
+  }, [expenses, pTxns, sel, F, sortKey, sortDir, accounts, getEffectiveCategory, search, nameOverrides]);
 
   const groups = useMemo(() => {
     if (sortKey !== "date") return null;
@@ -326,19 +322,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
         {/* Filter button */}
 
-      {/* ═══ MOBILE: category chips when on spending tab ═══════════════════ */}
-      <div className="md:hidden bg-card border-b border-border/30 overflow-x-auto scrollbar-none">
-          <div className="flex gap-1.5 px-4 py-2.5 whitespace-nowrap">
-            <button onClick={() => setSel(null)} className={cn("h-7 px-3 rounded-full text-[12px] font-semibold border shrink-0 transition-all", !sel ? "bg-foreground text-background border-foreground" : "border-border/60 text-muted-foreground")}>All</button>
-            {catRows.map(([cat,sp]) => { const col=catColor(cat); const act=sel===cat; return (
-              <button key={cat} onClick={() => setSel(act?null:cat)} className="h-7 px-3 rounded-full text-[12px] font-medium border shrink-0 flex items-center gap-1.5 transition-all"
-                style={{background:act?col:"transparent",color:act?"white":"hsl(var(--muted-foreground))",borderColor:act?col:undefined}}>
-                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:act?"rgba(255,255,255,0.7)":col}}/>
-                {formatCat(cat)} {fc2(sp)}
-              </button>
-            ); })}
-          </div>
-        </div>
       </div>
 
       {/* ═══ BODY ══════════════════════════════════════════════════════════ */}
@@ -355,43 +338,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* FIX 7+1: Toolbar with filter button using correct ref, proper dropdown */}
           <div className="px-4 md:px-5 py-2 border-b border-border/20 bg-card flex items-center gap-2 sticky top-0 z-20 backdrop-blur-sm">
 
-            {/* Active filter chips */}
-            <div className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto scrollbar-none">
-              {sel && (
-                <div className="flex items-center gap-1 h-6 px-2 rounded-full border border-border/60 bg-muted/50 text-[11px] font-medium text-foreground shrink-0">
-                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:catColor(sel)}}/>
-                  <span className="mx-0.5">{formatCat(sel)}</span>
-                  <button onClick={() => setSel(null)} className="text-muted-foreground hover:text-foreground ml-0.5"><X className="h-2.5 w-2.5"/></button>
-                </div>
-              )}
-              {[...F.cats].map(cat => (
-                <div key={cat} className="flex items-center gap-1 h-6 px-2 rounded-full bg-muted/50 border border-border/50 text-[11px] text-foreground shrink-0">
-                  <div className="w-1.5 h-1.5 rounded-full" style={{background:catColor(cat)}}/><span className="mx-0.5">{formatCat(cat)}</span>
-                  <button onClick={() => tog("cats",cat)} className="text-muted-foreground hover:text-foreground"><X className="h-2.5 w-2.5"/></button>
-                </div>
-              ))}
-              {[...F.accts].map(acc => (
-                <div key={acc} className="flex items-center gap-1 h-6 px-2 rounded-full bg-muted/50 border border-border/50 text-[11px] text-foreground shrink-0">
-                  <span>{acc}</span><button onClick={() => tog("accts",acc)} className="ml-0.5 text-muted-foreground hover:text-foreground"><X className="h-2.5 w-2.5"/></button>
-                </div>
-              ))}
-              {F.type !== "all" && <div className="flex items-center gap-1 h-6 px-2 rounded-full bg-muted/50 border border-border/50 text-[11px] text-foreground shrink-0 capitalize"><span>{F.type}</span><button onClick={() => setF(f => ({...f,type:"all"}))} className="ml-0.5 text-muted-foreground hover:text-foreground"><X className="h-2.5 w-2.5"/></button></div>}
-              {F.status !== "all" && <div className="flex items-center gap-1 h-6 px-2 rounded-full bg-muted/50 border border-border/50 text-[11px] text-foreground shrink-0 capitalize"><span>{F.status}</span><button onClick={() => setF(f => ({...f,status:"all"}))} className="ml-0.5 text-muted-foreground hover:text-foreground"><X className="h-2.5 w-2.5"/></button></div>}
-              {(hasF(F)||sel) && <button onClick={clr} className="text-[11px] text-muted-foreground hover:text-foreground shrink-0 ml-1 underline underline-offset-2">Clear</button>}
-            </div>
-
-            {/* Right side: count + dropdown button */}
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[12px] text-muted-foreground hidden sm:block tabular">{visible.length}</span>
-
-              {/* FIX 1+7: Button has its own ref, panel has its own ref */}
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search transactions…"
-                className="flex-1 h-8 px-3 rounded-full bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-foreground/40 min-w-0"
-              />
-              <button ref={fBtnRef} onClick={() => setFo(o => !o)}
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search transactions..."
+              className="flex-1 h-8 px-3 rounded-xl bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-foreground/40 min-w-0"
+            />
+            <span className="text-[12px] text-muted-foreground tabular shrink-0">{visible.length}</span>
+            <button ref={fBtnRef} onClick={() => setFo(o => !o)}
                 className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full border text-[12.5px] font-medium transition-all",
                   fo || fc > 0 || F.sort !== "date-desc"
                     ? "bg-foreground text-background border-foreground"
@@ -403,7 +357,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {fc > 0 && <span className="h-4 min-w-[16px] px-1 rounded-full text-[9px] font-bold grid place-items-center" style={{background:"hsl(var(--primary))",color:"hsl(var(--primary-foreground))"}}>{fc}</span>}
                 <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", fo && "rotate-180")}/>
               </button>
-            </div>
 
             {/* Filter panel — portal-rendered to escape transform contexts */}
             {fo && createPortal(
@@ -453,31 +406,26 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
                     {/* Category */}
                     <div>
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Category</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {catRows.map(([cat]) => { const a=F.cats.has(cat); return (
-                          <button key={cat} onClick={() => tog("cats",cat)}
-                            className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",
-                              a ? "bg-foreground text-background border-foreground" : "border-border/50 text-foreground/80 hover:border-foreground/40")}>
-                            {a ? <Check className="h-3 w-3 shrink-0"/> : <div className="w-2 h-2 rounded-full shrink-0" style={{background:catColor(cat)}}/>}
-                            {formatCat(cat)}
-                          </button>
-                        ); })}
-                      </div>
+                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Category</div>
+                      <select
+                        value={F.cats.size === 1 ? [...F.cats][0] : ""}
+                        onChange={e => setF(f => ({...f, cats: e.target.value ? new Set([e.target.value]) : new Set()}))}
+                        className="w-full h-9 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-[12.5px] text-foreground outline-none">
+                        <option value="">All categories</option>
+                        {catRows.map(([cat]) => <option key={cat} value={cat}>{formatCat(cat)}</option>)}
+                      </select>
                     </div>
 
                     {/* Account */}
                     <div>
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Account</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {allAcctNames.map(acc => { const a=F.accts.has(acc); return (
-                          <button key={acc} onClick={() => tog("accts",acc)}
-                            className={cn("h-8 px-3 rounded-full text-[12px] font-medium border flex items-center gap-1.5 transition-all",
-                              a ? "bg-foreground text-background border-foreground" : "border-border/50 text-foreground/80 hover:border-foreground/40")}>
-                            {a && <Check className="h-3 w-3 shrink-0"/>}{acc}
-                          </button>
-                        ); })}
-                      </div>
+                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Account</div>
+                      <select
+                        value={F.accts.size === 1 ? [...F.accts][0] : ""}
+                        onChange={e => setF(f => ({...f, accts: e.target.value ? new Set([e.target.value]) : new Set()}))}
+                        className="w-full h-9 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-[12.5px] text-foreground outline-none">
+                        <option value="">All accounts</option>
+                        {allAcctNames.map(acc => <option key={acc} value={acc}>{acc}</option>)}
+                      </select>
                     </div>
 
                     {/* Amount range */}
