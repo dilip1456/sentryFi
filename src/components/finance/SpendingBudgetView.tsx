@@ -14,6 +14,7 @@ export interface SpendingBudgetViewProps {
   nameOverrides:Record<string,string>; setBudget:(c:string,n:number)=>void;
   getEffectiveCategory:(t:PTxn)=>string; formatCat:(s:string)=>string;
   catColor:(s:string)=>string; onOpenDetail:(t:PTxn)=>void; internalTxnIds:Set<string>;
+  initialSearch?:string;
 }
 
 // ── Filter state ──────────────────────────────────────────────────────────────
@@ -39,15 +40,18 @@ function getPer(off:number){ const n=new Date(); const s=new Date(n.getFullYear(
 function fc2(n:number){ const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toFixed(0)+"k"; return "$"+v.toFixed(v%1<0.005?0:2).replace(/\B(?=(\d{3})+(?!\d))/g,","); }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch}:SpendingBudgetViewProps) {
   const [off, setOff]     = useState(0);
   const [sel, setSel]     = useState<string|null>(null);    // selected category (left panel)
   const [hov, setHov]     = useState<number|null>(null);    // donut hover index
   const [F,   setF]       = useState<Fil>(EF);              // filters incl. sort
   const [fo,  setFo]      = useState(false);                // filter panel open
+  const [search, setSearch] = useState(initialSearch ?? "");  // text search, also set by find-similar
   const [eCat,setECat]    = useState<string|null>(null);    // budget edit cat
   const [eDraft,setEDraft]= useState("");
   const fBtnRef = useRef<HTMLButtonElement>(null);
+  // Sync find-similar search from parent
+  useEffect(() => { if (initialSearch) setSearch(initialSearch); }, [initialSearch]);
   const fPanelRef = useRef<HTMLDivElement>(null);
 
   // FIX 1: Correct outside-click handler — checks both button and panel
@@ -73,6 +77,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const incomeTotal = useMemo(() => Math.abs(pTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Number(t.amount),0)), [pTxns]);
 
   // Category totals
+  // Apply text search (from initialSearch / find-similar)
+  const visibleBeforeSearch = useMemo(() => {
+    if (!search.trim()) return null;
+    const q = search.trim().toLowerCase();
+    return (txns: typeof pTxns) => txns.filter(t => 
+      (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").toLowerCase().includes(q) ||
+      getEffectiveCategory(t).toLowerCase().includes(q)
+    );
+  }, [search, nameOverrides, getEffectiveCategory]);
+
   const catRows = useMemo(() => {
     const m: Record<string,number> = {};
     for (const t of expenses) { const c = getEffectiveCategory(t)??"Other"; m[c]=(m[c]||0)+Number(t.amount); }
@@ -146,8 +160,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
           <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
             <span className="font-semibold shrink-0" style={{color:col}}>{formatCat(cat)}</span>
-            {acc?.name && <><span className="opacity-30">·</span><span className="truncate">{acc.name}</span></>}
-            {showDate && <><span className="opacity-30">·</span><span className="shrink-0 text-[11px]">{rDate(t.date)}</span></>}
+            {showDate && <span className="shrink-0 text-[11px] text-muted-foreground/50">{rDate(t.date)}</span>}
           </div>
         </div>
         <span className={cn("text-[15px] font-bold shrink-0", isIncome ? "text-positive" : "text-foreground")}>
@@ -372,6 +385,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               <span className="text-[12px] text-muted-foreground hidden sm:block tabular">{visible.length}</span>
 
               {/* FIX 1+7: Button has its own ref, panel has its own ref */}
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search transactions…"
+                className="flex-1 h-8 px-3 rounded-full bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-foreground/40 min-w-0"
+              />
               <button ref={fBtnRef} onClick={() => setFo(o => !o)}
                 className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full border text-[12.5px] font-medium transition-all",
                   fo || fc > 0 || F.sort !== "date-desc"
@@ -403,43 +422,32 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   </div>
 
                   <div className="p-4 space-y-4 max-h-[55vh] sm:max-h-[60vh] overflow-y-auto">
-                    {/* Sort */}
-                    <div>
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Sort by</div>
-                      <div className="flex flex-col gap-1">
-                        {SORT_OPTS.map(([key, label]) => {
-                          const act = F.sort === key;
-                          return (
-                            <button key={key} onClick={() => setF(f => ({...f,sort:key}))}
-                              className={cn("h-9 px-3 rounded-xl text-[13px] font-medium border text-left flex items-center justify-between gap-2 transition-all",
-                                act ? "bg-foreground text-background border-foreground" : "border-border/50 text-foreground/80 hover:border-foreground/40 hover:text-foreground")}>
-                              <span>{label}</span>
-                              {act && <Check className="h-3.5 w-3.5 shrink-0"/>}
-                            </button>
-                          );
-                        })}
+                    {/* Sort + Type + Status as dropdowns */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Sort</div>
+                        <select value={F.sort} onChange={e => setF(f => ({...f,sort:e.target.value as Fil["sort"]}))}
+                          className="w-full h-9 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-[12.5px] text-foreground outline-none">
+                          {SORT_OPTS.map(([key,label]) => <option key={key} value={key}>{label}</option>)}
+                        </select>
                       </div>
-                    </div>
-
-                    {/* Type */}
-                    <div>
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Type</div>
-                      <div className="flex gap-1.5">
-                        {(["all","expense","income"] as const).map(v => (
-                          <button key={v} onClick={() => setF(f => ({...f,type:v}))} className={cn("flex-1 h-9 rounded-xl text-[13px] font-medium border transition-all", F.type===v ? "bg-foreground text-background border-foreground" : "border-border/50 text-foreground/80 hover:border-foreground/40")}>
-                            {v==="all"?"All":v==="expense"?"Expenses":"Income"}
-                          </button>
-                        ))}
+                      <div>
+                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Type</div>
+                        <select value={F.type} onChange={e => setF(f => ({...f,type:e.target.value as Fil["type"]}))}
+                          className="w-full h-9 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-[12.5px] text-foreground outline-none">
+                          <option value="all">All</option>
+                          <option value="expense">Expenses</option>
+                          <option value="income">Income</option>
+                        </select>
                       </div>
-                    </div>
-
-                    {/* Status */}
-                    <div>
-                      <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Status</div>
-                      <div className="flex gap-1.5">
-                        {(["all","posted","pending"] as const).map(v => (
-                          <button key={v} onClick={() => setF(f => ({...f,status:v}))} className={cn("flex-1 h-9 rounded-xl text-[13px] font-medium border capitalize transition-all", F.status===v ? "bg-foreground text-background border-foreground" : "border-border/50 text-foreground/80 hover:border-foreground/40")}>{v}</button>
-                        ))}
+                      <div>
+                        <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Status</div>
+                        <select value={F.status} onChange={e => setF(f => ({...f,status:e.target.value as Fil["status"]}))}
+                          className="w-full h-9 px-2.5 rounded-xl bg-muted/40 border border-border/50 text-[12.5px] text-foreground outline-none">
+                          <option value="all">All</option>
+                          <option value="posted">Posted</option>
+                          <option value="pending">Pending</option>
+                        </select>
                       </div>
                     </div>
 
