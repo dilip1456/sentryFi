@@ -6247,6 +6247,7 @@ export const LivePlaidDashboard = ({
           nameOverrides={nameOverrides}
           setBudget={setBudget}
           getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
+          isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
           formatCat={formatCat}
           catColor={catColor}
           onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
