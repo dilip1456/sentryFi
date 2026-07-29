@@ -2236,7 +2236,8 @@ const TxnDetailModal = ({
     return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : null;
   })();
 
-  const [tab, setTab] = useState<"info"|"edit"|"rule"|"obligations">("info");
+  const [tab, setTab] = useState<"info"|"edit"|"obligations">("info");
+  const [ruleOpen, setRuleOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(currentDisplayName);
   const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
@@ -2385,11 +2386,11 @@ const TxnDetailModal = ({
 
           {/* Tab row */}
           <div className="flex gap-1 mt-4 bg-muted/50 rounded-xl p-1">
-            {(["info","edit","rule","obligations"] as const).map(t => (
+            {(["info","edit","obligations"] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={cn("flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-all",
                   tab === t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
-                {t === "info" ? "Details" : t === "edit" ? "Edit" : t === "rule" ? "Rule" : "Obligate"}
+                {t === "info" ? "Details" : t === "edit" ? "Edit" : "Obligate"}
               </button>
             ))}
           </div>
@@ -2400,49 +2401,72 @@ const TxnDetailModal = ({
           {/* ── INFO TAB ── */}
           {tab === "info" && (
             <div className="px-5 pb-5 space-y-3">
-              {/* Category — inline select */}
+
+              {/* Amount + date hero */}
+              <div className="flex items-center justify-between py-3 border-b border-border/20">
+                <div className="min-w-0 mr-3">
+                  <p className="text-[12px] text-muted-foreground">Amount</p>
+                  <p className={cn("text-[22px] font-black leading-tight tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
+                    {isIncome ? "+" : ""}{fmtUSD(Math.abs(Number(txn.amount)))}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-[12px] text-muted-foreground">{txn.pending ? "Pending" : "Posted"}</p>
+                  <p className="text-[13px] font-semibold text-foreground">
+                    {new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Category inline select */}
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
+                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
                 <select
                   value={rawCat ?? "Other"}
                   onChange={e => handleCatSelect(e.target.value, false)}
-                  className="w-full bg-muted/40 border border-border/60 rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50">
-                  {[...ALL_CATEGORIES, ...customCategories.map(c=>c.name)].map(cat => (
+                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+                  {[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)].map(cat => (
                     <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                   ))}
                 </select>
               </div>
 
-              {/* Info rows */}
-              {[
-                ["Merchant", merchant ?? "Unknown"],
-                ["Account", account ? `${account.name}${account.mask ? ` ····${account.mask}` : ""}` : "—"],
-                ["Status", txn.pending ? "Pending" : "Posted"],
-                ["Channel", txn.payment_channel?.replace(/_/g," ") ?? "—"],
-                ...(recurringLabel ? [["Recurring", recurringLabel]] : []),
-                ...(samemerchantTxns.length > 0 ? [[`Past transactions`, `${samemerchantTxns.length} from this merchant`]] : []),
-              ].map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between py-1.5 border-b border-border/10 last:border-0">
-                  <span className="text-[12px] text-muted-foreground">{label}</span>
-                  <span className="text-[12.5px] text-foreground capitalize">{value}</span>
-                </div>
-              ))}
+              {/* Field/value grid — constrained to prevent overflow */}
+              <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
+                {([
+                  ["Merchant",  merchant ?? "—"],
+                  ["Account",   account ? `${account.name ?? ""}${account.mask ? " ··" + account.mask : ""}` : "—"],
+                  ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "—"],
+                  ...(recurringLabel ? [["Recurring", recurringLabel]] : []),
+                  ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
+                ] as [string,string][]).map(([label, value]) => (
+                  <div key={label} className="flex items-center gap-3 px-4 py-2.5 bg-card/50">
+                    <span className="text-[12px] text-muted-foreground w-20 shrink-0">{label}</span>
+                    <span className="text-[12.5px] text-foreground font-medium truncate capitalize flex-1 text-right">{value}</span>
+                  </div>
+                ))}
+              </div>
 
-              {/* Quick actions */}
-              <div className="flex gap-2 pt-2">
+              {/* Quick action row */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
                 <button
                   onClick={() => onToggleInternal(txn.id)}
-                  className={cn("flex-1 py-2 rounded-xl border text-[12px] font-medium transition-colors",
+                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors",
                     (isManualInternal || isAutoInternal) && !isManualExternal
                       ? "border-blue-500/40 text-blue-400 bg-blue-500/8"
                       : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "✓ Internal" : "Mark internal"}
+                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "Internal ✓" : "Internal"}
                 </button>
                 <button
                   onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
                   disabled={!merchant}
-                  className="flex-1 py-2 rounded-xl border border-border/60 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
+                  className="py-2.5 rounded-xl border border-border/60 text-[11.5px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
                   Find similar
+                </button>
+                <button
+                  onClick={() => setRuleOpen(true)}
+                  className="py-2.5 rounded-xl border border-border/60 text-[11.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  + Rule
                 </button>
               </div>
             </div>
@@ -2496,119 +2520,6 @@ const TxnDetailModal = ({
             </div>
           )}
 
-          {/* ── RULE TAB — full if/then builder ── */}
-          {tab === "rule" && (
-            <div className="px-5 pb-5 space-y-4">
-              {/* Rule name */}
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Rule name</label>
-                <input
-                  value={ruleDraft}
-                  onChange={e => setRuleDraft(e.target.value)}
-                  placeholder={`Rule for ${merchant ?? "this transaction"}…`}
-                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] outline-none focus:border-primary/50"
-                />
-              </div>
-
-              {/* IF */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">If</label>
-                  <select
-                    value={txnRuleDraft.match}
-                    onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
-                    className="h-7 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none">
-                    <option value="all">ALL conditions match</option>
-                    <option value="any">ANY condition matches</option>
-                  </select>
-                </div>
-                <ConditionRows
-                  set={txnRuleDraft}
-                  onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))}
-                  accounts={accounts}
-                  categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)]}
-                />
-              </div>
-
-              {/* THEN */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Then</label>
-                  <button
-                    onClick={() => setTxnRuleActions(a => [...a, {type:"set_category",value:""}])}
-                    className="text-[11px] text-primary font-medium">+ Add action</button>
-                </div>
-                <div className="space-y-2">
-                  {txnRuleActions.map((action, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <select
-                        value={action.type}
-                        onChange={e => {
-                          const type = e.target.value as RuleAction["type"];
-                          const next = [...txnRuleActions];
-                          if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
-                          else if (type === "split") next[i] = {type, splits:[{label:"Part 1",amount:0}]} as RuleAction;
-                          else next[i] = {type, value:""} as RuleAction;
-                          setTxnRuleActions(next);
-                        }}
-                        className="h-8 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none shrink-0">
-                        <option value="set_category">Set category</option>
-                        <option value="rename">Rename to</option>
-                        <option value="mark_internal">Mark as internal</option>
-                        <option value="ignore">Ignore / hide</option>
-                        <option value="split">Split into parts</option>
-                      </select>
-                      {action.type === "set_category" && (
-                        <select
-                          value={(action as {type:"set_category";value:string}).value}
-                          onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
-                          className="flex-1 h-8 px-2 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none min-w-0">
-                          <option value="">Pick category…</option>
-                          {[...ALL_CATEGORIES,...customCategories.map(cx=>cx.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
-                        </select>
-                      )}
-                      {action.type === "rename" && (
-                        <input
-                          value={(action as {type:"rename";value:string}).value}
-                          onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
-                          placeholder="New display name…"
-                          className="flex-1 h-8 px-2.5 rounded-lg bg-muted/40 border border-border/50 text-[12px] text-foreground outline-none min-w-0"
-                        />
-                      )}
-                      {action.type === "split" && (
-                        <div className="flex-1 space-y-1 min-w-0">
-                          {(action as {type:"split";splits:{label:string;amount:number}[]}).splits.map((sp,si)=>(
-                            <div key={si} className="flex gap-1 items-center">
-                              <input value={sp.label} onChange={e=>{const n=[...txnRuleActions];(n[i] as any).splits[si]={...sp,label:e.target.value};setTxnRuleActions(n);}} placeholder="Label…" className="flex-1 h-7 px-2 rounded bg-muted/40 border border-border/40 text-[11.5px] outline-none min-w-0"/>
-                              <span className="text-[12px] text-muted-foreground shrink-0">$</span>
-                              <input type="number" value={sp.amount||""} onChange={e=>{const n=[...txnRuleActions];(n[i] as any).splits[si]={...sp,amount:Number(e.target.value)};setTxnRuleActions(n);}} placeholder="0" className="w-16 h-7 px-2 rounded bg-muted/40 border border-border/40 text-[11.5px] outline-none"/>
-                              {si>0&&<button onClick={()=>{const n=[...txnRuleActions];(n[i] as any).splits=(n[i] as any).splits.filter((_:unknown,x:number)=>x!==si);setTxnRuleActions(n);}} className="h-7 w-6 text-negative text-[14px] grid place-items-center shrink-0">×</button>}
-                            </div>
-                          ))}
-                          <button onClick={()=>{const n=[...txnRuleActions];(n[i] as any).splits=[...(n[i] as any).splits,{label:"",amount:0}];setTxnRuleActions(n);}} className="text-[11px] text-primary">+ Add split</button>
-                        </div>
-                      )}
-                      {txnRuleActions.length > 1 && (
-                        <button onClick={() => setTxnRuleActions(a => a.filter((_,x)=>x!==i))} className="h-8 w-7 text-muted-foreground hover:text-negative grid place-items-center shrink-0 mt-0">×</button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (!ruleDraft.trim()) return;
-                  const catAction = txnRuleActions.find(a => a.type === "set_category") as {type:"set_category";value:string}|undefined;
-                  onAddRule(ruleDraft.trim(), catAction?.value ?? rawCat ?? "Other");
-                  onClose();
-                }}
-                disabled={!ruleDraft.trim()}
-                className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40">
-                Save rule
-              </button>
-            </div>
-          )}
 
           {/* ── OBLIGATIONS TAB ── */}
           {tab === "obligations" && (
@@ -2730,6 +2641,92 @@ const TxnDetailModal = ({
             </div>
           )}
         </div>
+
+        {/* ── Rule creation overlay sheet ─────────────────────── */}
+        {ruleOpen && (
+          <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/50 rounded-2xl" onClick={() => setRuleOpen(false)}>
+            <div className="bg-card rounded-t-2xl border-t border-border/40 max-h-[82%] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-center pt-2.5 pb-1 shrink-0">
+                <div className="w-8 h-1 rounded-full bg-muted-foreground/30"/>
+              </div>
+              <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 shrink-0">
+                <p className="text-[15px] font-bold text-foreground">Create rule</p>
+                <button onClick={() => setRuleOpen(false)} className="h-7 w-7 grid place-items-center rounded-full bg-muted/60 text-muted-foreground">
+                  <X className="h-4 w-4"/>
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Rule name</label>
+                  <input value={ruleDraft} onChange={e => setRuleDraft(e.target.value)} placeholder={`Rule for ${merchant ?? "this merchant"}...`}
+                    className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50"/>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">If</label>
+                    <select value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
+                      className="h-7 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none">
+                      <option value="all">ALL match</option>
+                      <option value="any">ANY match</option>
+                    </select>
+                  </div>
+                  <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}/>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Then</label>
+                    <button onClick={() => setTxnRuleActions(a => [...a, {type:"set_category",value:""}])} className="text-[11px] text-primary font-medium">+ Add action</button>
+                  </div>
+                  <div className="space-y-2">
+                    {txnRuleActions.map((action, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <select value={action.type} onChange={e => {
+                          const type = e.target.value as RuleAction["type"];
+                          const next = [...txnRuleActions];
+                          if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
+                          else next[i] = {type, value:""} as RuleAction;
+                          setTxnRuleActions(next);
+                        }} className="h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none shrink-0">
+                          <option value="set_category">Set category</option>
+                          <option value="rename">Rename to</option>
+                          <option value="mark_internal">Mark internal</option>
+                          <option value="ignore">Ignore / hide</option>
+                        </select>
+                        {action.type === "set_category" && (
+                          <select value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
+                            className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
+                            <option value="">Category...</option>
+                            {[...ALL_CATEGORIES,...customCategories.map(cx=>cx.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                          </select>
+                        )}
+                        {action.type === "rename" && (
+                          <input value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
+                            placeholder="New name..." className="flex-1 h-9 px-2.5 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0"/>
+                        )}
+                        {txnRuleActions.length > 1 && (
+                          <button onClick={() => setTxnRuleActions(a => a.filter((_,x)=>x!==i))} className="h-9 w-7 text-muted-foreground hover:text-destructive grid place-items-center shrink-0">
+                            <X className="h-3.5 w-3.5"/>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 py-4 border-t border-border/30 shrink-0">
+                <button onClick={() => {
+                  if (!ruleDraft.trim()) return;
+                  const catAction = txnRuleActions.find(a => a.type === "set_category") as {type:"set_category";value:string}|undefined;
+                  onAddRule(ruleDraft.trim(), catAction?.value ?? rawCat ?? "Other");
+                  setRuleOpen(false);
+                }} disabled={!ruleDraft.trim()} className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-[14px] font-bold disabled:opacity-40">
+                  Save rule
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </DialogContent>
     </Dialog>
   );
