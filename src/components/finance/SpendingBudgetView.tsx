@@ -434,12 +434,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
                     {dur === "day" ? (
                       <div className="flex flex-col items-center leading-none">
-                        <span className={cn("text-[10px] font-bold", isSelected ? "text-primary" : "text-muted-foreground/80")}>{dayNum}</span>
-                        <span className={cn("text-[8px]", isSelected ? "text-primary/70" : "text-muted-foreground/40")}>{monStr}</span>
+                        <span className={cn("text-[10px] font-bold", isSelected ? "text-amber-500 dark:text-amber-400" : "text-muted-foreground/80")}>{dayNum}</span>
+                        <span className={cn("text-[8px]", isSelected ? "text-amber-500/70 dark:text-amber-400/70" : "text-muted-foreground/40")}>{monStr}</span>
                       </div>
                     ) : (
                       <span className={cn("text-[9px] truncate w-full text-center transition-colors",
-                        isSelected ? "text-primary font-bold" : "text-muted-foreground/60 group-hover:text-muted-foreground")}>
+                        isSelected ? "text-amber-500 dark:text-amber-400 font-bold" : "text-muted-foreground/60 group-hover:text-muted-foreground")}>
                         {b.label}
                       </span>
                     )}
@@ -451,7 +451,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* Period label + total */}
           <div className="flex items-baseline justify-between pt-1 pb-2">
             <span className="text-[12px] font-semibold text-foreground">{barSel ? bars.find(b=>b.key===barSel)?.label ?? windowLabel : windowLabel}</span>
-            <span className="text-[12px] text-muted-foreground">{fmtUSD(totalSpent)}{barSel && <span className="text-[10px] text-primary ml-1.5 font-medium">filtered</span>}</span>
+            <span className="text-[12px] text-muted-foreground">{fmtUSD(totalSpent)}{barSel && <span className="text-[10px] text-amber-500 dark:text-amber-400 ml-1.5 font-semibold">filtered</span>}</span>
           </div>
         </div>
       </div>
