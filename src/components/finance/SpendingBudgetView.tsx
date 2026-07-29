@@ -19,6 +19,10 @@ export interface SpendingBudgetViewProps {
   getEffectiveCategory:(t:PTxn)=>string; formatCat:(s:string)=>string;
   catColor:(s:string)=>string; onOpenDetail:(t:PTxn)=>void; internalTxnIds:Set<string>;
   initialSearch?:string;
+  // Classifies a transaction as income/expense by its assigned category
+  // (falling back to the amount's sign only for unclassified categories) so
+  // a refund into an expense category doesn't get counted as income.
+  isIncomeCategory:(cat:string, amount:number)=>boolean;
 }
 
 // ─── Duration ─────────────────────────────────────────────────────────────────
@@ -84,7 +88,7 @@ function fc2(n:number){ const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toF
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory}:SpendingBudgetViewProps) {
 
   const [dur, setDur]     = useState<Duration>("month");
   const [off, setOff]     = useState(0);
@@ -114,21 +118,26 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   // ── Period data ────────────────────────────────────────────────────────
   const { bars, windowLabel } = useMemo(() => getBarPeriods(dur, off), [dur, off]);
+  // Defaults to the most recent bar (the current month/week/day/year) rather
+  // than the whole chart window — otherwise "This month" would silently sum
+  // all 6 months shown in the bar chart instead of just the current one.
   const activePeriod = useMemo(() => {
     if (barSel) { const b = bars.find(b => b.key === barSel); if (b) return { start: b.start, end: b.end }; }
-    return { start: bars[0].start, end: bars[bars.length - 1].end };
+    const cur = bars[bars.length - 1];
+    return { start: cur.start, end: cur.end };
   }, [barSel, bars]);
 
   const windowTxns = useMemo(() => txns.filter(t => t.date >= bars[0].start && t.date <= bars[bars.length-1].end && !internalTxnIds.has(t.id)), [txns, bars, internalTxnIds]);
+  const isExpenseTxn = (t: PTxn) => !isIncomeCategory(getEffectiveCategory(t) ?? "Other", Number(t.amount));
   const barData = useMemo(() => bars.map(b => ({
     key: b.key, label: b.label,
-    spend: windowTxns.filter(t => t.date >= b.start && t.date <= b.end && Number(t.amount) > 0).reduce((s,t) => s+Number(t.amount), 0),
+    spend: windowTxns.filter(t => t.date >= b.start && t.date <= b.end && isExpenseTxn(t)).reduce((s,t) => s+Number(t.amount), 0),
   })), [bars, windowTxns]);
   const maxBar = Math.max(...barData.map(b => b.spend), 1);
 
   const pTxns    = useMemo(() => windowTxns.filter(t => t.date >= activePeriod.start && t.date <= activePeriod.end), [windowTxns, activePeriod]);
-  const expenses = useMemo(() => pTxns.filter(t => Number(t.amount) > 0), [pTxns]);
-  const incomeTotal = useMemo(() => Math.abs(pTxns.filter(t=>Number(t.amount)<0).reduce((s,t)=>s+Number(t.amount),0)), [pTxns]);
+  const expenses = useMemo(() => pTxns.filter(isExpenseTxn), [pTxns]);
+  const incomeTotal = useMemo(() => Math.abs(pTxns.filter(t=>!isExpenseTxn(t)).reduce((s,t)=>s+Number(t.amount),0)), [pTxns]);
 
   const catRows = useMemo(() => {
     const m: Record<string,number> = {};
@@ -159,7 +168,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (sel)            t = t.filter(x => (getEffectiveCategory(x)??"Other") === sel);
     if (F.cats.size>0)  t = t.filter(x => F.cats.has(getEffectiveCategory(x)??"Other"));
     if (F.accts.size>0) t = t.filter(x => F.accts.has(accounts.find(a=>a.account_id===x.account_id)?.name??"Unknown"));
-    if (F.type==="income")   t = [...pTxns.filter(x=>Number(x.amount)<0)];
+    if (F.type==="income")   t = [...pTxns.filter(x=>!isExpenseTxn(x))];
     if (F.status==="pending") t = t.filter(x => x.pending);
     if (F.status==="posted")  t = t.filter(x => !x.pending);
     if (F.min) t = t.filter(x => Number(x.amount) >= parseFloat(F.min));
@@ -205,7 +214,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const cat = getEffectiveCategory(t) ?? "Other";
     const col = catColor(cat);
     const nm  = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
-    const isIncome = Number(t.amount) < 0;
+    const isIncome = isIncomeCategory(cat, Number(t.amount));
     return (
       <div onClick={() => onOpenDetail(t)} className="flex items-center gap-3.5 px-5 py-3.5 cursor-pointer hover:bg-muted/20 active:bg-muted/40 transition-colors border-b border-border/15 last:border-0">
         <div className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[14px] font-bold text-white" style={{background:col}}>
@@ -373,13 +382,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               })}
             </div>
           </div>
-          {/* Compact period label row */}
-          <div className="flex items-center justify-between py-1.5">
+          {/* Compact period label row — the total itself lives in the sidebar/donut
+              just below, so it isn't repeated here */}
+          <div className="flex items-center py-1.5">
             <span className="text-[11.5px] font-semibold text-foreground">
               {barSel ? bars.find(b=>b.key===barSel)?.label ?? windowLabel : windowLabel}
               {barSel && <span className="ml-1.5 text-[10px] text-amber-500 dark:text-amber-400 font-medium">selected</span>}
             </span>
-            <span className="text-[11.5px] font-bold text-foreground tabular">{fc2(totalSpent)}</span>
           </div>
         </div>
       </div>
