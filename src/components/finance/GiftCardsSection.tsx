@@ -26,8 +26,36 @@ type GiftCardRow = Tables<"gift_cards">;
 
 const EXPIRY_WARNING_DAYS = 30;
 
+// Illustrative cards shown only in demo/guest mode — this screen otherwise
+// renders nothing at all for a signed-out visitor since every real card is
+// fetched per-user from Supabase.
+const DEMO_GIFT_CARDS: GiftCardRow[] = [
+  { id: "demo-1", user_id: "demo", brand_name: "Domino's", domain: "dominos.com", logo_url: null, balance: 5.00, card_number: null, card_number_last4: null, pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.dominos.com/en/pages/giftcards/", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
+  { id: "demo-2", user_id: "demo", brand_name: "IKEA", domain: "ikea.com", logo_url: null, balance: 42.41, card_number: null, card_number_last4: "4210", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.ikea.com/us/en/customer-service/gift-card/", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
+  { id: "demo-3", user_id: "demo", brand_name: "Panera Bread", domain: "panerabread.com", logo_url: null, balance: 34.67, card_number: null, card_number_last4: "4608", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.panerabread.com/en-us/giftcards.html", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
+  { id: "demo-4", user_id: "demo", brand_name: "Best Buy", domain: "bestbuy.com", logo_url: null, balance: 80.22, card_number: null, card_number_last4: "5130", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.bestbuy.com/giftcard/online/balancecheck", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
+  { id: "demo-5", user_id: "demo", brand_name: "REI", domain: "rei.com", logo_url: null, balance: 14.17, card_number: null, card_number_last4: "4853", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.rei.com/gift-cards", balance_verified: false, created_at: new Date().toISOString() } as GiftCardRow,
+];
+
 const daysUntil = (dateStr: string): number =>
   Math.ceil((new Date(dateStr + "T00:00:00").getTime() - Date.now()) / 86_400_000);
+
+/** "1 Year, 5 Months, 2 Days" style countdown for the card preview panel. */
+const humanizeCountdown = (dateStr: string): string => {
+  const target = new Date(dateStr + "T00:00:00");
+  const now = new Date();
+  if (target <= now) return "Expired";
+  let years = target.getFullYear() - now.getFullYear();
+  let months = target.getMonth() - now.getMonth();
+  let days = target.getDate() - now.getDate();
+  if (days < 0) { months -= 1; days += new Date(target.getFullYear(), target.getMonth(), 0).getDate(); }
+  if (months < 0) { years -= 1; months += 12; }
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} Year${years!==1?"s":""}`);
+  if (months > 0) parts.push(`${months} Month${months!==1?"s":""}`);
+  if (days > 0 || parts.length === 0) parts.push(`${days} Day${days!==1?"s":""}`);
+  return parts.join(", ");
+};
 
 const expiryStatus = (expiry?: string | null): "expired" | "soon" | null => {
   if (!expiry) return null;
@@ -117,7 +145,7 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   const status = expiryStatus(card.expiry_date);
   return (
     <div
-      className="relative rounded-2xl overflow-hidden flex flex-col aspect-[1.6/1] shadow-[var(--shadow-card)] text-white"
+      className="relative rounded-2xl overflow-hidden flex flex-col aspect-[4/3] md:aspect-[5/6] shadow-[var(--shadow-card)] text-white"
       style={{ background: brandGradient(card.brand_name) }}
     >
       {/* Depth + plastic gloss so it reads as a physical card, not a flat swatch */}
@@ -341,7 +369,7 @@ const CardDetailDialog = ({
   );
 };
 
-export const GiftCardsSection = () => {
+export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const { user } = useAuth();
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -355,7 +383,13 @@ export const GiftCardsSection = () => {
   const draggingRef = useRef(false);
   const startXRef = useRef(0);
 
+  // Guest/demo mode never has a real user, so gift_cards can't be queried —
+  // show illustrative sample cards instead and block every mutation with an
+  // explanatory toast rather than silently failing against Supabase.
+  const demoBlocked = () => toast("Create a free account to manage your gift cards", { description: "This is sample data in demo mode." });
+
   const load = useCallback(async () => {
+    if (demo) { setCards(DEMO_GIFT_CARDS); return; }
     if (!user) return;
     const { data, error } = await supabase
       .from("gift_cards")
@@ -363,7 +397,7 @@ export const GiftCardsSection = () => {
       .order("created_at", { ascending: false });
     if (error) { toast.error("Couldn't load gift cards", { description: error.message }); return; }
     setCards(data ?? []);
-  }, [user]);
+  }, [user, demo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -398,6 +432,7 @@ export const GiftCardsSection = () => {
   }, [cards]);
 
   const removeCard = async (id: string) => {
+    if (demo) { demoBlocked(); return; }
     setRemovingId(id);
     const { error } = await supabase.from("gift_cards").delete().eq("id", id);
     setRemovingId(null);
@@ -407,6 +442,10 @@ export const GiftCardsSection = () => {
   };
 
   const goTo = (i: number) => { if (!cards) return; setActiveIndex(Math.max(0, Math.min(cards.length - 1, i))); };
+
+  const openAdd = () => { if (demo) { demoBlocked(); return; } setAddOpen(true); };
+  const openEdit = (c: GiftCardRow) => { if (demo) { demoBlocked(); return; } setEditCard(c); };
+  const openSpend = (c: GiftCardRow) => { if (demo) { demoBlocked(); return; } setSpendCard(c); };
 
   const onPointerDown = (e: React.PointerEvent) => {
     draggingRef.current = true;
@@ -451,7 +490,7 @@ export const GiftCardsSection = () => {
             </div>
           )}
           <button
-            onClick={() => setAddOpen(true)}
+            onClick={openAdd}
             className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-gold text-[13px] font-semibold hover:opacity-90 transition-opacity shrink-0"
           >
             <Plus className="h-3.5 w-3.5 shrink-0" /> <span>Add</span>
@@ -486,7 +525,7 @@ export const GiftCardsSection = () => {
           <div className="text-[14px] text-foreground font-medium">No gift cards yet</div>
           <div className="text-[13px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
           <button
-            onClick={() => setAddOpen(true)}
+            onClick={openAdd}
             className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[13.5px] font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="h-3.5 w-3.5" /> Add your first gift card
@@ -562,6 +601,14 @@ export const GiftCardsSection = () => {
                     <div className="surface-card p-4 space-y-3">
                       {(card.card_number_last4 || card.pin || card.expiry_date || card.notes) && (
                         <div className="space-y-2 text-[14px]">
+                          {card.expiry_date && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Expires in</span>
+                              <span className={cn("tabular text-[13px] font-medium", status === "expired" ? "text-negative" : status === "soon" ? "text-warning" : "text-foreground")}>
+                                {humanizeCountdown(card.expiry_date)}
+                              </span>
+                            </div>
+                          )}
                           {card.card_number_last4 && (
                             <div className="flex items-center justify-between">
                               <span className="text-muted-foreground">Card number</span>
@@ -580,33 +627,29 @@ export const GiftCardsSection = () => {
                               </div>
                             </div>
                           )}
-                          {card.expiry_date && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">Expires</span>
-                              <span className={cn("tabular", status === "expired" ? "text-negative font-medium" : status === "expiring-soon" ? "text-warning" : "")}>
-                                {new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-                              </span>
-                            </div>
-                          )}
                           {card.notes && <p className="text-muted-foreground text-[13px]">{card.notes}</p>}
                         </div>
                       )}
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setSpendCard(card)}
-                          className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
-                          <MinusCircle className="h-3.5 w-3.5" /> Log spend
+                      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/15">
+                        <button onClick={() => openSpend(card)}
+                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
+                          <MinusCircle className="h-3.5 w-3.5" /> Log Spend
                         </button>
-                        <button onClick={() => setEditCard(card)}
-                          className="h-9 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5">
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        <button onClick={() => openEdit(card)}
+                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
+                          <Pencil className="h-3.5 w-3.5" /> Edit Details
                         </button>
-                        {card.balance_check_url && (
-                          <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                            className="col-span-2 h-9 rounded-lg bg-secondary/50 text-[13px] text-foreground hover:bg-secondary transition-colors flex items-center justify-center gap-1.5">
-                            <ExternalLink className="h-3.5 w-3.5" /> Check balance on {card.brand_name}
-                          </a>
-                        )}
+                        <button onClick={() => openEdit(card)}
+                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
+                          <Trash2 className="h-3.5 w-3.5" /> Manage Balance
+                        </button>
                       </div>
+                      {card.balance_check_url && (
+                        <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
+                          className="block text-center text-[12.5px] text-[hsl(var(--primary))] hover:underline pt-1">
+                          Check balance
+                        </a>
+                      )}
                     </div>
                   </div>
                 );
@@ -681,8 +724,8 @@ export const GiftCardsSection = () => {
           index={detailIndex}
           onIndexChange={(i) => { setDetailIndex(i); goTo(i); }}
           onClose={() => setDetailIndex(null)}
-          onEdit={(c) => { setEditCard(c); setDetailIndex(null); }}
-          onLogSpend={(c) => { setSpendCard(c); setDetailIndex(null); }}
+          onEdit={(c) => { openEdit(c); setDetailIndex(null); }}
+          onLogSpend={(c) => { openSpend(c); setDetailIndex(null); }}
           onRemove={(c) => { removeCard(c.id); setDetailIndex(null); }}
           removingId={removingId}
         />

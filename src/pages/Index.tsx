@@ -574,7 +574,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               />
             )}
 
-            {view === "giftcards" && !guestDemo && <GiftCardsSection />}
+            {view === "giftcards" && <GiftCardsSection demo={guestDemo} />}
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
             <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
