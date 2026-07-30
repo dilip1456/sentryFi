@@ -304,46 +304,48 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     <div className="flex flex-col min-h-full bg-background spending-v2">
 
       {/* ═══ 1. Sticky header ═══════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-sm border-b border-border/60 px-4 md:px-6 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-          <h1 className="font-display text-[22px] md:text-[26px] font-semibold text-foreground tracking-tight">Spending</h1>
-          <div className="flex items-center gap-2">
-            <div className="flex bg-muted/50 rounded-xl p-0.5 gap-0.5">
-              {(["day","week","month","year"] as const).map(d => (
-                <button key={d} disabled
-                  className={cn("px-3 py-1.5 rounded-lg text-[12px] font-semibold capitalize transition-all opacity-40 cursor-default",
-                    d==="month" && "opacity-100 bg-[hsl(var(--primary))] text-primary-foreground")}>
-                  {d}
-                </button>
-              ))}
+      <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-sm border-b border-border/60">
+        <div className="max-w-[1280px] mx-auto px-4 md:px-6 pt-3 pb-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-2.5">
+            <h1 className="font-display text-[19px] md:text-[21px] font-semibold text-foreground tracking-tight">Spending</h1>
+            <div className="flex items-center gap-2">
+              <div className="flex bg-muted/50 rounded-xl p-0.5 gap-0.5">
+                {(["day","week","month","year"] as const).map(d => (
+                  <button key={d} disabled
+                    className={cn("px-2.5 py-1 rounded-lg text-[11.5px] font-semibold capitalize transition-all opacity-40 cursor-default",
+                      d==="month" && "opacity-100 bg-[hsl(var(--primary))] text-primary-foreground")}>
+                    {d}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* 12-month scrubber */}
-        <div className="flex items-end gap-1 h-10">
-          {monthBuckets.map((b,i) => {
-            const spend = overallMonthly[i] ?? 0;
-            const maxM = Math.max(...overallMonthly, 1);
-            const pct = Math.max((spend/maxM)*100, spend>0?8:3);
-            const isSel = i === selIdx;
-            return (
-              <button key={b.key} onClick={() => setMonthOffset(i-lastIdx)}
-                title={`${b.label}: ${fmtUSD(spend)}`}
-                className="flex-1 min-w-0 flex flex-col items-center gap-1 group">
-                <div className="w-full flex items-end" style={{height:26}}>
-                  <div className={cn("w-full rounded-sm transition-all duration-300",
-                    isSel ? "bg-[hsl(var(--primary))]" : i===lastIdx ? "bg-[hsl(var(--primary)/0.4)]" : "bg-[hsl(var(--primary)/0.15)] group-hover:bg-[hsl(var(--primary)/0.3)]")}
-                    style={{height:`${pct}%`}}/>
-                </div>
-                <span className={cn("text-[9.5px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
-              </button>
-            );
-          })}
+          {/* 12-month scrubber — capped width so bars stay a sensible size on wide screens */}
+          <div className="flex items-end gap-1 h-8 max-w-[560px]">
+            {monthBuckets.map((b,i) => {
+              const spend = overallMonthly[i] ?? 0;
+              const maxM = Math.max(...overallMonthly, 1);
+              const pct = Math.max((spend/maxM)*100, spend>0?8:3);
+              const isSel = i === selIdx;
+              return (
+                <button key={b.key} onClick={() => setMonthOffset(i-lastIdx)}
+                  title={`${b.label}: ${fmtUSD(spend)}`}
+                  className="flex-1 min-w-0 flex flex-col items-center gap-0.5 group">
+                  <div className="w-full flex items-end" style={{height:20}}>
+                    <div className={cn("w-full rounded-sm transition-all duration-300",
+                      isSel ? "bg-[hsl(var(--primary))]" : i===lastIdx ? "bg-[hsl(var(--primary)/0.4)]" : "bg-[hsl(var(--primary)/0.15)] group-hover:bg-[hsl(var(--primary)/0.3)]")}
+                      style={{height:`${pct}%`}}/>
+                  </div>
+                  <span className={cn("text-[9px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div className="px-4 md:px-6 py-4 space-y-5">
+      <div className="max-w-[1280px] mx-auto w-full px-4 md:px-6 py-3.5 space-y-3.5">
 
         {/* Active category filter chip */}
         {catSel && (
@@ -356,38 +358,38 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         )}
 
         {/* ═══ 2. Spend Pulse hero ═══════════════════════════════════════════ */}
-        <div className="surface-card p-5 md:p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-6 items-start">
+        <div className="surface-card p-4 md:p-5">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 items-start">
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">
                 {isCurrentMonth ? "This month" : `${new Date(sel.year,sel.monthIdx,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})}`}
               </div>
-              <div className="flex items-baseline gap-3 mt-1 flex-wrap">
-                <div className="font-display text-[42px] md:text-[52px] font-semibold text-foreground tracking-tight leading-none tabular">
+              <div className="flex items-baseline gap-2.5 mt-1 flex-wrap">
+                <div className="font-display text-[28px] md:text-[32px] font-semibold text-foreground tracking-tight leading-none tabular">
                   {fmtUSD(animatedTotal)}
                 </div>
                 {momPct !== null && (
-                  <div className={cn("inline-flex items-center gap-1 h-6 px-2 rounded-full text-[12px] font-semibold",
+                  <div className={cn("inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[11px] font-semibold",
                     momPct>0 ? "bg-negative/10 text-negative" : "bg-positive/10 text-positive")}>
-                    {momPct>0 ? <TrendingUp className="h-3 w-3"/> : <TrendingDown className="h-3 w-3"/>}
+                    {momPct>0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
                     {momPct>0?"+":""}{momPct}% vs last mo
                   </div>
                 )}
               </div>
 
               {totalBudget > 0 && (
-                <div className="mt-4 max-w-md">
-                  <div className="flex items-baseline justify-between text-[12px] mb-1.5">
+                <div className="mt-2.5 max-w-md">
+                  <div className="flex items-baseline justify-between text-[11.5px] mb-1">
                     <span className="text-muted-foreground">Budget</span>
                     <span className="font-semibold tabular text-foreground">{fmtUSD(totalSpent)} <span className="text-muted-foreground font-normal">of {fmtUSD(totalBudget)}</span></span>
                   </div>
-                  <div className="h-2.5 rounded-full bg-muted overflow-hidden relative">
+                  <div className="h-2 rounded-full bg-muted overflow-hidden relative">
                     <div className="h-full rounded-full transition-all duration-700" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--primary))"}}/>
                     {isCurrentMonth && (
                       <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/50" style={{left:`${Math.min(pacePct,100)}%`}} title="Where you should be by today"/>
                     )}
                   </div>
-                  <div className="flex justify-between text-[11px] mt-1">
+                  <div className="flex justify-between text-[10.5px] mt-1">
                     <span className="text-muted-foreground">{Math.round(spentPct)}% used, {Math.round(pacePct)}% through the month</span>
                     <span className={cn("font-medium", totalSpent>totalBudget?"text-negative":"text-positive")}>
                       {totalSpent>totalBudget ? `${fc2(totalSpent-totalBudget)} over` : `${fc2(totalBudget-totalSpent)} left`}
@@ -400,7 +402,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             {/* Pace ring */}
             {isCurrentMonth && totalBudget > 0 && (
               <div className="flex flex-col items-center gap-1 shrink-0 mx-auto lg:mx-0">
-                <svg width="104" height="104" viewBox="0 0 104 104" className="-rotate-90">
+                <svg width="76" height="76" viewBox="0 0 104 104" className="-rotate-90">
                   <circle cx="52" cy="52" r="44" fill="none" stroke="hsl(var(--muted))" strokeWidth="10"/>
                   <circle cx="52" cy="52" r="44" fill="none"
                     stroke={overProjected?"hsl(var(--negative))":"hsl(var(--primary))"} strokeWidth="10" strokeLinecap="round"
@@ -408,12 +410,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     strokeDashoffset={`${2*Math.PI*44*(1-Math.min(projectedSpend/totalBudget,1.4)/1.4)}`}
                     style={{transition:"stroke-dashoffset 900ms ease-out"}}/>
                 </svg>
-                <div className="-mt-[72px] flex flex-col items-center pointer-events-none">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Projected</div>
-                  <div className="text-[16px] font-bold text-foreground tabular">{fc2(projectedSpend)}</div>
+                <div className="-mt-[54px] flex flex-col items-center pointer-events-none">
+                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide">Projected</div>
+                  <div className="text-[13px] font-bold text-foreground tabular">{fc2(projectedSpend)}</div>
                 </div>
-                <div className="mt-[26px] text-[11px] text-muted-foreground text-center max-w-[104px]">
-                  End-of-month pace {overProjected ? <span className="text-negative font-medium">over budget</span> : <span className="text-positive font-medium">on track</span>}
+                <div className="mt-[14px] text-[10px] text-muted-foreground text-center max-w-[90px]">
+                  {overProjected ? <span className="text-negative font-medium">Over budget</span> : <span className="text-positive font-medium">On track</span>}
                 </div>
               </div>
             )}
@@ -421,17 +423,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
           {/* Stat tiles */}
           {isCurrentMonth && (
-            <div className="grid grid-cols-2 gap-3 mt-5 pt-5 border-t border-border/15">
+            <div className="grid grid-cols-2 gap-3 mt-3.5 pt-3.5 border-t border-border/15">
               <div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Safe to spend today</div>
-                <div className="text-[20px] font-display font-semibold text-foreground tabular mt-0.5">
+                <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Safe to spend today</div>
+                <div className="text-[16px] font-display font-semibold text-foreground tabular mt-0.5">
                   {safeToSpendToday !== null ? fmtUSD(safeToSpendToday) : "—"}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{safeToSpendToday!==null ? `${daysLeft} days left this month` : "Set a budget to see this"}</div>
+                <div className="text-[10.5px] text-muted-foreground mt-0.5">{safeToSpendToday!==null ? `${daysLeft} days left this month` : "Set a budget to see this"}</div>
               </div>
               <div>
-                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Committed next 14 days</div>
-                <div className="text-[20px] font-display font-semibold text-foreground tabular mt-0.5">{fmtUSD(committedNext14)}</div>
+                <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Committed next 14 days</div>
+                <div className="text-[16px] font-display font-semibold text-foreground tabular mt-0.5">{fmtUSD(committedNext14)}</div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">{recurring.filter(r=>r.nextDate>=todayStr&&r.nextDate<=in14).length} recurring charge{recurring.filter(r=>r.nextDate>=todayStr&&r.nextDate<=in14).length!==1?"s":""}</div>
               </div>
             </div>
@@ -439,7 +441,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </div>
 
         {/* ═══ 3. Burn runway — swipeable: last 30 days ⇄ next 15 days ═════════ */}
-        <div className="surface-card p-5 md:p-6 overflow-hidden">
+        <div className="surface-card p-4 md:p-5 overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="text-[13px] font-semibold text-foreground">Burn runway</div>
@@ -466,7 +468,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
               {/* ── Card 1: last 30 days ── */}
               <div className="w-full shrink-0">
-                <div ref={chartRef} onMouseMove={onChartMove} onMouseLeave={()=>setScrubDay(null)} className="relative h-44 w-full cursor-crosshair">
+                <div ref={chartRef} onMouseMove={onChartMove} onMouseLeave={()=>setScrubDay(null)} className="relative h-32 w-full cursor-crosshair">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
                     <defs>
                       <linearGradient id="burnFill" x1="0" y1="0" x2="0" y2="1">
@@ -525,7 +527,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
               {/* ── Card 2: next 15 days ── */}
               <div className="w-full shrink-0">
-                <div className="relative h-44 w-full">
+                <div className="relative h-32 w-full">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
                     <defs>
                       <linearGradient id="futureFill" x1="0" y1="0" x2="0" y2="1">
