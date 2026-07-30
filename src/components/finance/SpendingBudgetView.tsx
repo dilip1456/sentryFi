@@ -120,7 +120,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   // ── Recurring charge detection — roughly-monthly merchants over the last 4 months ──
   const recurring = useMemo(() => {
-    const byMerchant: Record<string, { dates:string[]; amounts:number[]; cat:string; label:string }> = {};
+    const byMerchant: Record<string, { dates:string[]; amounts:number[]; cat:string; label:string; accountId:string }> = {};
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-4);
     const cutoffStr = cutoff.toISOString().slice(0,10);
     for (const t of txns) {
@@ -130,11 +130,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const label = (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").trim();
       const key = label.toLowerCase();
       if (!key) continue;
-      if (!byMerchant[key]) byMerchant[key] = { dates:[], amounts:[], cat: getEffectiveCategory(t) ?? "Other", label };
+      if (!byMerchant[key]) byMerchant[key] = { dates:[], amounts:[], cat: getEffectiveCategory(t) ?? "Other", label, accountId: t.account_id };
       byMerchant[key].dates.push(t.date);
       byMerchant[key].amounts.push(Number(t.amount));
+      byMerchant[key].accountId = t.account_id; // keep the most recent occurrence's account
     }
-    const out: { merchant:string; category:string; avgAmount:number; nextDate:string; intervalDays:number }[] = [];
+    const out: { merchant:string; category:string; avgAmount:number; nextDate:string; intervalDays:number; accountId:string }[] = [];
     for (const d of Object.values(byMerchant)) {
       if (d.dates.length < 2) continue;
       const sorted = [...d.dates].sort();
@@ -145,7 +146,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const lastDate = sorted[sorted.length-1];
       const nextDate = new Date(new Date(lastDate+"T00:00:00").getTime() + avgGap*86400000).toISOString().slice(0,10);
       const avgAmount = d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length;
-      out.push({ merchant: d.label, category: d.cat, avgAmount, nextDate, intervalDays: Math.round(avgGap) });
+      out.push({ merchant: d.label, category: d.cat, avgAmount, nextDate, intervalDays: Math.round(avgGap), accountId: d.accountId });
     }
     return out.sort((a,b) => a.nextDate.localeCompare(b.nextDate));
   }, [txns, internalTxnIds, isExpenseTxn, nameOverrides, getEffectiveCategory]);
@@ -156,7 +157,25 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const in14 = new Date(now.getTime() + 14*86400000).toISOString().slice(0,10);
   const in30 = new Date(now.getTime() + 30*86400000).toISOString().slice(0,10);
   const committedNext14 = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in14).reduce((s,r)=>s+r.avgAmount,0);
-  const upcomingCharges = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
+
+  // Walk the upcoming recurring charges in date order, per account, subtracting
+  // each from that account's current balance so we can flag the first point
+  // where a charge would overdraw the account — not just list amounts blind.
+  const upcomingCharges = useMemo(() => {
+    const running: Record<string, number> = {};
+    for (const a of accounts) running[a.account_id] = Number(a.current_balance ?? 0);
+    const items = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
+    return items.map(r => {
+      const acc = accounts.find(a => a.account_id === r.accountId);
+      const balanceBefore = running[r.accountId] ?? null;
+      let balanceAfter: number | null = null;
+      if (balanceBefore !== null) {
+        balanceAfter = balanceBefore - r.avgAmount;
+        running[r.accountId] = balanceAfter;
+      }
+      return { ...r, accountName: acc?.name ?? "Unknown account", balanceAfter, insufficient: balanceAfter !== null && balanceAfter < 0 };
+    });
+  }, [recurring, accounts, todayStr, in30]);
 
   // ── Burn runway: cumulative daily spend this month vs last ───────────────
   const burn = useMemo(() => {
@@ -205,23 +224,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= sel.start && t.date <= sel.end &&
     (!catSel || (getEffectiveCategory(t) ?? "Other") === catSel)
   ), [txns, internalTxnIds, isExpenseTxn, sel, catSel, getEffectiveCategory]);
-
-  const topMerchantByCat = useMemo(() => {
-    const m: Record<string, Record<string,number>> = {};
-    for (const t of txns) {
-      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
-      if (t.date < sel.start || t.date > sel.end) continue;
-      const cat = getEffectiveCategory(t) ?? "Other";
-      const merch = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "Unknown";
-      if (!m[cat]) m[cat] = {};
-      m[cat][merch] = (m[cat][merch]??0) + Number(t.amount);
-    }
-    const out: Record<string,string> = {};
-    for (const [cat, merchants] of Object.entries(m)) {
-      out[cat] = Object.entries(merchants).sort(([,a],[,b])=>b-a)[0]?.[0] ?? "";
-    }
-    return out;
-  }, [txns, internalTxnIds, isExpenseTxn, sel, nameOverrides, getEffectiveCategory]);
 
   const visibleTxns = useMemo(() => {
     let t = [...periodTxns];
@@ -460,88 +462,96 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             {budgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
           </div>
 
-          {/* Upcoming charges rail */}
+          {/* Upcoming charges timeline — dated, with the account's projected
+              balance after each charge so an insufficient-funds risk is
+              visible before it happens, not after. */}
           {upcomingCharges.length > 0 && (
             <div className="mt-5 pt-4 border-t border-border/15">
-              <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming charges</div>
-              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                {upcomingCharges.map(r => {
-                  const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
-                  return (
-                    <div key={r.merchant} className="shrink-0 w-[150px] rounded-xl border border-border/40 bg-muted/20 p-3">
-                      <div className="text-[12.5px] font-semibold text-foreground truncate">{r.merchant}</div>
-                      <div className="text-[14px] font-bold text-foreground tabular mt-1">{fmtUSD(r.avgAmount)}</div>
-                      <div className="text-[11px] text-[hsl(var(--primary))] font-medium mt-0.5">in {Math.max(days,0)} day{days!==1?"s":""}</div>
-                    </div>
-                  );
-                })}
+              <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Upcoming charges</div>
+              <div className="relative pl-4">
+                <div className="absolute left-[3px] top-1 bottom-1 w-px bg-border/40"/>
+                <div className="space-y-3">
+                  {upcomingCharges.map(r => {
+                    const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+                    const dateLabel = new Date(r.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+                    return (
+                      <div key={r.merchant} className="relative pl-4">
+                        <div className={cn("absolute -left-4 top-1.5 h-2 w-2 rounded-full ring-4 ring-card",
+                          r.insufficient ? "bg-negative" : "bg-[hsl(var(--primary))]")}/>
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-start">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[12.5px] font-semibold text-foreground truncate">{r.merchant}</span>
+                              <span className="text-[10.5px] text-muted-foreground tabular shrink-0">{dateLabel} · in {Math.max(days,0)}d</span>
+                              {r.insufficient && (
+                                <span className="text-[9.5px] font-bold text-negative bg-negative/10 px-1.5 py-0.5 rounded-full shrink-0">INSUFFICIENT FUNDS</span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">{r.accountName}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-[13.5px] font-bold text-foreground tabular">{fmtUSD(r.avgAmount)}</div>
+                            {r.balanceAfter !== null && (
+                              <div className={cn("text-[10.5px] tabular mt-0.5 font-medium", r.insufficient ? "text-negative" : "text-muted-foreground")}>
+                                {fmtUSD(r.balanceAfter)} after
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* ═══ 4. Category bento ═════════════════════════════════════════════ */}
-        {catRows.length > 0 && (
-          <div>
-            <div className="text-[13px] font-semibold text-foreground mb-2.5">Categories</div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {catRows.map((c,i) => {
-                const col = catColor(c.cat);
-                const b = budgets[c.cat];
-                const over = !!b && c.spend > b;
-                const scale = Math.max(b??0, c.spend, 1);
-                const trackPct = b ? Math.min((b/scale)*100,100) : 100;
-                const actualPct = Math.min((c.spend/scale)*100,100);
-                const spark = c.sparkline;
-                const sparkMax = Math.max(...spark, 1);
-                const sparkPts = spark.map((v,j) => `${(j/(Math.max(spark.length-1,1)))*100},${100-(v/sparkMax)*90}`).join(" ");
-                const active = catSel === c.cat;
-                return (
-                  <button key={c.cat} onClick={()=>setCatSel(active?null:c.cat)}
-                    style={{animationDelay:`${i*35}ms`}}
-                    className={cn("bento-rise text-left rounded-2xl border p-3.5 transition-colors",
-                      active ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.06)]" : "border-border/40 bg-card hover:border-border-strong")}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-2 w-2 rounded-full shrink-0" style={{background:col}}/>
-                      <span className="text-[12.5px] font-medium text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
-                      {c.mom !== null && (
-                        <span className={cn("text-[10px] font-semibold shrink-0", c.mom>0?"text-negative":"text-positive")}>{c.mom>0?"+":""}{c.mom}%</span>
-                      )}
-                    </div>
-                    <div className="font-display text-[19px] font-semibold text-foreground tabular mt-1.5">{fmtUSD(c.spend)}</div>
-                    {b ? (
-                      <>
-                        <div className="h-1.5 rounded-full bg-border/20 relative mt-2">
+        {/* ═══ 4+5. Three-column split: categories (left, compact + scrollable) ·
+            transactions (center) · top merchants (right) ══════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_260px] gap-4 items-start">
+
+          {/* Categories — small rows, vertically scrollable */}
+          {catRows.length > 0 && (
+            <div className="surface-card overflow-hidden lg:sticky lg:top-[92px]">
+              <div className="px-3.5 py-2.5 border-b border-border/20 text-[12px] font-semibold text-foreground">Categories</div>
+              <div className="max-h-[220px] lg:max-h-[calc(100vh-180px)] overflow-y-auto scrollbar-none divide-y divide-border/10">
+                {catRows.map((c,i) => {
+                  const col = catColor(c.cat);
+                  const b = budgets[c.cat];
+                  const over = !!b && c.spend > b;
+                  const scale = Math.max(b??0, c.spend, 1);
+                  const trackPct = b ? Math.min((b/scale)*100,100) : 100;
+                  const actualPct = Math.min((c.spend/scale)*100,100);
+                  const active = catSel === c.cat;
+                  return (
+                    <button key={c.cat} onClick={()=>setCatSel(active?null:c.cat)}
+                      style={{animationDelay:`${i*25}ms`}}
+                      className={cn("bento-rise block w-full text-left px-3.5 py-2.5 transition-colors",
+                        active ? "bg-[hsl(var(--primary)/0.08)]" : "hover:bg-muted/20")}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-1.5 w-1.5 rounded-full shrink-0" style={{background:col}}/>
+                        <span className="text-[12px] font-medium text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
+                        {c.mom !== null && (
+                          <span className={cn("text-[9.5px] font-semibold shrink-0", c.mom>0?"text-negative":"text-positive")}>{c.mom>0?"+":""}{c.mom}%</span>
+                        )}
+                      </div>
+                      <div className="text-[13px] font-bold text-foreground tabular mt-0.5">{fmtUSD(c.spend)}</div>
+                      {b != null && (
+                        <div className="h-1 rounded-full bg-border/20 relative mt-1.5">
                           <div className="absolute inset-y-0 left-0 rounded-full" style={{width:`${trackPct}%`,background:`${col}30`}}/>
                           <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{width:`${actualPct}%`,background:over?"hsl(var(--negative))":col}}/>
                         </div>
-                        <div className={cn("text-[10.5px] mt-1 font-medium", over?"text-negative":"text-positive")}>
-                          {over ? `${fc2(c.spend-b)} over` : `${fc2(b-c.spend)} left`}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-[10.5px] text-muted-foreground/60 mt-2">No budget set</div>
-                    )}
-                    {topMerchantByCat[c.cat] && (
-                      <div className="text-[10.5px] text-muted-foreground truncate mt-1.5">{topMerchantByCat[c.cat]}</div>
-                    )}
-                    {spark.length > 1 && (
-                      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-5 mt-1.5 opacity-70">
-                        <polyline points={sparkPts} fill="none" stroke={col} strokeWidth="4" vectorEffect="non-scaling-stroke"/>
-                      </svg>
-                    )}
-                  </button>
-                );
-              })}
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ═══ 5. Bottom split: transaction feed + merchant leaderboard ══════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
-
-          {/* Transaction feed */}
-          <div className="surface-card overflow-hidden">
+          {/* Transaction feed — center */}
+          <div className="surface-card overflow-hidden min-w-0">
             <div className="px-4 py-3 border-b border-border/20 sticky top-[92px] z-10 bg-card/95 backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative min-w-0">
@@ -579,13 +589,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             </div>
           </div>
 
-          {/* Merchant leaderboard */}
-          <div className="surface-card p-4">
-            <div className="text-[13px] font-semibold text-foreground mb-3">Top merchants</div>
+          {/* Top spending (merchant leaderboard) — right */}
+          <div className="surface-card p-4 lg:sticky lg:top-[92px]">
+            <div className="text-[13px] font-semibold text-foreground mb-3">Top spending</div>
             {leaderboard.length === 0 ? (
               <div className="text-[12.5px] text-muted-foreground py-4 text-center">No transactions this period.</div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-2.5 max-h-[220px] lg:max-h-[calc(100vh-220px)] overflow-y-auto scrollbar-none pr-1">
                 {leaderboard.map((m,i) => {
                   const maxT = leaderboard[0].total;
                   const pct = Math.max((m.total/maxT)*100, 4);
