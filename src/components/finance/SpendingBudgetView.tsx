@@ -115,6 +115,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const spentPct = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
   const projectedSpend = dayOfMonth > 0 ? (totalSpent / dayOfMonth) * daysInSelMonth : totalSpent;
   const overProjected = totalBudget > 0 && projectedSpend > totalBudget;
+  const PROJECTION_DAYS = 15;
+  // The projection can run past the end of the selected month — the chart's
+  // day span stretches to fit it rather than clipping the forecast off.
+  const chartSpanDays = isCurrentMonth ? Math.max(daysInSelMonth, dayOfMonth + PROJECTION_DAYS) : daysInSelMonth;
+  const monthStartMs = new Date(sel.year, sel.monthIdx, 1).getTime();
   const safeToSpendToday = totalBudget > 0
     ? (daysLeft > 0 ? Math.max(totalBudget - totalSpent, 0) / daysLeft : Math.max(totalBudget - totalSpent, 0))
     : null;
@@ -206,30 +211,31 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return { cumThis, cumPrev };
   }, [txns, internalTxnIds, isExpenseTxn, sel, prevSel, daysInSelMonth]);
 
-  // Projected continuation of the line for the next 7 days — each upcoming
+  // Projected continuation of the line for the next 15 days — each upcoming
   // recurring charge due within that window bumps the running total, so the
-  // graph itself shows what's coming rather than a separate disconnected list.
+  // graph itself shows what's coming rather than a separate disconnected
+  // list. Uses an absolute day-offset from the selected month's start (not
+  // calendar day-of-month) so the projection can run past month-end.
   const projectedTail = useMemo(() => {
     if (!isCurrentMonth) return [];
-    const startDay = dayOfMonth;
-    const endDay = Math.min(startDay + 7, daysInSelMonth);
-    const chargesByDay: Record<number, { amt:number; insufficient:boolean; merchant:string }[]> = {};
+    const startOffset = dayOfMonth - 1;
+    const endOffset = startOffset + PROJECTION_DAYS;
+    const chargesByOffset: Record<number, { amt:number; insufficient:boolean; merchant:string }[]> = {};
     for (const c of upcomingCharges) {
       const d = new Date(c.nextDate+"T00:00:00");
-      if (d.getFullYear()!==sel.year || d.getMonth()!==sel.monthIdx) continue;
-      const day = d.getDate();
-      if (day < startDay || day > endDay) continue;
-      (chargesByDay[day] ??= []).push({ amt: c.avgAmount, insufficient: c.insufficient, merchant: c.merchant });
+      const offset = Math.round((d.getTime() - monthStartMs) / 86400000);
+      if (offset <= startOffset || offset > endOffset) continue;
+      (chargesByOffset[offset] ??= []).push({ amt: c.avgAmount, insufficient: c.insufficient, merchant: c.merchant });
     }
-    let cum = burn.cumThis[startDay-1] ?? 0;
-    const pts: { day:number; cum:number; charges:{amt:number;insufficient:boolean;merchant:string}[] }[] = [{ day:startDay, cum, charges:[] }];
-    for (let d=startDay+1; d<=endDay; d++) {
-      const cs = chargesByDay[d] ?? [];
+    let cum = burn.cumThis[startOffset] ?? 0;
+    const pts: { offset:number; cum:number; charges:{amt:number;insufficient:boolean;merchant:string}[] }[] = [{ offset:startOffset, cum, charges:[] }];
+    for (let o=startOffset+1; o<=endOffset; o++) {
+      const cs = chargesByOffset[o] ?? [];
       cum += cs.reduce((s,c)=>s+c.amt,0);
-      pts.push({ day:d, cum, charges:cs });
+      pts.push({ offset:o, cum, charges:cs });
     }
     return pts;
-  }, [isCurrentMonth, dayOfMonth, daysInSelMonth, upcomingCharges, sel, burn.cumThis]);
+  }, [isCurrentMonth, dayOfMonth, upcomingCharges, monthStartMs, burn.cumThis]);
 
   // One marker per day that actually had a transaction — grouped so same-day
   // charges share a single dot on the line instead of stacking illegibly.
@@ -305,23 +311,29 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const animatedTotal = useCountUp(totalSpent, 900);
 
   // ── Burn runway SVG geometry ──────────────────────────────────────────────
+  // x is addressed by day-offset (0-based from the selected month's start) so
+  // the projected tail can run past month-end without its own coordinate space.
   const CW = 100, CH = 100; // viewBox units — scaled by the SVG's own width/height
   const chartScale = Math.max(...burn.cumThis, ...burn.cumPrev, ...projectedTail.map(p=>p.cum), totalBudget || 0, 1);
-  const xForDay = (day:number) => ((day-1)/(daysInSelMonth-1||1))*CW;
+  const xForOffset = (offset:number) => (offset/(chartSpanDays-1||1))*CW;
+  const xForDay = (day:number) => xForOffset(day-1);
   const yForVal = (v:number) => CH - (v/chartScale)*CH;
-  const pathFor = (arr:number[]) => arr.map((v,i) => `${i===0?"M":"L"}${xForDay(i+1).toFixed(2)},${yForVal(v).toFixed(2)}`).join(" ");
+  const pathFor = (arr:number[]) => arr.map((v,i) => `${i===0?"M":"L"}${xForOffset(i).toFixed(2)},${yForVal(v).toFixed(2)}`).join(" ");
   const thisPath = pathFor(burn.cumThis);
   const prevPath = burn.cumPrev.length ? pathFor(burn.cumPrev) : "";
-  const areaPath = burn.cumThis.length ? `${thisPath} L${CW},${CH} L0,${CH} Z` : "";
+  const areaPath = burn.cumThis.length ? `${thisPath} L${xForOffset(daysInSelMonth-1)},${CH} L0,${CH} Z` : "";
   const budgetY = totalBudget > 0 ? yForVal(totalBudget) : null;
-  const tailPath = projectedTail.length > 1 ? projectedTail.map((p,i) => `${i===0?"M":"L"}${xForDay(p.day).toFixed(2)},${yForVal(p.cum).toFixed(2)}`).join(" ") : "";
+  const tailPath = projectedTail.length > 1 ? projectedTail.map((p,i) => `${i===0?"M":"L"}${xForOffset(p.offset).toFixed(2)},${yForVal(p.cum).toFixed(2)}`).join(" ") : "";
+  const dateForOffset = (offset:number) => new Date(monthStartMs + offset*86400000);
 
   const onChartMove = (e: React.MouseEvent) => {
     if (!chartRef.current) return;
     const rect = chartRef.current.getBoundingClientRect();
     const pct = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    const day = Math.round(pct * (daysInSelMonth-1));
-    setScrubDay(day);
+    const offset = Math.round(pct * (chartSpanDays-1));
+    // Scrubbing only reads historical days — the projected zone has its own dots/tooltips.
+    if (offset >= daysInSelMonth) { setScrubDay(null); return; }
+    setScrubDay(offset);
   };
 
   return (
@@ -501,7 +513,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 <path d={tailPath} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.2" strokeDasharray="1.5,1.5" strokeOpacity="0.7" vectorEffect="non-scaling-stroke"/>
               )}
               {scrubDay !== null && (
-                <line x1={(scrubDay/(daysInSelMonth-1||1))*100} y1="0" x2={(scrubDay/(daysInSelMonth-1||1))*100} y2="100"
+                <line x1={xForOffset(scrubDay)} y1="0" x2={xForOffset(scrubDay)} y2="100"
                   stroke="hsl(var(--foreground))" strokeWidth="0.4" strokeOpacity="0.3" vectorEffect="non-scaling-stroke"/>
               )}
             </svg>
@@ -533,8 +545,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               );
             })}
             {projectedTail.flatMap(p => p.charges.map((c,ci) => {
-              const key = `t${p.day}-${ci}`;
-              const left = (xForDay(p.day)/CW)*100, top = (yForVal(p.cum)/CH)*100;
+              const key = `t${p.offset}-${ci}`;
+              const left = (xForOffset(p.offset)/CW)*100, top = (yForVal(p.cum)/CH)*100;
               const hovered = hoveredDot===key;
               return (
                 <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
@@ -544,7 +556,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
                   {hovered && (
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[180px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none">
-                      <div className="text-[10px] text-muted-foreground">{new Date(sel.year,sel.monthIdx,p.day).toLocaleDateString("en-US",{month:"short",day:"numeric"})}{c.insufficient?" · insufficient funds":""}</div>
+                      <div className="text-[10px] text-muted-foreground">{dateForOffset(p.offset).toLocaleDateString("en-US",{month:"short",day:"numeric"})}{c.insufficient?" · insufficient funds":""}</div>
                       <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", c.insufficient?"text-negative":"text-foreground")}>
                         <span className="truncate">{c.merchant}</span>
                         <span className="tabular shrink-0">{fmtUSD(c.amt)}</span>
@@ -559,7 +571,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>This month</span>
             <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-muted-foreground/50 inline-block"/>Last month</span>
             {budgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
-            {tailPath && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Next 7 days</span>}
+            {tailPath && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Next {PROJECTION_DAYS} days</span>}
           </div>
 
           {/* Upcoming charges — compact horizontal rail (also shown as
