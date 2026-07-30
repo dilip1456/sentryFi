@@ -192,21 +192,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     });
   }, [recurring, accounts, todayStr, in30]);
 
-  // ── Burn runway card 1: rolling last-30-days cumulative spend (real pace
-  // tool, not tied to the month scrubber above) — one point per day, with a
-  // marker on every day that actually had a transaction. ────────────────────
+  // ── Burn runway card 1: cumulative spend for the month selected in the
+  // 12-month scrubber above (day 1 through the last day of that month —
+  // 28/29/30/31 depending on the month), with a marker on every day that
+  // actually had a transaction. ─────────────────────────────────────────────
   const rolling30 = useMemo(() => {
-    const days: { date:string; cum:number; txns:{merchant:string;amount:number}[] }[] = [];
+    const days: { day:number; date:string; cum:number; txns:{merchant:string;amount:number}[] }[] = [];
     let cum = 0;
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate()-i);
-      const iso = d.toISOString().slice(0,10);
+    for (let d = 1; d <= daysInSelMonth; d++) {
+      const iso = `${sel.year}-${String(sel.monthIdx+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
       const dayTxns = txns.filter(t => !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date === iso);
       cum += dayTxns.reduce((s,t)=>s+Number(t.amount),0);
-      days.push({ date: iso, cum, txns: dayTxns.map(t => ({ merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "Unknown", amount: Number(t.amount) })) });
+      days.push({ day:d, date: iso, cum, txns: dayTxns.map(t => ({ merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "Unknown", amount: Number(t.amount) })) });
     }
     return days;
-  }, [txns, internalTxnIds, isExpenseTxn, nameOverrides]);
+  }, [txns, internalTxnIds, isExpenseTxn, sel, daysInSelMonth, nameOverrides]);
 
   // ── Burn runway card 2: projected cumulative spend over the next 15 days
   // from detected recurring charges, each dot dated and colored red if that
@@ -275,20 +275,27 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   // ── Burn runway SVG geometry ──────────────────────────────────────────────
   // x is addressed by day-offset (0-based from the selected month's start) so
-  // Card 1 geometry — 30 fixed points, day index 0..29.
+  // Card 1 geometry — one point per day of the selected month (28-31 points).
   const CW = 100, CH = 100; // viewBox units — scaled by the SVG's own width/height
   const past30Scale = Math.max(...rolling30.map(d=>d.cum), totalBudget || 0, 1);
-  const xForPast = (i:number) => (i/29)*CW;
+  const xForPast = (i:number) => (i/(daysInSelMonth-1||1))*CW;
   const yForPast = (v:number) => CH - (v/past30Scale)*CH;
   const past30Path = rolling30.map((d,i) => `${i===0?"M":"L"}${xForPast(i).toFixed(2)},${yForPast(d.cum).toFixed(2)}`).join(" ");
   const past30Area = rolling30.length ? `${past30Path} L${CW},${CH} L0,${CH} Z` : "";
   const past30BudgetY = totalBudget > 0 ? yForPast(totalBudget) : null;
+  // Date-axis ticks: day 1, every 5th day, and the last day of the month.
+  const past30Ticks = useMemo(() => {
+    const ticks = new Set<number>([1]);
+    for (let d = 5; d < daysInSelMonth; d += 5) ticks.add(d);
+    ticks.add(daysInSelMonth);
+    return [...ticks].sort((a,b)=>a-b);
+  }, [daysInSelMonth]);
 
   const onChartMove = (e: React.MouseEvent) => {
     if (!chartRef.current) return;
     const rect = chartRef.current.getBoundingClientRect();
     const pct = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    setScrubDay(Math.round(pct * 29));
+    setScrubDay(Math.round(pct * (daysInSelMonth-1)));
   };
 
   // Card 2 geometry — x axis is days-from-today (0..PROJECTION_DAYS).
@@ -446,7 +453,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             <div>
               <div className="text-[13px] font-semibold text-foreground">Burn runway</div>
               <div className="text-[11.5px] text-muted-foreground">
-                {runwayIdx===0 ? "Last 30 days, cumulative spend" : "Next 15 days, anticipated charges"}
+                {runwayIdx===0 ? `${new Date(sel.year,sel.monthIdx,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})}, cumulative spend` : "Next 15 days, anticipated charges"}
               </div>
             </div>
             <div className="flex items-center gap-1.5">
@@ -461,7 +468,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             </div>
           </div>
 
-          <div className="relative"
+          <div className="relative overflow-hidden"
             onPointerDown={runwayOnDown} onPointerMove={runwayOnMove} onPointerUp={runwayEndDrag} onPointerCancel={runwayEndDrag}>
             <div className="flex transition-transform duration-300 ease-out"
               style={{transform:`translateX(calc(${-runwayIdx*100}% + ${runwayDragging.current?runwayDragX:0}px))`}}>
@@ -518,7 +525,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground flex-wrap">
+                {/* Date axis — day 1 through the last day of the selected month */}
+                <div className="relative h-4 mt-1">
+                  {past30Ticks.map(d => (
+                    <span key={d} className="absolute -translate-x-1/2 text-[9.5px] text-muted-foreground/60 tabular"
+                      style={{left:`${xForPast(d-1)}%`}}>
+                      {d}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex items-center gap-4 mt-1 text-[10.5px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>Cumulative spend</span>
                   {past30BudgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
                   <span className="ml-auto">Swipe or tap dot to see next 15 days →</span>
