@@ -129,9 +129,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   const windowTxns = useMemo(() => txns.filter(t => t.date >= bars[0].start && t.date <= bars[bars.length-1].end && !internalTxnIds.has(t.id)), [txns, bars, internalTxnIds]);
   const isExpenseTxn = (t: PTxn) => !isIncomeCategory(getEffectiveCategory(t) ?? "Other", Number(t.amount));
+  const isTransferLikeCategory = (cat: string) => /transfer|credit card payment|loan payment/i.test(cat);
   const barData = useMemo(() => bars.map(b => ({
     key: b.key, label: b.label,
-    spend: windowTxns.filter(t => t.date >= b.start && t.date <= b.end && isExpenseTxn(t)).reduce((s,t) => s+Number(t.amount), 0),
+    spend: windowTxns.filter(t => t.date >= b.start && t.date <= b.end && isExpenseTxn(t) && !isTransferLikeCategory(getEffectiveCategory(t) ?? "Other")).reduce((s,t) => s+Number(t.amount), 0),
   })), [bars, windowTxns]);
   const maxBar = Math.max(...barData.map(b => b.spend), 1);
 
@@ -139,11 +140,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const expenses = useMemo(() => pTxns.filter(isExpenseTxn), [pTxns]);
   const incomeTotal = useMemo(() => Math.abs(pTxns.filter(t=>!isExpenseTxn(t)).reduce((s,t)=>s+Number(t.amount),0)), [pTxns]);
 
+  // Paying off your own credit card or moving money between your own accounts
+  // isn't discretionary spending — it shows up as its own category from Plaid
+  // (e.g. "Credit Card Payment", "Transfer Out") but including it here would
+  // double-count money that already left as real spend somewhere else. Real
+  // budgeting apps (Mint, Copilot, Rocket Money) exclude these from spend
+  // totals; the transactions themselves stay fully visible in the ledger below.
+  const realExpenses = useMemo(() => expenses.filter(t => !isTransferLikeCategory(getEffectiveCategory(t) ?? "Other")), [expenses, getEffectiveCategory]);
+  const transferTotal = useMemo(() => expenses.filter(t => isTransferLikeCategory(getEffectiveCategory(t) ?? "Other")).reduce((s,t)=>s+Number(t.amount),0), [expenses, getEffectiveCategory]);
+
   const catRows = useMemo(() => {
     const m: Record<string,number> = {};
-    for (const t of expenses) { const c = getEffectiveCategory(t)??"Other"; m[c]=(m[c]||0)+Number(t.amount); }
+    for (const t of realExpenses) { const c = getEffectiveCategory(t)??"Other"; m[c]=(m[c]||0)+Number(t.amount); }
     return Object.entries(m).sort(([,a],[,b]) => b-a);
-  }, [expenses, getEffectiveCategory]);
+  }, [realExpenses, getEffectiveCategory]);
 
   const totalSpent  = catRows.reduce((s,[,v]) => s+v, 0);
   const totalBudget = Object.values(budgets).reduce((s,v) => s+v, 0);
@@ -240,33 +250,44 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // ── Sidebar content ────────────────────────────────────────────────────
   const SpendingContent = () => (
     <>
-      <div className="px-5 pt-4 pb-0">
-        <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{barSel ? "Selected" : isCur ? "This month" : "Total"}</div>
-        <div className="flex items-baseline gap-2 mt-0.5">
-          <div className="text-[28px] font-black text-foreground tracking-tight leading-none">{fmtUSD(totalSpent)}</div>
-          {incomeTotal > 0 && <div className="text-[12px] text-emerald-400 flex items-center gap-0.5"><TrendingUp className="h-3 w-3"/>+{fc2(incomeTotal)}</div>}
+      <div className="px-5 pt-5 pb-0">
+        <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{barSel ? "Selected period" : isCur ? "This month" : "Total"}</div>
+        <div className="flex items-baseline gap-2 mt-1">
+          <div className="text-[30px] font-black text-foreground tracking-tight leading-none">{fmtUSD(totalSpent)}</div>
         </div>
+        {incomeTotal > 0 && (
+          <div className="text-[12px] text-positive flex items-center gap-1 mt-1.5">
+            <TrendingUp className="h-3 w-3"/>{fmtUSD(incomeTotal)} income this period
+          </div>
+        )}
+        {transferTotal > 0 && (
+          <div className="text-[11px] text-muted-foreground/70 mt-0.5">
+            excludes {fmtUSD(transferTotal)} in transfers &amp; card payments
+          </div>
+        )}
         {totalBudget > 0 && dur === "month" && !barSel && (
-          <div className="mt-2">
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--positive))"}}/>
+          <div className="mt-3">
+            <div className="flex items-baseline justify-between text-[11.5px] mb-1">
+              <span className="text-muted-foreground">Budget</span>
+              <span className={cn("font-semibold tabular", remaining<0?"text-negative":"text-foreground")}>
+                {fmtUSD(totalSpent)} <span className="text-muted-foreground font-normal">of {fmtUSD(totalBudget)}</span>
+              </span>
             </div>
-            {isCur && (
-              <div className="relative h-2">
-                <div className="absolute" style={{left:`${Math.min(pacePct,100)}%`,transform:"translateX(-50%)"}}>
-                  <div className="w-px h-2 bg-muted-foreground/40"/>
-                </div>
-              </div>
-            )}
-            <div className="flex justify-between text-[10.5px] text-muted-foreground mt-0.5">
-              <span>{fmtUSD(totalSpent)} spent</span>
-              <span className={cn(remaining<0?"text-destructive":"")}>{remaining>=0 ? `+${fc2(remaining)} left` : `${fc2(Math.abs(remaining))} over`}</span>
+            <div className="h-2 rounded-full bg-muted overflow-hidden relative">
+              <div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--positive))"}}/>
+              {isCur && (
+                <div className="absolute top-0 bottom-0 w-px bg-foreground/30" style={{left:`${Math.min(pacePct,100)}%`}} title="Today's pace"/>
+              )}
+            </div>
+            <div className="flex justify-between text-[10.5px] mt-1">
+              <span className="text-muted-foreground">{Math.round(spentPct)}% used</span>
+              <span className={cn("font-medium", remaining<0?"text-negative":"text-positive")}>{remaining>=0 ? `${fc2(remaining)} left` : `${fc2(Math.abs(remaining))} over budget`}</span>
             </div>
           </div>
         )}
       </div>
       {donut.length > 0 && (
-        <div className="relative px-2 mt-3" style={{height:170}}>
+        <div className="relative px-2 mt-4" style={{height:170}}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart margin={{top:0,right:0,bottom:0,left:0}}>
               <Pie data={donut} dataKey="value" cx="50%" cy="50%" innerRadius={56} outerRadius={76} paddingAngle={2} startAngle={90} endAngle={-270} stroke="none" onMouseEnter={(_,i)=>setHov(i)} onMouseLeave={()=>setHov(null)}>
@@ -286,32 +307,51 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
         </div>
       )}
-      <div className="mt-1 pb-6">
+      <div className="mt-2 pb-6">
         <button onClick={() => setSel(null)} className={cn("flex items-center gap-2.5 w-full px-5 py-2 text-left transition-colors", !sel?"bg-muted/50":"hover:bg-muted/20")}>
           <div className="w-1 self-stretch rounded-full bg-foreground/15 shrink-0"/>
-          <span className="flex-1 text-[12.5px] font-medium text-foreground">All</span>
+          <span className="flex-1 text-[12.5px] font-medium text-foreground">All categories</span>
           <span className="text-[12.5px] font-bold text-foreground">{fmtUSD(totalSpent)}</span>
         </button>
         {catRows.map(([cat,spent]) => {
-          const col=catColor(cat), act=sel===cat, b=budgets[cat], over=b&&spent>b, isEd=eCat===cat;
+          const col=catColor(cat), act=sel===cat, b=budgets[cat], over=!!b&&spent>b, isEd=eCat===cat;
+          // Footprint bar: translucent track marks the budget, solid fill shows
+          // actual spend — the solid overtakes the track once spend exceeds budget.
+          const scale = Math.max(b??0, spent, 1);
+          const trackPct = b ? Math.min((b/scale)*100,100) : 100;
+          const actualPct = Math.min((spent/scale)*100,100);
           return (
-            <button key={cat} onClick={() => setSel(act?null:cat)}
-              className={cn("flex items-center gap-2.5 w-full px-5 py-2 text-left border-t border-border/15 transition-colors",act?"bg-muted/50":"hover:bg-muted/20")}>
-              <div className="w-1 self-stretch rounded-full shrink-0" style={{background:col,minHeight:20}}/>
-              <span className="flex-1 text-[12.5px] font-medium text-foreground truncate">{formatCat(cat)}</span>
-              <div className="text-right shrink-0 ml-1">
-                <div className="text-[12.5px] font-bold" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(spent)}</div>
-                {b && <div className="text-[10px] text-muted-foreground">{fc2(b)}</div>}
-                {!b && !isEd && <button onClick={e=>{e.stopPropagation();setECat(cat);setEDraft("");}} className="text-[10px] text-primary/70">+ budget</button>}
-                {isEd && (
-                  <form onSubmit={e=>{e.preventDefault();e.stopPropagation();const n=parseFloat(eDraft);if(!isNaN(n)&&n>=0)setBudget(cat,n);setECat(null);}} onClick={e=>e.stopPropagation()} className="flex items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground">$</span>
-                    <input autoFocus value={eDraft} onChange={e=>setEDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setECat(null);}} type="number" min="0" className="w-12 h-5 px-1 rounded bg-muted border border-foreground/30 text-[10px] outline-none"/>
-                    <button type="submit" className="text-[10px] text-emerald-500 font-bold">OK</button>
-                  </form>
+            <div key={cat} role="button" tabIndex={0} onClick={() => setSel(act?null:cat)}
+              onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setSel(act?null:cat);}}}
+              className={cn("block w-full text-left px-5 py-2 border-t border-border/15 transition-colors cursor-pointer",act?"bg-muted/50":"hover:bg-muted/20")}>
+              <div className="flex items-center gap-2.5">
+                <div className="h-2 w-2 rounded-full shrink-0" style={{background:col}}/>
+                <span className="flex-1 text-[12.5px] font-medium text-foreground truncate">{formatCat(cat)}</span>
+                <span className="text-[12.5px] font-bold tabular" style={{color:over?"hsl(var(--negative))":"hsl(var(--foreground))"}}>{fmtUSD(spent)}</span>
+                {b ? (
+                  <span className="text-[10.5px] text-muted-foreground tabular shrink-0">/{fc2(b)}</span>
+                ) : !isEd && (
+                  <button onClick={e=>{e.stopPropagation();setECat(cat);setEDraft("");}}
+                    className="text-[10.5px] font-medium text-[hsl(var(--primary))] hover:underline shrink-0">+ Budget</button>
                 )}
               </div>
-            </button>
+              {b != null && (
+                <div className="h-1.5 rounded-full bg-border/20 relative mt-1.5 ml-[18px]">
+                  <div className="absolute inset-y-0 left-0 rounded-full" style={{width:`${trackPct}%`,background:`${col}30`}}/>
+                  <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{width:`${actualPct}%`,background:over?"hsl(var(--negative))":col}}/>
+                </div>
+              )}
+              {isEd && (
+                <form onSubmit={e=>{e.preventDefault();e.stopPropagation();const n=parseFloat(eDraft);if(!isNaN(n)&&n>=0)setBudget(cat,n);setECat(null);}}
+                  onClick={e=>e.stopPropagation()} className="flex items-center gap-1.5 mt-1.5 ml-[18px]">
+                  <span className="text-[11px] text-muted-foreground">$</span>
+                  <input autoFocus value={eDraft} onChange={e=>setEDraft(e.target.value)} onKeyDown={e=>{if(e.key==="Escape")setECat(null);}} type="number" min="0"
+                    className="w-16 h-6 px-1.5 rounded-md bg-muted border border-[hsl(var(--primary)/0.4)] text-[11px] outline-none"/>
+                  <button type="submit" className="text-[11px] font-semibold text-[hsl(var(--primary))]">Set</button>
+                  <button type="button" onClick={()=>setECat(null)} className="text-[11px] text-muted-foreground">Cancel</button>
+                </form>
+              )}
+            </div>
           );
         })}
       </div>
@@ -324,32 +364,37 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     <div className="flex flex-col min-h-full bg-background">
 
       {/* Duration + nav + bar chart */}
-      <div className="bg-card border-b border-border/60 px-4 pt-3 pb-0">
-        <div className="flex items-center justify-between mb-2.5">
+      <div className="bg-card border-b border-border/60 px-4 md:px-5 pt-4 pb-0">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex bg-muted/50 rounded-xl p-0.5 gap-0.5">
             {(["day","week","month","year"] as Duration[]).map(d => (
               <button key={d} onClick={() => { setDur(d); setOff(0); }}
-                className={cn("px-3 py-1.5 rounded-lg text-[12px] font-semibold capitalize transition-all",
-                  dur===d?"bg-card shadow text-foreground":"text-muted-foreground hover:text-foreground")}>
+                className={cn("px-3.5 py-1.5 rounded-lg text-[12.5px] font-semibold capitalize transition-all",
+                  dur===d?"bg-[hsl(var(--primary))] text-primary-foreground shadow-sm":"text-muted-foreground hover:text-foreground")}>
                 {d}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setOff(o=>o-1)} className="h-7 w-7 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground transition-colors">
-              <ChevronLeft className="h-3.5 w-3.5"/>
-            </button>
-            <button onClick={() => setOff(o=>Math.min(o+1,0))} disabled={off>=0}
-              className="h-7 w-7 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground transition-colors disabled:opacity-25">
-              <ChevronRight className="h-3.5 w-3.5"/>
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-foreground hidden sm:inline">
+              {barSel ? bars.find(b=>b.key===barSel)?.label ?? windowLabel : windowLabel}
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setOff(o=>o-1)} className="h-7 w-7 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+                <ChevronLeft className="h-3.5 w-3.5"/>
+              </button>
+              <button onClick={() => setOff(o=>Math.min(o+1,0))} disabled={off>=0}
+                className="h-7 w-7 rounded-full border border-border/60 grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-25">
+                <ChevronRight className="h-3.5 w-3.5"/>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Bar chart */}
-        <div className="pb-1">
+        <div className="pb-2.5">
           <div className={dur==="day" ? "overflow-x-auto scrollbar-none" : ""}>
-            <div className={cn("flex items-end gap-1", dur==="day"?"h-20":"h-[52px]")}
+            <div className={cn("flex items-end gap-1.5", dur==="day"?"h-20":"h-14")}
               style={dur==="day" ? {minWidth: barData.length*36} : {}}>
               {barData.map(b => {
                 const pct = b.spend/maxBar;
@@ -358,22 +403,23 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 const [dayNum,monStr] = b.label.split("/");
                 return (
                   <button key={b.key} onClick={() => setBarSel(p=>p===b.key?null:b.key)}
-                    className={cn("flex flex-col items-center gap-0.5 group", dur==="day"?"w-8 shrink-0":"flex-1 min-w-0")}>
-                    <div className="w-full flex items-end" style={{height: dur==="day"?52:40}}>
-                      <div className={cn("w-full rounded-t transition-all duration-200",
-                        isSel ? "bg-amber-400 dark:bg-amber-400" :
-                        isCurBar ? "bg-primary/60" :
-                        b.spend>0 ? "bg-primary/25 group-hover:bg-primary/40" : "bg-border/25")}
-                        style={{height: b.spend>0 ? `${Math.max(pct*100,7)}%` : "4px"}}/>
+                    title={fmtUSD(b.spend)}
+                    className={cn("flex flex-col items-center gap-1 group", dur==="day"?"w-8 shrink-0":"flex-1 min-w-0")}>
+                    <div className="w-full flex items-end" style={{height: dur==="day"?52:36}}>
+                      <div className={cn("w-full rounded-md transition-all duration-200",
+                        isSel ? "bg-[hsl(var(--primary))]" :
+                        isCurBar ? "bg-[hsl(var(--primary)/0.45)]" :
+                        b.spend>0 ? "bg-[hsl(var(--primary)/0.18)] group-hover:bg-[hsl(var(--primary)/0.32)]" : "bg-border/30")}
+                        style={{height: b.spend>0 ? `${Math.max(pct*100,10)}%` : "4px"}}/>
                     </div>
                     {dur==="day" ? (
                       <div className="flex flex-col items-center leading-none gap-px">
-                        <span className={cn("text-[10px] font-bold", isSel?"text-amber-500 dark:text-amber-400":"text-muted-foreground/80")}>{dayNum}</span>
-                        <span className={cn("text-[8px]", isSel?"text-amber-400/70":"text-muted-foreground/40")}>{monStr}</span>
+                        <span className={cn("text-[10px] font-bold", isSel?"text-[hsl(var(--primary))]":"text-muted-foreground/80")}>{dayNum}</span>
+                        <span className={cn("text-[8px]", isSel?"text-[hsl(var(--primary)/0.7)]":"text-muted-foreground/40")}>{monStr}</span>
                       </div>
                     ) : (
-                      <span className={cn("text-[9px] truncate w-full text-center",
-                        isSel?"text-amber-500 dark:text-amber-400 font-bold":"text-muted-foreground/60 group-hover:text-muted-foreground")}>
+                      <span className={cn("text-[10px] truncate w-full text-center font-medium",
+                        isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/70 group-hover:text-muted-foreground")}>
                         {b.label}
                       </span>
                     )}
@@ -382,14 +428,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               })}
             </div>
           </div>
-          {/* Compact period label row — the total itself lives in the sidebar/donut
-              just below, so it isn't repeated here */}
-          <div className="flex items-center py-1.5">
-            <span className="text-[11.5px] font-semibold text-foreground">
-              {barSel ? bars.find(b=>b.key===barSel)?.label ?? windowLabel : windowLabel}
-              {barSel && <span className="ml-1.5 text-[10px] text-amber-500 dark:text-amber-400 font-medium">selected</span>}
-            </span>
-          </div>
+          {barSel && (
+            <div className="flex items-center justify-center gap-1.5 pb-2 pt-1">
+              <span className="text-[11px] text-[hsl(var(--primary))] font-semibold">Viewing {bars.find(b=>b.key===barSel)?.label}</span>
+              <button onClick={()=>setBarSel(null)} className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">reset</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -405,36 +449,39 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         <div className="flex-1 min-w-0">
 
           {/* Toolbar */}
-          <div className="px-4 md:px-5 pt-2 pb-0 border-b border-border/20 bg-card/95 backdrop-blur-sm sticky top-0 z-20">
-            <div className="flex items-center gap-2 pb-2">
+          <div className="px-4 md:px-5 pt-3 pb-0 border-b border-border/20 bg-card/95 backdrop-blur-sm sticky top-0 z-20">
+            <div className="flex items-center gap-2 pb-3">
               <div className="flex-1 relative min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Search..."
-                  className="w-full h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-primary/50"
+                  placeholder="Search transactions..."
+                  className="w-full h-9 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] transition-colors"
                 />
               </div>
-              <span className="text-[11.5px] text-muted-foreground tabular shrink-0 min-w-[24px] text-center">{visible.length}</span>
+              <span className="text-[12px] text-muted-foreground tabular shrink-0 hidden sm:inline">{visible.length} txns</span>
               {/* Sort: field + direction */}
-              <div className="flex items-center gap-1 shrink-0">
+              <div className="flex items-center shrink-0">
                 <select value={F.sortField} onChange={e=>setF(f=>({...f,sortField:e.target.value as SortField}))}
-                  className="h-8 pl-2 pr-1 rounded-l-xl border border-r-0 border-border/60 bg-muted/40 text-[11.5px] text-foreground outline-none appearance-none">
+                  title="Sort by" aria-label="Sort by"
+                  className="h-9 pl-3 pr-1.5 rounded-l-xl border border-r-0 border-border/60 bg-muted/40 text-[12.5px] font-medium text-foreground outline-none appearance-none cursor-pointer">
                   <option value="date">Date</option>
                   <option value="amount">Amount</option>
                   <option value="name">Name</option>
                 </select>
                 <button onClick={() => setF(f=>({...f,sortDir:f.sortDir==="desc"?"asc":"desc"}))}
-                  className="h-8 w-8 rounded-r-xl border border-border/60 bg-muted/40 grid place-items-center text-muted-foreground hover:text-foreground transition-colors">
+                  title={F.sortDir==="desc"?"Descending":"Ascending"}
+                  className="h-9 w-9 rounded-r-xl border border-border/60 bg-muted/40 grid place-items-center text-muted-foreground hover:text-foreground transition-colors">
                   {F.sortDir==="desc" ? <ArrowDown className="h-3.5 w-3.5"/> : <ArrowUp className="h-3.5 w-3.5"/>}
                 </button>
               </div>
               <button ref={fBtnRef} onClick={() => setFo(o=>!o)}
-                className={cn("flex items-center gap-1 h-8 px-2.5 rounded-xl border text-[12px] font-medium transition-all shrink-0",
-                  fo||fc>0 ? "bg-primary text-primary-foreground border-primary" : "border-border/60 text-muted-foreground hover:text-foreground")}>
+                className={cn("flex items-center gap-1.5 h-9 px-3 rounded-xl border text-[12.5px] font-medium transition-all shrink-0",
+                  fo||fc>0 ? "bg-[hsl(var(--primary))] text-primary-foreground border-[hsl(var(--primary))]" : "border-border/60 text-muted-foreground hover:text-foreground")}>
                 <SlidersHorizontal className="h-3.5 w-3.5"/>
-                {fc>0 && <span className="text-[11px]">{fc}</span>}
+                <span className="hidden sm:inline">Filter</span>
+                {fc>0 && <span className="text-[11px] font-bold">{fc}</span>}
               </button>
             </div>
 
@@ -537,7 +584,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   </div>
                 </div>
                 <div className="px-4 py-3 border-t border-border/30 shrink-0">
-                  <button onClick={() => setFo(false)} className="w-full h-10 rounded-xl bg-foreground text-background text-[13px] font-bold">
+                  <button onClick={() => setFo(false)} className="w-full h-10 rounded-xl bg-[hsl(var(--primary))] text-primary-foreground text-[13px] font-bold">
                     Show {visible.length} {visible.length===1?"result":"results"}
                   </button>
                 </div>
@@ -563,7 +610,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               const dayTotal = txns.reduce((s:number,t:PTxn) => s+Number(t.amount), 0);
               return (
                 <div key={date}>
-                  <div className="px-5 py-1.5 bg-muted/20 border-b border-border/15 flex items-center justify-between sticky top-[57px] z-10">
+                  <div className="px-5 py-1.5 bg-muted/20 border-b border-border/15 flex items-center justify-between sticky top-[64px] z-10">
                     <span className="text-[12px] font-semibold text-foreground">{rDate(date)}</span>
                     <span className="text-[11.5px] text-muted-foreground tabular">{fmtUSD(dayTotal)}</span>
                   </div>
