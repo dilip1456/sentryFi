@@ -205,6 +205,41 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return { cumThis, cumPrev };
   }, [txns, internalTxnIds, isExpenseTxn, sel, prevSel, daysInSelMonth]);
 
+  // Projected continuation of the line for the next 7 days — each upcoming
+  // recurring charge due within that window bumps the running total, so the
+  // graph itself shows what's coming rather than a separate disconnected list.
+  const projectedTail = useMemo(() => {
+    if (!isCurrentMonth) return [];
+    const startDay = dayOfMonth;
+    const endDay = Math.min(startDay + 7, daysInSelMonth);
+    const chargesByDay: Record<number, { amt:number; insufficient:boolean; merchant:string }[]> = {};
+    for (const c of upcomingCharges) {
+      const d = new Date(c.nextDate+"T00:00:00");
+      if (d.getFullYear()!==sel.year || d.getMonth()!==sel.monthIdx) continue;
+      const day = d.getDate();
+      if (day < startDay || day > endDay) continue;
+      (chargesByDay[day] ??= []).push({ amt: c.avgAmount, insufficient: c.insufficient, merchant: c.merchant });
+    }
+    let cum = burn.cumThis[startDay-1] ?? 0;
+    const pts: { day:number; cum:number; charges:{amt:number;insufficient:boolean;merchant:string}[] }[] = [{ day:startDay, cum, charges:[] }];
+    for (let d=startDay+1; d<=endDay; d++) {
+      const cs = chargesByDay[d] ?? [];
+      cum += cs.reduce((s,c)=>s+c.amt,0);
+      pts.push({ day:d, cum, charges:cs });
+    }
+    return pts;
+  }, [isCurrentMonth, dayOfMonth, daysInSelMonth, upcomingCharges, sel, burn.cumThis]);
+
+  // Largest individual transactions this month — marked directly on the line
+  // rather than buried in the feed below.
+  const majorTxnMarkers = useMemo(() => {
+    const monthTxns = txns.filter(t => !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date>=sel.start && t.date<=sel.end);
+    return [...monthTxns].sort((a,b)=>Number(b.amount)-Number(a.amount)).slice(0,4).map(t => {
+      const day = isoDay(t.date);
+      return { day, cum: burn.cumThis[day-1] ?? 0, amount: Number(t.amount), merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "" };
+    });
+  }, [txns, internalTxnIds, isExpenseTxn, sel, burn.cumThis, nameOverrides]);
+
   // ── Category rows for the selected month ──────────────────────────────────
   const catRows = useMemo(() => {
     return Object.entries(catMonthlyTotals)
@@ -260,16 +295,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   // ── Burn runway SVG geometry ──────────────────────────────────────────────
   const CW = 100, CH = 100; // viewBox units — scaled by the SVG's own width/height
-  const chartScale = Math.max(...burn.cumThis, ...burn.cumPrev, totalBudget || 0, 1);
-  const pathFor = (arr:number[]) => arr.map((v,i) => {
-    const x = (i/(daysInSelMonth-1||1))*CW;
-    const y = CH - (v/chartScale)*CH;
-    return `${i===0?"M":"L"}${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(" ");
+  const chartScale = Math.max(...burn.cumThis, ...burn.cumPrev, ...projectedTail.map(p=>p.cum), totalBudget || 0, 1);
+  const xForDay = (day:number) => ((day-1)/(daysInSelMonth-1||1))*CW;
+  const yForVal = (v:number) => CH - (v/chartScale)*CH;
+  const pathFor = (arr:number[]) => arr.map((v,i) => `${i===0?"M":"L"}${xForDay(i+1).toFixed(2)},${yForVal(v).toFixed(2)}`).join(" ");
   const thisPath = pathFor(burn.cumThis);
   const prevPath = burn.cumPrev.length ? pathFor(burn.cumPrev) : "";
   const areaPath = burn.cumThis.length ? `${thisPath} L${CW},${CH} L0,${CH} Z` : "";
-  const budgetY = totalBudget > 0 ? CH - (totalBudget/chartScale)*CH : null;
+  const budgetY = totalBudget > 0 ? yForVal(totalBudget) : null;
+  const tailPath = projectedTail.length > 1 ? projectedTail.map((p,i) => `${i===0?"M":"L"}${xForDay(p.day).toFixed(2)},${yForVal(p.cum).toFixed(2)}`).join(" ") : "";
 
   const onChartMove = (e: React.MouseEvent) => {
     if (!chartRef.current) return;
@@ -450,58 +484,59 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 <path d={thisPath} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.4" vectorEffect="non-scaling-stroke"
                   strokeDasharray="500" strokeDashoffset="0" className="burn-draw-in"/>
               )}
+              {/* Projected next-7-days continuation — dashed, bumps at each
+                  upcoming recurring charge so it reads as "what's coming". */}
+              {tailPath && (
+                <path d={tailPath} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.2" strokeDasharray="1.5,1.5" strokeOpacity="0.7" vectorEffect="non-scaling-stroke"/>
+              )}
+              {projectedTail.flatMap(p => p.charges.map((c,ci) => (
+                <circle key={`${p.day}-${ci}`} cx={xForDay(p.day)} cy={yForVal(p.cum)} r="1.6"
+                  fill={c.insufficient ? "hsl(var(--negative))" : "hsl(var(--primary))"} stroke="hsl(var(--card))" strokeWidth="0.6">
+                  <title>{c.merchant}: {fmtUSD(c.amt)} on day {p.day}{c.insufficient?" — insufficient funds":""}</title>
+                </circle>
+              )))}
+              {/* Largest individual transactions this month, marked on the line */}
+              {majorTxnMarkers.map((m,i) => (
+                <circle key={i} cx={xForDay(m.day)} cy={yForVal(m.cum)} r="1.4" fill="hsl(var(--card))" stroke="hsl(var(--primary))" strokeWidth="0.8">
+                  <title>{m.merchant}: {fmtUSD(m.amount)}</title>
+                </circle>
+              ))}
               {scrubDay !== null && (
                 <line x1={(scrubDay/(daysInSelMonth-1||1))*100} y1="0" x2={(scrubDay/(daysInSelMonth-1||1))*100} y2="100"
                   stroke="hsl(var(--foreground))" strokeWidth="0.4" strokeOpacity="0.3" vectorEffect="non-scaling-stroke"/>
               )}
             </svg>
           </div>
-          <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground">
+          <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>This month</span>
             <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-muted-foreground/50 inline-block"/>Last month</span>
             {budgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
+            {tailPath && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Next 7 days</span>}
           </div>
 
-          {/* Upcoming charges timeline — dated, with the account's projected
-              balance after each charge so an insufficient-funds risk is
-              visible before it happens, not after. */}
+          {/* Upcoming charges — compact horizontal rail (also shown as
+              markers on the graph above) */}
           {upcomingCharges.length > 0 && (
             <div className="mt-5 pt-4 border-t border-border/15">
-              <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-3">Upcoming charges</div>
-              <div className="relative pl-4">
-                <div className="absolute left-[3px] top-1 bottom-1 w-px bg-border/40"/>
-                <div className="space-y-3">
-                  {upcomingCharges.map(r => {
-                    const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
-                    const dateLabel = new Date(r.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
-                    return (
-                      <div key={r.merchant} className="relative pl-4">
-                        <div className={cn("absolute -left-4 top-1.5 h-2 w-2 rounded-full ring-4 ring-card",
-                          r.insufficient ? "bg-negative" : "bg-[hsl(var(--primary))]")}/>
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-start">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[12.5px] font-semibold text-foreground truncate">{r.merchant}</span>
-                              <span className="text-[10.5px] text-muted-foreground tabular shrink-0">{dateLabel} · in {Math.max(days,0)}d</span>
-                              {r.insufficient && (
-                                <span className="text-[9.5px] font-bold text-negative bg-negative/10 px-1.5 py-0.5 rounded-full shrink-0">INSUFFICIENT FUNDS</span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">{r.accountName}</div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <div className="text-[13.5px] font-bold text-foreground tabular">{fmtUSD(r.avgAmount)}</div>
-                            {r.balanceAfter !== null && (
-                              <div className={cn("text-[10.5px] tabular mt-0.5 font-medium", r.insufficient ? "text-negative" : "text-muted-foreground")}>
-                                {fmtUSD(r.balanceAfter)} after
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming charges</div>
+              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+                {upcomingCharges.map(r => {
+                  const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+                  return (
+                    <div key={r.merchant} className={cn("shrink-0 w-[150px] rounded-xl border p-3",
+                      r.insufficient ? "border-negative/40 bg-negative/5" : "border-border/40 bg-muted/20")}>
+                      <div className="text-[12.5px] font-semibold text-foreground truncate">{r.merchant}</div>
+                      <div className="text-[11px] text-muted-foreground truncate mt-0.5">{r.accountName}</div>
+                      <div className="text-[14px] font-bold text-foreground tabular mt-1">{fmtUSD(r.avgAmount)}</div>
+                      <div className="text-[11px] text-[hsl(var(--primary))] font-medium mt-0.5">in {Math.max(days,0)} day{days!==1?"s":""}</div>
+                      {r.insufficient ? (
+                        <div className="text-[10px] font-bold text-negative mt-1">Insufficient funds</div>
+                      ) : r.balanceAfter !== null && (
+                        <div className="text-[10px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -509,7 +544,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
         {/* ═══ 4+5. Three-column split: categories (left, compact + scrollable) ·
             transactions (center) · top merchants (right) ══════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_260px] gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_240px] gap-4 items-start">
 
           {/* Categories — small rows, vertically scrollable */}
           {catRows.length > 0 && (
