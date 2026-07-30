@@ -70,6 +70,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [sortDesc, setSortDesc] = useState(true);
   const [sortBy, setSortBy] = useState<"date"|"amount">("date");
   const [scrubDay, setScrubDay] = useState<number|null>(null);
+  const [hoveredDot, setHoveredDot] = useState<string|null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (initialSearch !== undefined) setSearch(initialSearch); }, [initialSearch]);
@@ -230,14 +231,24 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return pts;
   }, [isCurrentMonth, dayOfMonth, daysInSelMonth, upcomingCharges, sel, burn.cumThis]);
 
-  // Largest individual transactions this month — marked directly on the line
-  // rather than buried in the feed below.
-  const majorTxnMarkers = useMemo(() => {
-    const monthTxns = txns.filter(t => !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date>=sel.start && t.date<=sel.end);
-    return [...monthTxns].sort((a,b)=>Number(b.amount)-Number(a.amount)).slice(0,4).map(t => {
+  // One marker per day that actually had a transaction — grouped so same-day
+  // charges share a single dot on the line instead of stacking illegibly.
+  const dayTxnMarkers = useMemo(() => {
+    const byDay: Record<number, PTxn[]> = {};
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      if (t.date < sel.start || t.date > sel.end) continue;
       const day = isoDay(t.date);
-      return { day, cum: burn.cumThis[day-1] ?? 0, amount: Number(t.amount), merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "" };
-    });
+      (byDay[day] ??= []).push(t);
+    }
+    return Object.entries(byDay).map(([dayStr, dTxns]) => {
+      const day = Number(dayStr);
+      const total = dTxns.reduce((s,t)=>s+Number(t.amount),0);
+      return {
+        day, cum: burn.cumThis[day-1] ?? 0, total,
+        txns: dTxns.map(t => ({ merchant: nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "Unknown", amount: Number(t.amount) })),
+      };
+    }).sort((a,b) => a.day-b.day);
   }, [txns, internalTxnIds, isExpenseTxn, sel, burn.cumThis, nameOverrides]);
 
   // ── Category rows for the selected month ──────────────────────────────────
@@ -489,23 +500,60 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {tailPath && (
                 <path d={tailPath} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.2" strokeDasharray="1.5,1.5" strokeOpacity="0.7" vectorEffect="non-scaling-stroke"/>
               )}
-              {projectedTail.flatMap(p => p.charges.map((c,ci) => (
-                <circle key={`${p.day}-${ci}`} cx={xForDay(p.day)} cy={yForVal(p.cum)} r="1.6"
-                  fill={c.insufficient ? "hsl(var(--negative))" : "hsl(var(--primary))"} stroke="hsl(var(--card))" strokeWidth="0.6">
-                  <title>{c.merchant}: {fmtUSD(c.amt)} on day {p.day}{c.insufficient?" — insufficient funds":""}</title>
-                </circle>
-              )))}
-              {/* Largest individual transactions this month, marked on the line */}
-              {majorTxnMarkers.map((m,i) => (
-                <circle key={i} cx={xForDay(m.day)} cy={yForVal(m.cum)} r="1.4" fill="hsl(var(--card))" stroke="hsl(var(--primary))" strokeWidth="0.8">
-                  <title>{m.merchant}: {fmtUSD(m.amount)}</title>
-                </circle>
-              ))}
               {scrubDay !== null && (
                 <line x1={(scrubDay/(daysInSelMonth-1||1))*100} y1="0" x2={(scrubDay/(daysInSelMonth-1||1))*100} y2="100"
                   stroke="hsl(var(--foreground))" strokeWidth="0.4" strokeOpacity="0.3" vectorEffect="non-scaling-stroke"/>
               )}
             </svg>
+
+            {/* Marker dots + tooltips — rendered as HTML (not SVG) positioned by
+                percentage, so they stay perfectly round instead of being
+                stretched into ellipses by the chart's non-uniform scaling. */}
+            {dayTxnMarkers.map(m => {
+              const key = `d${m.day}`;
+              const left = (xForDay(m.day)/CW)*100, top = (yForVal(m.cum)/CH)*100;
+              const hovered = hoveredDot===key;
+              return (
+                <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
+                  onMouseEnter={()=>setHoveredDot(key)} onMouseLeave={()=>setHoveredDot(d=>d===key?null:d)}>
+                  <div className={cn("rounded-full bg-[hsl(var(--primary))] ring-2 ring-card transition-all cursor-pointer",
+                    hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
+                  {hovered && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[180px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none">
+                      <div className="text-[10px] text-muted-foreground">{new Date(sel.year,sel.monthIdx,m.day).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                      {m.txns.map((t,i) => (
+                        <div key={i} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
+                          <span className="truncate">{t.merchant}</span>
+                          <span className="tabular shrink-0">{fmtUSD(t.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {projectedTail.flatMap(p => p.charges.map((c,ci) => {
+              const key = `t${p.day}-${ci}`;
+              const left = (xForDay(p.day)/CW)*100, top = (yForVal(p.cum)/CH)*100;
+              const hovered = hoveredDot===key;
+              return (
+                <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
+                  onMouseEnter={()=>setHoveredDot(key)} onMouseLeave={()=>setHoveredDot(d=>d===key?null:d)}>
+                  <div className={cn("rounded-full ring-2 ring-card transition-all cursor-pointer",
+                    c.insufficient ? "bg-[hsl(var(--negative))]" : "bg-[hsl(var(--primary))]",
+                    hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
+                  {hovered && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[180px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none">
+                      <div className="text-[10px] text-muted-foreground">{new Date(sel.year,sel.monthIdx,p.day).toLocaleDateString("en-US",{month:"short",day:"numeric"})}{c.insufficient?" · insufficient funds":""}</div>
+                      <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", c.insufficient?"text-negative":"text-foreground")}>
+                        <span className="truncate">{c.merchant}</span>
+                        <span className="tabular shrink-0">{fmtUSD(c.amt)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            }))}
           </div>
           <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>This month</span>
