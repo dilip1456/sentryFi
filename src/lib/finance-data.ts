@@ -468,3 +468,62 @@ export const demoTransactions = [
   { id: "dt59", account_id: "da1", amount: -5240.00, date: d(76), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
   { id: "dt60", account_id: "da5", amount: 310.00, date: d(80), name: "Southwest Airlines", merchant_name: "Southwest", category: ["Travel"], pending: false, payment_channel: "online" },
 ];
+
+// ── Extended history: 9 more months (4–12 back), generated from recurring +
+// variable spend patterns, so the 12-month scrubber, sparklines, and MoM
+// deltas on the Spending screen have a full year of demo data to show
+// instead of just the hand-authored ~80 days above. One month (m=5) carries
+// a Shopping spike so there's a real over-budget category to demo; one
+// month (m=8) carries a one-off flight so there's a genuine outlier.
+const RECURRING_MONTHLY = [
+  { name: "Rocket Mortgage",    merchant: "Rocket Mortgage", category: "Bills & Utilities", amount: 2480.00, accountId: "da1", day: 10 },
+  { name: "Netflix",            merchant: "Netflix",         category: "Entertainment",     amount: 19.99,   accountId: "da5", day: 3  },
+  { name: "Spotify",            merchant: "Spotify",         category: "Entertainment",     amount: 15.00,   accountId: "da4", day: 6  },
+  { name: "Verizon Wireless",   merchant: "Verizon",         category: "Bills & Utilities", amount: 48.00,   accountId: "da1", day: 7  },
+  { name: "Ally Auto Loan",     merchant: "Ally",            category: "Bills & Utilities", amount: 415.00,  accountId: "da1", day: 22 },
+  { name: "Nelnet Student Loan",merchant: "Nelnet",          category: "Bills & Utilities", amount: 320.00,  accountId: "da4", day: 27 },
+];
+const VARIABLE_POOL = [
+  { name: "Whole Foods Market", merchant: "Whole Foods",  category: "Groceries",     lo: 60,  hi: 150, accountId: "da4" },
+  { name: "Trader Joe's",       merchant: "Trader Joe's", category: "Groceries",     lo: 40,  hi: 120, accountId: "da4" },
+  { name: "Uber Eats",          merchant: "Uber Eats",    category: "Food & Drink",  lo: 25,  hi: 60,  accountId: "da4" },
+  { name: "Chipotle",           merchant: "Chipotle",     category: "Food & Drink",  lo: 15,  hi: 30,  accountId: "da5" },
+  { name: "Starbucks",          merchant: "Starbucks",    category: "Food & Drink",  lo: 5,   hi: 20,  accountId: "da5" },
+  { name: "Shell",              merchant: "Shell",        category: "Transportation",lo: 40,  hi: 80,  accountId: "da4" },
+  { name: "Uber",               merchant: "Uber",         category: "Transportation",lo: 20,  hi: 50,  accountId: "da4" },
+  { name: "Amazon.com",         merchant: "Amazon",       category: "Shopping",      lo: 30,  hi: 250, accountId: "da4" },
+  { name: "Target",             merchant: "Target",       category: "Shopping",      lo: 40,  hi: 150, accountId: "da5" },
+  { name: "CVS Pharmacy",       merchant: "CVS",          category: "Healthcare",    lo: 15,  hi: 70,  accountId: "da4" },
+];
+
+let genId = 1000;
+for (let m = 4; m <= 12; m++) {
+  const anchor = new Date(today.getFullYear(), today.getMonth() - m, 1);
+  const isOverspendMonth = m === 5;
+  const isTravelMonth = m === 8;
+
+  for (const r of RECURRING_MONTHLY) {
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), r.day).toISOString().slice(0, 10);
+    demoTransactions.push({ id: `dtg${genId++}`, account_id: r.accountId, amount: r.amount, date: dt, name: r.name, merchant_name: r.merchant, category: [r.category], pending: false, payment_channel: "online" });
+  }
+
+  for (const day of [2, 16]) {
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), day).toISOString().slice(0, 10);
+    demoTransactions.push({ id: `dtg${genId++}`, account_id: "da1", amount: -5240.00, date: dt, name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" });
+  }
+
+  const count = isOverspendMonth ? 16 : 10;
+  for (let i = 0; i < count; i++) {
+    const v = VARIABLE_POOL[(i + m) % VARIABLE_POOL.length];
+    let amount = Math.round((v.lo + ((i * 37 + m * 13) % (v.hi - v.lo))) * 100) / 100;
+    if (isOverspendMonth && v.category === "Shopping") amount = Math.round(amount * 2.2 * 100) / 100;
+    const day = 1 + ((i * 5 + m * 3) % 27);
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), day).toISOString().slice(0, 10);
+    demoTransactions.push({ id: `dtg${genId++}`, account_id: v.accountId, amount, date: dt, name: v.name, merchant_name: v.merchant, category: [v.category], pending: false, payment_channel: "online" });
+  }
+
+  if (isTravelMonth) {
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), 14).toISOString().slice(0, 10);
+    demoTransactions.push({ id: `dtg${genId++}`, account_id: "da5", amount: 890.00, date: dt, name: "Delta Air Lines", merchant_name: "Delta", category: ["Travel"], pending: false, payment_channel: "online" });
+  }
+}

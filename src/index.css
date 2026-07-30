@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -171,6 +171,28 @@
   .font-mono {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-feature-settings: 'tnum', 'zero';
+  }
+
+  /* Spending screen — geometric sans body type per the brand spec, scoped
+     here rather than swapped in globally so the rest of the app is untouched. */
+  .spending-v2 {
+    font-family: 'Manrope', 'Inter', sans-serif;
+  }
+
+  @keyframes burn-draw-in {
+    from { stroke-dashoffset: 500; }
+    to   { stroke-dashoffset: 0; }
+  }
+  .burn-draw-in {
+    animation: burn-draw-in 900ms ease-out forwards;
+  }
+
+  @keyframes bento-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .bento-rise {
+    animation: bento-rise 400ms ease-out backwards;
   }
 
   /* Tabular nums for all financial figures */

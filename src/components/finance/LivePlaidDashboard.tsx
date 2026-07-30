@@ -139,6 +139,20 @@ const loadAllMeta = (): Record<string, AccountMeta> => {
 // ── Constants ──────────────────────────────────────────────────
 const PERIODS: Period[] = ["1W", "1M", "3M", "1Y", "ALL"];
 
+// Illustrative monthly budgets shown only in demo mode — real users set
+// their own via "+ Budget" on a category. Shopping is intentionally tight
+// against the demo transaction data so there's a genuine over-budget state
+// to show, not just an empty "no budget set" screen.
+const DEMO_BUDGETS: Record<string, number> = {
+  "Bills & Utilities": 3400,
+  "Shopping": 500,
+  "Groceries": 500,
+  "Food & Drink": 350,
+  "Transportation": 250,
+  "Entertainment": 80,
+  "Healthcare": 100,
+};
+
 type TxnSort = "date-desc"|"date-asc"|"amount-desc"|"amount-asc"|"name-asc"|"name-desc"|"category-asc";
 const SORT_LABELS: Record<TxnSort, string> = {
   "date-desc": "Newest first", "date-asc": "Oldest first",
@@ -4023,7 +4037,10 @@ export const LivePlaidDashboard = ({
   const { settings, loaded: settingsLoaded } = S;
 
   // Destructure for ergonomic use throughout the component
-  const budgets = settings.budgets;
+  // Demo mode gets illustrative budgets so the budget bars, pace ring, and
+  // "over budget" states actually have something to show — settings.budgets
+  // is always empty in demo since there's no real user to persist them for.
+  const budgets = (demo || guestDemo) ? DEMO_BUDGETS : settings.budgets;
   const setBudget = S.setBudget;
   const removeBudget = S.removeBudget;
   const roles = settings.accountRoles;
@@ -4330,10 +4347,12 @@ export const LivePlaidDashboard = ({
     if (!user) return;
     setLoading(true);
     try {
-      const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })();
+      // 13 months back so the Spending screen's 12-month scrubber always has a
+      // full year of real history to show, not just the trailing quarter.
+      const twelveMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-13); return d.toISOString().slice(0,10); })();
       const [accsRes, txnsRes, itsRes, cdRes] = await Promise.all([
         supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
-        supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", threeMonthsAgo).order("date",{ascending:false}),
+        supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", twelveMonthsAgo).order("date",{ascending:false}),
         supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
         supabase.from("plaid_credit_details").select("*").eq("user_id",user.id),
       ]);
@@ -4457,8 +4476,8 @@ export const LivePlaidDashboard = ({
   const refreshTxns = useCallback(async () => {
     if (!user) return;
     setRefreshingTxns(true);
-    const threeMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-3); return d.toISOString().slice(0,10); })();
-    const { data } = await supabase.from("plaid_transactions").select("*").eq("user_id", user.id).gte("date", threeMonthsAgo).order("date", { ascending: false });
+    const twelveMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-13); return d.toISOString().slice(0,10); })();
+    const { data } = await supabase.from("plaid_transactions").select("*").eq("user_id", user.id).gte("date", twelveMonthsAgo).order("date", { ascending: false });
     if (data) { setTxns(data as PTxn[]); setLastSyncedAt(new Date()); }
     setRefreshingTxns(false);
   }, [user]);
