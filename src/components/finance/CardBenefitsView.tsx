@@ -439,6 +439,20 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
           </div>
 
         /* ── ALL PERKS tab ── */
+        ) : cards.filter(c => c.benefits.length > 0).length === 0 ? (
+          <div className="surface-card p-10 text-center">
+            <CreditCard className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
+            <div className="text-[13px] font-medium text-foreground">No perks found yet</div>
+            <div className="text-[11.5px] text-muted-foreground mt-1">
+              {cards.length === 0 ? "Link a credit card to see its benefits here." : "Hit refresh to look up benefits for your cards."}
+            </div>
+            {cards.length > 0 && (
+              <button onClick={() => loadBenefits(true)} disabled={loading}
+                className="mt-3 h-8 px-4 rounded-full bg-foreground text-background text-[12px] font-medium">
+                Refresh
+              </button>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             {cards.filter(c => c.benefits.length > 0).map(card => {
