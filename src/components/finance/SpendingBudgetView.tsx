@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
@@ -71,6 +72,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [sortBy, setSortBy] = useState<"date"|"amount">("date");
   const [scrubDay, setScrubDay] = useState<number|null>(null);
   const [hoveredDot, setHoveredDot] = useState<string|null>(null);
+  // Tooltip content is portaled to document.body and positioned from the
+  // dot's real screen coordinates — the chart cards use overflow-hidden (to
+  // clip the swipeable carousel's off-screen panel), which was cutting the
+  // old in-flow tooltips off at the card edge.
+  const [dotTooltip, setDotTooltip] = useState<{x:number;y:number;above:boolean;content:React.ReactNode}|null>(null);
+  const showDotTooltip = (key:string, e: React.MouseEvent, content: React.ReactNode) => {
+    setHoveredDot(key);
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDotTooltip({ x: r.left + r.width/2, y: r.top, above: r.top > 90, content });
+  };
+  const hideDotTooltip = (key:string) => {
+    setHoveredDot(h => h===key ? null : h);
+    setDotTooltip(null);
+  };
   const [runwayIdx, setRunwayIdx] = useState<0|1>(0);
   const runwayDragging = useRef(false);
   const runwayStartX = useRef(0);
@@ -505,22 +520,22 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const key = `p${i}`;
                     const left = xForPast(i), top = (yForPast(d.cum)/CH)*100;
                     const hovered = hoveredDot===key;
+                    const content = (
+                      <>
+                        <div className="text-[10px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                        {d.txns.map((t,ti) => (
+                          <div key={ti} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
+                            <span className="truncate">{t.merchant}</span>
+                            <span className="tabular shrink-0">{fmtUSD(t.amount)}</span>
+                          </div>
+                        ))}
+                      </>
+                    );
                     return (
                       <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
-                        onMouseEnter={()=>setHoveredDot(key)} onMouseLeave={()=>setHoveredDot(h=>h===key?null:h)}>
+                        onMouseEnter={e=>showDotTooltip(key,e,content)} onMouseLeave={()=>hideDotTooltip(key)}>
                         <div className={cn("rounded-full bg-[hsl(var(--primary))] ring-2 ring-card transition-all cursor-pointer",
                           hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
-                        {hovered && (
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[180px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none">
-                            <div className="text-[10px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                            {d.txns.map((t,ti) => (
-                              <div key={ti} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
-                                <span className="truncate">{t.merchant}</span>
-                                <span className="tabular shrink-0">{fmtUSD(t.amount)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -565,24 +580,24 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const days = daysFromToday(f.nextDate);
                     const left = (xForFuture(days)/CW)*100, top = (yForFuture(f.cum)/CH)*100;
                     const hovered = hoveredDot===key;
+                    const content = (
+                      <>
+                        <div className="text-[10px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}{f.insufficient?" · insufficient funds":""}</div>
+                        <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", f.insufficient?"text-negative":"text-foreground")}>
+                          <span className="truncate">{f.merchant}</span>
+                          <span className="tabular shrink-0">{fmtUSD(f.avgAmount)}</span>
+                        </div>
+                        {f.balanceAfter !== null && (
+                          <div className={cn("text-[10.5px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
+                        )}
+                      </>
+                    );
                     return (
                       <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
-                        onMouseEnter={()=>setHoveredDot(key)} onMouseLeave={()=>setHoveredDot(h=>h===key?null:h)}>
+                        onMouseEnter={e=>showDotTooltip(key,e,content)} onMouseLeave={()=>hideDotTooltip(key)}>
                         <div className={cn("rounded-full ring-2 ring-card transition-all cursor-pointer",
                           f.insufficient ? "bg-[hsl(var(--negative))]" : "bg-[hsl(var(--primary))]",
                           hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
-                        {hovered && (
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-max max-w-[190px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none">
-                            <div className="text-[10px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}{f.insufficient?" · insufficient funds":""}</div>
-                            <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", f.insufficient?"text-negative":"text-foreground")}>
-                              <span className="truncate">{f.merchant}</span>
-                              <span className="tabular shrink-0">{fmtUSD(f.avgAmount)}</span>
-                            </div>
-                            {f.balanceAfter !== null && (
-                              <div className={cn("text-[10.5px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -751,6 +766,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </button>
           <button onClick={()=>setMonthOffset(0)} className="text-[11.5px] text-[hsl(var(--primary))] font-medium px-1.5">Today</button>
         </div>
+      )}
+
+      {/* Burn-chart dot tooltip — portaled to <body> so it's never clipped by
+          the chart cards' overflow-hidden (needed to hide the swipeable
+          carousel's off-screen panel). Positioned from the dot's real
+          on-screen coordinates, captured on hover. */}
+      {dotTooltip && createPortal(
+        <div className="fixed z-[400] w-max max-w-[190px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none"
+          style={{
+            left: dotTooltip.x, top: dotTooltip.above ? dotTooltip.y - 8 : dotTooltip.y + 8,
+            transform: `translate(-50%, ${dotTooltip.above ? "-100%" : "0"})`,
+          }}>
+          {dotTooltip.content}
+        </div>,
+        document.body
       )}
     </div>
   );
