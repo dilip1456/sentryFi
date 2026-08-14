@@ -39,11 +39,28 @@ async function sendPush(tokens: string[], title: string, body: string) {
   ));
 }
 
+// Atomic "insert if new" against a unique (user_id, alert_key) constraint —
+// this replaces a prior check-then-insert (SELECT, then INSERT if nothing
+// found) which was NOT atomic: overlapping cron runs could both pass the
+// SELECT before either INSERT landed, sending the same alert dozens of times
+// a day. ignoreDuplicates makes the upsert a no-op (empty `data`) when the
+// key already exists, so `saveAlert` only ever returns true once per key.
 async function saveAlert(admin: any, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, any> = {}) {
-  const { data: ex } = await admin.from("alert_log").select("id").eq("user_id", userId).eq("alert_key", alertKey).maybeSingle();
-  if (ex) return false;
-  await admin.from("alert_log").insert({ user_id: userId, alert_type: alertType, alert_key: alertKey, title, body, payload, created_at: new Date().toISOString() });
-  return true;
+  const { data, error } = await admin.from("alert_log")
+    .upsert(
+      { user_id: userId, alert_type: alertType, alert_key: alertKey, title, body, payload, created_at: new Date().toISOString() },
+      { onConflict: "user_id,alert_key", ignoreDuplicates: true }
+    )
+    .select("id");
+  if (error) { console.error("[alert_log]", alertKey, error); return false; }
+  return (data?.length ?? 0) > 0;
+}
+
+// Per-category opt-out — defaults to enabled (`!== false`) so existing users
+// keep getting every alert type they already get today unless they've
+// explicitly turned one off in Notification Preferences.
+function categoryEnabled(pref: any, key: string): boolean {
+  return pref[key] !== false;
 }
 
 // Keywords that indicate a credit card payment / transfer (NOT a real deposit)
@@ -115,62 +132,70 @@ Deno.serve(async (req) => {
         .select("amount,category").eq("user_id", userId).gte("date", monthStart).gt("amount", 0);
       const catTotals: Record<string, number> = {};
       for (const t of monthTxns ?? []) { const cat = t.category?.[0] ?? "Other"; catTotals[cat] = (catTotals[cat] ?? 0) + Number(t.amount); }
-      for (const [cat, budget] of Object.entries(budgets)) {
-        const spent = catTotals[cat] ?? 0;
-        if ((spent / budget) * 100 < (pref.budget_pct ?? 90)) continue;
-        const over = spent > budget;
-        const title = over ? `🔴 ${cat} over budget` : `🟡 ${cat} at ${Math.round((spent/budget)*100)}%`;
-        const body = over ? `$${spent.toFixed(0)} spent vs $${budget} budget` : `$${(budget-spent).toFixed(0)} remaining`;
-        const added = await saveAlert(admin, userId, "budget_threshold", `budget:${cat}:${monthKey}`, title, body, { category: cat, spent, budget });
-        if (added) notifications.push({ title, body });
+      if (categoryEnabled(pref, "alert_budget_threshold")) {
+        for (const [cat, budget] of Object.entries(budgets)) {
+          const spent = catTotals[cat] ?? 0;
+          if ((spent / budget) * 100 < (pref.budget_pct ?? 90)) continue;
+          const over = spent > budget;
+          const title = over ? `🔴 ${cat} over budget` : `🟡 ${cat} at ${Math.round((spent/budget)*100)}%`;
+          const body = over ? `$${spent.toFixed(0)} spent vs $${budget} budget` : `$${(budget-spent).toFixed(0)} remaining`;
+          const added = await saveAlert(admin, userId, "budget_threshold", `budget:${cat}:${monthKey}`, title, body, { category: cat, spent, budget });
+          if (added) notifications.push({ title, body });
+        }
       }
 
       // ── 2. Low balance ───────────────────────────────────────────────
-      for (const acc of (accounts ?? []).filter((a: any) => a.subtype === "checking" || a.subtype === "savings")) {
-        const bal = Number(acc.current_balance ?? 0);
-        const threshold = pref.low_balance ?? 100;
-        if (bal >= threshold) continue;
-        const title = `⚠️ Low balance: ${acc.name}`;
-        const body = `$${bal.toFixed(2)} remaining`;
-        const added = await saveAlert(admin, userId, "low_balance", `low_balance:${acc.account_id}:${today}`, title, body, { account_id: acc.account_id, balance: bal });
-        if (added) notifications.push({ title, body });
+      if (categoryEnabled(pref, "alert_low_balance")) {
+        for (const acc of (accounts ?? []).filter((a: any) => a.subtype === "checking" || a.subtype === "savings")) {
+          const bal = Number(acc.current_balance ?? 0);
+          const threshold = pref.low_balance ?? 100;
+          if (bal >= threshold) continue;
+          const title = `⚠️ Low balance: ${acc.name}`;
+          const body = `$${bal.toFixed(2)} remaining`;
+          const added = await saveAlert(admin, userId, "low_balance", `low_balance:${acc.account_id}:${today}`, title, body, { account_id: acc.account_id, balance: bal });
+          if (added) notifications.push({ title, body });
+        }
       }
 
       // ── 3. Payment due ───────────────────────────────────────────────
-      const { data: creditDetails } = await admin.from("plaid_credit_details").select("*").eq("user_id", userId);
-      for (const cd of creditDetails ?? []) {
-        if (!cd.next_payment_due_date) continue;
-        const daysUntil = Math.round((new Date(cd.next_payment_due_date).getTime() - now) / 86400000);
-        if (daysUntil < 0 || daysUntil > (pref.payment_days ?? 3)) continue;
-        const acc = (accounts ?? []).find((a: any) => a.account_id === cd.account_id);
-        const title = `💳 Payment due ${daysUntil === 0 ? "today" : `in ${daysUntil}d`}`;
-        const body = `${acc?.name ?? "Card"}: min $${cd.minimum_payment_amount?.toFixed(2) ?? "-"}`;
-        const added = await saveAlert(admin, userId, "payment_due", `payment_due:${cd.account_id}:${cd.next_payment_due_date}`, title, body,
-          { account_id: cd.account_id, due_date: cd.next_payment_due_date, min_payment: cd.minimum_payment_amount, days_until: daysUntil });
-        if (added) notifications.push({ title, body });
+      if (categoryEnabled(pref, "alert_payment_due")) {
+        const { data: creditDetails } = await admin.from("plaid_credit_details").select("*").eq("user_id", userId);
+        for (const cd of creditDetails ?? []) {
+          if (!cd.next_payment_due_date) continue;
+          const daysUntil = Math.round((new Date(cd.next_payment_due_date).getTime() - now) / 86400000);
+          if (daysUntil < 0 || daysUntil > (pref.payment_days ?? 3)) continue;
+          const acc = (accounts ?? []).find((a: any) => a.account_id === cd.account_id);
+          const title = `💳 Payment due ${daysUntil === 0 ? "today" : `in ${daysUntil}d`}`;
+          const body = `${acc?.name ?? "Card"}: min $${cd.minimum_payment_amount?.toFixed(2) ?? "-"}`;
+          const added = await saveAlert(admin, userId, "payment_due", `payment_due:${cd.account_id}:${cd.next_payment_due_date}`, title, body,
+            { account_id: cd.account_id, due_date: cd.next_payment_due_date, min_payment: cd.minimum_payment_amount, days_until: daysUntil });
+          if (added) notifications.push({ title, body });
+        }
       }
 
       // ── 4. Large / unusual transactions ─────────────────────────────
       const yesterday = new Date(now - 86400000).toISOString().slice(0, 10);
-      const { data: recentTxns } = await admin.from("plaid_transactions")
-        .select("transaction_id,name,merchant_name,amount,date,category,account_id")
-        .eq("user_id", userId).gte("date", yesterday).gt("amount", 0).order("amount", { ascending: false }).limit(50);
+      if (categoryEnabled(pref, "alert_large_txn")) {
+        const { data: recentTxns } = await admin.from("plaid_transactions")
+          .select("transaction_id,name,merchant_name,amount,date,category,account_id")
+          .eq("user_id", userId).gte("date", yesterday).gt("amount", 0).order("amount", { ascending: false }).limit(50);
 
-      const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
-      const { data: histTxns } = await admin.from("plaid_transactions")
-        .select("amount").eq("user_id", userId).gte("date", threeMonthsAgo).lt("date", yesterday).gt("amount", 0);
-      const avgMonthly = (histTxns ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0) / 3;
-      const largeThreshold = Math.max(avgMonthly * 0.15, 150);
+        const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
+        const { data: histTxns } = await admin.from("plaid_transactions")
+          .select("amount").eq("user_id", userId).gte("date", threeMonthsAgo).lt("date", yesterday).gt("amount", 0);
+        const avgMonthly = (histTxns ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0) / 3;
+        const largeThreshold = Math.max(avgMonthly * 0.15, 150);
 
-      for (const t of recentTxns ?? []) {
-        const amt = Number(t.amount);
-        if (amt < largeThreshold) break;
-        const merchant = t.merchant_name ?? t.name;
-        const title = `💰 Large charge: ${merchant}`;
-        const body = `$${amt.toFixed(2)} — ${t.category?.[0] ?? ""}`;
-        const added = await saveAlert(admin, userId, "large_txn", `large_txn:${t.transaction_id}`, title, body,
-          { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
-        if (added) notifications.push({ title, body });
+        for (const t of recentTxns ?? []) {
+          const amt = Number(t.amount);
+          if (amt < largeThreshold) break;
+          const merchant = t.merchant_name ?? t.name;
+          const title = `💰 Large charge: ${merchant}`;
+          const body = `$${amt.toFixed(2)} — ${t.category?.[0] ?? ""}`;
+          const added = await saveAlert(admin, userId, "large_txn", `large_txn:${t.transaction_id}`, title, body,
+            { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
+          if (added) notifications.push({ title, body });
+        }
       }
 
       // ── 5. Credits: classify before alerting ─────────────────────────
@@ -188,6 +213,7 @@ Deno.serve(async (req) => {
         const kind = classifyCredit(t);
 
         if (kind === "cc_payment") {
+          if (!categoryEnabled(pref, "alert_cc_payment")) continue;
           // This is a credit card payment being received by the card — not a deposit
           // Notify as a payment confirmation, not deposit
           const acct = (accounts ?? []).find((a: any) => a.account_id === t.account_id);
@@ -200,6 +226,7 @@ Deno.serve(async (req) => {
         }
 
         if (kind === "transfer") {
+          if (!categoryEnabled(pref, "alert_transfer")) continue;
           // Transfer between accounts — only alert if > $200 to avoid noise
           if (amt < 200) continue;
           const title = `↔️ Transfer: $${amt.toFixed(2)}`;
@@ -211,6 +238,7 @@ Deno.serve(async (req) => {
         }
 
         if (kind === "refund") {
+          if (!categoryEnabled(pref, "alert_refund")) continue;
           // Refunds under $5 are noise
           if (amt < 5) continue;
           const title = `↩️ Refund: $${amt.toFixed(2)} from ${merchant}`;
@@ -222,7 +250,7 @@ Deno.serve(async (req) => {
         }
 
         // True deposit (paycheck, ACH income, etc.)
-        if (kind === "deposit" && amt >= 50) {
+        if (kind === "deposit" && amt >= 50 && categoryEnabled(pref, "alert_deposit")) {
           const title = `📥 Deposit: $${amt.toFixed(2)}`;
           const body = `From ${merchant}`;
           const added = await saveAlert(admin, userId, "deposit", `deposit:${t.transaction_id}`, title, body,
@@ -232,7 +260,9 @@ Deno.serve(async (req) => {
       }
 
       // ── 6. High-severity AI insights ─────────────────────────────────
-      const { data: lastInsight } = await admin.from("ai_insights").select("created_at,insights").eq("user_id", userId).maybeSingle();
+      const { data: lastInsight } = categoryEnabled(pref, "alert_insight")
+        ? await admin.from("ai_insights").select("created_at,insights").eq("user_id", userId).maybeSingle()
+        : { data: null };
       if (lastInsight?.insights) {
         const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as any[] : [];
         const highSeverity = insights.filter((i: any) => i.severity === "high");

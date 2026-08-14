@@ -82,12 +82,21 @@ export const GIFT_CARD_BRANDS: GiftCardBrand[] = [
   { name: "American Express Gift Card", domain: "americanexpress.com", balanceCheckUrl: "https://www.americanexpress.com/en-us/gift-cards/check-balance/",        buyUrl: "https://www.americanexpress.com/en-us/gift-cards/" },
 ];
 
-/** Best-effort logo via logo.dev's public, keyless img endpoint. Falls back to a generated initial-letter avatar if the image 404s (handled in the UI). */
-export const logoUrlForDomain = (domain: string) =>
-  `https://img.logo.dev/${domain}?size=80&fallback=404`;
+/** Best-effort logo via logo.dev's public, keyless img endpoint. `size` should be
+ *  the actual on-screen pixel footprint the caller will render at — callers are
+ *  responsible for requesting at least 2x that for crispness on retina screens.
+ *  Falls back to a generated initial-letter avatar if the image 404s (handled in the UI). */
+export const logoUrlForDomain = (domain: string, size = 256) =>
+  `https://img.logo.dev/${domain}?size=${size}&format=png&fallback=404`;
+
+/** Clearbit's free logo endpoint — often sharper/more complete artwork than logo.dev
+ *  for a given brand, so it's used as the second-choice real-logo source before
+ *  falling back to a low-res favicon. */
+export const clearbitLogoUrl = (domain: string, size = 256) =>
+  `https://logo.clearbit.com/${domain}?size=${size}&format=png`;
 
 /** Google's favicon service — not a high-res logo, but extremely reliable/uptime-stable, used as a last-resort real image before falling back to a generated letter avatar. */
-export const faviconUrlForDomain = (domain: string, size = 128) =>
+export const faviconUrlForDomain = (domain: string, size = 256) =>
   `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${size}`;
 
 export const lookupBrandByDomain = (domain: string) =>
