@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { GIFT_CARD_BRANDS, logoUrlForDomain, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
+import { GIFT_CARD_BRANDS, logoUrlForDomain, clearbitLogoUrl, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
 import {
   Gift, Plus, X, ExternalLink, ShoppingBag, Pencil, Trash2, Search,
@@ -67,10 +67,14 @@ const expiryStatus = (expiry?: string | null): "expired" | "soon" | null => {
 
 const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | null; logoUrl?: string | null; name: string; size?: number }) => {
   const [attempt, setAttempt] = useState(0);
+  // Always fetch at least 3x the rendered footprint (floor of 180px) so the
+  // logo stays crisp on retina/high-DPI screens instead of upscaling a small source.
+  const fetchSize = Math.max(Math.round(size * 3), 180);
   const sources = [
     logoUrl,
-    domain ? logoUrlForDomain(domain) : null,
-    domain ? faviconUrlForDomain(domain) : null,
+    domain ? logoUrlForDomain(domain, fetchSize) : null,
+    domain ? clearbitLogoUrl(domain, fetchSize) : null,
+    domain ? faviconUrlForDomain(domain, fetchSize) : null,
   ].filter(Boolean) as string[];
   const src = sources[attempt];
   if (!src) {
@@ -89,7 +93,7 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
       alt={`${name} logo`}
       onError={() => setAttempt(a => a + 1)}
       className="rounded-lg border border-border/50 object-contain bg-white shrink-0 p-[10%]"
-      style={{ height: size, width: size }}
+      style={{ height: size, width: size, imageRendering: "auto" }}
     />
   );
 };
@@ -112,10 +116,12 @@ const MiniCardThumb = ({ card }: { card: { brand_name: string; domain?: string |
 /** Large, faded brand mark used as a background watermark on the big card tile — falls back to a soft monogram if no image resolves. */
 const BrandWatermark = ({ domain, logoUrl, name }: { domain?: string | null; logoUrl?: string | null; name: string }) => {
   const [attempt, setAttempt] = useState(0);
+  // Rendered at 112px (h-28/w-28) — fetch well above that so it stays sharp on retina.
   const sources = [
     logoUrl,
-    domain ? logoUrlForDomain(domain) : null,
-    domain ? faviconUrlForDomain(domain) : null,
+    domain ? logoUrlForDomain(domain, 320) : null,
+    domain ? clearbitLogoUrl(domain, 320) : null,
+    domain ? faviconUrlForDomain(domain, 320) : null,
   ].filter(Boolean) as string[];
   const src = sources[attempt];
   if (!src) {
@@ -145,7 +151,7 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   const status = expiryStatus(card.expiry_date);
   return (
     <div
-      className="relative rounded-2xl overflow-hidden flex flex-col aspect-[4/3] md:aspect-[5/6] shadow-[var(--shadow-card)] text-white"
+      className="relative rounded-2xl overflow-hidden flex flex-col aspect-[8/5] shadow-[var(--shadow-card)] text-white"
       style={{ background: brandGradient(card.brand_name) }}
     >
       {/* Depth + plastic gloss so it reads as a physical card, not a flat swatch */}
@@ -477,8 +483,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Cards/Table toggle only matters on mobile — desktop always shows
+              the table + detail-panel layout below, so the toggle is noise there. */}
           {cards && cards.length > 0 && (
-            <div className="inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
+            <div className="md:hidden inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
               <button onClick={() => setViewMode("cards")}
                 className={cn("px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 Cards
@@ -533,42 +541,52 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         </div>
       ) : (
         <div className="overflow-x-hidden space-y-3">
-          {/* ── Desktop: side-by-side table + active card preview ── */}
-          <div className="hidden md:grid md:grid-cols-5 gap-4 items-start">
-            {/* Table — takes most of the width */}
-            <div className="md:col-span-3 surface-card overflow-hidden">
+          {/* ── Desktop: side-by-side table + active card preview. Table gets
+              all remaining width; the detail panel is a fixed 360px so the
+              table doesn't leave a dead gap on wide screens. ── */}
+          <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
+            {/* Table */}
+            <div className="surface-card overflow-hidden">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-border/30">
-                    <th className="px-3 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card</th>
-                    <th className="px-4 py-2 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
+                    <th className="px-3.5 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card</th>
+                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card number</th>
+                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Expiration</th>
+                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/15">
                   {sortedForTable.map(({ card, originalIndex: i }) => {
                     const status = expiryStatus(card.expiry_date);
                     const isActive = i === activeIndex;
-                    const sub: string[] = [];
-                    if (card.expiry_date) sub.push(`Exp ${new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" })}`);
-                    if (card.card_number_last4) sub.push(`···· ${card.card_number_last4}`);
+                    const statusLabel = status === "expired" ? "Expired" : status === "soon" ? "Expiring soon" : "Active";
+                    const statusClasses = status === "expired" ? "bg-negative/10 text-negative"
+                      : status === "soon" ? "bg-warning/10 text-warning" : "bg-positive/10 text-positive";
                     return (
                       <tr key={card.id}
                         onClick={() => { goTo(i); setDetailIndex(i); }}
                         className={cn("cursor-pointer transition-colors", isActive ? "bg-[hsl(var(--primary)/0.07)]" : "hover:bg-surface-hover/30")}>
-                        <td className="px-3 py-2">
+                        <td className="px-3.5 py-3">
                           <div className="flex items-center gap-2.5">
                             {isActive && <div className="w-1 h-8 rounded-full bg-[hsl(var(--primary))] shrink-0 -ml-1" />}
                             <MiniCardThumb card={card} />
-                            <div className="min-w-0">
-                              <div className="text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
-                              <div className="text-[12px] text-muted-foreground truncate flex items-center gap-1.5">
-                                {status && <span className={cn("font-medium", status === "expired" ? "text-negative" : "text-warning")}>{status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d`}</span>}
-                                {sub.length > 0 ? <span className="tabular">{sub.join(" · ")}</span> : (!status && <span>Gift card</span>)}
-                              </div>
-                            </div>
+                            <div className="min-w-0 text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right align-middle">
+                        <td className="px-3 py-3 text-[12.5px] text-muted-foreground tabular whitespace-nowrap">
+                          {card.card_number_last4 ? `•••• ${card.card_number_last4}` : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-[12.5px] text-muted-foreground whitespace-nowrap">
+                          {card.expiry_date ? new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "—"}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap", statusClasses)}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right align-middle">
                           <span className={cn("text-[14px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
                             {fmtUSD(Number(card.balance))}
                           </span>
@@ -581,24 +599,47 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
             </div>
 
             {/* Card preview panel — shows selected card details inline */}
-            <div className="md:col-span-2 space-y-3">
+            <div className="space-y-3">
               {cards[activeIndex] && (() => {
                 const card = cards[activeIndex];
                 const status = expiryStatus(card.expiry_date);
                 return (
                   <div className="space-y-3">
-                    <GiftCardTile card={card}>
-                      <div className="flex items-center gap-1">
-                        {card.balance_verified
-                          ? <span className="text-positive"><CheckCircle2 className="h-3.5 w-3.5" /></span>
-                          : <span className="text-white/60"><AlertCircle className="h-3.5 w-3.5" /></span>}
-                        <button onClick={() => removeCard(card.id)} disabled={removingId === card.id}
-                          className="h-6 w-6 grid place-items-center rounded text-white/60 hover:text-white hover:bg-black/20 transition-colors disabled:opacity-40">
-                          {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                        </button>
-                      </div>
-                    </GiftCardTile>
+                    {/* Primary actions toolbar — replaces the old floating
+                        corner icons with a proper, discoverable action row */}
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => openEdit(card)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border-strong text-[12px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </button>
+                      {card.balance_check_url && (
+                        <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border-strong text-[12px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
+                          <ExternalLink className="h-3.5 w-3.5" /> Check balance
+                        </a>
+                      )}
+                      <button onClick={() => removeCard(card.id)} disabled={removingId === card.id}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-negative/30 text-[12px] font-medium text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+                        {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+                      </button>
+                    </div>
+
+                    {/* Card graphic — scaled down so it doesn't dominate the panel */}
+                    <div className="max-w-[260px] mx-auto">
+                      <GiftCardTile card={card} />
+                    </div>
+
                     <div className="surface-card p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[15px] font-semibold text-foreground truncate">
+                          {card.brand_name}{card.card_number_last4 ? ` •••• ${card.card_number_last4}` : ""}
+                        </div>
+                        {card.balance_verified ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-positive shrink-0"><CheckCircle2 className="h-3 w-3" /> Verified</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0"><AlertCircle className="h-3 w-3" /> Estimated</span>
+                        )}
+                      </div>
                       {(card.card_number_last4 || card.pin || card.expiry_date || card.notes) && (
                         <div className="space-y-2 text-[14px]">
                           {card.expiry_date && (
@@ -630,26 +671,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                           {card.notes && <p className="text-muted-foreground text-[13px]">{card.notes}</p>}
                         </div>
                       )}
-                      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/15">
-                        <button onClick={() => openSpend(card)}
-                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
-                          <MinusCircle className="h-3.5 w-3.5" /> Log Spend
-                        </button>
-                        <button onClick={() => openEdit(card)}
-                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
-                          <Pencil className="h-3.5 w-3.5" /> Edit Details
-                        </button>
-                        <button onClick={() => openEdit(card)}
-                          className="h-14 rounded-lg text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors flex flex-col items-center justify-center gap-1">
-                          <Trash2 className="h-3.5 w-3.5" /> Manage Balance
-                        </button>
-                      </div>
-                      {card.balance_check_url && (
-                        <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                          className="block text-center text-[12.5px] text-[hsl(var(--primary))] hover:underline pt-1">
-                          Check balance
-                        </a>
-                      )}
+                      <button onClick={() => openSpend(card)}
+                        className="w-full h-10 rounded-lg bg-gold text-[13.5px] font-semibold flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity">
+                        <MinusCircle className="h-3.5 w-3.5" /> Log Spend
+                      </button>
                     </div>
                   </div>
                 );

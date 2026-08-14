@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
 import {
-  ChevronLeft, ChevronRight, Search, ArrowUpDown, RefreshCw, TrendingUp, TrendingDown,
+  ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
+  X, Landmark, Columns3, Check, Layers, Maximize2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -37,6 +38,71 @@ const rDate = (s:string) => {
 };
 const isoDay = (s:string) => Number(s.slice(8,10));
 
+// ── Transaction table columns — toggleable via the "Columns" picker.
+// "Description" (avatar + merchant name) is always shown and isn't in this
+// list since it's the row's primary identity, not an optional attribute.
+type ColKey = "date" | "category" | "status" | "account" | "amount";
+type SortKey = "name" | ColKey;
+const COLUMN_DEFS: { key: ColKey; label: string }[] = [
+  { key: "date", label: "Date" },
+  { key: "category", label: "Category" },
+  { key: "status", label: "Status" },
+  { key: "account", label: "Account" },
+  { key: "amount", label: "Amount" },
+];
+const DEFAULT_COLS: ColKey[] = ["date", "category", "status", "account", "amount"];
+const COLS_STORAGE_KEY = "sentryfi_spending_txn_columns";
+
+// Human label for every sortable key (COLUMN_DEFS + the always-on "name"/Description column).
+const SORT_LABELS: Record<SortKey, string> = {
+  name: "Description", date: "Date", category: "Category", status: "Status", account: "Account", amount: "Amount",
+};
+
+// ── Resizable column widths, persisted across sessions. These are used as
+// proportional weights on a table-layout:fixed table whose own width is
+// pinned to 100% of its container — dragging a handle changes a column's
+// share of that fixed width (and shrinks its neighbors), so the table can
+// never grow wider than the view and trigger horizontal scroll. ───────────
+type WidthKey = "name" | ColKey;
+// Description gets the largest share since merchant names are the thing
+// people actually need to read; date/status are short fixed-format values
+// and get the least. Category/account can still run long, so their cells
+// wrap to two lines instead of being squeezed and ellipsized.
+const DEFAULT_COL_WIDTHS: Record<WidthKey, number> = {
+  name: 300, date: 84, category: 112, status: 84, account: 112, amount: 100,
+};
+const COL_WIDTHS_STORAGE_KEY = "sentryfi_spending_txn_col_widths";
+const MIN_COL_WIDTH = 60;
+
+// ── Group-by options for the transaction table ──────────────────────────────
+type GroupKey = "none" | "account" | "date" | "category" | "status";
+const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
+  { key: "none", label: "No grouping" },
+  { key: "date", label: "Day" },
+  { key: "account", label: "Account" },
+  { key: "category", label: "Category" },
+  { key: "status", label: "Status" },
+];
+
+// ── Small floating-menu helper — portals its panel to <body> and positions it
+// from the trigger button's real screen coordinates, so it's never clipped or
+// stacked behind a sibling's overflow-hidden/sticky element (the bug that had
+// the Columns menu rendering underneath the table's sticky header). ─────────
+function useFloatingMenu() {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    }
+    setOpen(o => !o);
+  };
+  const close = () => setOpen(false);
+  return { btnRef, open, pos, toggle, close };
+}
+
 function monthBucketsList(count: number) {
   const now = new Date();
   const out: { key:string; label:string; start:string; end:string; year:number; monthIdx:number }[] = [];
@@ -54,7 +120,92 @@ function monthBucketsList(count: number) {
   return out;
 }
 
+const DAY_COUNT = 14;
+const WEEK_COUNT = 12;
+const YEAR_COUNT = 6;
+
+function dayBucketsList(count: number) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const out: { key:string; label:string; start:string; end:string; year:number }[] = [];
+  for (let i = count-1; i >= 0; i--) {
+    const d = new Date(now); d.setDate(now.getDate()-i);
+    const iso = d.toISOString().slice(0,10);
+    out.push({
+      key: iso,
+      label: d.toLocaleDateString("en-US",{day:"numeric"}),
+      start: iso, end: iso,
+      year: d.getFullYear(),
+    });
+  }
+  return out;
+}
+
+function weekBucketsList(count: number) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const dow = now.getDay();
+  const diffToMonday = dow===0 ? -6 : 1-dow;
+  const thisMonday = new Date(now); thisMonday.setDate(now.getDate()+diffToMonday);
+  const out: { key:string; label:string; start:string; end:string; year:number }[] = [];
+  for (let i = count-1; i >= 0; i--) {
+    const monday = new Date(thisMonday); monday.setDate(thisMonday.getDate()-i*7);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
+    out.push({
+      key: monday.toISOString().slice(0,10),
+      label: monday.toLocaleDateString("en-US",{month:"short",day:"numeric"}),
+      start: monday.toISOString().slice(0,10),
+      end: sunday.toISOString().slice(0,10),
+      year: monday.getFullYear(),
+    });
+  }
+  return out;
+}
+
+function yearBucketsList(count: number) {
+  const now = new Date();
+  const out: { key:string; label:string; start:string; end:string; year:number }[] = [];
+  for (let i = count-1; i >= 0; i--) {
+    const y = now.getFullYear()-i;
+    out.push({ key:`${y}`, label:`${y}`, start:`${y}-01-01`, end:`${y}-12-31`, year:y });
+  }
+  return out;
+}
+
+// Shared bar-scrubber used by the month/week/year granularities in the header —
+// bars are bolder gold when selected so the active period reads clearly at a glance.
+function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
+  buckets: { key:string; label:string }[]; totals:number[]; selIdx:number; onSelect:(i:number)=>void; maxWidth?:number;
+}) {
+  const maxV = Math.max(...totals, 1);
+  return (
+    <div className="flex items-end gap-1 h-8" style={maxWidth ? {maxWidth} : undefined}>
+      {buckets.map((b,i) => {
+        const spend = totals[i] ?? 0;
+        const pct = Math.max((spend/maxV)*100, spend>0?8:3);
+        const isSel = i === selIdx;
+        const isLast = i === buckets.length-1;
+        return (
+          <button key={b.key} onClick={() => onSelect(i)}
+            title={`${b.label}: ${fmtUSD(spend)}`}
+            className="flex-1 min-w-0 flex flex-col items-center gap-0.5 group">
+            <div className="w-full flex items-end" style={{height:20}}>
+              <div className={cn("w-full rounded-sm transition-all duration-300",
+                isSel ? "bg-gold" : isLast ? "bg-[hsl(var(--primary)/0.55)]" : "bg-[hsl(var(--primary)/0.25)] group-hover:bg-[hsl(var(--primary)/0.45)]")}
+                style={{height:`${pct}%`}}/>
+            </div>
+            <span className={cn("text-[9px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
+
+// Feature flag: the "Burn runway" chart is temporarily hidden per product
+// request. Its computed data/state is left in place (harmless if unused)
+// so it's a one-line flip to bring back.
+const SHOW_BURN_RUNWAY = false;
 
 export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory}:SpendingBudgetViewProps) {
 
@@ -66,10 +217,142 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const sel = monthBuckets[selIdx];
   const prevSel = monthBuckets[selIdx-1];
 
+  // Header bar-scrubbers for the day/week/year granularities, mirroring the
+  // month scrubber above (one bar per bucket, click to select).
+  const dayBuckets = useMemo(() => dayBucketsList(DAY_COUNT), []);
+  const weekBuckets = useMemo(() => weekBucketsList(WEEK_COUNT), []);
+  const yearBuckets = useMemo(() => yearBucketsList(YEAR_COUNT), []);
+
+  // ── Granularity toggle (day/week/month/year) — each granularity keeps its
+  // own independent offset so switching back and forth doesn't lose your place. ──
+  const [granularity, setGranularity] = useState<"day"|"week"|"month"|"year">("month");
+  const [dayOffset, setDayOffset] = useState(0);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [yearOffset, setYearOffset] = useState(0);
+  const granularityOffset = granularity==="day" ? dayOffset : granularity==="week" ? weekOffset : granularity==="year" ? yearOffset : 0;
+  // Day/week/year offsets are all clamped to their bar-scrubber's window
+  // (14 days / 12 weeks / 6 years) so every granularity behaves the same way:
+  // click a bar to select it, nothing to walk past what's visible.
+  const stepPeriod = (dir: 1|-1) => {
+    if (granularity==="day") setDayOffset(o=>Math.max(Math.min(o+dir,0), -(DAY_COUNT-1)));
+    else if (granularity==="week") setWeekOffset(o=>Math.max(Math.min(o+dir,0), -(WEEK_COUNT-1)));
+    else if (granularity==="year") setYearOffset(o=>Math.max(Math.min(o+dir,0), -(YEAR_COUNT-1)));
+  };
+  const selDayIdx = DAY_COUNT - 1 + dayOffset;
+  const selWeekIdx = WEEK_COUNT - 1 + weekOffset;
+  const selYearIdx = YEAR_COUNT - 1 + yearOffset;
+  const resetPeriod = () => {
+    if (granularity==="day") setDayOffset(0);
+    else if (granularity==="week") setWeekOffset(0);
+    else if (granularity==="year") setYearOffset(0);
+  };
+
+  // The actual date range driving transactions/categories/totals below — month
+  // mode reuses the existing 12-month-scrubber machinery above; the other
+  // granularities compute a simple rolling window relative to today.
+  const activeRange = useMemo(() => {
+    const base = new Date(); base.setHours(0,0,0,0);
+    if (granularity==="day") {
+      const d = new Date(base); d.setDate(d.getDate()+dayOffset);
+      const iso = d.toISOString().slice(0,10);
+      return { start: iso, end: iso, isCurrent: dayOffset===0,
+        label: d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"}) };
+    }
+    if (granularity==="week") {
+      const dow = base.getDay();
+      const diffToMonday = dow===0 ? -6 : 1-dow;
+      const monday = new Date(base); monday.setDate(base.getDate()+diffToMonday+weekOffset*7);
+      const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
+      return { start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10), isCurrent: weekOffset===0,
+        label: `${monday.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${sunday.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}` };
+    }
+    if (granularity==="year") {
+      const y = base.getFullYear()+yearOffset;
+      return { start: `${y}-01-01`, end: `${y}-12-31`, isCurrent: yearOffset===0, label: `${y}` };
+    }
+    return { start: sel.start, end: sel.end, isCurrent: isCurrentMonth,
+      label: isCurrentMonth ? "This month" : new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) };
+  }, [granularity, dayOffset, weekOffset, yearOffset, sel, isCurrentMonth]);
+
   const [catSel, setCatSel] = useState<string|null>(null);
   const [search, setSearch] = useState(initialSearch ?? "");
   const [sortDesc, setSortDesc] = useState(true);
-  const [sortBy, setSortBy] = useState<"date"|"amount">("date");
+  const [sortBy, setSortBy] = useState<SortKey>("date");
+  const handleSort = (key: SortKey) => {
+    if (sortBy === key) { setSortDesc(d => !d); return; }
+    setSortBy(key);
+    setSortDesc(key === "date" || key === "amount" || key === "status"); // dates/amounts start newest/largest first; text columns start A→Z
+  };
+  const [accountFilter, setAccountFilter] = useState<string>("");
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
+
+  // ── Visible transaction-table columns, persisted across sessions ──────────
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    try {
+      const saved = localStorage.getItem(COLS_STORAGE_KEY);
+      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
+    } catch { /* ignore malformed/blocked storage */ }
+    return new Set(DEFAULT_COLS);
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...visibleCols])); } catch { /* ignore */ }
+  }, [visibleCols]);
+  const colsMenu = useFloatingMenu();
+  const toggleCol = (k: ColKey) => setVisibleCols(prev => {
+    const n = new Set(prev);
+    if (n.has(k)) { if (n.size > 1) n.delete(k); } // always leave at least one attribute column visible
+    else n.add(k);
+    return n;
+  });
+
+  // ── Resizable column widths, persisted across sessions. Dragging a handle
+  // updates one column's weight; because the table below is table-layout:fixed
+  // with a 100%-width container, the browser rescales every column's share of
+  // that fixed width automatically — there's no way for the total to exceed
+  // the view, so the table never needs a horizontal scrollbar. ──────────────
+  const [colWidths, setColWidths] = useState<Record<WidthKey, number>>(() => {
+    try {
+      const saved = localStorage.getItem(COL_WIDTHS_STORAGE_KEY);
+      if (saved) return { ...DEFAULT_COL_WIDTHS, ...JSON.parse(saved) };
+    } catch { /* ignore malformed/blocked storage */ }
+    return DEFAULT_COL_WIDTHS;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(colWidths)); } catch { /* ignore */ }
+  }, [colWidths]);
+  const resizingCol = useRef<{ key: WidthKey; startX: number; startWidth: number } | null>(null);
+  const startColResize = (key: WidthKey) => (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    resizingCol.current = { key, startX: e.clientX, startWidth: colWidths[key] };
+    const onMove = (ev: PointerEvent) => {
+      if (!resizingCol.current) return;
+      const { key: k, startX, startWidth } = resizingCol.current;
+      const next = Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX)));
+      setColWidths(w => ({ ...w, [k]: next }));
+    };
+    const onUp = () => {
+      resizingCol.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // ── Group-by, persisted across sessions like column visibility ────────────
+  const [groupBy, setGroupBy] = useState<GroupKey>(() => {
+    try {
+      const saved = localStorage.getItem("sentryfi_spending_txn_groupby");
+      // Guard against a stale value from before "month" grouping was removed.
+      if (saved && GROUP_OPTIONS.some(g => g.key === saved)) return saved as GroupKey;
+    } catch { /* ignore */ }
+    return "none";
+  });
+  useEffect(() => {
+    try { localStorage.setItem("sentryfi_spending_txn_groupby", groupBy); } catch { /* ignore */ }
+  }, [groupBy]);
+  const groupMenu = useFloatingMenu();
   const [scrubDay, setScrubDay] = useState<number|null>(null);
   const [hoveredDot, setHoveredDot] = useState<string|null>(null);
   // Tooltip content is portaled to document.body and positioned from the
@@ -108,6 +391,22 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return !isIncomeCategory(cat, Number(t.amount)) && !isTransferLikeCategory(cat);
   }, [getEffectiveCategory, isIncomeCategory]);
 
+  // ── Transactions within the active range (respecting the category filter).
+  // Defined early since totals for the day/week/year granularities are derived
+  // directly from this list rather than from the month-bucket machinery below. ──
+  const periodTxns = useMemo(() => txns.filter(t =>
+    !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end &&
+    (!catSel || (getEffectiveCategory(t) ?? "Other") === catSel)
+  ), [txns, internalTxnIds, isExpenseTxn, activeRange, catSel, getEffectiveCategory]);
+
+  // Same as periodTxns but ignoring the category filter — used to build the
+  // Categories list itself, so clicking a category doesn't make every other
+  // category disappear from its own picker (periodTxns above is intentionally
+  // narrowed to catSel for the transaction table/chips, not for this).
+  const periodTxnsAllCats = useMemo(() => txns.filter(t =>
+    !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end
+  ), [txns, internalTxnIds, isExpenseTxn, activeRange]);
+
   // ── Per-month, per-category totals across the whole 12-month window ──────
   const catMonthlyTotals = useMemo(() => {
     const out: Record<string, number[]> = {};
@@ -130,9 +429,72 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return out;
   }, [catMonthlyTotals, monthBuckets.length]);
 
-  const totalSpent = overallMonthly[selIdx] ?? 0;
+  // Total spend per bucket for the day/week/year bar-scrubbers — simple totals
+  // (no per-category breakdown needed, unlike the month buckets above).
+  const overallDaily = useMemo(() => {
+    const out = new Array(dayBuckets.length).fill(0);
+    const byDate: Record<string, number> = {};
+    for (const b of dayBuckets) byDate[b.start] = 0;
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      if (t.date in byDate) byDate[t.date] += Number(t.amount);
+    }
+    dayBuckets.forEach((b,i) => out[i] = byDate[b.start]);
+    return out;
+  }, [txns, internalTxnIds, isExpenseTxn, dayBuckets]);
+
+  const overallWeekly = useMemo(() => {
+    const out = new Array(weekBuckets.length).fill(0);
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      const bi = weekBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
+      if (bi !== -1) out[bi] += Number(t.amount);
+    }
+    return out;
+  }, [txns, internalTxnIds, isExpenseTxn, weekBuckets]);
+
+  const overallYearly = useMemo(() => {
+    const out = new Array(yearBuckets.length).fill(0);
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      const bi = yearBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
+      if (bi !== -1) out[bi] += Number(t.amount);
+    }
+    return out;
+  }, [txns, internalTxnIds, isExpenseTxn, yearBuckets]);
+
+  // Date-context labels shown above the day/month/week bars so it's clear
+  // which calendar month/year(s) the visible bars belong to.
+  const dayCtxLabel = (() => {
+    const first = new Date(dayBuckets[0].start+"T00:00:00");
+    const last = new Date(dayBuckets[dayBuckets.length-1].start+"T00:00:00");
+    return first.getFullYear()===last.getFullYear() && first.getMonth()===last.getMonth()
+      ? first.toLocaleDateString("en-US",{month:"long",year:"numeric"})
+      : `${first.toLocaleDateString("en-US",{month:"short"})} – ${last.toLocaleDateString("en-US",{month:"short",year:"numeric"})}`;
+  })();
+  const monthYearLabel = monthBuckets[0].year === monthBuckets[lastIdx].year
+    ? `${monthBuckets[0].year}` : `${monthBuckets[0].year}–${monthBuckets[lastIdx].year}`;
+  const weekYearLabel = weekBuckets[0].year === weekBuckets[weekBuckets.length-1].year
+    ? `${weekBuckets[0].year}` : `${weekBuckets[0].year}–${weekBuckets[weekBuckets.length-1].year}`;
+
+  const monthTotalSpent = overallMonthly[selIdx] ?? 0;
   const prevTotalSpent = overallMonthly[selIdx-1] ?? 0;
-  const momPct = prevTotalSpent > 0 ? Math.round(((totalSpent - prevTotalSpent) / prevTotalSpent) * 100) : null;
+  const momPct = granularity==="month" && prevTotalSpent > 0 ? Math.round(((monthTotalSpent - prevTotalSpent) / prevTotalSpent) * 100) : null;
+  const totalSpent = granularity==="month" ? monthTotalSpent : periodTxns.reduce((s,t)=>s+Number(t.amount),0);
+
+  // Total income for the active period (ignores the category filter — earnings
+  // aren't spend-category-scoped — shown alongside Total Spent in the header's
+  // right-hand summary for every granularity).
+  const totalEarned = useMemo(() => {
+    let total = 0;
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id)) continue;
+      if (t.date < activeRange.start || t.date > activeRange.end) continue;
+      const cat = getEffectiveCategory(t) ?? "Other";
+      if (isIncomeCategory(cat, Number(t.amount))) total += Math.abs(Number(t.amount));
+    }
+    return total;
+  }, [txns, internalTxnIds, activeRange, getEffectiveCategory, isIncomeCategory]);
 
   const totalBudget = Object.values(budgets).reduce((s,v) => s+v, 0);
   const now = new Date();
@@ -140,12 +502,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const dayOfMonth = isCurrentMonth ? now.getDate() : daysInSelMonth;
   const daysLeft = isCurrentMonth ? Math.max(daysInSelMonth - dayOfMonth, 0) : 0;
   const pacePct = (dayOfMonth / daysInSelMonth) * 100;
-  const spentPct = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
-  const projectedSpend = dayOfMonth > 0 ? (totalSpent / dayOfMonth) * daysInSelMonth : totalSpent;
+  // These are always month-budget pacing math — deliberately keyed off
+  // monthTotalSpent (the real month-to-date total), not the granularity-
+  // dependent `totalSpent` above, so "Safe to spend today" stays correct
+  // no matter which day/week/year tab you're browsing transactions in.
+  const spentPct = totalBudget > 0 ? (monthTotalSpent / totalBudget) * 100 : 0;
+  const projectedSpend = dayOfMonth > 0 ? (monthTotalSpent / dayOfMonth) * daysInSelMonth : monthTotalSpent;
   const overProjected = totalBudget > 0 && projectedSpend > totalBudget;
   const PROJECTION_DAYS = 15;
   const safeToSpendToday = totalBudget > 0
-    ? (daysLeft > 0 ? Math.max(totalBudget - totalSpent, 0) / daysLeft : Math.max(totalBudget - totalSpent, 0))
+    ? (daysLeft > 0 ? Math.max(totalBudget - monthTotalSpent, 0) / daysLeft : Math.max(totalBudget - monthTotalSpent, 0))
     : null;
 
   // ── Recurring charge detection — roughly-monthly merchants over the last 4 months ──
@@ -184,9 +550,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const recurringMerchantKeys = useMemo(() => new Set(recurring.map(r => r.merchant.toLowerCase())), [recurring]);
 
   const todayStr = now.toISOString().slice(0,10);
-  const in14 = new Date(now.getTime() + 14*86400000).toISOString().slice(0,10);
   const in30 = new Date(now.getTime() + 30*86400000).toISOString().slice(0,10);
-  const committedNext14 = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in14).reduce((s,r)=>s+r.avgAmount,0);
+  const next30Recurring = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
+  const committedNext30 = next30Recurring.reduce((s,r)=>s+r.avgAmount,0);
 
   // Walk the upcoming recurring charges in date order, per account, subtracting
   // each from that account's current balance so we can flag the first point
@@ -235,56 +601,123 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return items.map(r => { cum += r.avgAmount; return { ...r, cum }; });
   }, [upcomingCharges]);
 
-  // ── Category rows for the selected month ──────────────────────────────────
+  // ── Category rows for the active period. Month mode reuses the 12-month
+  // bucket data (so it keeps its month-over-month % and sparkline); the other
+  // granularities aggregate directly from periodTxns since there's no
+  // pre-computed bucket data for arbitrary days/weeks/years. ────────────────
   const catRows = useMemo(() => {
-    return Object.entries(catMonthlyTotals)
-      .map(([cat,arr]) => {
-        const spend = arr[selIdx] ?? 0;
-        const prevSpend = arr[selIdx-1] ?? 0;
-        const mom = prevSpend > 0 ? Math.round(((spend-prevSpend)/prevSpend)*100) : null;
-        const sparkline = arr.slice(Math.max(0,selIdx-5), selIdx+1);
-        return { cat, spend, mom, sparkline };
-      })
-      .filter(c => c.spend > 0)
+    if (granularity === "month") {
+      return Object.entries(catMonthlyTotals)
+        .map(([cat,arr]) => {
+          const spend = arr[selIdx] ?? 0;
+          const prevSpend = arr[selIdx-1] ?? 0;
+          const mom = prevSpend > 0 ? Math.round(((spend-prevSpend)/prevSpend)*100) : null;
+          const sparkline = arr.slice(Math.max(0,selIdx-5), selIdx+1);
+          return { cat, spend, mom, sparkline };
+        })
+        .filter(c => c.spend > 0)
+        .sort((a,b) => b.spend-a.spend);
+    }
+    const map: Record<string, number> = {};
+    for (const t of periodTxnsAllCats) {
+      const cat = getEffectiveCategory(t) ?? "Other";
+      map[cat] = (map[cat] ?? 0) + Number(t.amount);
+    }
+    return Object.entries(map)
+      .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
       .sort((a,b) => b.spend-a.spend);
-  }, [catMonthlyTotals, selIdx]);
+  }, [granularity, catMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory]);
 
-  // ── Period transactions (respecting the category filter) ─────────────────
-  const periodTxns = useMemo(() => txns.filter(t =>
-    !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= sel.start && t.date <= sel.end &&
-    (!catSel || (getEffectiveCategory(t) ?? "Other") === catSel)
-  ), [txns, internalTxnIds, isExpenseTxn, sel, catSel, getEffectiveCategory]);
+  // Resolves the value a given column sorts by, for any transaction.
+  const sortValueFor = useCallback((x: PTxn, key: SortKey): string | number => {
+    switch (key) {
+      case "name": return (nameOverrides[x.id] ?? x.merchant_name ?? x.name ?? "").toLowerCase();
+      case "category": return (getEffectiveCategory(x) ?? "Other").toLowerCase();
+      case "status": return x.pending ? 1 : 0;
+      case "account": return (accounts.find(a => a.account_id === x.account_id)?.name ?? "").toLowerCase();
+      case "amount": return Math.abs(Number(x.amount));
+      case "date": default: return x.date;
+    }
+  }, [nameOverrides, getEffectiveCategory, accounts]);
 
   const visibleTxns = useMemo(() => {
     let t = [...periodTxns];
+    if (accountFilter) t = t.filter(x => x.account_id === accountFilter);
+    const min = parseFloat(minAmount), max = parseFloat(maxAmount);
+    if (!isNaN(min)) t = t.filter(x => Math.abs(Number(x.amount)) >= min);
+    if (!isNaN(max)) t = t.filter(x => Math.abs(Number(x.amount)) <= max);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       t = t.filter(x => (nameOverrides[x.id]??x.merchant_name??x.name??"").toLowerCase().includes(q) || (getEffectiveCategory(x)??"").toLowerCase().includes(q));
     }
     t.sort((a,b) => {
-      const cmp = sortBy==="date" ? a.date.localeCompare(b.date) : Number(a.amount)-Number(b.amount);
+      const va = sortValueFor(a, sortBy), vb = sortValueFor(b, sortBy);
+      const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, search, sortBy, sortDesc, nameOverrides, getEffectiveCategory]);
+  }, [periodTxns, search, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount]);
 
-  const txnGroups = useMemo(() => {
-    if (sortBy !== "date") return null;
-    const g: Record<string, PTxn[]> = {};
-    for (const t of visibleTxns) (g[t.date]=g[t.date]||[]).push(t);
-    return Object.entries(g).sort(([a],[b]) => sortDesc ? b.localeCompare(a) : a.localeCompare(b));
-  }, [visibleTxns, sortBy, sortDesc]);
+  // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
+  const accountsInPeriod = useMemo(() => {
+    const ids = new Set(periodTxns.map(t => t.account_id));
+    return accounts.filter(a => ids.has(a.account_id)).sort((a,b) => (a.name??"").localeCompare(b.name??""));
+  }, [accounts, periodTxns]);
 
-  const leaderboard = useMemo(() => {
-    const m: Record<string, { total:number; count:number; cat:string }> = {};
-    for (const t of periodTxns) {
-      const merch = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "Unknown";
-      if (!m[merch]) m[merch] = { total:0, count:0, cat: getEffectiveCategory(t) ?? "Other" };
-      m[merch].total += Number(t.amount);
-      m[merch].count += 1;
+  const hasActiveFilters = !!(search || accountFilter || minAmount || maxAmount);
+  const clearFilters = () => { setSearch(""); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); };
+  // "date" desc (newest first) is the default sort — anything else counts as
+  // an explicit choice worth surfacing its own quick-clear chip for.
+  const hasActiveSort = !(sortBy === "date" && sortDesc);
+  const clearSort = () => { setSortBy("date"); setSortDesc(true); };
+
+  // Resolves the group label for a transaction under the current groupBy mode.
+  const groupLabelFor = useCallback((t: PTxn): string => {
+    switch (groupBy) {
+      case "account": return accounts.find(a => a.account_id === t.account_id)?.name ?? "Unknown account";
+      case "date": return t.date;
+      case "category": return formatCat(getEffectiveCategory(t) ?? "Other");
+      case "status": return t.pending ? "Pending" : "Posted";
+      default: return "";
     }
-    return Object.entries(m).map(([merchant,v]) => ({ merchant, ...v })).sort((a,b) => b.total-a.total).slice(0,10);
-  }, [periodTxns, nameOverrides, getEffectiveCategory]);
+  }, [groupBy, accounts, formatCat, getEffectiveCategory]);
+
+  // Human-friendly heading for a group key — dates get calendar formatting,
+  // account/category/status groups just show the label as-is.
+  const groupHeading = useCallback((key: string): string => {
+    if (groupBy === "date") return rDate(key);
+    return key || "Uncategorized";
+  }, [groupBy]);
+
+  // Buckets visibleTxns into ordered groups (order follows visibleTxns' own
+  // sort, so grouping composes with whichever column you've sorted by).
+  // Sort applies first, grouping second: visibleTxns is already fully sorted
+  // by whatever column/direction is active, and we only bucket that sorted
+  // list into groups here — we never re-sort within or across buckets. Both
+  // the row order inside each group AND the order the groups themselves
+  // appear in come from each row's position in the already-sorted list (a
+  // group surfaces at the index of its first member), so switching the sort
+  // column reorders the whole table, groups included, exactly like sorting a
+  // flat list would — grouping just adds the visual dividers on top.
+  const groupedTxns = useMemo(() => {
+    if (groupBy === "none") return null;
+    const buckets = new Map<string, { items: PTxn[]; firstIdx: number }>();
+    visibleTxns.forEach((t, idx) => {
+      const key = groupLabelFor(t);
+      const b = buckets.get(key);
+      if (b) b.items.push(t);
+      else buckets.set(key, { items: [t], firstIdx: idx });
+    });
+    return [...buckets.entries()]
+      .sort((a, b) => a[1].firstIdx - b[1].firstIdx)
+      .map(([key, { items }]) => ({
+        key, items, total: items.reduce((s, t) => s + Number(t.amount), 0),
+      }));
+  }, [visibleTxns, groupBy, groupLabelFor]);
+
+  // 1 "Description" column + however many optional attribute columns are visible.
+  const colSpan = 1 + visibleCols.size;
+
 
   const animatedTotal = useCountUp(totalSpent, 900);
 
@@ -323,146 +756,94 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     : "";
 
   return (
-    <div className="flex flex-col min-h-full bg-background spending-v2">
+    <div className="flex flex-col bg-background spending-v2 lg:h-full lg:overflow-hidden">
 
-      {/* ═══ 1. Sticky header ═══════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-30 bg-card/95 backdrop-blur-sm border-b border-border/60">
-        <div className="max-w-[1280px] mx-auto px-4 md:px-6 pt-3 pb-2.5">
-          <div className="flex items-center justify-between gap-3 flex-wrap mb-2.5">
-            <h1 className="font-display text-[19px] md:text-[21px] font-semibold text-foreground tracking-tight">Spending</h1>
-            <div className="flex items-center gap-2">
-              <div className="flex bg-muted/50 rounded-xl p-0.5 gap-0.5">
-                {(["day","week","month","year"] as const).map(d => (
-                  <button key={d} disabled
-                    className={cn("px-2.5 py-1 rounded-lg text-[11.5px] font-semibold capitalize transition-all opacity-40 cursor-default",
-                      d==="month" && "opacity-100 bg-[hsl(var(--primary))] text-primary-foreground")}>
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* 12-month scrubber — capped width so bars stay a sensible size on wide screens */}
-          <div className="flex items-end gap-1 h-8 max-w-[560px]">
-            {monthBuckets.map((b,i) => {
-              const spend = overallMonthly[i] ?? 0;
-              const maxM = Math.max(...overallMonthly, 1);
-              const pct = Math.max((spend/maxM)*100, spend>0?8:3);
-              const isSel = i === selIdx;
-              return (
-                <button key={b.key} onClick={() => setMonthOffset(i-lastIdx)}
-                  title={`${b.label}: ${fmtUSD(spend)}`}
-                  className="flex-1 min-w-0 flex flex-col items-center gap-0.5 group">
-                  <div className="w-full flex items-end" style={{height:20}}>
-                    <div className={cn("w-full rounded-sm transition-all duration-300",
-                      isSel ? "bg-[hsl(var(--primary))]" : i===lastIdx ? "bg-[hsl(var(--primary)/0.4)]" : "bg-[hsl(var(--primary)/0.15)] group-hover:bg-[hsl(var(--primary)/0.3)]")}
-                      style={{height:`${pct}%`}}/>
-                  </div>
-                  <span className={cn("text-[9px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
-                </button>
-              );
-            })}
-          </div>
+      {/* ═══ 1. Header — on desktop the whole screen is a fixed-height flex
+          column (nothing scrolls past this), so it no longer needs to be sticky ═══ */}
+      <div className="shrink-0 bg-card/95 backdrop-blur-sm border-b border-border/60">
+        <div className="w-full px-4 md:px-6 pt-3 pb-2.5">
+          <h1 className="font-display text-[19px] md:text-[21px] font-semibold text-foreground tracking-tight">Spending</h1>
         </div>
       </div>
 
-      <div className="max-w-[1280px] mx-auto w-full px-4 md:px-6 py-3.5 space-y-3.5">
+      <div className="w-full px-4 md:px-6 py-3.5 space-y-3.5 flex flex-col lg:flex-1 lg:min-h-0">
 
-        {/* Active category filter chip */}
-        {catSel && (
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 h-7 pl-3 pr-2 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[12.5px] font-medium text-[hsl(var(--primary))]">
-              {formatCat(catSel)}
-              <button onClick={()=>setCatSel(null)} className="h-4 w-4 rounded-full bg-[hsl(var(--primary)/0.2)] grid place-items-center">×</button>
-            </div>
-          </div>
-        )}
+        {/* ═══ 2. Spend Pulse — single row: duration picker + bar spikes on the
+            left, "This <period>" summary on the right, fully driven by the
+            selected granularity/offset so it updates as the range changes ═══ */}
+        <div className="surface-card p-4 md:p-5 shrink-0">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 lg:gap-7 items-stretch">
 
-        {/* ═══ 2. Spend Pulse hero ═══════════════════════════════════════════ */}
-        <div className="surface-card p-4 md:p-5">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-5 items-start">
+            {/* Left: duration toggle + spend bar spikes */}
             <div className="min-w-0">
-              <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">
-                {isCurrentMonth ? "This month" : `${new Date(sel.year,sel.monthIdx,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})}`}
-              </div>
-              <div className="flex items-baseline gap-2.5 mt-1 flex-wrap">
-                <div className="font-display text-[28px] md:text-[32px] font-semibold text-foreground tracking-tight leading-none tabular">
-                  {fmtUSD(animatedTotal)}
-                </div>
-                {momPct !== null && (
-                  <div className={cn("inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[11px] font-semibold",
-                    momPct>0 ? "bg-negative/10 text-negative" : "bg-positive/10 text-positive")}>
-                    {momPct>0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
-                    {momPct>0?"+":""}{momPct}% vs last mo
-                  </div>
-                )}
+              <div className="flex bg-muted/50 rounded-lg p-0.5 gap-0.5 w-fit mb-3">
+                {(["day","week","month","year"] as const).map(g => (
+                  <button key={g} onClick={() => setGranularity(g)}
+                    className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition-all",
+                      granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                    {g}
+                  </button>
+                ))}
               </div>
 
-              {totalBudget > 0 && (
-                <div className="mt-2.5 max-w-md">
-                  <div className="flex items-baseline justify-between text-[11.5px] mb-1">
-                    <span className="text-muted-foreground">Budget</span>
-                    <span className="font-semibold tabular text-foreground">{fmtUSD(totalSpent)} <span className="text-muted-foreground font-normal">of {fmtUSD(totalBudget)}</span></span>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted overflow-hidden relative">
-                    <div className="h-full rounded-full transition-all duration-700" style={{width:`${Math.min(spentPct,100)}%`,background:spentPct>100?"hsl(var(--negative))":spentPct>80?"hsl(var(--warning))":"hsl(var(--primary))"}}/>
-                    {isCurrentMonth && (
-                      <div className="absolute top-0 bottom-0 w-0.5 bg-foreground/50" style={{left:`${Math.min(pacePct,100)}%`}} title="Where you should be by today"/>
-                    )}
-                  </div>
-                  <div className="flex justify-between text-[10.5px] mt-1">
-                    <span className="text-muted-foreground">{Math.round(spentPct)}% used, {Math.round(pacePct)}% through the month</span>
-                    <span className={cn("font-medium", totalSpent>totalBudget?"text-negative":"text-positive")}>
-                      {totalSpent>totalBudget ? `${fc2(totalSpent-totalBudget)} over` : `${fc2(totalBudget-totalSpent)} left`}
-                    </span>
-                  </div>
+              {granularity==="day" ? (
+                /* 14-day scrubber — same bar format as the other granularities
+                   so the header never changes height when switching tabs. */
+                <div>
+                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
+                  <PeriodBars buckets={dayBuckets} totals={overallDaily} selIdx={selDayIdx}
+                    onSelect={(i) => setDayOffset(i-(DAY_COUNT-1))} maxWidth={560}/>
+                </div>
+              ) : granularity==="week" ? (
+                /* 12-week scrubber, same bar format as months */
+                <div>
+                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
+                  <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
+                    onSelect={(i) => setWeekOffset(i-(WEEK_COUNT-1))} maxWidth={640}/>
+                </div>
+              ) : granularity==="year" ? (
+                /* 6-year scrubber — each bar is one calendar year */
+                <div>
+                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
+                  <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
+                    onSelect={(i) => setYearOffset(i-(YEAR_COUNT-1))} maxWidth={400}/>
+                </div>
+              ) : (
+                /* 12-month scrubber — capped width so bars stay a sensible size on wide screens.
+                   Year label above clarifies which calendar year(s) the months belong to. */
+                <div>
+                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
+                  <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
+                    onSelect={(i) => setMonthOffset(i-lastIdx)} maxWidth={560}/>
                 </div>
               )}
             </div>
 
-            {/* Pace ring */}
-            {isCurrentMonth && totalBudget > 0 && (
-              <div className="flex flex-col items-center gap-1 shrink-0 mx-auto lg:mx-0">
-                <svg width="76" height="76" viewBox="0 0 104 104" className="-rotate-90">
-                  <circle cx="52" cy="52" r="44" fill="none" stroke="hsl(var(--muted))" strokeWidth="10"/>
-                  <circle cx="52" cy="52" r="44" fill="none"
-                    stroke={overProjected?"hsl(var(--negative))":"hsl(var(--primary))"} strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={`${2*Math.PI*44}`}
-                    strokeDashoffset={`${2*Math.PI*44*(1-Math.min(projectedSpend/totalBudget,1.4)/1.4)}`}
-                    style={{transition:"stroke-dashoffset 900ms ease-out"}}/>
-                </svg>
-                <div className="-mt-[54px] flex flex-col items-center pointer-events-none">
-                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide">Projected</div>
-                  <div className="text-[13px] font-bold text-foreground tabular">{fc2(projectedSpend)}</div>
-                </div>
-                <div className="mt-[14px] text-[10px] text-muted-foreground text-center max-w-[90px]">
-                  {overProjected ? <span className="text-negative font-medium">Over budget</span> : <span className="text-positive font-medium">On track</span>}
-                </div>
+            {/* Right: period summary — always just Total earned / Total spent
+                for the selected range, so the panel's height and shape never
+                change across day/week/month/year (no month-only budget block). */}
+            <div className="w-full lg:w-[240px] shrink-0 lg:border-l lg:border-border/50 lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/50">
+              <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                {activeRange.label}
               </div>
-            )}
-          </div>
-
-          {/* Stat tiles */}
-          {isCurrentMonth && (
-            <div className="grid grid-cols-2 gap-3 mt-3.5 pt-3.5 border-t border-border/15">
-              <div>
-                <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Safe to spend today</div>
-                <div className="text-[16px] font-display font-semibold text-foreground tabular mt-0.5">
-                  {safeToSpendToday !== null ? fmtUSD(safeToSpendToday) : "—"}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[12px] text-muted-foreground">Total earned</span>
+                  <span className="text-[15px] font-semibold tabular text-positive">{fmtUSD(totalEarned)}</span>
                 </div>
-                <div className="text-[10.5px] text-muted-foreground mt-0.5">{safeToSpendToday!==null ? `${daysLeft} days left this month` : "Set a budget to see this"}</div>
-              </div>
-              <div>
-                <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Committed next 14 days</div>
-                <div className="text-[16px] font-display font-semibold text-foreground tabular mt-0.5">{fmtUSD(committedNext14)}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{recurring.filter(r=>r.nextDate>=todayStr&&r.nextDate<=in14).length} recurring charge{recurring.filter(r=>r.nextDate>=todayStr&&r.nextDate<=in14).length!==1?"s":""}</div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[12px] text-muted-foreground">Total spent</span>
+                  <span className="text-[15px] font-semibold tabular text-foreground">{fmtUSD(animatedTotal)}</span>
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
+        {/* Stat tiles (Safe to spend / Committed next 30 days) now live in the
+            fixed Insights panel to the right, alongside Top spending categories. */}
 
         {/* ═══ 3. Burn runway — swipeable: last 30 days ⇄ next 15 days ═════════ */}
+        {SHOW_BURN_RUNWAY && (
         <div className="surface-card p-4 md:p-5 overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -640,16 +1021,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             </div>
           </div>
         </div>
+        )}
 
-        {/* ═══ 4+5. Three-column split: categories (left, compact + scrollable) ·
-            transactions (center) · top merchants (right) ══════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)_240px] gap-4 items-start">
+        {/* ═══ 4. Categories + transactions (center) alongside a fixed,
+            non-scrolling Insights panel (right) ═══════════════════════════ */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 lg:flex-1 lg:min-h-0">
+
+          {/* Center: categories (narrow) + transaction feed, each scrolling independently */}
+          <div className="flex flex-col lg:flex-row gap-4 min-w-0 lg:min-h-0">
 
           {/* Categories — small rows, vertically scrollable */}
           {catRows.length > 0 && (
-            <div className="surface-card overflow-hidden lg:sticky lg:top-[92px]">
-              <div className="px-3.5 py-2.5 border-b border-border/20 text-[12px] font-semibold text-foreground">Categories</div>
-              <div className="max-h-[220px] lg:max-h-[calc(100vh-180px)] overflow-y-auto scrollbar-none divide-y divide-border/10">
+            <div className="surface-card overflow-hidden flex flex-col max-h-[240px] lg:max-h-none lg:h-full lg:w-[320px] lg:shrink-0">
+              <div className="px-3.5 py-2.5 border-b border-border/20 text-[12px] font-semibold text-foreground shrink-0">Categories</div>
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none divide-y divide-border/10">
                 {catRows.map((c,i) => {
                   const col = catColor(c.cat);
                   const b = budgets[c.cat];
@@ -684,71 +1069,250 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             </div>
           )}
 
-          {/* Transaction feed — center */}
-          <div className="surface-card overflow-hidden min-w-0">
-            <div className="px-4 py-3 border-b border-border/20 sticky top-[92px] z-10 bg-card/95 backdrop-blur-sm">
+          {/* Transaction feed. Fixed-height card with its own internal scroll
+              (header stays put, list scrolls beneath it) instead of growing
+              the whole page. */}
+          <div className="surface-card overflow-hidden min-w-0 flex flex-col flex-1 max-h-[480px] lg:max-h-none lg:h-full">
+            <div className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 backdrop-blur-sm space-y-2">
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative min-w-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
-                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search transactions..."
+                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by description..."
                     className="w-full h-9 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
                 </div>
-                <button onClick={()=>setSortBy(s=>s==="date"?"amount":"date")}
-                  className="h-9 px-3 rounded-xl border border-border/60 bg-muted/40 text-[12px] font-medium text-foreground flex items-center gap-1 shrink-0">
-                  {sortBy==="date"?"Latest":"Largest"}
+                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
+                  className={cn("h-9 px-3 rounded-xl border text-[12px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
+                    groupBy!=="none" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Layers className="h-3.5 w-3.5"/> {groupBy==="none" ? "Group" : GROUP_OPTIONS.find(g=>g.key===groupBy)?.label}
                 </button>
-                <button onClick={()=>setSortDesc(d=>!d)} title={sortDesc?"Descending":"Ascending"}
-                  className="h-9 w-9 rounded-xl border border-border/60 bg-muted/40 grid place-items-center text-muted-foreground shrink-0">
-                  <ArrowUpDown className={cn("h-3.5 w-3.5 transition-transform", !sortDesc && "rotate-180")}/>
+                <button ref={colsMenu.btnRef} onClick={colsMenu.toggle}
+                  className={cn("h-9 px-3 rounded-xl border text-[12px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
+                    colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Columns3 className="h-3.5 w-3.5"/> Columns
                 </button>
               </div>
-            </div>
-            <div>
-              {visibleTxns.length === 0 ? (
-                <div className="py-14 text-center text-[13px] text-muted-foreground">No transactions match.</div>
-              ) : txnGroups ? txnGroups.map(([date, dTxns]) => {
-                const dayTotal = dTxns.reduce((s,t)=>s+Number(t.amount),0);
-                return (
-                  <div key={date}>
-                    <div className="px-4 py-1.5 bg-muted/20 border-b border-border/15 flex items-center justify-between sticky top-[152px] z-[5]">
-                      <span className="text-[11.5px] font-semibold text-foreground">{rDate(date)}</span>
-                      <span className="text-[11px] text-muted-foreground tabular">{fmtUSD(dayTotal)}</span>
-                    </div>
-                    {dTxns.map(t => <TxnRow key={t.id} t={t} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
-                      nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}/>)}
-                  </div>
-                );
-              }) : visibleTxns.map(t => <TxnRow key={t.id} t={t} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
-                nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys} showDate/>)}
-            </div>
-          </div>
 
-          {/* Top spending (merchant leaderboard) — right */}
-          <div className="surface-card p-4 lg:sticky lg:top-[92px]">
-            <div className="text-[13px] font-semibold text-foreground mb-3">Top spending</div>
-            {leaderboard.length === 0 ? (
-              <div className="text-[12.5px] text-muted-foreground py-4 text-center">No transactions this period.</div>
-            ) : (
-              <div className="space-y-2.5 max-h-[220px] lg:max-h-[calc(100vh-220px)] overflow-y-auto scrollbar-none pr-1">
-                {leaderboard.map((m,i) => {
-                  const maxT = leaderboard[0].total;
-                  const pct = Math.max((m.total/maxT)*100, 4);
-                  return (
-                    <div key={m.merchant} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
-                      <div className="min-w-0">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="text-[12.5px] font-medium text-foreground truncate">{m.merchant}</span>
-                          <span className="text-[12px] font-bold text-foreground tabular shrink-0">{fmtUSD(m.total)}</span>
+              {/* Account + amount-range filters */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="relative shrink-0">
+                  <Landmark className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none"/>
+                  <select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}
+                    className="h-7 pl-6 pr-6 rounded-lg bg-muted/40 border border-border/60 text-[11.5px] font-medium text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] appearance-none max-w-[150px]">
+                    <option value="">All accounts</option>
+                    {accountsInPeriod.map(a => (
+                      <option key={a.account_id} value={a.account_id}>
+                        {a.name ?? a.official_name ?? "Account"}{a.mask ? ` ••${a.mask}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1 h-7 px-2 rounded-lg bg-muted/40 border border-border/60 shrink-0">
+                  <span className="text-[10.5px] text-muted-foreground">$</span>
+                  <input type="number" inputMode="decimal" min={0} placeholder="Min" value={minAmount}
+                    onChange={e=>setMinAmount(e.target.value)}
+                    className="w-11 bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground/60"/>
+                  <span className="text-muted-foreground/40">–</span>
+                  <input type="number" inputMode="decimal" min={0} placeholder="Max" value={maxAmount}
+                    onChange={e=>setMaxAmount(e.target.value)}
+                    className="w-11 bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground/60"/>
+                </div>
+                {(hasActiveFilters || catSel) && (
+                  <button onClick={()=>{ clearFilters(); setCatSel(null); }}
+                    className="ml-auto flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-negative/10 border border-negative/30 text-[11.5px] text-negative font-semibold hover:bg-negative/15 transition-colors shrink-0">
+                    <X className="h-3 w-3"/> Clear all filters
+                  </button>
+                )}
+              </div>
+
+              {/* Active-filter chips — one per applied filter, individually removable.
+                  A separate "Sort" chip shows up whenever sorting has been changed
+                  from the default, with its own quick-clear back to newest-first. */}
+              {(catSel || accountFilter || minAmount || maxAmount || search || hasActiveSort) && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  {hasActiveSort && (
+                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))]">
+                      Sort: {SORT_LABELS[sortBy]} {sortDesc ? "↓" : "↑"}
+                      <button onClick={clearSort} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  )}
+                  {catSel && (
+                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))]">
+                      Category: {formatCat(catSel)}
+                      <button onClick={()=>setCatSel(null)} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  )}
+                  {search && (
+                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
+                      "{search}"
+                      <button onClick={()=>setSearch("")} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  )}
+                  {accountFilter && (
+                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
+                      {accountsInPeriod.find(a=>a.account_id===accountFilter)?.name ?? "Account"}
+                      <button onClick={()=>setAccountFilter("")} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  )}
+                  {(minAmount || maxAmount) && (
+                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
+                      ${minAmount||"0"} – ${maxAmount||"∞"}
+                      <button onClick={()=>{setMinAmount("");setMaxAmount("");}} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* overflow-x-hidden (not auto) is deliberate: the desktop table
+                below is table-layout:fixed with resizable columns whose
+                widths are proportional weights, not absolute pixels, so it
+                always fits the container exactly and never needs a
+                horizontal scrollbar. */}
+            <div className="overflow-y-auto overflow-x-hidden scrollbar-none flex-1">
+              {visibleTxns.length === 0 ? (
+                <div className="py-14 text-center text-[13px] text-muted-foreground">
+                  No transactions match{hasActiveFilters ? " these filters" : ""}.
+                </div>
+              ) : (
+                <>
+                  {/* Desktop/tablet: real table with resizable, sortable columns. */}
+                  <table className="hidden md:table w-full text-left border-collapse table-fixed">
+                    <colgroup>
+                      <col style={{width: colWidths.name}}/>
+                      {visibleCols.has("date") && <col style={{width: colWidths.date}}/>}
+                      {visibleCols.has("category") && <col style={{width: colWidths.category}}/>}
+                      {visibleCols.has("status") && <col style={{width: colWidths.status}}/>}
+                      {visibleCols.has("account") && <col style={{width: colWidths.account}}/>}
+                      {visibleCols.has("amount") && <col style={{width: colWidths.amount}}/>}
+                    </colgroup>
+                    <thead className="sticky top-0 z-[5] bg-card">
+                      <tr className="border-b border-border/20">
+                        <SortableTh label="Description" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} onResizeStart={startColResize("name")} />
+                        {visibleCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
+                        {visibleCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
+                        {visibleCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
+                        {visibleCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} />}
+                        {visibleCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} isLast/>}
+                      </tr>
+                    </thead>
+                    {groupedTxns ? groupedTxns.map(g => (
+                      <tbody key={g.key}>
+                        <tr className="bg-muted/30">
+                          <td colSpan={colSpan} className="px-4 py-2 border-b border-border/15">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
+                                <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
+                                  {g.items.length} {g.items.length===1?"txn":"txns"}
+                                </span>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
+                                <div className="text-[13px] font-bold text-foreground tabular leading-tight mt-0.5">{fmtUSD(g.total)}</div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                        {g.items.map(t => (
+                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}/>
+                        ))}
+                      </tbody>
+                    )) : (
+                      <tbody>
+                        {visibleTxns.map(t => (
+                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}/>
+                        ))}
+                      </tbody>
+                    )}
+                  </table>
+
+                  {/* Mobile: no table, no column resizing — a plain stacked
+                      card list instead, using the same sort/group/filter
+                      state and the same visibleCols toggles to pick which
+                      attributes show in the meta line. */}
+                  <div className="md:hidden divide-y divide-border/10">
+                    {groupedTxns ? groupedTxns.map(g => (
+                      <div key={g.key}>
+                        <div className="bg-muted/30 px-4 py-2 flex items-center justify-between gap-3 border-b border-border/15">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
+                            <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
+                              {g.items.length}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
+                            <div className="text-[13px] font-bold text-foreground tabular leading-tight mt-0.5">{fmtUSD(g.total)}</div>
+                          </div>
                         </div>
-                        <div className="h-1.5 rounded-full bg-border/20 mt-1 overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:catColor(m.cat)}}/>
+                        <div className="divide-y divide-border/10">
+                          {g.items.map(t => (
+                            <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                              nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}/>
+                          ))}
                         </div>
                       </div>
-                      <span className="text-[10.5px] text-muted-foreground shrink-0 tabular">{m.count}×</span>
-                    </div>
-                  );
-                })}
-              </div>
+                    )) : (
+                      <>
+                        {visibleTxns.map(t => (
+                          <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}/>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          </div>
+
+          {/* Insights — right. Fixed, non-scrolling panel: top spending
+              categories, committed charges over the next 30 days, and
+              today's safe-to-spend number. Content is deliberately capped
+              (top 5 categories) so it never needs its own scrollbar. */}
+          <div className="surface-card p-4 space-y-4 overflow-hidden lg:w-[280px] lg:shrink-0">
+            <div>
+              <div className="text-[13px] font-semibold text-foreground mb-2.5">Top spending categories</div>
+              {catRows.length === 0 ? (
+                <div className="text-[12.5px] text-muted-foreground py-2 text-center">No spend yet this period.</div>
+              ) : (
+                <div className="space-y-2">
+                  {catRows.slice(0, 5).map(c => {
+                    const col = catColor(c.cat);
+                    const pct = Math.max((c.spend / catRows[0].spend) * 100, 4);
+                    return (
+                      <div key={c.cat} className="min-w-0">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[12.5px] font-medium text-foreground truncate">{formatCat(c.cat)}</span>
+                          <span className="text-[12px] font-bold text-foreground tabular shrink-0">{fmtUSD(c.spend)}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-border/20 mt-1 overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:col}}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {isCurrentMonth && (
+              <>
+                <div className="pt-3.5 border-t border-border/15">
+                  <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Committed next 30 days</div>
+                  <div className="text-[18px] font-display font-semibold text-foreground tabular mt-0.5">{fmtUSD(committedNext30)}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{next30Recurring.length} recurring charge{next30Recurring.length !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="pt-3.5 border-t border-border/15">
+                  <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Safe to spend today</div>
+                  <div className="text-[18px] font-display font-semibold text-foreground tabular mt-0.5">
+                    {safeToSpendToday !== null ? fmtUSD(safeToSpendToday) : "—"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{safeToSpendToday !== null ? `${daysLeft} days left this month` : "Set a budget to see this"}</div>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -782,13 +1346,95 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </div>,
         document.body
       )}
+
+      {/* Columns picker — portaled to <body> and positioned from the button's
+          real screen coordinates so it always renders above the table's
+          sticky header instead of getting clipped/overlapped by it. */}
+      {colsMenu.open && colsMenu.pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
+          <div className="fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-hidden py-1"
+            style={{ top: colsMenu.pos.top, right: colsMenu.pos.right, border: "1px solid var(--gold-border)" }}>
+            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
+            {COLUMN_DEFS.map(c => {
+              const checked = visibleCols.has(c.key);
+              return (
+                <button key={c.key} onClick={()=>toggleCol(c.key)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px] text-foreground">
+                  <div className={cn("h-4 w-4 rounded border grid place-items-center shrink-0 transition-colors",
+                    checked ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]" : "border-border-strong")}>
+                    {checked && <Check className="h-3 w-3 text-primary-foreground"/>}
+                  </div>
+                  {c.label}
+                </button>
+              );
+            })}
+            {/* Column widths only apply to the desktop table (mobile renders
+                a stacked card list instead), so this reset is desktop-only too. */}
+            <div className="hidden md:block border-t border-border/40 mt-1 pt-1">
+              <button onClick={()=>{ setColWidths(DEFAULT_COL_WIDTHS); colsMenu.close(); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px] text-foreground">
+                <Maximize2 className="h-3.5 w-3.5 text-muted-foreground"/> Autofit columns
+              </button>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* Group-by picker — same portal pattern as Columns above. */}
+      {groupMenu.open && groupMenu.pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
+          <div className="fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-hidden py-1"
+            style={{ top: groupMenu.pos.top, right: groupMenu.pos.right, border: "1px solid var(--gold-border)" }}>
+            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
+            {GROUP_OPTIONS.map(g => (
+              <button key={g.key} onClick={()=>{ setGroupBy(g.key); groupMenu.close(); }}
+                className={cn("w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px]",
+                  groupBy===g.key ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
+                {g.label}
+                {groupBy===g.key && <Check className="h-3.5 w-3.5"/>}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }
 
-// ── Transaction row ───────────────────────────────────────────────────────────
-const TxnRow = ({ t, showDate=false, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys }: {
-  t: PTxn; showDate?: boolean;
+// ── Sortable column header — click to sort by that attribute; click again to flip direction ──
+const SortableTh = ({ label, active, desc, onClick, align="left", onResizeStart, isLast }: {
+  label: string; active: boolean; desc: boolean; onClick: () => void; align?: "left"|"right";
+  onResizeStart?: (e: React.PointerEvent) => void; isLast?: boolean;
+}) => (
+  <th onClick={onClick}
+    className={cn("relative px-4 py-2 text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none transition-colors whitespace-nowrap overflow-hidden",
+      active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      align==="right" && "text-right")}>
+    <span className={cn("inline-flex items-center gap-1", align==="right" && "flex-row-reverse")}>
+      {label}
+      {active
+        ? (desc ? <ArrowDown className="h-3 w-3"/> : <ArrowUp className="h-3 w-3"/>)
+        : <ArrowUpDown className="h-2.5 w-2.5 opacity-30"/>}
+    </span>
+    {/* Drag handle — resizes this column; widths are proportional weights on a
+        fixed-layout table, so this can never push the table into overflow. */}
+    {onResizeStart && !isLast && (
+      <div onClick={(e)=>e.stopPropagation()} onPointerDown={onResizeStart}
+        className="absolute top-0 right-0 h-full w-2 cursor-col-resize select-none z-10 group/resize"
+        title="Drag to resize column">
+        <div className="absolute top-1/2 right-0 -translate-y-1/2 h-4 w-0.5 rounded-full bg-border group-hover/resize:bg-[hsl(var(--primary))] transition-colors"/>
+      </div>
+    )}
+  </th>
+);
+
+// ── Transaction row (table) ─────────────────────────────────────────────────
+const TxnRow = ({ t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys }: {
+  t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
   nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Set<string>;
 }) => {
@@ -798,23 +1444,91 @@ const TxnRow = ({ t, showDate=false, getEffectiveCategory, catColor, formatCat, 
   const acc = accounts.find(a => a.account_id === t.account_id);
   const isRecurring = recurringKeys.has(nm.trim().toLowerCase());
   return (
-    <div onClick={() => onOpenDetail(t)} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-4 py-3 cursor-pointer hover:bg-muted/20 transition-colors border-b border-border/10 last:border-0">
-      <div className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white" style={{background:col}}>
+    <tr onClick={() => onOpenDetail(t)} className="cursor-pointer hover:bg-muted/20 transition-colors border-b border-border/10 last:border-0">
+      <td className="px-4 py-2.5">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <div className="h-8 w-8 rounded-full shrink-0 grid place-items-center text-[12px] font-bold text-white" style={{background:col}}>
+            {(nm[0]??"?").toUpperCase()}
+          </div>
+          {/* Description is the thing people actually read — instead of hard
+              ellipsis-truncating it to fit a narrow column, let it wrap to a
+              second line so the full name stays visible. */}
+          <span className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">{nm}</span>
+          {isRecurring && <RefreshCw className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0 mt-1" />}
+        </div>
+      </td>
+      {visibleCols.has("date") && (
+        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground truncate">{rDate(t.date)}</td>
+      )}
+      {visibleCols.has("category") && (
+        <td className="px-4 py-2.5">
+          <span className="text-[12px] font-semibold line-clamp-2 leading-snug" style={{color:col}}>{formatCat(cat)}</span>
+        </td>
+      )}
+      {visibleCols.has("status") && (
+        <td className="px-4 py-2.5 truncate">
+          {t.pending
+            ? <span className="text-[10.5px] font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full">Pending</span>
+            : <span className="text-[10.5px] font-medium text-muted-foreground">Posted</span>}
+        </td>
+      )}
+      {visibleCols.has("account") && (
+        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground line-clamp-2 leading-snug">{acc?.name ?? "—"}</td>
+      )}
+      {visibleCols.has("amount") && (
+        <td className="px-4 py-2.5 text-right text-[13.5px] font-bold text-foreground tabular truncate">{fmtUSD(Number(t.amount))}</td>
+      )}
+    </tr>
+  );
+};
+
+// ── Transaction row (mobile card list) ──────────────────────────────────────
+// Below md there's no table at all — resizable columns don't translate to a
+// phone-width screen, so instead each transaction renders as a two-line card:
+// name + amount on top, then whichever attribute columns are toggled on
+// (category/date/status/account) as a compact meta line underneath.
+const MobileTxnRow = ({ t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys }: {
+  t: PTxn; visibleCols: Set<ColKey>;
+  getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Set<string>;
+}) => {
+  const cat = getEffectiveCategory(t) ?? "Other";
+  const col = catColor(cat);
+  const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
+  const acc = accounts.find(a => a.account_id === t.account_id);
+  const isRecurring = recurringKeys.has(nm.trim().toLowerCase());
+  const metaParts: React.ReactNode[] = [];
+  if (visibleCols.has("category")) metaParts.push(<span key="cat" style={{color:col}} className="font-medium">{formatCat(cat)}</span>);
+  if (visibleCols.has("date")) metaParts.push(<span key="date">{rDate(t.date)}</span>);
+  if (visibleCols.has("account") && acc?.name) metaParts.push(<span key="acc" className="truncate">{acc.name}</span>);
+  if (visibleCols.has("status") && t.pending) metaParts.push(<span key="status" className="font-semibold text-warning">Pending</span>);
+  return (
+    <button onClick={() => onOpenDetail(t)}
+      className="w-full text-left px-4 py-3 flex items-start gap-3 active:bg-muted/30 transition-colors">
+      <div className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white mt-0.5" style={{background:col}}>
         {(nm[0]??"?").toUpperCase()}
       </div>
-      <div className="min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[13px] font-medium text-foreground truncate">{nm}</span>
-          {isRecurring && <RefreshCw className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />}
-          {t.pending && <span className="text-[9px] font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full shrink-0">PENDING</span>}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-[13.5px] font-medium text-foreground line-clamp-2 leading-snug flex items-center gap-1.5">
+            {nm}
+            {isRecurring && <RefreshCw className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />}
+          </span>
+          {visibleCols.has("amount") && (
+            <span className="text-[14px] font-bold text-foreground tabular shrink-0">{fmtUSD(Number(t.amount))}</span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-          <span className="text-[11px] font-semibold shrink-0" style={{color:col}}>{formatCat(cat)}</span>
-          {acc?.name && <><span className="text-muted-foreground/30 shrink-0">·</span><span className="text-[11px] text-muted-foreground truncate">{acc.name}</span></>}
-          {showDate && <><span className="text-muted-foreground/30 shrink-0">·</span><span className="text-[11px] text-muted-foreground/50 shrink-0">{rDate(t.date)}</span></>}
-        </div>
+        {metaParts.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap text-[11.5px] text-muted-foreground mt-1">
+            {metaParts.map((p, i) => (
+              <span key={i} className="flex items-center gap-1.5">
+                {i > 0 && <span className="text-border">·</span>}
+                {p}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <span className="text-[13.5px] font-bold text-foreground tabular shrink-0">{fmtUSD(Number(t.amount))}</span>
-    </div>
+    </button>
   );
 };

@@ -1,9 +1,16 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Mail, Smartphone, CalendarDays, Save, Loader2 } from "lucide-react";
+import {
+  Mail, Smartphone, CalendarDays, Save, Loader2,
+  AlertTriangle, Wallet, CreditCard, Receipt, ArrowDownToLine, Undo2, ArrowLeftRight, CheckCircle2, Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+type AlertTypeKey =
+  | "alert_budget_threshold" | "alert_low_balance" | "alert_payment_due" | "alert_large_txn"
+  | "alert_deposit" | "alert_refund" | "alert_transfer" | "alert_cc_payment" | "alert_insight";
 
 interface AlertPrefs {
   email_enabled: boolean;
@@ -13,12 +20,38 @@ interface AlertPrefs {
   low_balance: number;
   payment_days: number;
   weekly_summary: boolean;
+  alert_budget_threshold: boolean;
+  alert_low_balance: boolean;
+  alert_payment_due: boolean;
+  alert_large_txn: boolean;
+  alert_deposit: boolean;
+  alert_refund: boolean;
+  alert_transfer: boolean;
+  alert_cc_payment: boolean;
+  alert_insight: boolean;
 }
 
 const DEFAULTS: AlertPrefs = {
   email_enabled: true, push_enabled: true, email: "",
   budget_pct: 90, low_balance: 100, payment_days: 3, weekly_summary: true,
+  alert_budget_threshold: true, alert_low_balance: true, alert_payment_due: true, alert_large_txn: true,
+  alert_deposit: true, alert_refund: true, alert_transfer: true, alert_cc_payment: true, alert_insight: true,
 };
+
+// Every alert category the send-alerts function can generate — each one is
+// independently toggleable so a user can, say, keep payment-due reminders
+// but silence deposit notifications, without losing their threshold values.
+const ALERT_TYPES: { key: AlertTypeKey; icon: typeof AlertTriangle; label: string; desc: string }[] = [
+  { key: "alert_payment_due", icon: CreditCard, label: "Payment due", desc: "Card payment coming up" },
+  { key: "alert_deposit", icon: ArrowDownToLine, label: "Deposit received", desc: "Paycheck or incoming funds" },
+  { key: "alert_low_balance", icon: Wallet, label: "Low balance", desc: "Checking or savings running low" },
+  { key: "alert_budget_threshold", icon: AlertTriangle, label: "Budget threshold", desc: "A category nears or exceeds budget" },
+  { key: "alert_large_txn", icon: Receipt, label: "Large charge", desc: "Unusually large transaction" },
+  { key: "alert_refund", icon: Undo2, label: "Refund", desc: "Money credited back to you" },
+  { key: "alert_transfer", icon: ArrowLeftRight, label: "Transfer", desc: "Money moved between accounts" },
+  { key: "alert_cc_payment", icon: CheckCircle2, label: "Payment posted", desc: "A card payment was applied" },
+  { key: "alert_insight", icon: Sparkles, label: "AI insight", desc: "High-severity insight detected" },
+];
 
 // Segmented Off/On control — unambiguous in both light and dark, and never
 // reads as a radio button (the recurring complaint about the sliding toggle).
@@ -71,6 +104,15 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
       low_balance: prefs.low_balance,
       payment_days: prefs.payment_days,
       weekly_summary: prefs.weekly_summary,
+      alert_budget_threshold: prefs.alert_budget_threshold,
+      alert_low_balance: prefs.alert_low_balance,
+      alert_payment_due: prefs.alert_payment_due,
+      alert_large_txn: prefs.alert_large_txn,
+      alert_deposit: prefs.alert_deposit,
+      alert_refund: prefs.alert_refund,
+      alert_transfer: prefs.alert_transfer,
+      alert_cc_payment: prefs.alert_cc_payment,
+      alert_insight: prefs.alert_insight,
     }, { onConflict: "user_id" });
     setSaving(false);
     if (error) { toast.error("Failed to save"); return; }
@@ -130,6 +172,23 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
             </div>
             <Switch on={prefs.weekly_summary} label="Weekly summary" onChange={() => setPrefs(p => ({ ...p, weekly_summary: !p.weekly_summary }))} />
           </div>
+        </div>
+
+        {/* Alert types — per-category opt-in/out, independent of channel/thresholds */}
+        <div className="p-5 space-y-1">
+          <div className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">Alert types</div>
+          {ALERT_TYPES.map(({ key, icon: Icon, label, desc }) => (
+            <div key={key} className="flex items-center gap-3 py-2">
+              <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                <Icon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-semibold text-foreground">{label}</div>
+                <div className="text-[12.5px] text-muted-foreground">{desc}</div>
+              </div>
+              <Switch on={prefs[key]} label={label} onChange={() => setPrefs(p => ({ ...p, [key]: !p[key] }))} />
+            </div>
+          ))}
         </div>
 
         {/* Thresholds */}
