@@ -327,6 +327,7 @@ function SetupWizard({ detected, userId, onDone, onSkip }: SetupWizardProps) {
                     >
                       {/* Checkbox */}
                       <button onClick={() => toggle(i)}
+                        aria-label={`${item.selected ? "Deselect" : "Select"} ${item.name}`}
                         className={cn("h-5 w-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors",
                           item.selected ? `${bucket.bar.replace("bg-","border-")} ${bucket.bar}` : "border-border"
                         )}
@@ -435,7 +436,7 @@ function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: 
       <div className="bg-card rounded-t-2xl sm:rounded-2xl w-full max-w-md mx-0 sm:mx-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border">
           <p className="font-semibold">{initial?.id ? "Edit" : "Add"} obligation</p>
-          <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Close" className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-5 space-y-4">
           <div className="flex gap-1.5 flex-wrap">
@@ -534,7 +535,7 @@ function CoverModal({ exceeded, envelopes, goals, month, userId, onClose }: Cove
             <p className="font-semibold">How to cover {fmtUSD(totalOver)}?</p>
             <p className="text-xs text-muted-foreground mt-0.5">{exceeded.map(e => e.ob.name).join(", ")} over</p>
           </div>
-          <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} aria-label="Close" className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-4 space-y-2 max-h-[70vh] overflow-y-auto">
           <div className="bg-destructive/10 rounded-xl p-3 mb-3 space-y-1">
@@ -758,8 +759,9 @@ export function ObligationsView({ txns, month, formatCat, catColor, getEffective
                   <span className="text-xs text-muted-foreground hidden sm:inline">{bucket.sublabel}</span>
                 </div>
                 <button onClick={() => setAddType(bucket.type)}
-                  className="h-7 w-7 flex items-center justify-center rounded-lg bg-muted/60 hover:bg-muted transition-colors">
-                  <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                  aria-label={`Add ${bucket.full.toLowerCase()}`}
+                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-muted/60 hover:bg-muted transition-colors">
+                  <Plus className="h-4 w-4 text-muted-foreground" />
                 </button>
               </div>
 
@@ -785,11 +787,13 @@ export function ObligationsView({ txns, month, formatCat, catColor, getEffective
                           <p className="text-sm font-medium flex-1 truncate">{ob.name}</p>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {isOver && <span className="text-xs text-destructive font-semibold">+{fmtUSD(spent - ob.amount)}</span>}
+                            {!isOver && !isGoal && pct >= 80 && <span className="text-xs text-amber-500 font-semibold">Nearing limit</span>}
                             <span className={cn("text-sm font-bold", isOver && "text-destructive")}>{fmtUSD(isGoal ? ob.amount : spent)}</span>
                             <span className="text-xs text-muted-foreground">{isGoal ? "/mo" : `/ ${fmtUSD(ob.amount)}`}</span>
                             <button onClick={() => setEditing(ob)}
-                              className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted transition-colors ml-1">
-                              <Pencil className="h-3 w-3 text-muted-foreground/50" />
+                              aria-label={`Edit ${ob.name}`}
+                              className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted transition-colors ml-1">
+                              <Pencil className="h-3.5 w-3.5 text-muted-foreground/50" />
                             </button>
                           </div>
                         </div>

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fmtUSD } from "@/lib/format";
@@ -248,16 +252,18 @@ const CardDetailDialog = ({
         <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
         <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
 
-        <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
+        <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
           <X className="h-4 w-4" />
         </button>
         {cards.length > 1 && (
           <>
             <button onClick={() => { if (index > 0) { onIndexChange(index - 1); setReveal(false); } }} disabled={index === 0}
+              aria-label="Previous card"
               className="absolute left-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
               <ChevronLeft className="h-4 w-4" />
             </button>
             <button onClick={() => { if (index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); } }} disabled={index === cards.length - 1}
+              aria-label="Next card"
               className="absolute right-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -304,7 +310,7 @@ const CardDetailDialog = ({
             <div className="surface-card p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</span>
-                <button onClick={() => setReveal(v => !v)} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => setReveal(v => !v)} aria-label={reveal ? "Hide card number and PIN" : "Reveal card number and PIN"} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
                   {reveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
                 </button>
               </div>
@@ -316,8 +322,8 @@ const CardDetailDialog = ({
                       {reveal ? (card.card_number ?? `•••• ${card.card_number_last4}`) : `•••• ${card.card_number_last4 ?? "????"}`}
                     </span>
                     {card.card_number && (
-                      <button onClick={() => copyToClipboard(card.card_number!, "Card number")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                        <Copy className="h-3 w-3" />
+                      <button onClick={() => copyToClipboard(card.card_number!, "Card number")} aria-label="Copy card number" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                        <Copy className="h-4 w-4" />
                       </button>
                     )}
                   </div>
@@ -328,8 +334,8 @@ const CardDetailDialog = ({
                   <span className="text-muted-foreground">PIN</span>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
-                    <button onClick={() => copyToClipboard(card.pin!, "PIN")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                      <Copy className="h-3 w-3" />
+                    <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                      <Copy className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -365,10 +371,29 @@ const CardDetailDialog = ({
             )}
           </div>
 
-          <button onClick={() => onRemove(card)} disabled={removingId === card.id}
-            className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[13px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
-            {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
-          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button disabled={removingId === card.id}
+                className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[13px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+                {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this gift card?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently removes {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
+                  {(card.card_number || card.card_number_last4 || card.pin) ? ", stored card number, and PIN" : ""} from SentryFi. This can't be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => onRemove(card)} className="bg-negative text-negative-foreground hover:bg-negative/90">
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </DialogContent>
     </Dialog>
@@ -618,10 +643,29 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                           <ExternalLink className="h-3.5 w-3.5" /> Check balance
                         </a>
                       )}
-                      <button onClick={() => removeCard(card.id)} disabled={removingId === card.id}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-negative/30 text-[12px] font-medium text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
-                        {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
-                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button disabled={removingId === card.id}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-negative/30 text-[12px] font-medium text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+                            {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete this gift card?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This permanently removes {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
+                              {(card.card_number || card.card_number_last4 || card.pin) ? ", stored card number, and PIN" : ""} from SentryFi. This can't be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => removeCard(card.id)} className="bg-negative text-negative-foreground hover:bg-negative/90">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
 
                     {/* Card graphic — scaled down so it doesn't dominate the panel */}
@@ -655,7 +699,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                               <span className="text-muted-foreground">Card number</span>
                               <div className="flex items-center gap-1.5">
                                 <span className="tabular">···· {card.card_number_last4}</span>
-                                {card.card_number && <button onClick={() => copyToClipboard(card.card_number!, "Card number")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-3 w-3" /></button>}
+                                {card.card_number && <button onClick={() => copyToClipboard(card.card_number!, "Card number")} aria-label="Copy card number" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-4 w-4" /></button>}
                               </div>
                             </div>
                           )}
@@ -664,7 +708,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                               <span className="text-muted-foreground">PIN</span>
                               <div className="flex items-center gap-1.5">
                                 <span className="tabular">{card.pin}</span>
-                                <button onClick={() => copyToClipboard(card.pin!, "PIN")} className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-3 w-3" /></button>
+                                <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-4 w-4" /></button>
                               </div>
                             </div>
                           )}
@@ -884,7 +928,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
         {/* Header with back button on step 2 */}
         <div className="px-4 pt-4 pb-3 border-b border-border/40 shrink-0 flex items-center gap-2">
           {step === "details" && (
-            <button onClick={() => setStep("pick")}
+            <button onClick={() => setStep("pick")} aria-label="Back to brand selection"
               className="h-8 w-8 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0 no-min-h">
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -907,7 +951,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
               </>
             )}
           </div>
-          <button onClick={() => onOpenChange(false)} className="ml-auto h-8 w-8 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
+          <button onClick={() => onOpenChange(false)} aria-label="Close" className="ml-auto h-8 w-8 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -971,7 +1015,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                   className="w-full h-11 pl-10 pr-10 rounded-xl bg-surface/60 border border-border/60 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors"
                 />
                 {search && (
-                  <button onClick={() => { setSearch(""); setLookupResults([]); }}
+                  <button onClick={() => { setSearch(""); setLookupResults([]); }} aria-label="Clear search"
                     className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center text-muted-foreground hover:text-foreground no-min-h">
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -1072,7 +1116,7 @@ const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose
         <DialogTitle className="sr-only">Log spend on {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Record how much you spent to update the tracked balance.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40">
-          <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-3">
@@ -1148,7 +1192,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
         <DialogTitle className="sr-only">Edit {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Edit balance and details for this gift card.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
-          <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-3">
@@ -1177,7 +1221,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
 
           <div className="flex items-center justify-between">
             <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</label>
-            <button onClick={() => setRevealSensitive(v => !v)} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => setRevealSensitive(v => !v)} aria-label={revealSensitive ? "Hide card number and PIN" : "Reveal card number and PIN"} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
               {revealSensitive ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
             </button>
           </div>
@@ -1186,9 +1230,9 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
               <input type={revealSensitive ? "text" : "password"} value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card number"
                 className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {cardNumber && (
-                <button onClick={() => copyToClipboard(cardNumber.replace(/\s/g, ""), "Card number")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                  <Copy className="h-3 w-3" />
+                <button onClick={() => copyToClipboard(cardNumber.replace(/\s/g, ""), "Card number")} aria-label="Copy card number"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                  <Copy className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
@@ -1196,9 +1240,9 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
               <input type={revealSensitive ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN"
                 className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {pin && (
-                <button onClick={() => copyToClipboard(pin, "PIN")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                  <Copy className="h-3 w-3" />
+                <button onClick={() => copyToClipboard(pin, "PIN")} aria-label="Copy PIN"
+                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                  <Copy className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>

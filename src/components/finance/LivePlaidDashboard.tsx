@@ -19,6 +19,7 @@ import { CategoryManager } from "@/components/finance/CategoryManager";
 import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { BudgetView } from "@/components/finance/BudgetView";
+import { BudgetPage } from "@/components/finance/BudgetPage";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -177,10 +178,31 @@ const EXPENSE_CATEGORIES = [
   "Other",
 ];
 
+// Full classification taxonomy — kept broad so auto-categorized transactions
+// (mapped from raw Plaid categories via CATEGORY_MAP below, e.g. "Salary",
+// "Transfer In") still classify correctly as income. "Income"/"Dividends"/
+// "Interest Earned" are newer, simpler names added alongside the originals
+// rather than replacing them, so nothing already categorized as "Salary" or
+// "Transfer In" silently stops counting as income.
 const INCOME_CATEGORIES = [
+  "Income", "Dividends", "Interest Earned",
   "Salary", "Freelance Income", "Interest & Dividends",
   "Refund / Reimbursement", "Transfer In", "Other Income",
 ];
+
+// The curated set actually offered in the category picker's "Income" section
+// — a short, clean list instead of the full classification taxonomy above.
+const INCOME_CATEGORIES_PICKER = ["Income", "Dividends", "Interest Earned"];
+
+// Categories that represent money movement to ignore/exclude from spend
+// (shown under their own "Ignored" section in the category picker instead of
+// mixed into "Expenses" — they remain ordinary EXPENSE_CATEGORIES entries for
+// classification purposes, this only changes how the picker groups them).
+const IGNORED_CATEGORIES = ["Credit Card Payment", "Internal Transfer"];
+
+// What the picker's "Expenses" section actually lists — every expense
+// category except the ones broken out into "Ignored" above.
+const EXPENSE_CATEGORIES_PICKER = EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c));
 
 const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 
@@ -1318,7 +1340,7 @@ const PanelHeader = ({ icon, iconColor, title, subtitle, badge, badgeClass, onCl
       <div className="font-display text-lg text-foreground leading-snug">{title}</div>
       {subtitle && <div className="text-[12.5px] text-muted-foreground mt-0.5">{subtitle}</div>}
     </div>
-    <button onClick={onClose} className="shrink-0 h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+    <button onClick={onClose} aria-label="Close" className="shrink-0 h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
       <X className="h-3.5 w-3.5" />
     </button>
   </div>
@@ -1338,7 +1360,7 @@ const BudgetPanel = ({ category, current, onSave, onRemove, onClose }: {
         <DialogTitle className="sr-only">{formatCat(category)} budget</DialogTitle>
         <DialogDescription className="sr-only">Set a monthly spending limit for {formatCat(category)}.</DialogDescription>
         <div className="relative p-6 pb-4">
-          <button onClick={onClose}
+          <button onClick={onClose} aria-label="Close"
             className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
@@ -1465,6 +1487,7 @@ const InlineCategoryPicker = ({
                 </button>
                 {isCustom && (
                   <button onClick={()=>onRemoveCustom(cat)}
+                    aria-label={`Remove custom category ${cat}`}
                     className="px-2 opacity-0 group-hover/item:opacity-100 text-muted-foreground hover:text-negative transition-all">
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -1568,13 +1591,14 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, 
       <button
         onClick={e=>{e.stopPropagation();onToggleInternal?.(t.id);}}
         title={isManualInternal ? "Remove transfer mark" : isAutoInternal && !isInternal ? "Auto-detected as transfer (un-flagged, click to re-flag)" : isAutoInternal ? "Auto-detected as transfer, click to un-flag" : "Mark as internal transfer"}
+        aria-label={isManualInternal ? "Remove transfer mark" : isAutoInternal && !isInternal ? "Auto-detected as transfer (un-flagged, click to re-flag)" : isAutoInternal ? "Auto-detected as transfer, click to un-flag" : "Mark as internal transfer"}
         className={cn(
-          "h-6 w-6 grid place-items-center rounded transition-all shrink-0",
+          "h-7 w-7 grid place-items-center rounded transition-all shrink-0",
           isManualInternal || isAutoInternal
             ? "text-info bg-info/10"
             : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-secondary/60 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
         )}>
-        <RepeatIcon className="h-3 w-3" />
+        <RepeatIcon className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -1696,7 +1720,7 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
             {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
           </select>
           {renderValue(c)}
-          <button type="button" onClick={() => removeRow(c.id)} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
+          <button type="button" onClick={() => removeRow(c.id)} aria-label="Remove condition" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1869,7 +1893,7 @@ const RulesManager = ({
                         {a.type === "mark_internal" && <span className="flex-1 text-[12.5px] text-muted-foreground px-1">Excludes it from spending totals</span>}
                         {draftRule.actions.length > 1 && (
                           <button onClick={() => setDraftRule({ ...draftRule, actions: draftRule.actions.filter((_, j) => j !== i) })}
-                            className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0"><X className="h-3.5 w-3.5" /></button>
+                            aria-label="Remove action" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0"><X className="h-3.5 w-3.5" /></button>
                         )}
                       </div>
                     ))}
@@ -1937,9 +1961,11 @@ const RulesManager = ({
                           {rule.enabled ? "On" : "Off"}
                         </button>
                         <button onClick={() => setDraftRule(JSON.parse(JSON.stringify(rule)))}
-                          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30"><Pencil className="h-3.5 w-3.5" /></button>
+                          aria-label={`Edit rule ${rule.name}`}
+                          className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30"><Pencil className="h-3.5 w-3.5" /></button>
                         <button onClick={() => onRemoveSmartRule(rule.id)}
-                          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
+                          aria-label={`Delete rule ${rule.name}`}
+                          className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
                       </div>
                     </div>
                   </div>
@@ -2057,11 +2083,13 @@ const RulesManager = ({
                             {r.enabled ? "On" : "Off"}
                           </button>
                           <button onClick={() => { setEditId(r.id); setEditPattern(r.pattern); setEditMatchType(r.matchType); setEditCategory(r.category); setShowNewCat(false); }}
-                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
+                            aria-label={`Edit rule for ${r.pattern}`}
+                            className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => onRemoveCatRule(r.id)}
-                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
+                            aria-label={`Delete rule for ${r.pattern}`}
+                            className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -2185,11 +2213,13 @@ const RulesManager = ({
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <button onClick={() => { setEditNameKey(merchant); setEditNameValue(display); setShowNewName(false); }}
-                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
+                            aria-label={`Edit name rule for ${merchant}`}
+                            className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-border/30 transition-colors">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => onRemoveNameRule(merchant)}
-                            className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
+                            aria-label={`Delete name rule for ${merchant}`}
+                            className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-negative hover:bg-negative/10 transition-colors">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -2209,8 +2239,11 @@ const RulesManager = ({
 const TxnDetailModal = ({
   txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, allTxns,
   accounts, items, initialCatOpen, onClose, onSaveNameOverride, onBulkRename, onSaveNameRule,
-  onAddCategory, onAddRule, onRemoveCustom, onSelect, onToggleInternal, isManualInternal, isAutoInternal, isManualExternal,
+  onAddCategory, onAddRule, onRemoveCustom, onRenameCategory, onSelect, onToggleInternal, isManualInternal, isAutoInternal, isManualExternal,
   onFindSimilar,
+  tags, onAddTag, onRemoveTag, note, onSaveNote,
+  isRecurringOverride, onSetRecurringOverride, onClearRecurringOverride,
+  splits, onSaveSplits,
 }: {
   txn: PTxn; overrides: Record<string,string>; getRuleCategory: (m:string|null)=>string|null;
   nameOverride?: string; nameRules: Record<string,string>;
@@ -2226,12 +2259,23 @@ const TxnDetailModal = ({
   onAddCategory: (name: string, type: "income"|"expense") => void;
   onAddRule: (pattern: string, cat: string) => void;
   onRemoveCustom: (name: string) => void;
+  onRenameCategory?: (oldName: string, newName: string) => void;
   onSelect: (id: string, cat: string) => void;
   onToggleInternal: (id: string) => void;
   isManualInternal: boolean;
   isAutoInternal: boolean;
   isManualExternal: boolean;
   onFindSimilar: (pattern: string) => void;
+  tags: string[];
+  onAddTag: (id: string, tag: string) => void;
+  onRemoveTag: (id: string, tag: string) => void;
+  note: string;
+  onSaveNote: (id: string, note: string) => void;
+  isRecurringOverride?: boolean;
+  onSetRecurringOverride: (id: string, val: boolean) => void;
+  onClearRecurringOverride: (id: string) => void;
+  splits: { label: string; amount: number; category?: string }[];
+  onSaveSplits: (id: string, splits: { label: string; amount: number; category?: string }[]) => void;
 }) => {
   const merchant = txn.merchant_name ?? txn.name ?? null;
   const rawCat = getEffectiveCategory(txn, overrides, getRuleCategory);
@@ -2257,6 +2301,34 @@ const TxnDetailModal = ({
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
   const [applyAllCat, setApplyAllCat] = useState(samemerchantTxns.length > 0);
   const [saved, setSaved] = useState(false);
+  // Category picker's inline "add new" / "rename" states — shared by both the
+  // Info and Edit tabs' category field since only one tab is ever visible.
+  const [catEditMode, setCatEditMode] = useState<null | "add" | "rename">(null);
+  const [catDraftName, setCatDraftName] = useState("");
+  const [catDraftType, setCatDraftType] = useState<"income"|"expense">("expense");
+
+  // Tags / note / split — quick-action editors, each a small inline reveal
+  // rather than a separate tab since they're one-line inputs.
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+  const [showNoteInput, setShowNoteInput] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(note);
+  const [showSplitEditor, setShowSplitEditor] = useState(false);
+  const [splitRows, setSplitRows] = useState<{label:string;amount:string}[]>(() =>
+    splits.length ? splits.map(s => ({ label: s.label, amount: String(s.amount) })) : [{ label:"", amount:"" }, { label:"", amount:"" }]
+  );
+  const splitTotal = splitRows.reduce((s,r) => s + (parseFloat(r.amount) || 0), 0);
+  const splitTargetAmt = Math.abs(Number(txn.amount));
+  const submitTag = () => { const t = tagDraft.trim(); if (t) { onAddTag(txn.id, t); setTagDraft(""); } };
+  const submitNote = () => { onSaveNote(txn.id, noteDraft); setShowNoteInput(false); };
+  const submitSplits = () => {
+    const rows = splitRows.filter(r => r.label.trim() && parseFloat(r.amount) > 0)
+      .map(r => ({ label: r.label.trim(), amount: parseFloat(r.amount) }));
+    onSaveSplits(txn.id, rows);
+    setShowSplitEditor(false);
+  };
+  const clearSplits = () => { onSaveSplits(txn.id, []); setSplitRows([{label:"",amount:""},{label:"",amount:""}]); };
+  const isRecurringNow = isRecurringOverride ?? !!recurringLabel;
 
   // Obligations tab state
   interface ObItem { id:string; name:string; type:"fixed"|"flex"|"envelope"|"goal"; amount:number; merchant_hint?:string; }
@@ -2363,6 +2435,80 @@ const TxnDetailModal = ({
     setShowCatPicker(false);
   };
 
+  // ── Category picker: add-new / rename, inline in both tabs' category field ──
+  const isCustomCat = (cat: string | null) => !!cat && customCategories.some(c => c.name === cat);
+  const cancelCatEdit = () => { setCatEditMode(null); setCatDraftName(""); };
+  const startAddCategory = () => { setCatDraftName(""); setCatDraftType(isIncome ? "income" : "expense"); setCatEditMode("add"); };
+  const startRenameCategory = () => { if (!rawCat) return; setCatDraftName(rawCat); setCatEditMode("rename"); };
+  const confirmAddCategory = () => {
+    const name = catDraftName.trim();
+    if (!name) return;
+    onAddCategory(name, catDraftType);
+    handleCatSelect(name);
+    cancelCatEdit();
+    toast.success(`Created "${name}"`);
+  };
+  const confirmRenameCategory = () => {
+    const name = catDraftName.trim();
+    if (!name || !rawCat || !onRenameCategory) return;
+    onRenameCategory(rawCat, name);
+    cancelCatEdit();
+    toast.success(`Renamed to "${name}"`);
+  };
+
+  // Shared category field for both tabs — a select with an "Add new
+  // category…" option, plus a rename button that appears whenever the
+  // currently-assigned category is a custom one.
+  const renderCategoryField = () => {
+    if (catEditMode === "add") {
+      return (
+        <div className="flex items-center gap-2">
+          <input autoFocus value={catDraftName} onChange={e=>setCatDraftName(e.target.value)}
+            placeholder="New category name…"
+            onKeyDown={e=>{ if (e.key==="Enter") confirmAddCategory(); if (e.key==="Escape") cancelCatEdit(); }}
+            className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50"/>
+          <select value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}
+            className="bg-muted/40 border border-border/50 rounded-xl px-2 py-2.5 text-[13px] text-foreground outline-none shrink-0">
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+          </select>
+          <button onClick={confirmAddCategory} aria-label="Create category" className="h-10 w-10 grid place-items-center rounded-xl bg-gold shrink-0"><Check className="h-4 w-4"/></button>
+          <button onClick={cancelCatEdit} aria-label="Cancel adding category" className="h-10 w-10 grid place-items-center rounded-xl text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4"/></button>
+        </div>
+      );
+    }
+    if (catEditMode === "rename") {
+      return (
+        <div className="flex items-center gap-2">
+          <input autoFocus value={catDraftName} onChange={e=>setCatDraftName(e.target.value)}
+            onKeyDown={e=>{ if (e.key==="Enter") confirmRenameCategory(); if (e.key==="Escape") cancelCatEdit(); }}
+            className="flex-1 min-w-0 bg-muted/40 border border-[hsl(var(--primary)/0.4)] rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none"/>
+          <button onClick={confirmRenameCategory} aria-label="Save category name" className="h-10 w-10 grid place-items-center rounded-xl bg-gold shrink-0"><Check className="h-4 w-4"/></button>
+          <button onClick={cancelCatEdit} aria-label="Cancel rename" className="h-10 w-10 grid place-items-center rounded-xl text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4"/></button>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5">
+        <select
+          value={rawCat ?? "Other"}
+          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}
+          className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+          {[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)].map(cat => (
+            <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+          ))}
+          <option value="__add_new__">+ Add new category…</option>
+        </select>
+        {isCustomCat(rawCat) && onRenameCategory && (
+          <button onClick={startRenameCategory} aria-label="Rename category" title="Rename category"
+            className="h-10 w-10 grid place-items-center rounded-xl border border-border/50 text-muted-foreground hover:text-foreground shrink-0">
+            <Pencil className="h-3.5 w-3.5"/>
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const handleCreateRule = () => {
     if (!ruleDraft.trim() || !rawCat) return;
     onAddRule(ruleDraft.trim(), rawCat);
@@ -2432,26 +2578,17 @@ const TxnDetailModal = ({
                 </div>
               </div>
 
-              {/* Category inline select */}
+              {/* Category — dropdown, plus inline "add new" / rename */}
               <div>
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
-                <select
-                  value={rawCat ?? "Other"}
-                  onChange={e => handleCatSelect(e.target.value, false)}
-                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
-                  {[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)].map(cat => (
-                    <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
-                  ))}
-                </select>
+                {renderCategoryField()}
               </div>
 
               {/* Field/value grid — constrained to prevent overflow */}
               <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
                 {([
                   ["Merchant",  merchant ?? "—"],
-                  ["Account",   account ? `${account.name ?? ""}${account.mask ? " ··" + account.mask : ""}` : "—"],
                   ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "—"],
-                  ...(recurringLabel ? [["Recurring", recurringLabel]] : []),
                   ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
                 ] as [string,string][]).map(([label, value]) => (
                   <div key={label} className="flex items-center gap-3 px-4 py-2.5 bg-card/50">
@@ -2461,16 +2598,128 @@ const TxnDetailModal = ({
                 ))}
               </div>
 
-              {/* Quick action row */}
-              <div className="grid grid-cols-3 gap-2 pt-1">
+              {/* Ignored / Recurring — explicit yes/no toggles */}
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => onToggleInternal(txn.id)}
-                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors",
+                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors flex items-center justify-center gap-1.5",
                     (isManualInternal || isAutoInternal) && !isManualExternal
                       ? "border-blue-500/40 text-blue-400 bg-blue-500/8"
                       : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  {(isManualInternal || isAutoInternal) && !isManualExternal ? "Internal ✓" : "Internal"}
+                  Ignored: {(isManualInternal || isAutoInternal) && !isManualExternal ? "Yes" : "No"}
                 </button>
+                <button
+                  onClick={() => onSetRecurringOverride(txn.id, !isRecurringNow)}
+                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors flex items-center justify-center gap-1.5",
+                    isRecurringNow
+                      ? "border-violet-500/40 text-violet-400 bg-violet-500/8"
+                      : "border-border/60 text-muted-foreground hover:text-foreground")}>
+                  Recurring: {isRecurringNow ? "Yes" : "No"}
+                  {isRecurringOverride === undefined && recurringLabel && <span className="text-[9px] opacity-60">(auto)</span>}
+                </button>
+                {isRecurringOverride !== undefined && (
+                  <button onClick={() => onClearRecurringOverride(txn.id)}
+                    className="col-span-2 -mt-1 text-[10.5px] text-muted-foreground/70 hover:text-foreground underline underline-offset-2">
+                    Reset to auto-detected
+                  </button>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {tags.map(t => (
+                    <span key={t} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-muted/60 border border-border/60 text-[11px] font-medium text-foreground">
+                      {t}
+                      <button onClick={() => onRemoveTag(txn.id, t)} aria-label={`Remove tag ${t}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                    </span>
+                  ))}
+                  {showTagInput ? (
+                    <div className="flex items-center gap-1">
+                      <input autoFocus value={tagDraft} onChange={e=>setTagDraft(e.target.value)}
+                        onKeyDown={e=>{ if(e.key==="Enter") submitTag(); if(e.key==="Escape") setShowTagInput(false); }}
+                        placeholder="Tag name" className="h-6 w-24 px-2 rounded-full bg-muted/40 border border-border/60 text-[11px] text-foreground outline-none"/>
+                      <button onClick={submitTag} aria-label="Add tag" className="h-6 w-6 grid place-items-center rounded-full bg-gold"><Check className="h-3 w-3"/></button>
+                    </div>
+                  ) : (
+                    <button onClick={()=>setShowTagInput(true)} className="inline-flex items-center gap-1 h-6 px-2 rounded-full border border-dashed border-border/60 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-colors">
+                      <Plus className="h-2.5 w-2.5"/> Tag
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Note */}
+              <div>
+                {showNoteInput ? (
+                  <div className="space-y-1.5">
+                    <textarea autoFocus value={noteDraft} onChange={e=>setNoteDraft(e.target.value)} rows={2} placeholder="Add a note..."
+                      className="w-full bg-muted/40 border border-border/60 rounded-xl px-3 py-2 text-[12.5px] text-foreground outline-none focus:border-primary/50 resize-none"/>
+                    <div className="flex gap-2">
+                      <button onClick={submitNote} className="flex-1 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11.5px] font-semibold">Save note</button>
+                      <button onClick={()=>{setShowNoteInput(false);setNoteDraft(note);}} className="px-3 py-1.5 rounded-lg border border-border/60 text-[11.5px] text-muted-foreground">Cancel</button>
+                    </div>
+                  </div>
+                ) : note ? (
+                  <button onClick={()=>setShowNoteInput(true)} className="w-full text-left p-2.5 rounded-xl bg-muted/30 border border-border/40 text-[12px] text-foreground hover:bg-muted/40 transition-colors">
+                    {note}
+                  </button>
+                ) : (
+                  <button onClick={()=>setShowNoteInput(true)} className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
+                    <Plus className="h-3 w-3"/> Add note
+                  </button>
+                )}
+              </div>
+
+              {/* Split */}
+              {showSplitEditor ? (
+                <div className="border border-border/60 rounded-xl p-3 space-y-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Split this transaction</p>
+                  {splitRows.map((row, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input value={row.label} onChange={e=>setSplitRows(rows=>rows.map((r,ri)=>ri===i?{...r,label:e.target.value}:r))}
+                        placeholder={`Split ${i+1} label`} className="flex-1 min-w-0 h-8 px-2.5 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none"/>
+                      <div className="relative w-20 shrink-0">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">$</span>
+                        <input type="number" min={0} value={row.amount} onChange={e=>setSplitRows(rows=>rows.map((r,ri)=>ri===i?{...r,amount:e.target.value}:r))}
+                          className="w-full h-8 pl-5 pr-1.5 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none"/>
+                      </div>
+                      <button onClick={()=>setSplitRows(rows=>rows.filter((_,ri)=>ri!==i))} aria-label="Remove split row" className="h-8 w-8 grid place-items-center text-muted-foreground/50 hover:text-negative shrink-0"><X className="h-3.5 w-3.5"/></button>
+                    </div>
+                  ))}
+                  <button onClick={()=>setSplitRows(rows=>[...rows,{label:"",amount:""}])} className="text-[11.5px] text-[hsl(var(--primary))] font-medium flex items-center gap-1"><Plus className="h-3 w-3"/> Add split</button>
+                  <div className={cn("text-[11px] pt-1", Math.abs(splitTotal - splitTargetAmt) < 0.01 ? "text-muted-foreground" : "text-warning")}>
+                    Splits total {fmtUSD(splitTotal)} of {fmtUSD(splitTargetAmt)}
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={submitSplits} className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-[12px] font-semibold">Save splits</button>
+                    <button onClick={()=>setShowSplitEditor(false)} className="px-3 py-2 rounded-lg border border-border/60 text-[12px] text-muted-foreground">Cancel</button>
+                  </div>
+                </div>
+              ) : splits.length > 0 ? (
+                <div className="border border-border/40 rounded-xl p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Split</p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={()=>setShowSplitEditor(true)} className="text-[11px] text-[hsl(var(--primary))] font-medium">Edit</button>
+                      <button onClick={clearSplits} className="text-[11px] text-muted-foreground hover:text-negative">Clear</button>
+                    </div>
+                  </div>
+                  {splits.map((s,i) => (
+                    <div key={i} className="flex items-center justify-between text-[12px]">
+                      <span className="text-foreground truncate">{s.label}</span>
+                      <span className="text-muted-foreground tabular shrink-0 ml-2">{fmtUSD(s.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <button onClick={()=>setShowSplitEditor(true)} className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
+                  <Plus className="h-3 w-3"/> Split transaction
+                </button>
+              )}
+
+              {/* Quick action row */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
                   disabled={!merchant}
@@ -2509,14 +2758,7 @@ const TxnDetailModal = ({
               {/* Category — simple dropdown */}
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
-                <select
-                  value={rawCat ?? "Other"}
-                  onChange={e => handleCatSelect(e.target.value, applyAllCat)}
-                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50">
-                  {[...ALL_CATEGORIES, ...customCategories.map(c=>c.name)].map(cat => (
-                    <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
-                  ))}
-                </select>
+                {renderCategoryField()}
                 {samemerchantTxns.length > 0 && (
                   <label className="flex items-center gap-2 mt-2 cursor-pointer">
                     <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
@@ -2656,6 +2898,16 @@ const TxnDetailModal = ({
           )}
         </div>
 
+        {/* ── Footer: source account ─────────────────────────── */}
+        <div className="shrink-0 px-5 py-3 border-t border-border/30 flex items-center gap-2">
+          <Landmark className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0"/>
+          <p className="text-[11.5px] text-muted-foreground truncate">
+            {account
+              ? <>From <span className="text-foreground font-medium">{account.name ?? account.official_name ?? "account"}</span>{account.mask ? ` ··${account.mask}` : ""}</>
+              : "Account unknown"}
+          </p>
+        </div>
+
         {/* ── Rule creation overlay sheet ─────────────────────── */}
         {ruleOpen && (
           <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/50 rounded-2xl" onClick={() => setRuleOpen(false)}>
@@ -2665,7 +2917,7 @@ const TxnDetailModal = ({
               </div>
               <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 shrink-0">
                 <p className="text-[15px] font-bold text-foreground">Create rule</p>
-                <button onClick={() => setRuleOpen(false)} className="h-7 w-7 grid place-items-center rounded-full bg-muted/60 text-muted-foreground">
+                <button onClick={() => setRuleOpen(false)} aria-label="Close" className="h-8 w-8 grid place-items-center rounded-full bg-muted/60 text-muted-foreground">
                   <X className="h-4 w-4"/>
                 </button>
               </div>
@@ -2718,7 +2970,7 @@ const TxnDetailModal = ({
                             placeholder="New name..." className="flex-1 h-9 px-2.5 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0"/>
                         )}
                         {txnRuleActions.length > 1 && (
-                          <button onClick={() => setTxnRuleActions(a => a.filter((_,x)=>x!==i))} className="h-9 w-7 text-muted-foreground hover:text-destructive grid place-items-center shrink-0">
+                          <button onClick={() => setTxnRuleActions(a => a.filter((_,x)=>x!==i))} aria-label="Remove action" className="h-9 w-7 text-muted-foreground hover:text-destructive grid place-items-center shrink-0">
                             <X className="h-3.5 w-3.5"/>
                           </button>
                         )}
@@ -2847,7 +3099,7 @@ const SpendTile = ({ category, total, count, budget, delta, deltaPct, onSetBudge
               {pct.toFixed(0)}%
             </span>
           )}
-          <div role="button" onClick={e=>{e.stopPropagation();onSetBudget();}}
+          <div role="button" aria-label={`Set budget for ${formatCat(category)}`} onClick={e=>{e.stopPropagation();onSetBudget();}}
             className="h-5 w-5 rounded grid place-items-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity cursor-pointer">
             <Pencil className="h-3 w-3" />
           </div>
@@ -2903,7 +3155,7 @@ const AccountEditDialog = ({ account, meta, instUrl, onSave, onClose }: {
         <DialogTitle className="sr-only">Edit account</DialogTitle>
         <DialogDescription className="sr-only">Rename or add details to this account.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
-          <button onClick={onClose} className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-1">Edit account</div>
@@ -3587,8 +3839,8 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                         {fmtUSD(bal)}
                       </span>
                       <div className="flex items-center gap-0.5 shrink-0">
-                        {onEditManual && <button onClick={() => onEditManual(acct)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3 w-3" /></button>}
-                        {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} className="h-7 w-7 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3 w-3" /></button>}
+                        {onEditManual && <button onClick={() => onEditManual(acct)} aria-label={`Edit ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>}
+                        {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} aria-label={`Delete ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3.5 w-3.5" /></button>}
                       </div>
                     </div>
                   );
@@ -3662,7 +3914,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
             <p className="text-[14px] font-semibold text-foreground truncate">{displayName}</p>
             <p className="text-[11.5px] text-muted-foreground truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</p>
           </div>
-          <button onClick={onClose} className="h-7 w-7 grid place-items-center rounded-full bg-secondary/60 text-muted-foreground hover:text-foreground shrink-0">
+          <button onClick={onClose} aria-label="Close" className="h-8 w-8 grid place-items-center rounded-full bg-secondary/60 text-muted-foreground hover:text-foreground shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -4103,6 +4355,7 @@ export const LivePlaidDashboard = ({
   const customCategories = settings.customCats;
   const addCategory = S.addCustomCat;
   const removeCategory = S.removeCustomCat;
+  const renameCategory = S.renameCustomCat;
   const allCategoryNames = useMemo(
     () => Array.from(new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, ...customCategories.map(c => c.name)])).map(formatCat),
     [customCategories]
@@ -4731,13 +4984,15 @@ export const LivePlaidDashboard = ({
       </div>
       <div className="flex items-center gap-1">
         <button onClick={()=>onChange({...state,offset:state.offset-1})}
-          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+          aria-label="Previous period"
+          className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
         <span className="text-[13px] text-foreground font-medium min-w-[130px] text-center">{getPeriodLabel(state)}</span>
         <button onClick={()=>onChange({...state,offset:Math.min(0,state.offset+1)})}
           disabled={state.offset===0}
-          className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-30">
+          aria-label="Next period"
+          className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-30">
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -4979,6 +5234,7 @@ export const LivePlaidDashboard = ({
                     <Check className="h-3.5 w-3.5" /> Done
                   </button>
                   <button onClick={() => S.dismissTransfer(p.id)}
+                    aria-label="Dismiss suggested transfer"
                     className="h-8 w-8 grid place-items-center rounded-lg text-muted-foreground/60 hover:text-negative hover:bg-negative/10 transition-colors shrink-0">
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -5051,12 +5307,12 @@ export const LivePlaidDashboard = ({
                   <h3 className="font-display text-[14px] text-primary flex-1">Saving opportunities</h3>
                   {!insightsLoading && visibleInsights.length>0 && (
                     <span className="text-[12px] font-semibold text-positive tabular bg-positive/10 px-2 py-0.5 rounded-full">
-                      +${visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0).toLocaleString()}/yr
+                      +{fmtUSD(visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0), { compact: true })}/yr
                     </span>
                   )}
                   <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
-                    title="Refresh AI suggestions"
-                    className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
+                    title="Refresh AI suggestions" aria-label="Refresh AI suggestions"
+                    className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", insightsLoading && "animate-spin")} />
                   </button>
                 </div>
@@ -5201,8 +5457,9 @@ export const LivePlaidDashboard = ({
                     </div>
                   </div>
                   <button onClick={refreshTxns} disabled={refreshingTxns}
-                    className="h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
-                    <RefreshCw className={cn("h-3 w-3", refreshingTxns && "animate-spin")} />
+                    aria-label={refreshingTxns ? "Refreshing transactions" : "Refresh transactions"}
+                    className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
+                    <RefreshCw className={cn("h-3.5 w-3.5", refreshingTxns && "animate-spin")} />
                   </button>
                 </div>
                 {recurringCharges.length === 0 ? (
@@ -5264,10 +5521,10 @@ export const LivePlaidDashboard = ({
                             {daysAway>1 && <div className="text-[12px] text-muted-foreground tabular">{daysAway}d</div>}
                           </div>
                           <div className="relative shrink-0">
-                            <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list"
-                              className={cn("h-6 w-6 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
+                            <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
+                              className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
                                 recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100")}>
-                              <X className="h-3 w-3" />
+                              <X className="h-3.5 w-3.5" />
                             </button>
                             {recurringMenuFor===r.merchantKey && (()=>{
                               const doDismiss = (reason: string, suppressCategory=false) => {
@@ -5277,8 +5534,8 @@ export const LivePlaidDashboard = ({
                               };
                               return (
                                 <>
-                                  <button className="fixed inset-0 z-[60]" onClick={()=>setRecurringMenuFor(null)} />
-                                  <div className="absolute right-0 top-7 z-[61] w-52 rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden py-1">
+                                  <button aria-label="Close menu" className="fixed inset-0 z-[60]" onClick={()=>setRecurringMenuFor(null)} />
+                                  <div className="absolute right-0 top-8 z-[61] w-52 rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden py-1">
                                     <div className="px-3 py-1.5 text-[12px] uppercase tracking-wider text-muted-foreground/70">Why remove this?</div>
                                     {[
                                       { label: "Not a recurring charge", reason: "not_recurring" },
@@ -5391,7 +5648,7 @@ export const LivePlaidDashboard = ({
             return (
             <>
               <div className="relative p-6 pb-4 shrink-0">
-                <button onClick={() => setOpenInsight(null)}
+                <button onClick={() => setOpenInsight(null)} aria-label="Close"
                   className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                   <X className="h-4 w-4" />
                 </button>
@@ -5506,7 +5763,18 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }}
+        tags={settings.txnTags[detailTxn.id] ?? []}
+        onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
+        onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
+        note={settings.txnNotes[detailTxn.id] ?? ""}
+        onSaveNote={(id,n)=>S.setTxnNote(id,n)}
+        isRecurringOverride={settings.recurringOverrides[detailTxn.id]}
+        onSetRecurringOverride={(id,val)=>S.setRecurringOverride(id,val)}
+        onClearRecurringOverride={(id)=>S.clearRecurringOverride(id)}
+        splits={settings.txnSplits[detailTxn.id] ?? []}
+        onSaveSplits={(id,sp)=>S.setTxnSplits(id,sp)}
+        />}
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
@@ -5527,7 +5795,7 @@ export const LivePlaidDashboard = ({
             return (
               <>
                 <div className="relative p-6 pb-4 shrink-0">
-                  <button onClick={()=>setOpenActionItem(null)}
+                  <button onClick={()=>setOpenActionItem(null)} aria-label="Close"
                     className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                     <X className="h-4 w-4" />
                   </button>
@@ -5642,7 +5910,7 @@ export const LivePlaidDashboard = ({
               <DialogTitle className="sr-only">{formatCat(cat)}: current month</DialogTitle>
               <DialogDescription className="sr-only">Top charges in {formatCat(cat)} this month.</DialogDescription>
               <div className="relative p-5 pb-4 shrink-0">
-                <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);}}
+                <button onClick={()=>{setSpendingPopup(null);setSpendPopupLimit(5);}} aria-label="Close"
                   className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
                   <X className="h-4 w-4" />
                 </button>
@@ -5834,12 +6102,12 @@ export const LivePlaidDashboard = ({
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <SpendBudgetTabs />
           <div className="flex items-center gap-2">
-            <button onClick={() => setBudgetMonthOffset(o => o - 1)}
+            <button onClick={() => setBudgetMonthOffset(o => o - 1)} aria-label="Previous month"
               className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground">
               <ChevronLeft className="h-4 w-4" />
             </button>
             <span className="text-[15px] font-semibold text-foreground min-w-[120px] text-center">{getPeriodLabel(budgetPeriodState)}</span>
-            <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0}
+            <button onClick={() => setBudgetMonthOffset(o => Math.min(0, o + 1))} disabled={budgetMonthOffset >= 0} aria-label="Next month"
               className="h-8 w-8 rounded-full border border-border-strong grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -6097,6 +6365,7 @@ export const LivePlaidDashboard = ({
                     </div>
                     <button type="submit" className="h-8 px-3 rounded-md bg-gold text-[12.5px] font-semibold">Save</button>
                     <button type="button" onClick={() => { removeBudget(c.category); setEditingBudgetCat(null); }}
+                      aria-label={`Remove ${formatCat(c.category)} budget`}
                       className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative hover:bg-negative/10"><Trash2 className="h-3.5 w-3.5" /></button>
                   </form>
                 ) : (
@@ -6119,7 +6388,8 @@ export const LivePlaidDashboard = ({
                         <div className="text-[12.5px] text-muted-foreground tabular mt-1">{fmtUSD(actual)} / {fmtUSD(budget)}</div>
                       </div>
                       <button onClick={(e) => { e.stopPropagation(); setEditingBudgetCat(c.category); setBudgetDraft(String(budget)); }}
-                        className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-border/30 shrink-0">
+                        aria-label={`Edit ${formatCat(c.category)} budget`}
+                        className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-border/30 shrink-0">
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -6265,6 +6535,7 @@ export const LivePlaidDashboard = ({
           budgets={budgets}
           nameOverrides={nameOverrides}
           setBudget={setBudget}
+          removeBudget={removeBudget}
           getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
           isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
           formatCat={formatCat}
@@ -6272,19 +6543,50 @@ export const LivePlaidDashboard = ({
           onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
           internalTxnIds={internalTxnIds}
           initialSearch={txnSearch}
+          categoryIcon={categoryIcon}
+          expenseCategories={EXPENSE_CATEGORIES_PICKER}
+          incomeCategories={INCOME_CATEGORIES_PICKER}
+          ignoredCategories={IGNORED_CATEGORIES}
+          customCategories={customCategories}
+          onSelectCategory={(t, cat) => setOverride(t.id, cat)}
+          onAddCategory={addCategory}
+          onRemoveCategory={removeCategory}
+          txnTags={settings.txnTags}
+          onAddTag={(id, tag) => S.addTxnTag(id, tag)}
         />
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }} />}
+        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }}
+        tags={settings.txnTags[detailTxn.id] ?? []}
+        onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
+        onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
+        note={settings.txnNotes[detailTxn.id] ?? ""}
+        onSaveNote={(id,n)=>S.setTxnNote(id,n)}
+        isRecurringOverride={settings.recurringOverrides[detailTxn.id]}
+        onSetRecurringOverride={(id,val)=>S.setRecurringOverride(id,val)}
+        onClearRecurringOverride={(id)=>S.clearRecurringOverride(id)}
+        splits={settings.txnSplits[detailTxn.id] ?? []}
+        onSaveSplits={(id,sp)=>S.setTxnSplits(id,sp)}
+        />}
       </>
     );
   }
 
   if (view==="budget") {
-    const currentMonth = (() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    })();
     return (
-      <BudgetView txns={txns} accounts={accounts} month={currentMonth} />
+      <BudgetPage
+        txns={txns}
+        accounts={accounts}
+        internalTxnIds={internalTxnIds}
+        getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
+        isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
+        formatCat={formatCat}
+        catColor={catColor}
+        manualIncome={manualIncome}
+        addManualIncome={addManualIncome}
+        removeManualIncome={removeManualIncome}
+        savingsGoals={settings.savingsGoals}
+        addSavingsGoal={S.addSavingsGoal}
+        removeSavingsGoal={S.removeSavingsGoal}
+      />
     );
   }
 

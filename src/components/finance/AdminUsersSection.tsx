@@ -4,6 +4,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Shield, ShieldOff, UserCog, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 interface Row {
   user_id: string;
@@ -136,16 +140,57 @@ export const AdminUsersSection = () => {
               </div>
               <div className="text-muted-foreground text-[13px]">{new Date(r.created_at).toLocaleDateString()}</div>
               <div className="flex items-center justify-end gap-1">
-                <button title={isUserAdmin ? "Revoke admin" : "Make admin"}
-                  onClick={() => toggleAdmin(r.user_id, !isUserAdmin)}
-                  className="h-7 w-7 grid place-items-center rounded hover:bg-surface-hover text-muted-foreground hover:text-foreground">
-                  <UserCog className="h-3.5 w-3.5" />
-                </button>
-                <button title={r.disabled ? "Enable user" : "Disable user"}
-                  onClick={() => toggleDisabled(r.user_id, !r.disabled)}
-                  className="h-7 w-7 grid place-items-center rounded hover:bg-surface-hover text-muted-foreground hover:text-foreground">
-                  {r.disabled ? <Shield className="h-3.5 w-3.5" /> : <ShieldOff className="h-3.5 w-3.5" />}
-                </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button title={isUserAdmin ? "Revoke admin" : "Make admin"}
+                      aria-label={isUserAdmin ? `Revoke admin access from ${r.display_name ?? "this user"}` : `Grant admin access to ${r.display_name ?? "this user"}`}
+                      className="h-7 w-7 grid place-items-center rounded hover:bg-surface-hover text-muted-foreground hover:text-foreground">
+                      <UserCog className="h-3.5 w-3.5" />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{isUserAdmin ? "Revoke admin access?" : "Make this user an admin?"}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {isUserAdmin
+                          ? `${r.display_name ?? "This user"} will immediately lose admin privileges.`
+                          : `${r.display_name ?? "This user"} will gain full admin access, including the ability to manage other users' roles and accounts.`}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => toggleAdmin(r.user_id, !isUserAdmin)}>
+                        {isUserAdmin ? "Revoke admin" : "Make admin"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button title={r.disabled ? "Enable user" : "Disable user"}
+                      aria-label={r.disabled ? `Enable ${r.display_name ?? "this user"}'s account` : `Disable ${r.display_name ?? "this user"}'s account`}
+                      className="h-7 w-7 grid place-items-center rounded hover:bg-surface-hover text-muted-foreground hover:text-foreground">
+                      {r.disabled ? <Shield className="h-3.5 w-3.5" /> : <ShieldOff className="h-3.5 w-3.5" />}
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{r.disabled ? "Enable this account?" : "Disable this account?"}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {r.disabled
+                          ? `${r.display_name ?? "This user"} will regain access to their account.`
+                          : `${r.display_name ?? "This user"} will be locked out of their account immediately.`}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => toggleDisabled(r.user_id, !r.disabled)}
+                        className={!r.disabled ? "bg-negative text-negative-foreground hover:bg-negative/90" : undefined}>
+                        {r.disabled ? "Enable" : "Disable"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
           );

@@ -310,11 +310,19 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
         activeTab === "actions" ? (
           <div className="space-y-2">
             {allActions.length === 0 && !loading ? (
-              <div className="surface-card p-10 text-center">
-                <CheckCircle className="h-8 w-8 text-positive mx-auto mb-2 opacity-60" />
-                <div className="text-[13px] font-medium text-foreground">All done!</div>
-                <div className="text-[11.5px] text-muted-foreground mt-1">No pending actions. Check "All perks" to see everything.</div>
-              </div>
+              creditCards.length === 0 ? (
+                <div className="surface-card p-10 text-center">
+                  <CreditCard className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
+                  <div className="text-[13px] font-medium text-foreground">No credit cards connected</div>
+                  <div className="text-[11.5px] text-muted-foreground mt-1">Connect a credit card to see personalized perks and actions here.</div>
+                </div>
+              ) : (
+                <div className="surface-card p-10 text-center">
+                  <CheckCircle className="h-8 w-8 text-positive mx-auto mb-2 opacity-60" />
+                  <div className="text-[13px] font-medium text-foreground">All done!</div>
+                  <div className="text-[11.5px] text-muted-foreground mt-1">No pending actions. Check "All perks" to see everything.</div>
+                </div>
+              )
             ) : allActions.map(b => {
               const color = ACTION_COLOR[b.action_type ?? "none"];
               const icon = ACTION_ICON[b.action_type ?? "none"];

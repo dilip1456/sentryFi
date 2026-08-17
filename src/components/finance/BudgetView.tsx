@@ -185,7 +185,7 @@ function TxnHistorySheet({ item, onClose }: { item: DetectedItem; onClose: () =>
               {sorted.length} transaction{sorted.length !== 1 ? "s" : ""} · {item.monthsFound} month{item.monthsFound !== 1 ? "s" : ""} · avg {fmtUSD(item.avgAmount / item.count)}
             </p>
           </div>
-          <button onClick={onClose} className="h-8 w-8 rounded-full bg-muted/60 grid place-items-center shrink-0">
+          <button onClick={onClose} aria-label="Close transaction history" className="h-8 w-8 rounded-full bg-muted/60 grid place-items-center shrink-0">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
@@ -280,6 +280,7 @@ function SectionCard({ icon: Icon, label, sublabel, color, bg, accent, items, to
                 <button
                   onClick={() => onDismiss(item.merchant)}
                   title="Remove from budget"
+                  aria-label={`Remove ${item.merchant} from budget`}
                   className="h-10 w-10 flex items-center justify-center text-muted-foreground/30 hover:text-negative transition-colors shrink-0"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

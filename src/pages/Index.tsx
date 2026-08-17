@@ -44,7 +44,6 @@ import {
 type View = "overall" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
-// "budget" is merged into the Spending tab (switchable inside that view).
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
   { k: "overall",   label: "Home",       icon: LayoutDashboard },
   { k: "moneymap",  label: "Money Map",  icon: Compass         },
@@ -152,8 +151,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Sidebar nav item
   const NavItem = ({ tab }: { tab: typeof TABS[0] }) => {
     const Icon = tab.icon;
-    // Budget is merged into Spending, so the Spending item stays active for both.
-    const active = view === tab.k || (tab.k === "spending" && view === "budget");
+    const active = view === tab.k;
     return (
       <button
         onClick={() => go(tab.k)}
@@ -194,7 +192,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending","budget"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -279,7 +277,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === (view === "budget" ? "spending" : view))?.label ?? "SentryFi"))}
+              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi"))}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
@@ -450,7 +448,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </>
           )}
 
-          {/* Budget — full-bleed, own BudgetView component */}
+          {/* Budget — full-bleed, own BudgetPage component */}
           {view === "budget" && (
             <>
               {showLiveBudget && (
@@ -466,6 +464,19 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   manualAccounts={manualAccounts}
                   onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
                   onDeleteManual={removeManual}
+                />
+              )}
+              {effectiveDemo && (
+                <LivePlaidDashboard
+                  demo
+                  guestDemo={guestDemo}
+                  hasItems={false}
+                  onAddAccount={guestDemo ? () => navigate("/auth") : () => setLinkOpen(true)}
+                  view={view}
+                  onViewChange={(v) => setView(v as View)}
+                  syncTrigger={0}
+                  selectedCategory={selectedCategory}
+                  onCategorySelect={handleCategorySelect}
                 />
               )}
             </>
@@ -578,7 +589,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
             <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
-              Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
+              SentryFi v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
           )} {/* end: view !== spending/budget */}
@@ -594,7 +605,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         >
           {mobilePrimary.map(t => {
             const Icon = t.icon;
-            const active = view === t.k || (t.k === "spending" && view === "budget");
+            const active = view === t.k;
             return (
               <button key={t.k} onClick={() => go(t.k)}
                 className="flex flex-col items-center gap-0.5 py-2 px-1 relative">
