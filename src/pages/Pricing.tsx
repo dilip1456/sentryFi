@@ -1,29 +1,22 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Check, ArrowLeft, Loader2 } from "lucide-react";
+import { Check, ArrowLeft } from "lucide-react";
 import { PLANS } from "@/lib/plans";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { useState } from "react";
 
 const Pricing = () => {
   const { user, subscriber } = useAuth();
   const navigate = useNavigate();
-  const [busy, setBusy] = useState<string | null>(null);
 
-  const choose = async (planKey: string) => {
+  const choose = (planKey: string) => {
     if (!user) { navigate("/auth"); return; }
     if (planKey === "free") {
       toast("You're already on a plan. Downgrades take effect at period end.");
       return;
     }
-    setBusy(planKey);
-    // Stripe checkout hook — once Stripe is enabled, this calls the create-checkout edge function.
-    try {
-      toast.info("Checkout coming online. Stripe configuration in progress.");
-    } finally {
-      setBusy(null);
-    }
+    // Paid plans aren't live yet — the buttons for them are disabled below so this
+    // shouldn't be reachable, but guard anyway rather than pretend to start checkout.
   };
 
   return (
@@ -47,6 +40,7 @@ const Pricing = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {PLANS.map((p) => {
             const isCurrent = subscriber?.plan === p.key;
+            const isPaidAndUnavailable = p.price > 0; // Stripe checkout isn't wired up yet — don't pretend it is.
             return (
               <div
                 key={p.key}
@@ -54,7 +48,8 @@ const Pricing = () => {
                   "relative rounded-2xl border p-6 flex flex-col",
                   p.highlight
                     ? "border-foreground/30 bg-gradient-to-b from-surface to-background shadow-xl"
-                    : "border-border/60 bg-surface/40"
+                    : "border-border/60 bg-surface/40",
+                  isPaidAndUnavailable && "opacity-80"
                 )}
               >
                 {p.highlight && (
@@ -62,7 +57,14 @@ const Pricing = () => {
                     MOST POPULAR
                   </div>
                 )}
-                <div className="text-[13px] uppercase tracking-wider text-muted-foreground">{p.name}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[13px] uppercase tracking-wider text-muted-foreground">{p.name}</div>
+                  {isPaidAndUnavailable && (
+                    <span className="px-2 py-0.5 rounded-full bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))] text-[11px] font-medium tracking-wide">
+                      Coming soon
+                    </span>
+                  )}
+                </div>
                 <div className="mt-2 flex items-baseline gap-1">
                   <span className="font-display text-4xl text-foreground">${p.price}</span>
                   <span className="text-[13px] text-muted-foreground">/mo</span>
@@ -79,19 +81,19 @@ const Pricing = () => {
                 </ul>
 
                 <button
-                  disabled={isCurrent || busy === p.key}
+                  disabled={isCurrent || isPaidAndUnavailable}
                   onClick={() => choose(p.key)}
+                  title={isPaidAndUnavailable ? "Paid plans aren't available yet" : undefined}
                   className={cn(
                     "mt-6 w-full py-2.5 rounded-md text-[14px] font-medium inline-flex items-center justify-center gap-2 transition",
-                    isCurrent
-                      ? "bg-surface text-muted-foreground border border-border cursor-default"
+                    isCurrent || isPaidAndUnavailable
+                      ? "bg-surface text-muted-foreground border border-border cursor-not-allowed"
                       : p.highlight
                         ? "bg-foreground text-background hover:opacity-90"
                         : "border border-border bg-transparent text-foreground hover:bg-surface"
                   )}
                 >
-                  {busy === p.key && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {isCurrent ? "Current plan" : p.price === 0 ? "Get started" : `Upgrade to ${p.name}`}
+                  {isCurrent ? "Current plan" : isPaidAndUnavailable ? "Coming soon" : "Get started"}
                 </button>
               </div>
             );

@@ -36,6 +36,29 @@ export interface PlannedTransfer {
   done: boolean;
 }
 
+// A user-confirmed "planned savings" line on the Budget page — promoted from
+// an auto-detected recurring transfer, a spending category, a yearly/irregular
+// expense, or an obligation with no funding plan yet, or added from scratch.
+export interface SavingsGoal {
+  id: string;
+  name: string;
+  monthlyTarget: number;
+  accountId?: string;   // destination account, if known (from the detected transfer)
+  createdAt: string;
+  // "transfer" (default) = a recurring transfer to savings/investment.
+  // "category" = tallied against actual spend in a category (e.g. groceries).
+  // "yearly" = a once-a-year expense being saved for monthly ahead of time.
+  // "obligation" = funding plan for a fixed must-pay (mortgage, loan, etc).
+  kind?: "transfer" | "category" | "yearly" | "obligation";
+  category?: string;         // set when kind === "category"
+  obligationId?: string;     // set when kind === "obligation"
+}
+
+// A single split line on a transaction — the transaction's own amount is left
+// untouched; splits just record how the user wants it broken down internally
+// for reporting/reading purposes.
+export interface TxnSplit { label: string; amount: number; category?: string; }
+
 export interface UserSettings {
   budgets: Record<string, number>;
   accountRoles: Record<string, AccountRoleInfo>;
@@ -54,10 +77,19 @@ export interface UserSettings {
   recurringDismissals: RecurringDismissal[];
   overageFundingPrefs: Record<string, string>; // category -> last-used funding account id (prediction default)
   plannedTransfers: PlannedTransfer[];          // confirmed "move money" suggestions shown on Home
+  savingsGoals: SavingsGoal[];                   // Budget page's "Planned Savings" tracked goals
   panelOrder: string[];
   accountMeta: Record<string, { apr?: number; nickname?: string }>;
   benefitsUsed: Record<string, boolean>;
   moneyMapFeedback: Record<string, { feedback: string; at: string }>;
+  // Per-transaction annotations, keyed by transaction id — same "sparse map"
+  // pattern as catOverrides/nameOverrides above.
+  txnTags: Record<string, string[]>;
+  txnNotes: Record<string, string>;
+  // Explicit "Is recurring?" override — undefined/absent means "use the
+  // auto-detected value"; true/false means the user has explicitly said so.
+  recurringOverrides: Record<string, boolean>;
+  txnSplits: Record<string, TxnSplit[]>;
 }
 
 const DEFAULTS: UserSettings = {
@@ -65,8 +97,9 @@ const DEFAULTS: UserSettings = {
   customCats: [], nameOverrides: {}, nameRules: {},
   manualIncome: [], manualInternal: [], manualExternal: [],
   dismissedInsights: [], dismissedActions: [], dismissedRecurring: [], recurringDismissals: [],
-  overageFundingPrefs: {}, plannedTransfers: [],
+  overageFundingPrefs: {}, plannedTransfers: [], savingsGoals: [],
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
+  txnTags: {}, txnNotes: {}, recurringOverrides: {}, txnSplits: {},
 };
 
 // Migrate existing localStorage data on first load (one-time)
@@ -114,10 +147,15 @@ const dbToSettings = (row: any): UserSettings => ({
   recurringDismissals: Array.isArray(row.recurring_dismissals) ? row.recurring_dismissals : [],
   overageFundingPrefs: row.overage_funding_prefs ?? {},
   plannedTransfers:   Array.isArray(row.planned_transfers) ? row.planned_transfers : [],
+  savingsGoals:       Array.isArray(row.savings_goals) ? row.savings_goals : [],
   panelOrder:         row.panel_order       ?? [],
   accountMeta:        row.account_meta      ?? {},
   benefitsUsed:       row.benefits_used     ?? {},
   moneyMapFeedback:   row.money_map_feedback ?? {},
+  txnTags:            row.txn_tags          ?? {},
+  txnNotes:           row.txn_notes         ?? {},
+  recurringOverrides: row.recurring_overrides ?? {},
+  txnSplits:          row.txn_splits        ?? {},
 });
 
 const settingsToDb = (s: UserSettings) => ({
@@ -138,10 +176,15 @@ const settingsToDb = (s: UserSettings) => ({
   recurring_dismissals: s.recurringDismissals,
   overage_funding_prefs: s.overageFundingPrefs,
   planned_transfers:   s.plannedTransfers,
+  savings_goals:       s.savingsGoals,
   panel_order:         s.panelOrder,
   account_meta:        s.accountMeta,
   benefits_used:       s.benefitsUsed,
   money_map_feedback:  s.moneyMapFeedback,
+  txn_tags:            s.txnTags,
+  txn_notes:           s.txnNotes,
+  recurring_overrides: s.recurringOverrides,
+  txn_splits:          s.txnSplits,
 });
 
 export const useUserSettings = (userId: string | undefined) => {
@@ -288,6 +331,33 @@ export const useUserSettings = (userId: string | undefined) => {
     update({ customCats: [...latestSettings.current.customCats.filter(c => c.name !== name), { name, type }] });
   const removeCustomCat = (name: string) =>
     update({ customCats: latestSettings.current.customCats.filter(c => c.name !== name) });
+  // Renames a custom category and cascades the new name into every place a
+  // category is stored as a plain string — per-transaction overrides, text
+  // rules, smart-rule conditions/actions, and budget keys — so nothing gets
+  // silently orphaned under the old name.
+  const renameCustomCat = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    const s = latestSettings.current;
+    if (s.customCats.some(c => c.name === trimmed)) return; // don't merge into an existing category by accident
+
+    const customCats = s.customCats.map(c => c.name === oldName ? { ...c, name: trimmed } : c);
+    const catOverrides = Object.fromEntries(
+      Object.entries(s.catOverrides).map(([id, cat]) => [id, cat === oldName ? trimmed : cat])
+    );
+    const catRules = s.catRules.map(r => r.category === oldName ? { ...r, category: trimmed } : r);
+    const smartRules = s.smartRules.map(r => ({
+      ...r,
+      conditions: r.conditions.map(c => (c.field === "category" && c.value === oldName) ? { ...c, value: trimmed } : c),
+      actions: r.actions.map(a => (a.type === "set_category" && a.value === oldName) ? { ...a, value: trimmed } : a),
+    }));
+    const budgetEntries = Object.entries(s.budgets);
+    const budgets = budgetEntries.some(([k]) => k === oldName)
+      ? Object.fromEntries(budgetEntries.map(([k, v]) => [k === oldName ? trimmed : k, v]))
+      : s.budgets;
+
+    update({ customCats, catOverrides, catRules, smartRules, budgets });
+  };
 
   const setNameOverride = (txnId: string, name: string) =>
     update({ nameOverrides: { ...latestSettings.current.nameOverrides, [txnId]: name } });
@@ -356,6 +426,14 @@ export const useUserSettings = (userId: string | undefined) => {
   const dismissTransfer = (id: string) =>
     update({ plannedTransfers: latestSettings.current.plannedTransfers.filter(p => p.id !== id) });
 
+  // ── Planned Savings goals (Budget page) ──
+  const addSavingsGoal = (goal: Omit<SavingsGoal, "id" | "createdAt">) =>
+    update({ savingsGoals: [...latestSettings.current.savingsGoals, { ...goal, id: `sg_${Date.now()}`, createdAt: new Date().toISOString() }] });
+  const removeSavingsGoal = (id: string) =>
+    update({ savingsGoals: latestSettings.current.savingsGoals.filter(g => g.id !== id) });
+  const updateSavingsGoal = (id: string, patch: Partial<Omit<SavingsGoal, "id" | "createdAt">>) =>
+    update({ savingsGoals: latestSettings.current.savingsGoals.map(g => g.id === id ? { ...g, ...patch } : g) });
+
   const setPanelOrder = (order: string[]) => update({ panelOrder: order });
 
   const setAccountMeta = (accountId: string, meta: { apr?: number; nickname?: string }) =>
@@ -367,6 +445,42 @@ export const useUserSettings = (userId: string | undefined) => {
   const recordFeedback = (suggestionId: string, fb: "accepted" | "dismissed") =>
     update({ moneyMapFeedback: { ...latestSettings.current.moneyMapFeedback, [suggestionId]: { feedback: fb, at: new Date().toISOString() } } });
 
+  // ── Per-transaction tags/notes/recurring-override/splits ──
+  const setTxnTags = (txnId: string, tags: string[]) =>
+    update({ txnTags: { ...latestSettings.current.txnTags, [txnId]: tags } });
+  const addTxnTag = (txnId: string, tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+    const existing = latestSettings.current.txnTags[txnId] ?? [];
+    if (existing.includes(trimmed)) return;
+    setTxnTags(txnId, [...existing, trimmed]);
+  };
+  const removeTxnTag = (txnId: string, tag: string) => {
+    const existing = latestSettings.current.txnTags[txnId] ?? [];
+    setTxnTags(txnId, existing.filter(t => t !== tag));
+  };
+
+  const setTxnNote = (txnId: string, note: string) => {
+    const next = { ...latestSettings.current.txnNotes };
+    if (note.trim()) next[txnId] = note; else delete next[txnId];
+    update({ txnNotes: next });
+  };
+
+  const setRecurringOverride = (txnId: string, isRecurring: boolean) =>
+    update({ recurringOverrides: { ...latestSettings.current.recurringOverrides, [txnId]: isRecurring } });
+  const clearRecurringOverride = (txnId: string) => {
+    const next = { ...latestSettings.current.recurringOverrides };
+    delete next[txnId];
+    update({ recurringOverrides: next });
+  };
+
+  const setTxnSplits = (txnId: string, splits: TxnSplit[]) => {
+    const next = { ...latestSettings.current.txnSplits };
+    if (splits.length) next[txnId] = splits; else delete next[txnId];
+    update({ txnSplits: next });
+  };
+  const clearTxnSplits = (txnId: string) => setTxnSplits(txnId, []);
+
   return {
     settings, loaded,
     // Raw updater for anything not covered
@@ -377,15 +491,20 @@ export const useUserSettings = (userId: string | undefined) => {
     setCatOverride, bulkSetCatOverride, bulkSetCatOverrideMap, clearAiOverridesForIds,
     addCatRule, updateCatRule, removeCatRule, toggleCatRule,
     addSmartRule, updateSmartRule, removeSmartRule, toggleSmartRule,
-    addCustomCat, removeCustomCat,
+    addCustomCat, removeCustomCat, renameCustomCat,
     setNameOverride, bulkSetNameOverride, saveNameRule,
     addManualIncome, removeManualIncome,
     toggleManualInternal,
     dismissInsight, dismissAction, dismissRecurring, dismissRecurringWithReason, clearRecurringDismissals,
     setOverageFundingPref, confirmOverageFunding, markTransferDone, dismissTransfer,
+    addSavingsGoal, removeSavingsGoal, updateSavingsGoal,
     setPanelOrder,
     setAccountMeta,
     setBenefitUsed,
     recordFeedback,
+    setTxnTags, addTxnTag, removeTxnTag,
+    setTxnNote,
+    setRecurringOverride, clearRecurringOverride,
+    setTxnSplits, clearTxnSplits,
   };
 };

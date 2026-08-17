@@ -24,7 +24,9 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  // Only show the branded splash for the native app (feels like an app launch there).
+  // On web this is just a navigation, so a forced ~1s delay before the form is pure friction.
+  const [showSplash, setShowSplash] = useState(() => isNative());
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
 
@@ -41,6 +43,7 @@ const Auth = () => {
 
   useEffect(() => { if (user && !loading) navigate("/", { replace: true }); }, [user, loading, navigate]);
   useEffect(() => {
+    if (!isNative()) return;
     const t = setTimeout(() => setShowSplash(false), 1100);
     return () => clearTimeout(t);
   }, []);
@@ -229,7 +232,10 @@ const Auth = () => {
         </button>
 
         <div className="mt-4 text-center text-[12px] text-muted-foreground">
-          By continuing you agree to our Terms & Privacy.
+          By continuing you agree to our{" "}
+          <Link to="/terms" className="underline underline-offset-2 hover:text-foreground transition-colors">Terms</Link>
+          {" "}&{" "}
+          <Link to="/privacy" className="underline underline-offset-2 hover:text-foreground transition-colors">Privacy Policy</Link>.
         </div>
 
         <div className="mt-3 text-center">

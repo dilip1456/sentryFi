@@ -115,7 +115,14 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
       alert_insight: prefs.alert_insight,
     }, { onConflict: "user_id" });
     setSaving(false);
-    if (error) { toast.error("Failed to save"); return; }
+    if (error) {
+      // Surface the real Postgres error (e.g. "column does not exist") instead
+      // of a generic message — this is exactly what points at an unapplied
+      // migration rather than a real bug in the save logic.
+      console.error("[alert_preferences save]", error);
+      toast.error(error.message || "Failed to save");
+      return;
+    }
     setInitial(prefs);
     toast.success("Notification preferences saved");
     onClose();

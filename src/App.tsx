@@ -18,6 +18,8 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 import Auth from "./pages/Auth.tsx";
 import Welcome from "./pages/Welcome.tsx";
 import Pricing from "./pages/Pricing.tsx";
+import Terms from "./pages/Terms.tsx";
+import Privacy from "./pages/Privacy.tsx";
 import NotFound from "./pages/NotFound.tsx";
 const Index = lazy(() => import("./pages/Index.tsx"));
 const Demo = lazy(() => import("./pages/Demo.tsx"));
@@ -50,6 +52,8 @@ const App = () => (
                   <Route path="/welcome" element={<Welcome />} />
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/pricing" element={<Pricing />} />
+                  <Route path="/terms" element={<Terms />} />
+                  <Route path="/privacy" element={<Privacy />} />
                   <Route path="/demo" element={<Demo />} />
                   <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

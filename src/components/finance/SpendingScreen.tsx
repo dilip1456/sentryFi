@@ -182,8 +182,8 @@ const BudgetRow = ({ category, budget, spent, onSave, onRemove }: {
                 <input autoFocus type="number" min={1} step={10} value={val} onChange={e => setVal(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
                   className="w-20 bg-secondary/50 border border-border/60 rounded px-1.5 py-0.5 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
-                <button onClick={save} className="text-positive"><Check className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setEditing(false)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
+                <button onClick={save} aria-label="Save budget" className="h-8 w-8 grid place-items-center rounded text-positive hover:bg-secondary/50"><Check className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setEditing(false)} aria-label="Cancel editing budget" className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:bg-secondary/50"><X className="h-3.5 w-3.5" /></button>
               </div>
             ) : (
               <>
@@ -191,12 +191,14 @@ const BudgetRow = ({ category, budget, spent, onSave, onRemove }: {
                   {fmtUSD(spent)} / {fmtUSD(budget)}
                 </span>
                 <button onClick={() => { setVal(String(budget)); setEditing(true); }}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all">
-                  <Pencil className="h-3 w-3" />
+                  aria-label={`Edit ${fmtCat(category)} budget`}
+                  className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all">
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button onClick={onRemove}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-negative transition-all">
-                  <Trash2 className="h-3 w-3" />
+                  aria-label={`Remove ${fmtCat(category)} budget`}
+                  className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-negative hover:bg-secondary/50 transition-all">
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </>
             )}
@@ -598,7 +600,7 @@ export const SpendingScreen = ({
                 placeholder={catFilter ? `Search in ${fmtCat(catFilter)}…` : "Search transactions…"}
                 className="flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground" />
               {catFilter && <button onClick={() => setCatFilter("")} className="text-[12px] text-gold">×{fmtCat(catFilter)}</button>}
-              {search && <button onClick={() => setSearch("")} className="text-muted-foreground"><X className="h-3 w-3" /></button>}
+              {search && <button onClick={() => setSearch("")} aria-label="Clear search" className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-3.5 w-3.5" /></button>}
               <span className="text-[12px] text-muted-foreground tabular shrink-0">{displayTxns.length}</span>
             </div>
             {/* Bulk assign toolbar */}
@@ -614,7 +616,7 @@ export const SpendingScreen = ({
                 </select>
                 <button onClick={applyBulk} disabled={!bulkCat}
                   className="h-7 px-3 rounded bg-gold text-[12.5px] font-medium hover:opacity-90 disabled:opacity-40">Apply</button>
-                <button onClick={() => setSelectedBulk(new Set())} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setSelectedBulk(new Set())} aria-label="Clear bulk selection" className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-3.5 w-3.5" /></button>
               </div>
             )}
             <div className="max-h-[480px] overflow-y-auto">
@@ -807,18 +809,20 @@ export const SpendingScreen = ({
                       {isEditing ? (
                         <>
                           <button onClick={() => { onUpdateRule(rule.merchantPattern, editRuleCat); setEditRuleMerchant(null); toast.success("Rule updated"); }}
-                            className="text-positive hover:opacity-80"><Check className="h-3.5 w-3.5" /></button>
-                          <button onClick={() => setEditRuleMerchant(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                            aria-label="Save rule" className="h-8 w-8 grid place-items-center rounded text-positive hover:bg-secondary/50"><Check className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => setEditRuleMerchant(null)} aria-label="Cancel editing rule" className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-3.5 w-3.5" /></button>
                         </>
                       ) : (
                         <>
                           <button onClick={() => { setEditRuleMerchant(rule.merchantPattern); setEditRuleCat(rule.category); }}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all">
-                            <Pencil className="h-3 w-3" />
+                            aria-label={`Edit rule for ${rule.merchantPattern}`}
+                            className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all">
+                            <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => { onRemoveRule(rule.merchantPattern); toast.success(`Rule removed for "${rule.merchantPattern}"`); }}
-                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-negative transition-all">
-                            <Trash2 className="h-3 w-3" />
+                            aria-label={`Remove rule for ${rule.merchantPattern}`}
+                            className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-negative hover:bg-secondary/50 transition-all">
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </>
                       )}
@@ -886,8 +890,9 @@ export const SpendingScreen = ({
                           onReassignCategory(cat.name);
                           onRemoveCategory(cat.name);
                           toast.success(`"${cat.name}" deleted. Transactions moved to Unassigned.`);
-                        }} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-negative transition-all">
-                          <Trash2 className="h-3 w-3" />
+                        }} aria-label={`Delete category ${cat.name}`}
+                          className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-negative hover:bg-secondary/50 transition-all">
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
                     </div>
@@ -965,8 +970,8 @@ const QuickBudgetAdd = ({ category, suggested, onSave }: {
         onKeyDown={e => { if (e.key === "Enter") { const n = parseFloat(val); if (n > 0) { onSave(n); setOpen(false); } } if (e.key === "Escape") setOpen(false); }}
         className="w-20 bg-secondary/50 border border-border/50 rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none" />
       <button onClick={() => { const n = parseFloat(val); if (n > 0) { onSave(n); setOpen(false); } }}
-        className="text-positive"><Check className="h-3.5 w-3.5" /></button>
-      <button onClick={() => setOpen(false)} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
+        aria-label="Save budget" className="h-8 w-8 grid place-items-center rounded text-positive hover:bg-secondary/50"><Check className="h-3.5 w-3.5" /></button>
+      <button onClick={() => setOpen(false)} aria-label="Cancel setting budget" className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:bg-secondary/50"><X className="h-3.5 w-3.5" /></button>
     </div>
   );
 };

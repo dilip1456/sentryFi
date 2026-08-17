@@ -59,7 +59,7 @@ const HOW = [
 
 export default function Welcome() {
   const { user } = useAuth();
-const navigate = useNavigate();
+  const navigate = useNavigate();
   const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
@@ -75,23 +75,23 @@ const navigate = useNavigate();
   };
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", background: "hsl(var(--background))", color: "hsl(var(--foreground))", minHeight: "100vh" }}>
+    <div className="min-h-screen bg-background text-foreground">
 
       {/* ── Nav ── */}
-      <nav style={{ position: "sticky", top: 0, zIndex: 50, borderBottom: "1px solid hsl(var(--border))", background: "hsl(var(--background) / 0.92)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px", height: 60, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <img src="/logo.png" alt="SentryFi" style={{ height: 36, width: 36, borderRadius: 8 }} />
+      <nav className="sticky top-0 z-50 border-b border-border bg-[hsl(var(--background)/0.92)] [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)]">
+        <div className="max-w-[1100px] mx-auto px-5 h-[60px] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
             <div>
-              <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>SentryFi</div>
-              <div style={{ fontSize: 10, color: "hsl(var(--muted-foreground))", marginTop: -2 }}>Personal finance intelligence</div>
+              <div className="font-bold text-[15px] tracking-[-0.01em]">SentryFi</div>
+              <div className="text-[10px] text-muted-foreground -mt-0.5">Personal finance intelligence</div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button onClick={tryDemo} style={{ padding: "7px 14px", borderRadius: 20, border: "1px solid hsl(var(--border-strong))", background: "transparent", color: "hsl(var(--foreground))", fontSize: 13, cursor: "pointer" }}>
+          <div className="flex items-center gap-2.5">
+            <button onClick={tryDemo} className="px-3.5 py-[7px] rounded-full border border-border-strong bg-transparent text-foreground text-[13px] cursor-pointer">
               Try demo
             </button>
-            <Link to="/auth" style={{ padding: "7px 18px", borderRadius: 20, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+            <Link to="/auth" className="px-[18px] py-[7px] rounded-full bg-primary text-primary-foreground text-[13px] font-semibold no-underline">
               Sign in
             </Link>
           </div>
@@ -99,58 +99,58 @@ const navigate = useNavigate();
       </nav>
 
       {/* ── Hero ── */}
-      <section style={{ maxWidth: 780, margin: "0 auto", padding: "80px 24px 64px", textAlign: "center" }}>
+      <section className="max-w-[780px] mx-auto px-6 pt-20 pb-16 text-center">
         {/* Shield with glow */}
-        <div className="shield-glow-wrap" style={{ width: 96, height: 96, margin: "0 auto 32px" }}>
-          <img src="/logo.png" alt="SentryFi" className="shield-glow-img" style={{ width: 80, height: 80, borderRadius: 18 }} />
+        <div className="shield-glow-wrap h-24 w-24 mx-auto mb-8">
+          <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-20 w-20 rounded-[18px]" />
         </div>
 
-        <div style={{ display: "inline-block", fontSize: 11, fontWeight: 600, letterSpacing: "0.12em", color: "hsl(var(--primary))", textTransform: "uppercase", marginBottom: 18, padding: "4px 12px", border: "1px solid hsl(var(--primary) / 0.35)", borderRadius: 20 }}>
+        <div className="inline-block text-[11px] font-semibold tracking-[0.12em] text-primary uppercase mb-[18px] px-3 py-1 border border-[hsl(var(--primary)/0.35)] rounded-full">
           Personal Finance Intelligence
         </div>
 
-        <h1 style={{ fontSize: "clamp(36px, 7vw, 62px)", fontWeight: 800, lineHeight: 1.08, letterSpacing: "-0.03em", margin: "0 0 20px" }}>
+        <h1 className="text-[clamp(36px,7vw,62px)] font-extrabold leading-[1.08] tracking-[-0.03em] mb-5">
           Know exactly what{" "}
-          <span style={{ color: "hsl(var(--primary))" }}>you can spend.</span>
+          <span className="text-primary">you can spend.</span>
         </h1>
 
-        <p style={{ fontSize: "clamp(15px, 2.2vw, 18px)", color: "hsl(var(--muted-foreground))", lineHeight: 1.65, maxWidth: 560, margin: "0 auto 36px" }}>
+        <p className="text-[clamp(15px,2.2vw,18px)] text-muted-foreground leading-[1.65] max-w-[560px] mx-auto mb-9">
           Your bank shows you a balance. SentryFi shows you what that balance{" "}
           <em>actually means</em>: after your emergency fund, reserved savings, and upcoming expenses are accounted for.
         </p>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
-          <Link to="/auth" style={{ padding: "13px 28px", borderRadius: 12, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", fontSize: 15, fontWeight: 700, textDecoration: "none", letterSpacing: "-0.01em" }}>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <Link to="/auth" className="px-7 py-[13px] rounded-xl bg-primary text-primary-foreground text-[15px] font-bold no-underline tracking-[-0.01em]">
             Get started free
           </Link>
-          <button onClick={tryDemo} style={{ padding: "13px 28px", borderRadius: 12, border: "1px solid hsl(var(--border-strong))", background: "hsl(var(--secondary) / 0.7)", color: "hsl(var(--foreground))", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+          <button onClick={tryDemo} className="px-7 py-[13px] rounded-xl border border-border-strong bg-[hsl(var(--secondary)/0.7)] text-foreground text-[15px] font-semibold cursor-pointer">
             Try the demo
           </button>
           {isAndroid && (
-            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" style={{ padding: "13px 28px", borderRadius: 12, background: "hsl(var(--primary) / 0.1)", border: "1px solid hsl(var(--primary) / 0.3)", color: "hsl(var(--primary))", fontSize: 15, fontWeight: 600, textDecoration: "none" }}>
+            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="px-7 py-[13px] rounded-xl bg-[hsl(var(--primary)/0.1)] border border-[hsl(var(--primary)/0.3)] text-primary text-[15px] font-semibold no-underline">
               ↓ Download Android app
             </a>
           )}
         </div>
 
-        <p style={{ marginTop: 20, fontSize: 12, color: "hsl(var(--muted-foreground) / 0.7)" }}>Free to use · Bank-level security via Plaid · Read-only access</p>
+        <p className="mt-5 text-xs text-[hsl(var(--muted-foreground)/0.7)]">Free to use · Bank-level security via Plaid · Read-only access</p>
       </section>
 
       {/* ── The problem ── */}
-      <section style={{ background: "hsl(var(--surface) / 0.6)", borderTop: "1px solid hsl(var(--border))", borderBottom: "1px solid hsl(var(--border))" }}>
-        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "64px 24px", display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 40 }}>
+      <section className="bg-[hsl(var(--surface)/0.6)] border-y border-border">
+        <div className="max-w-[1000px] mx-auto px-6 py-16 grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-10">
           <div>
-            <div style={{ fontSize: 11, color: "hsl(var(--primary))", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>What banks show you</div>
-            <div style={{ fontSize: 38, fontWeight: 800, color: "hsl(var(--primary-foreground))", letterSpacing: "-0.02em", marginBottom: 10 }}>$12,480</div>
-            <p style={{ fontSize: 14, color: "hsl(var(--muted-foreground))", lineHeight: 1.6 }}>
+            <div className="text-[11px] text-primary font-semibold tracking-[0.1em] uppercase mb-3.5">What banks show you</div>
+            <div className="text-[38px] font-extrabold text-foreground tracking-[-0.02em] mb-2.5">$12,480</div>
+            <p className="text-sm text-muted-foreground leading-[1.6]">
               Your combined account balances, including your $8,000 emergency fund, $2,000 earmarked for next month's rent, and $500 in a travel savings account.
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, color: "hsl(var(--muted-foreground) / 0.7)" }}>→</div>
+          <div className="flex items-center justify-center text-[32px] text-[hsl(var(--muted-foreground)/0.7)]">→</div>
           <div>
-            <div style={{ fontSize: 11, color: "hsl(var(--primary))", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>What SentryFi shows you</div>
-            <div style={{ fontSize: 38, fontWeight: 800, color: "hsl(var(--primary))", letterSpacing: "-0.02em", marginBottom: 10 }}>$1,980</div>
-            <p style={{ fontSize: 14, color: "hsl(var(--muted-foreground))", lineHeight: 1.6 }}>
+            <div className="text-[11px] text-primary font-semibold tracking-[0.1em] uppercase mb-3.5">What SentryFi shows you</div>
+            <div className="text-[38px] font-extrabold text-primary tracking-[-0.02em] mb-2.5">$1,980</div>
+            <p className="text-sm text-muted-foreground leading-[1.6]">
               Your True Available balance: what's actually in your Spending accounts, with buffers and reserves excluded on purpose. This is what you can actually use.
             </p>
           </div>
@@ -158,22 +158,22 @@ const navigate = useNavigate();
       </section>
 
       {/* ── Features ── */}
-      <section style={{ maxWidth: 1100, margin: "0 auto", padding: "80px 24px" }}>
-        <div style={{ textAlign: "center", marginBottom: 52 }}>
-          <div style={{ fontSize: 11, color: "hsl(var(--primary))", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 14 }}>Everything in one place</div>
-          <h2 style={{ fontSize: "clamp(28px, 4vw, 42px)", fontWeight: 800, letterSpacing: "-0.025em", margin: 0 }}>Built for the way you actually think about money</h2>
+      <section className="max-w-[1100px] mx-auto px-6 py-20">
+        <div className="text-center mb-[52px]">
+          <div className="text-[11px] text-primary font-semibold tracking-[0.12em] uppercase mb-3.5">Everything in one place</div>
+          <h2 className="text-[clamp(28px,4vw,42px)] font-extrabold tracking-[-0.025em]">Built for the way you actually think about money</h2>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 20 }}>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-5">
           {FEATURES.map(f => {
             const Icon = f.icon;
             return (
-              <div key={f.title} style={{ background: "hsl(var(--surface) / 0.8)", border: "1px solid hsl(var(--border))", borderRadius: 16, padding: "24px 24px 22px" }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", background: "hsl(var(--primary)/0.12)", border: "1px solid hsl(var(--primary)/0.25)", marginBottom: 16 }}>
-                  <Icon size={20} color="hsl(var(--primary))" strokeWidth={2} />
+              <div key={f.title} className="bg-[hsl(var(--surface)/0.8)] border border-border rounded-2xl px-6 pt-6 pb-[22px]">
+                <div className="h-11 w-11 rounded-xl grid place-items-center bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.25)] mb-4">
+                  <Icon size={20} className="text-primary" strokeWidth={2} />
                 </div>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.01em" }}>{f.title}</h3>
-                <p style={{ fontSize: 13.5, color: "hsl(var(--muted-foreground))", lineHeight: 1.65, margin: 0 }}>{f.desc}</p>
+                <h3 className="text-base font-bold mb-2 tracking-[-0.01em]">{f.title}</h3>
+                <p className="text-[13.5px] text-muted-foreground leading-[1.65]">{f.desc}</p>
               </div>
             );
           })}
@@ -181,18 +181,18 @@ const navigate = useNavigate();
       </section>
 
       {/* ── How it works ── */}
-      <section style={{ background: "hsl(var(--surface) / 0.4)", borderTop: "1px solid hsl(var(--border))", borderBottom: "1px solid hsl(var(--border))" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "72px 24px" }}>
-          <div style={{ textAlign: "center", marginBottom: 52 }}>
-            <div style={{ fontSize: 11, color: "hsl(var(--primary))", fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 14 }}>Getting started</div>
-            <h2 style={{ fontSize: "clamp(26px, 3.5vw, 38px)", fontWeight: 800, letterSpacing: "-0.025em", margin: 0 }}>Up and running in under 5 minutes</h2>
+      <section className="bg-[hsl(var(--surface)/0.4)] border-y border-border">
+        <div className="max-w-[900px] mx-auto px-6 py-[72px]">
+          <div className="text-center mb-[52px]">
+            <div className="text-[11px] text-primary font-semibold tracking-[0.12em] uppercase mb-3.5">Getting started</div>
+            <h2 className="text-[clamp(26px,3.5vw,38px)] font-extrabold tracking-[-0.025em]">Up and running in under 5 minutes</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 32 }}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-8">
             {HOW.map(h => (
               <div key={h.step}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: "hsl(var(--primary))", letterSpacing: "0.06em", marginBottom: 16, fontVariantNumeric: "tabular-nums" }}>{h.step}</div>
-                <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 10px", letterSpacing: "-0.01em" }}>{h.title}</h3>
-                <p style={{ fontSize: 14, color: "hsl(var(--muted-foreground))", lineHeight: 1.65, margin: 0 }}>{h.body}</p>
+                <div className="text-xs font-extrabold text-primary tracking-[0.06em] mb-4 [font-variant-numeric:tabular-nums]">{h.step}</div>
+                <h3 className="text-[17px] font-bold mb-2.5 tracking-[-0.01em]">{h.title}</h3>
+                <p className="text-sm text-muted-foreground leading-[1.65]">{h.body}</p>
               </div>
             ))}
           </div>
@@ -200,44 +200,44 @@ const navigate = useNavigate();
       </section>
 
       {/* ── Security ── */}
-      <section style={{ maxWidth: 700, margin: "0 auto", padding: "72px 24px", textAlign: "center" }}>
-        <div style={{ fontSize: 36, marginBottom: 20 }}>🔒</div>
-        <h2 style={{ fontSize: "clamp(24px, 3.5vw, 36px)", fontWeight: 800, letterSpacing: "-0.025em", margin: "0 0 16px" }}>Your data stays yours</h2>
-        <p style={{ fontSize: 15, color: "hsl(var(--muted-foreground))", lineHeight: 1.7, marginBottom: 36 }}>
+      <section className="max-w-[700px] mx-auto px-6 py-[72px] text-center">
+        <div className="text-4xl mb-5">🔒</div>
+        <h2 className="text-[clamp(24px,3.5vw,36px)] font-extrabold tracking-[-0.025em] mb-4">Your data stays yours</h2>
+        <p className="text-[15px] text-muted-foreground leading-[1.7] mb-9">
           Bank connections are powered by Plaid, the same infrastructure used by Venmo, Robinhood, and thousands of financial apps. Access is strictly read-only: SentryFi can see your transactions and balances but cannot initiate transfers, payments, or any account changes. Your credentials never touch our servers.
         </p>
-        <div style={{ display: "flex", justifyContent: "center", gap: 28, flexWrap: "wrap" }}>
+        <div className="flex justify-center gap-7 flex-wrap">
           {["Read-only access", "Encrypted in transit", "No credential storage", "Powered by Plaid"].map(t => (
-            <div key={t} style={{ fontSize: 13, color: "hsl(var(--muted-foreground))", display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: "hsl(var(--primary))" }}>✓</span> {t}
+            <div key={t} className="text-[13px] text-muted-foreground flex items-center gap-1.5">
+              <span className="text-primary">✓</span> {t}
             </div>
           ))}
         </div>
       </section>
 
       {/* ── Download CTA ── */}
-      <section style={{ background: "linear-gradient(135deg, hsl(var(--surface-elevated)) 0%, hsl(var(--background)) 100%)", borderTop: "1px solid hsl(var(--primary) / 0.2)" }}>
-        <div style={{ maxWidth: 700, margin: "0 auto", padding: "72px 24px", textAlign: "center" }}>
-          <div className="shield-glow-wrap" style={{ width: 72, height: 72, margin: "0 auto 28px" }}>
-            <img src="/logo.png" alt="SentryFi" className="shield-glow-img" style={{ width: 60, height: 60, borderRadius: 14 }} />
+      <section className="bg-gradient-to-br from-[hsl(var(--surface-elevated))] to-background border-t border-[hsl(var(--primary)/0.2)]">
+        <div className="max-w-[700px] mx-auto px-6 py-[72px] text-center">
+          <div className="shield-glow-wrap h-[72px] w-[72px] mx-auto mb-7">
+            <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-[60px] w-[60px] rounded-[14px]" />
           </div>
-          <h2 style={{ fontSize: "clamp(26px, 4vw, 42px)", fontWeight: 800, letterSpacing: "-0.025em", margin: "0 0 16px" }}>
+          <h2 className="text-[clamp(26px,4vw,42px)] font-extrabold tracking-[-0.025em] mb-4">
             Start knowing your real number.
           </h2>
-          <p style={{ fontSize: 15, color: "hsl(var(--muted-foreground))", lineHeight: 1.65, marginBottom: 36 }}>
+          <p className="text-[15px] text-muted-foreground leading-[1.65] mb-9">
             Free to use. No credit card required. Connect your accounts in minutes.
           </p>
-          <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
-            <Link to="/auth" style={{ padding: "14px 32px", borderRadius: 12, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", fontSize: 15, fontWeight: 700, textDecoration: "none" }}>
+          <div className="flex justify-center gap-3 flex-wrap">
+            <Link to="/auth" className="px-8 py-3.5 rounded-xl bg-primary text-primary-foreground text-[15px] font-bold no-underline">
               Create a free account
             </Link>
-            <button onClick={tryDemo} style={{ padding: "14px 32px", borderRadius: 12, border: "1px solid hsl(var(--border-strong))", background: "transparent", color: "hsl(var(--foreground))", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={tryDemo} className="px-8 py-3.5 rounded-xl border border-border-strong bg-transparent text-foreground text-[15px] font-semibold cursor-pointer">
               Try demo first
             </button>
           </div>
           {isAndroid && (
-            <div style={{ marginTop: 24 }}>
-              <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "hsl(var(--primary))", textDecoration: "none", borderBottom: "1px solid hsl(var(--primary) / 0.4)", paddingBottom: 2 }}>
+            <div className="mt-6">
+              <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="text-[13px] text-primary no-underline border-b border-[hsl(var(--primary)/0.4)] pb-0.5">
                 ↓ Download the Android app instead
               </a>
             </div>
@@ -246,12 +246,14 @@ const navigate = useNavigate();
       </section>
 
       {/* ── Footer ── */}
-      <footer style={{ borderTop: "1px solid hsl(var(--border))", padding: "28px 24px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ fontSize: 13, color: "hsl(var(--muted-foreground) / 0.7)" }}>© 2026 Sentry Finance · v{APP_VERSION}</div>
-          <div style={{ display: "flex", gap: 20 }}>
-            <Link to="/auth" style={{ fontSize: 13, color: "hsl(var(--muted-foreground) / 0.7)", textDecoration: "none" }}>Sign in</Link>
-            <Link to="/pricing" style={{ fontSize: 13, color: "hsl(var(--muted-foreground) / 0.7)", textDecoration: "none" }}>Pricing</Link>
+      <footer className="border-t border-border px-6 py-7">
+        <div className="max-w-[1100px] mx-auto flex items-center justify-between flex-wrap gap-3">
+          <div className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)]">© 2026 SentryFi · v{APP_VERSION}</div>
+          <div className="flex gap-5">
+            <Link to="/auth" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Sign in</Link>
+            <Link to="/pricing" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Pricing</Link>
+            <Link to="/terms" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Terms</Link>
+            <Link to="/privacy" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Privacy</Link>
           </div>
         </div>
       </footer>

@@ -140,6 +140,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
             <button
               onClick={onSync}
               disabled={syncing}
+              aria-label={syncing ? "Syncing accounts" : "Sync accounts"}
               className="h-10 w-10 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors disabled:opacity-50 no-min-h"
             >
               <RefreshCw className={cn("h-[18px] w-[18px]", syncing && "animate-spin")} />
@@ -148,7 +149,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="relative h-10 w-10 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors no-min-h">
+              <button aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} className="relative h-10 w-10 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors no-min-h">
                 <Bell className="h-[18px] w-[18px]" />
                 {unread > 0 && (
                   <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-0.5 rounded-full bg-positive text-background text-[11px] font-semibold grid place-items-center">
@@ -175,7 +176,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                       <div className="text-[13px] text-muted-foreground line-clamp-2 mt-0.5">{n.body}</div>
                       <div className="text-[12.5px] text-muted-foreground mt-1">{n.time} ago</div>
                     </div>
-                    <button onClick={() => clearOne(n.id)} className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-7 w-7 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition shrink-0">
+                    <button onClick={() => clearOne(n.id)} aria-label={`Dismiss notification: ${n.title}`} className="opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition shrink-0">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -186,7 +187,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Avatar/profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-0.5 h-9 w-9 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden no-min-h">
+              <button aria-label="Account menu" className="ml-0.5 h-9 w-9 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden no-min-h">
                 {profile?.avatar_url
                   ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
                   : initials}
@@ -278,7 +279,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Notifications */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="relative h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+              <button aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} className="relative h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Bell className="h-4 w-4" />
                 {unread > 0 && (
                   <span className="absolute top-1.5 right-1.5 h-4 min-w-4 px-1 rounded-full bg-positive text-background text-[11px] font-semibold grid place-items-center">
@@ -305,8 +306,8 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
                       <div className="text-[12px] text-muted-foreground line-clamp-2">{n.body}</div>
                       <div className="text-[12px] text-muted-foreground mt-0.5">{n.time} ago</div>
                     </div>
-                    <button onClick={() => clearOne(n.id)} className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition">
-                      <Trash2 className="h-3 w-3" />
+                    <button onClick={() => clearOne(n.id)} aria-label={`Dismiss notification: ${n.title}`} className="opacity-0 group-hover:opacity-100 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground hover:bg-surface-hover transition">
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
@@ -317,7 +318,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Settings */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+              <button aria-label="Preferences" className="h-9 w-9 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
                 <Settings className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
@@ -337,8 +338,9 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
               <DropdownMenuCheckboxItem checked={alertsEmail} onCheckedChange={(v) => handleAlertsEmail(!!v)} className="text-[13px]">Email alerts</DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem checked={alertsPush} onCheckedChange={(v) => handleAlertsPush(!!v)} className="text-[13px]">Push notifications</DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-[13px]" onClick={() => toast("Help center coming soon")}>
-                <HelpCircle className="h-3.5 w-3.5 mr-2" /> Help & support
+              <DropdownMenuItem className="text-[13px] justify-between" title="Coming soon" onClick={() => toast("Help center coming soon")}>
+                <span className="flex items-center"><HelpCircle className="h-3.5 w-3.5 mr-2" /> Help & support</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))] text-[10px] font-medium tracking-wide">Soon</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -346,7 +348,7 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
           {/* Profile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="ml-1 h-8 w-8 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden">
+              <button aria-label="Account menu" className="ml-1 h-9 w-9 rounded-full bg-gradient-to-br from-positive/40 to-info/40 border border-border-strong grid place-items-center text-[12.5px] font-semibold text-foreground overflow-hidden">
                 {profile?.avatar_url
                   ? <img src={profile.avatar_url} alt={displayName} className="h-full w-full object-cover" />
                   : initials}

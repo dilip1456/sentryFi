@@ -8,6 +8,10 @@ import {
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import type { Budgets } from "@/hooks/useBudgets";
 import type { CategoryOverrides } from "@/hooks/useCategoryOverrides";
@@ -103,8 +107,9 @@ const BudgetCell = ({ category, budget, onSave, onRemove }: {
         className="w-20 bg-secondary/40 border border-border/60 rounded px-1.5 py-0.5 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"
       />
       <button onClick={() => { const n = parseFloat(val); if (n > 0) { onSave(n); setEditing(false); } }}
+        aria-label="Save budget limit"
         className="text-positive hover:opacity-80"><Check className="h-3 w-3" /></button>
-      <button onClick={() => setEditing(false)} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+      <button onClick={() => setEditing(false)} aria-label="Cancel editing budget limit" className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
     </div>
   );
 
@@ -239,7 +244,7 @@ export const CategoryManager = ({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "var(--gold-border)" }}>
           <h2 className="font-display text-lg text-foreground">Manage Categories</h2>
-          <button onClick={onClose} className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+          <button onClick={onClose} aria-label="Close category manager" className="h-8 w-8 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -278,10 +283,11 @@ export const CategoryManager = ({
                     <option value="income">Income</option>
                   </select>
                   <button onClick={() => { if (newCatName.trim()) { onAddCategory(newCatName.trim(), newCatType); setNewCatName(""); setShowNewCat(false); toast.success(`Created "${newCatName.trim()}"`); } }}
+                    aria-label="Add category"
                     className="h-7 w-7 rounded-md bg-gold grid place-items-center hover:opacity-90">
                     <Check className="h-3.5 w-3.5" />
                   </button>
-                  <button onClick={() => setShowNewCat(false)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setShowNewCat(false)} aria-label="Cancel adding category" className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
                 </div>
               ) : (
                 <button onClick={() => setShowNewCat(true)}
@@ -313,10 +319,30 @@ export const CategoryManager = ({
                     <BudgetCell category={name} budget={budgets[name]}
                       onSave={v => onSetBudget(name, v)} onRemove={() => onRemoveBudget(name)} />
                     {isCustom && (
-                      <button onClick={() => deleteCategory(name)}
-                        className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center text-muted-foreground hover:text-negative transition-all">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button aria-label={`Delete ${name} category`}
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center text-muted-foreground hover:text-negative transition-all">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete "{name}"?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {txnCount > 0
+                                ? `${txnCount} transaction${txnCount !== 1 ? "s" : ""} in this category will be moved to Unassigned. This can't be undone.`
+                                : "This can't be undone."}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteCategory(name)} className="bg-negative text-negative-foreground hover:bg-negative/90">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                 );
@@ -343,10 +369,30 @@ export const CategoryManager = ({
                       <div className="text-[12px] text-muted-foreground">{txnCount} transaction{txnCount !== 1 ? "s" : ""}</div>
                     </div>
                     {isCustom && (
-                      <button onClick={() => deleteCategory(name)}
-                        className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center text-muted-foreground hover:text-negative transition-all">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button aria-label={`Delete ${name} category`}
+                            className="opacity-0 group-hover:opacity-100 h-6 w-6 grid place-items-center text-muted-foreground hover:text-negative transition-all">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete "{name}"?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {txnCount > 0
+                                ? `${txnCount} transaction${txnCount !== 1 ? "s" : ""} in this category will be moved to Unassigned. This can't be undone.`
+                                : "This can't be undone."}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteCategory(name)} className="bg-negative text-negative-foreground hover:bg-negative/90">
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                 );

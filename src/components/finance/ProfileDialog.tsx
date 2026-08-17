@@ -195,6 +195,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
             {/* Avatar */}
             <div className="flex items-center gap-4">
               <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
+                aria-label="Change profile photo"
                 className="relative h-16 w-16 rounded-full overflow-hidden shrink-0 border border-border grid place-items-center bg-[hsl(var(--primary)/0.12)] group">
                 {avatarUrl
                   ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
