@@ -88,6 +88,56 @@ function classifyCategory(cat: string, name: string): "fixed" | "flex" | "envelo
   return null;
 }
 
+// Well-known bill types mapped to a clean, friendly label — so a raw bank
+// statement descriptor like "WELLS FARGO HOME MTG 4471" or "NELNET STUDENT
+// LN PMT" reads as "Mortgage Payment" / "Student Loan Payment" instead of
+// showing up verbatim.
+const NAME_PATTERNS: [RegExp, string][] = [
+  [/mortgage|home\s*mtg/i, "Mortgage Payment"],
+  [/\brent\b/i, "Rent"],
+  [/student\s*loan|nelnet|sallie\s*mae|navient|mohela|great\s*lakes\s*ed/i, "Student Loan Payment"],
+  [/auto\s*loan|car\s*loan|car\s*pmt|vehicle\s*loan/i, "Auto Loan Payment"],
+  [/\binsurance\b|geico|progressive|allstate|state\s*farm|liberty\s*mutual/i, "Insurance"],
+  [/electric|\bpwr\b|power\s*co|energy/i, "Electric Bill"],
+  [/\bwater\b/i, "Water Bill"],
+  [/internet|broadband|xfinity|comcast|spectrum/i, "Internet Bill"],
+  [/verizon|at&t|t-mobile|tmobile|sprint/i, "Phone Bill"],
+  [/netflix/i, "Netflix"],
+  [/spotify/i, "Spotify"],
+  [/hulu/i, "Hulu"],
+  [/gym|fitness/i, "Gym Membership"],
+];
+
+// Cleans up a raw merchant/statement string for display: strips the
+// trailing reference/trace/confirmation numbers banks often tack on, then
+// either maps it to a well-known bill label above or title-cases it if it
+// looks like raw ALL-CAPS statement text.
+function cleanName(raw: string): string {
+  let name = raw
+    .replace(/\s*(?:#|no\.?|ref|trace|conf|id)[:#]?\s*[a-z0-9-]{4,}\s*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  for (const [re, label] of NAME_PATTERNS) {
+    if (re.test(name)) return label;
+  }
+  if (name === name.toUpperCase() && /[A-Z]/.test(name)) {
+    name = name.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  }
+  return name || raw;
+}
+
+const ORDINAL = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
+
+// How tightly clustered a merchant's charge dates are around the month —
+// used to gate "Fixed"/"Flex" detection on an actual same-date recurring
+// pattern instead of just "this merchant showed up more than once."
+function dayOfMonthSpread(dates: string[]): { typicalDay: number; spread: number } {
+  const days = dates.map(d => new Date(`${d}T00:00:00`).getDate()).sort((a, b) => a - b);
+  const median = days[Math.floor(days.length / 2)];
+  const spread = Math.max(...days.map(d => Math.abs(d - median)));
+  return { typicalDay: median, spread };
+}
+
 // ─── Auto-detection ──────────────────────────────────────────────────────────
 
 interface Detected {
@@ -99,6 +149,10 @@ interface Detected {
   goal_target?: number;
   selected: boolean;
   confidence: "high" | "medium";
+  // Plain-language explanation of why this was flagged — shown to the user
+  // in the review panel so "keep or remove" is an informed choice, not a
+  // guess about what the app saw.
+  reason: string;
 }
 
 function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[] {
@@ -150,7 +204,18 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
 
   for (const [merchant, data] of Object.entries(byMerchant)) {
     const monthsPresent = Object.keys(data.byMonth).filter(m => months.includes(m));
-    if (monthsPresent.length < 2) continue; // needs to appear in 2+ months
+    // Require the charge to show up in all 3 of the trailing months, not
+    // just 2 of 3 — a single repeat isn't a confirmed recurring pattern and
+    // was the main source of noisy, one-off charges getting flagged as
+    // "obligations."
+    if (monthsPresent.length < 3) continue;
+
+    const relevantTxns = data.txns.filter(t => months.includes(t.date?.slice(0, 7) ?? ""));
+    const { typicalDay, spread } = dayOfMonthSpread(relevantTxns.map(t => t.date));
+    // Same merchant, but the charges land on wildly different days each
+    // month (e.g. several unrelated one-off purchases) — not a real
+    // same-date recurring bill, so don't guess.
+    if (spread > 6) continue;
 
     const allAmounts = Object.values(data.byMonth).flat();
     const avg = allAmounts.reduce((a, b) => a + b, 0) / allAmounts.length;
@@ -158,31 +223,35 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
     const maxVariance = Math.max(...variance);
     const cat = getEffCat(data.txns[0]);
     const guessedType = classifyCategory(cat, merchant);
+    const cleanedName = cleanName(merchant);
+    const dayLabel = ORDINAL(typicalDay);
 
     if (avg < 2) continue; // skip tiny amounts
 
     if (maxVariance < 0.08) {
-      // Very stable amount → Fixed
+      // Very stable amount, same day each month, 3 months running → Fixed
       results.push({
-        name: merchant,
+        name: cleanedName,
         type: "fixed",
         amount: Math.round(avg * 100) / 100,
         merchant_hint: merchant.split(" ")[0],
         category: cat,
         selected: true,
-        confidence: monthsPresent.length === 3 ? "high" : "medium",
+        confidence: "high",
+        reason: `Charged ${fmtUSD(avg)} on/around the ${dayLabel} of the month, 3 months in a row`,
       });
       usedMerchants.add(merchant);
     } else if (guessedType === "flex" || maxVariance < 0.4) {
-      // Variable but recurring → Flex (max = avg + 20%)
+      // Same day each month, 3 months running, but the amount varies → Flex
       results.push({
-        name: merchant,
+        name: cleanedName,
         type: "flex",
         amount: Math.round(avg * 1.2 * 100) / 100,
         merchant_hint: merchant.split(" ")[0],
         category: cat,
         selected: true,
         confidence: "medium",
+        reason: `Recurs around the ${dayLabel} of the month, 3 months in a row — amount varies (${fmtUSD(avg*0.8)}–${fmtUSD(avg*1.2)})`,
       });
       usedMerchants.add(merchant);
     }
@@ -208,7 +277,9 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
   for (const [cat, amounts] of Object.entries(catSpend)) {
     if (SKIP_CATS.has(cat.toLowerCase())) continue;
     const nonZero = amounts.filter(a => a > 0);
-    if (nonZero.length < 2) continue;
+    // Require real spend in every one of the 3 tracked months, not just 2 —
+    // same reasoning as fixed/flex: one repeat isn't a confirmed pattern.
+    if (nonZero.length < 3) continue;
     const avg = amounts.reduce((a, b) => a + b, 0) / 3;
     if (avg < 10) continue;
 
@@ -218,7 +289,8 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
       amount: Math.round(avg * 1.1 * 100) / 100, // 10% buffer
       category: cat,
       selected: true,
-      confidence: nonZero.length === 3 ? "high" : "medium",
+      confidence: "high",
+      reason: `Spent in this category every month for the last 3 months, averaging ${fmtUSD(avg)}/mo`,
     });
   }
 
@@ -234,6 +306,7 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
       goal_target: totalExpenses * 3,
       selected: false, // opt-in for goals
       confidence: "medium",
+      reason: `Suggested based on your average monthly income of ${fmtUSD(monthlyIncome)} — not detected from a specific transaction`,
     });
   }
 
@@ -280,25 +353,27 @@ function SetupWizard({ detected, userId, onDone, onSkip }: SetupWizardProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
-      {/* Header */}
-      <div className="px-5 pt-safe pt-5 pb-4 border-b border-border flex items-center justify-between">
+    <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] mb-6 overflow-hidden">
+      {/* Header — a review panel alongside the rest of the page, not a
+          full-screen takeover, so obligations already set up (or the empty
+          "+ Add" placeholders) stay visible and usable while reviewing. */}
+      <div className="px-4 md:px-5 pt-4 pb-3 border-b border-primary/15 flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <p className="font-bold text-lg">Smart Setup</p>
+            <p className="font-bold text-sm">Potential obligations detected</p>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Detected {detected.length} obligations from your last 3 months
+            {detected.length} found from your last 3 months of transactions — review each and decide what to keep
           </p>
         </div>
-        <button onClick={onSkip} className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors">
-          Skip
+        <button onClick={onSkip} className="shrink-0 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors">
+          Dismiss
         </button>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+      <div className="max-h-[26rem] overflow-y-auto px-4 py-4 space-y-5">
         {BUCKETS.map(bucket => {
           const bItems = byType(bucket.type);
           if (bItems.length === 0) return null;
@@ -337,8 +412,9 @@ function SetupWizard({ detected, userId, onDone, onSkip }: SetupWizardProps) {
 
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{item.name}</p>
+                        <p className="text-[10.5px] text-muted-foreground/80 leading-snug">{item.reason}</p>
                         {item.confidence === "medium" && (
-                          <p className="text-[10px] text-muted-foreground/70">Estimated — adjust if needed</p>
+                          <p className="text-[10px] text-muted-foreground/60">Estimated — adjust if needed</p>
                         )}
                       </div>
 
@@ -377,17 +453,17 @@ function SetupWizard({ detected, userId, onDone, onSkip }: SetupWizardProps) {
       </div>
 
       {/* Footer */}
-      <div className="px-4 pb-safe pb-6 pt-3 border-t border-border">
-        <p className="text-xs text-center text-muted-foreground mb-3">
+      <div className="px-4 py-3 border-t border-primary/15 flex items-center gap-3">
+        <p className="text-xs text-muted-foreground flex-1">
           {selectedCount} selected · tap amount to adjust · uncheck to skip
         </p>
         <button
           onClick={save}
           disabled={saving || selectedCount === 0}
-          className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+          className="shrink-0 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-40 flex items-center justify-center gap-2"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {saving ? "Setting up…" : `Set up ${selectedCount} obligation${selectedCount !== 1 ? "s" : ""}`}
+          {saving ? "Adding…" : `Add ${selectedCount} obligation${selectedCount !== 1 ? "s" : ""}`}
         </button>
       </div>
     </div>
@@ -662,19 +738,6 @@ export function ObligationsView({ txns, month, formatCat, catColor, getEffective
 
   const byType = (type: Obligation["type"]) => obligations.filter(o => o.type === type);
 
-  // ── Setup wizard ──────────────────────────────────────────────────────────
-
-  if (!loading && detected !== null) {
-    return (
-      <SetupWizard
-        detected={detected}
-        userId={userId!}
-        onDone={() => { setDetected(null); loadObs(); }}
-        onSkip={() => setDetected(null)}
-      />
-    );
-  }
-
   if (loading) return (
     <div className="flex-1 flex items-center justify-center py-24">
       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -683,6 +746,20 @@ export function ObligationsView({ txns, month, formatCat, catColor, getEffective
 
   return (
     <div className="flex flex-col min-h-full">
+      {/* Detected candidates render as a review panel alongside the normal
+          view — not a forced full-screen wizard — so the user can see and
+          keep using whatever obligations already exist while deciding what
+          (if anything) from the detection pass to add. */}
+      {detected !== null && detected.length > 0 && userId && (
+        <div className="px-4 md:px-8 pt-5">
+          <SetupWizard
+            detected={detected}
+            userId={userId}
+            onDone={() => { setDetected(null); loadObs(); }}
+            onSkip={() => setDetected(null)}
+          />
+        </div>
+      )}
 
       {/* ── Income allocation bar ──────────────────────────────────────────── */}
       <div className="px-4 md:px-8 pt-5 pb-4">
@@ -826,13 +903,20 @@ export function ObligationsView({ txns, month, formatCat, catColor, getEffective
 
         {/* Re-run detection */}
         {obligations.length > 0 && (
-          <button
-            onClick={() => { const d = autoDetect(txns, getEffectiveCategory); setDetected(d); }}
-            className="w-full py-3 rounded-xl border border-dashed border-primary/30 text-xs text-primary/70 hover:text-primary hover:border-primary/60 transition-colors flex items-center justify-center gap-2"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Re-run auto-detection
-          </button>
+          <>
+            <button
+              onClick={() => { const d = autoDetect(txns, getEffectiveCategory); setDetected(d); }}
+              className="w-full py-3 rounded-xl border border-dashed border-primary/30 text-xs text-primary/70 hover:text-primary hover:border-primary/60 transition-colors flex items-center justify-center gap-2"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Re-run auto-detection
+            </button>
+            {detected !== null && detected.length === 0 && (
+              <p className="text-center text-xs text-muted-foreground -mt-2">
+                No new recurring patterns found — nothing shows up in all 3 of the last 3 months on a consistent date.
+              </p>
+            )}
+          </>
         )}
       </div>
 

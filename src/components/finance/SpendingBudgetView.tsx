@@ -7,6 +7,7 @@ import { useCountUp } from "@/hooks/useCountUp";
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, EyeOff, ChevronDown,
+  Settings, ChevronsDownUp, ChevronsUpDown,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -33,6 +34,10 @@ export interface SpendingBudgetViewProps {
   onSelectCategory:(t:PTxn, cat:string)=>void;
   onAddCategory:(name:string, type:"income"|"expense")=>void;
   onRemoveCategory?:(name:string)=>void;
+  // Custom categories only — renaming a built-in would silently break its
+  // auto-categorization since Plaid-category mapping matches on the literal
+  // string.
+  onRenameCategory?:(oldName:string, newName:string)=>void;
   // Tags — used by the Tags filter; empty object is fine if the caller hasn't
   // wired tagging yet.
   txnTags:Record<string,string[]>;
@@ -94,10 +99,17 @@ type WidthKey = "name" | ColKey;
 // the least. Statement/category/account can still run long, so their cells
 // wrap to two lines instead of being squeezed and ellipsized.
 const DEFAULT_COL_WIDTHS: Record<WidthKey, number> = {
-  name: 260, date: 84, amount: 100, statement: 200, category: 130, status: 84, account: 112,
+  name: 260, date: 84, amount: 100, statement: 200, category: 160, status: 84, account: 112,
 };
 const COL_WIDTHS_STORAGE_KEY = "sentryfi_spending_txn_col_widths";
 const MIN_COL_WIDTH = 60;
+
+// Category names that are really a fixed obligation (mortgage, a loan, rent)
+// rather than everyday discretionary spend — the left-hand Categories panel
+// shows these as simply "Met" once the period's payment has posted, instead
+// of a dollar figure that invites comparing it to a "budget" the way a
+// grocery or dining category would be.
+const OBLIGATION_LIKE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student Loan", "Loan", "Loan Payment"]);
 
 // ── Group-by options for the transaction table ──────────────────────────────
 type GroupKey = "none" | "account" | "date" | "category" | "status";
@@ -116,11 +128,26 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
 function useFloatingMenu() {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null);
   const toggle = () => {
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+      const margin = 8;
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+      const right = Math.max(8, window.innerWidth - r.right);
+      // Anchor below the trigger by default, but flip to anchoring above it
+      // when there isn't enough room below and there's meaningfully more
+      // room above — otherwise a button near the bottom of a long scrollable
+      // table (e.g. a per-row category picker) opens a panel that renders
+      // partly or fully below the viewport, unreachable and unreadable.
+      // maxHeight is capped to whichever side it opens toward so the panel
+      // itself never has to spill past the edge of the screen either.
+      if (spaceBelow < 220 && spaceAbove > spaceBelow) {
+        setPos({ bottom: window.innerHeight - r.top + 6, right, maxHeight: Math.max(160, Math.min(spaceAbove - 6, 420)) });
+      } else {
+        setPos({ top: r.bottom + 6, right, maxHeight: Math.max(160, Math.min(spaceBelow - 6, 420)) });
+      }
     }
     setOpen(o => !o);
   };
@@ -232,7 +259,7 @@ function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
 // so it's a one-line flip to bring back.
 const SHOW_BURN_RUNWAY = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,txnTags,onAddTag}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -848,6 +875,28 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       }));
   }, [visibleTxns, groupBy, groupLabelFor]);
 
+  // Which groups are collapsed, keyed by the group's label — a Set so toggling
+  // one group never touches the others' state. Cleared when groupBy changes so
+  // stale keys from a previous grouping mode don't linger.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  useEffect(() => { setCollapsedGroups(new Set()); }, [groupBy]);
+  const toggleGroupCollapsed = useCallback((key: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+  // Drives the single expand/collapse-all toggle button: once every current
+  // group is collapsed the button flips to "expand all" instead of offering
+  // to collapse an already-fully-collapsed list.
+  const allGroupsCollapsed = !!groupedTxns && groupedTxns.length > 0 && groupedTxns.every(g => collapsedGroups.has(g.key));
+  const expandAllGroups = useCallback(() => setCollapsedGroups(new Set()), []);
+  const collapseAllGroups = useCallback(() => {
+    if (!groupedTxns) return;
+    setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
+  }, [groupedTxns]);
+
   // 1 "Description" column + however many optional attribute columns are visible.
   const colSpan = 2 + visibleCols.size; // checkbox column + always-on name column + optional columns
 
@@ -1167,21 +1216,30 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               shows its budget progress if one's set, or a "Set budget" pill
               if not — both routes into the same Manage Budgets dialog. */}
           {(catRows.length > 0 || excludedTxns.length > 0) && (
-            <div className="surface-card overflow-hidden flex flex-col max-h-[240px] lg:max-h-none lg:h-full lg:w-[320px] lg:shrink-0">
-              <div className="px-3.5 py-2.5 border-b border-border/20 flex items-center justify-between shrink-0">
-                <span className="text-[12px] font-semibold text-foreground">Categories</span>
+            <div className="surface-card overflow-hidden flex flex-col max-h-[240px] lg:max-h-none lg:h-full lg:w-[260px] lg:shrink-0">
+              <div className="px-3 py-2 border-b border-border/20 flex items-center justify-between shrink-0">
+                <span className="text-[11px] font-semibold text-foreground">Categories</span>
                 <button onClick={()=>setBudgetDialogOpen(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity">
-                  <Wallet className="h-3 w-3"/> View Budget
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity">
+                  <Wallet className="h-2.5 w-2.5"/> Budget
                 </button>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none p-2 space-y-1.5">
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none p-1.5 space-y-1">
                 {catRows.map((c,i) => {
                   const col = catColor(c.cat);
                   const b = budgets[c.cat];
                   const over = !!b && c.spend > b;
                   const actualPct = b ? Math.min((c.spend/b)*100,100) : 0;
                   const active = catSel === c.cat;
+                  const isObligation = OBLIGATION_LIKE_CATS.has(c.cat);
+                  // Obligation categories show "Met" (the payment posted this
+                  // period, full stop — comparing it to a "budget" doesn't
+                  // make sense for a fixed bill). Budgeted expense categories
+                  // show "Over" once spend passes the budget, otherwise show
+                  // the budget amount itself — the total set aside for it —
+                  // rather than the fluctuating actual spend number.
+                  const mainText = isObligation ? "Met" : over ? "Over" : b != null ? fmtUSD(b) : fmtUSD(c.spend);
+                  const mainColor = isObligation ? "text-positive" : over ? "text-negative" : "text-foreground";
                   return (
                     // A plain div (not a <button>) because it needs to contain
                     // its own nested "Set budget" button — real <button>s can't nest.
@@ -1193,29 +1251,34 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         backgroundColor: active ? `${col}26` : `${col}10`,
                         borderLeft: `3px solid ${col}`,
                       }}
-                      className="bento-rise cursor-pointer rounded-lg px-3 py-2.5 transition-colors hover:brightness-[1.08]">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[12px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
+                      className="bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[10.5px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
                         {c.mom !== null && (
-                          <span className={cn("text-[9.5px] font-semibold shrink-0", c.mom>0?"text-negative":"text-positive")}>{c.mom>0?"+":""}{c.mom}%</span>
+                          <span className={cn("text-[9px] font-semibold shrink-0", c.mom>0?"text-negative":"text-positive")}>{c.mom>0?"+":""}{c.mom}%</span>
                         )}
                       </div>
-                      <div className="text-[13.5px] font-bold text-foreground tabular mt-0.5">{fmtUSD(c.spend)}</div>
-                      {b != null ? (
-                        <>
-                          <div className="h-1.5 rounded-full bg-black/10 dark:bg-white/10 relative mt-1.5 overflow-hidden">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={cn("text-[12px] font-bold tabular", mainColor)}>{mainText}</span>
+                        {!isObligation && b != null && (
+                          <div className="flex-1 h-1 rounded-full bg-black/10 dark:bg-white/10 relative overflow-hidden min-w-[24px]">
                             <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{width:`${actualPct}%`,background:over?"hsl(var(--negative))":col}}/>
                           </div>
-                          <div className="text-[10px] text-muted-foreground mt-1">
-                            {fmtUSD(b)} budget{over && <span className="text-negative font-semibold"> · over</span>}
-                          </div>
-                        </>
-                      ) : (
-                        <button onClick={(e)=>{ e.stopPropagation(); setBudgetDialogOpen(true); }}
-                          style={{ color: col, borderColor: `${col}60` }}
-                          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border bg-background/40">
-                          + Set budget
-                        </button>
+                        )}
+                        {!isObligation && b == null && (
+                          <button onClick={(e)=>{ e.stopPropagation(); setBudgetDialogOpen(true); }}
+                            style={{ color: col }}
+                            className="shrink-0 text-[9px] font-semibold hover:underline">
+                            + budget
+                          </button>
+                        )}
+                      </div>
+                      {isObligation ? (
+                        <div className="text-[9px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
+                      ) : b != null && (
+                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                          {fmtUSD(c.spend)} spent{over && <span className="text-negative font-semibold"> · {fmtUSD(c.spend-b)} over</span>}
+                        </div>
                       )}
                     </div>
                   );
@@ -1234,13 +1297,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       onClick={()=>setCatSel(active ? null : INTERNAL_PSEUDO_CAT)}
                       onKeyDown={(e)=>{ if (e.key==="Enter"||e.key===" ") { e.preventDefault(); setCatSel(active ? null : INTERNAL_PSEUDO_CAT); } }}
                       style={{ backgroundColor: active ? "hsl(var(--muted-foreground)/0.18)" : "hsl(var(--muted-foreground)/0.07)", borderLeft: `3px solid ${exCol}` }}
-                      className="cursor-pointer rounded-lg px-3 py-2.5 transition-colors hover:brightness-[1.08]">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[12px] font-semibold text-foreground truncate flex-1 min-w-0">Internal Transfers</span>
-                      </div>
-                      <div className="text-[13.5px] font-bold text-foreground tabular mt-0.5">{fmtUSD(excludedTotal)}</div>
-                      <div className="text-[10px] text-muted-foreground mt-1">
-                        {excludedTxns.length} txn{excludedTxns.length!==1?"s":""} · not counted toward spending
+                      className="cursor-pointer rounded-md px-2 py-1.5 transition-colors">
+                      <span className="text-[10.5px] font-semibold text-foreground truncate block">Internal Transfers</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[12px] font-bold text-foreground tabular">{fmtUSD(excludedTotal)}</span>
+                        <span className="text-[9px] text-muted-foreground truncate">{excludedTxns.length} txn{excludedTxns.length!==1?"s":""} · excluded</span>
                       </div>
                     </div>
                   );
@@ -1290,32 +1351,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         const idSet = selectedIds;
                         txns.filter(t => idSet.has(t.id)).forEach(t => onSelectCategory(t, newCat));
                       }}
-                      onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+                      onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                       onClose={bulkMenu.close}/>
                   )}
                 </div>
               ) : (
-              <div className="flex items-center gap-2">
-                <div className="flex-1 relative min-w-0">
+              <>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="relative w-56 shrink-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
                   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by description..."
-                    className="w-full h-9 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
+                    className="w-full h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
                 </div>
-                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
-                  className={cn("h-9 px-3 rounded-xl border text-[12px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
-                    groupBy!=="none" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Layers className="h-3.5 w-3.5"/> {groupBy==="none" ? "Group" : GROUP_OPTIONS.find(g=>g.key===groupBy)?.label}
-                </button>
-                <button ref={colsMenu.btnRef} onClick={colsMenu.toggle}
-                  className={cn("h-9 px-3 rounded-xl border text-[12px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
-                    colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Columns3 className="h-3.5 w-3.5"/> Columns
-                </button>
-              </div>
-              )}
 
-              {/* Account (quick-access) + Filters popover + Sort popover */}
-              <div className="flex items-center gap-1.5 flex-wrap">
                 <div className="relative shrink-0">
                   <Landmark className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none"/>
                   <select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}
@@ -1328,6 +1376,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     ))}
                   </select>
                 </div>
+
+                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
+                  className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
+                    groupBy!=="none" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Layers className="h-3 w-3"/> Group
+                </button>
+                {groupBy!=="none" && (
+                  <button onClick={allGroupsCollapsed ? expandAllGroups : collapseAllGroups}
+                    title={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
+                    {allGroupsCollapsed ? <ChevronsUpDown className="h-3.5 w-3.5"/> : <ChevronsDownUp className="h-3.5 w-3.5"/>}
+                  </button>
+                )}
+
                 <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle}
                   className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
                     hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
@@ -1338,6 +1400,78 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-3 w-3"/> Sort
                 </button>
+                <button ref={colsMenu.btnRef} onClick={colsMenu.toggle} title="Columns"
+                  className={cn("h-7 w-7 grid place-items-center rounded-lg border transition-colors shrink-0",
+                    colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Settings className="h-3.5 w-3.5"/>
+                </button>
+              </div>
+
+              {/* Active filter/sort/group chips — their own row below the
+                  search/toolbar row so the search box and buttons above never
+                  resize or wrap as chips are added or removed. Each is
+                  individually removable. */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {groupBy!=="none" && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
+                    Group: {GROUP_OPTIONS.find(g=>g.key===groupBy)?.label}
+                    <button onClick={()=>setGroupBy("none")} aria-label="Clear grouping" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {hasActiveSort && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
+                    Sort: {SORT_LABELS[sortBy]} {sortDesc ? "↓" : "↑"}
+                    <button onClick={clearSort} aria-label="Clear sort" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {catSel && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
+                    Category: {catSel === INTERNAL_PSEUDO_CAT ? "Internal Transfers" : formatCat(catSel)}
+                    <button onClick={()=>setCatSel(null)} aria-label="Clear category filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {search && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    "{search}"
+                    <button onClick={()=>setSearch("")} aria-label="Clear search filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {accountFilter && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    {accountsInPeriod.find(a=>a.account_id===accountFilter)?.name ?? "Account"}
+                    <button onClick={()=>setAccountFilter("")} aria-label="Clear account filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {amountMode==="range" ? (minAmount || maxAmount) && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    ${minAmount||"0"} – ${maxAmount||"∞"}
+                    <button onClick={()=>{setMinAmount("");setMaxAmount("");}} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                ) : fixedAmount && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    = ${fixedAmount}
+                    <button onClick={()=>setFixedAmount("")} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {typeFilter!=="all" && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    {typeFilter==="in" ? "Incoming" : "Outgoing"}
+                    <button onClick={()=>setTypeFilter("all")} aria-label="Clear type filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {tagFilter.map(tag => (
+                  <span key={tag} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    #{tag}
+                    <button onClick={()=>toggleTagFilter(tag)} aria-label={`Clear tag ${tag}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                ))}
+                {dateMode!=="none" && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    {dateMode==="range" ? `${dateFrom||"…"} – ${dateTo||"…"}` : dateMode==="lastN" ? `Last ${lastNDays}d` : `Year ${filterYear}`}
+                    <button onClick={()=>setDateMode("none")} aria-label="Clear date filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+
                 {(hasActiveFilters || catSel) && (
                   <button onClick={()=>{ clearFilters(); setCatSel(null); }}
                     className="ml-auto flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-negative/10 border border-negative/30 text-[11.5px] text-negative font-semibold hover:bg-negative/15 transition-colors shrink-0">
@@ -1345,12 +1479,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   </button>
                 )}
               </div>
+              </>
+              )}
 
               {filtersMenu.open && filtersMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={filtersMenu.close}/>
-                  <div className="fixed z-[999] w-80 max-h-[28rem] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
-                    style={{top:filtersMenu.pos.top, right:filtersMenu.pos.right}} onClick={e=>e.stopPropagation()}>
+                  <div className="fixed z-[999] w-80 overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
+                    style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
 
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
@@ -1468,7 +1604,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={sortMenu.close}/>
                   <div className="fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
-                    style={{top:sortMenu.pos.top, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
+                    style={{top:sortMenu.pos.top, bottom:sortMenu.pos.bottom, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
                     {(["date","amount"] as const).map(key => (
                       <button key={key} onClick={()=>{ handleSort(key); }}
                         className={cn("w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-colors",
@@ -1482,67 +1618,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 document.body
               )}
 
-              {/* Active-filter chips — one per applied filter, individually removable.
-                  A separate "Sort" chip shows up whenever sorting has been changed
-                  from the default, with its own quick-clear back to newest-first. */}
-              {(catSel || accountFilter || minAmount || maxAmount || fixedAmount || search || hasActiveSort || typeFilter!=="all" || tagFilter.length>0 || dateMode!=="none") && (
-                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                  {hasActiveSort && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))]">
-                      Sort: {SORT_LABELS[sortBy]} {sortDesc ? "↓" : "↑"}
-                      {/* Chip is only 24px tall — sizing this up to the usual 32-36px touch target would overflow the pill, so left at 14px here. */}
-                      <button onClick={clearSort} aria-label="Clear sort" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {catSel && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))]">
-                      Category: {catSel === INTERNAL_PSEUDO_CAT ? "Internal Transfers" : formatCat(catSel)}
-                      <button onClick={()=>setCatSel(null)} aria-label="Clear category filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {search && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      "{search}"
-                      <button onClick={()=>setSearch("")} aria-label="Clear search filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {accountFilter && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      {accountsInPeriod.find(a=>a.account_id===accountFilter)?.name ?? "Account"}
-                      <button onClick={()=>setAccountFilter("")} aria-label="Clear account filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {amountMode==="range" ? (minAmount || maxAmount) && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      ${minAmount||"0"} – ${maxAmount||"∞"}
-                      <button onClick={()=>{setMinAmount("");setMaxAmount("");}} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  ) : fixedAmount && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      = ${fixedAmount}
-                      <button onClick={()=>setFixedAmount("")} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {typeFilter!=="all" && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      {typeFilter==="in" ? "Incoming" : "Outgoing"}
-                      <button onClick={()=>setTypeFilter("all")} aria-label="Clear type filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                  {tagFilter.map(tag => (
-                    <span key={tag} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      #{tag}
-                      <button onClick={()=>toggleTagFilter(tag)} aria-label={`Clear tag ${tag}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  ))}
-                  {dateMode!=="none" && (
-                    <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground">
-                      {dateMode==="range" ? `${dateFrom||"…"} – ${dateTo||"…"}` : dateMode==="lastN" ? `Last ${lastNDays}d` : `Year ${filterYear}`}
-                      <button onClick={()=>setDateMode("none")} aria-label="Clear date filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
             {/* overflow-x-hidden (not auto) is deliberate: the desktop table
                 below is table-layout:fixed with resizable columns whose
@@ -1588,12 +1663,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         {visibleCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
                       </tr>
                     </thead>
-                    {groupedTxns ? groupedTxns.map(g => (
+                    {groupedTxns ? groupedTxns.map(g => {
+                      const isCollapsed = collapsedGroups.has(g.key);
+                      return (
                       <tbody key={g.key}>
-                        <tr className="bg-muted/30">
+                        <tr className="bg-muted/30 cursor-pointer hover:bg-muted/50" onClick={()=>toggleGroupCollapsed(g.key)}>
                           <td colSpan={colSpan} className="px-4 py-2 border-b border-border/15">
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex items-center gap-2 min-w-0">
+                                <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                                 <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
                                 <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
                                   {g.items.length} {g.items.length===1?"txn":"txns"}
@@ -1606,23 +1684,24 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             </div>
                           </td>
                         </tr>
-                        {g.items.map(t => (
+                        {!isCollapsed && g.items.map(t => (
                           <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
-                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
                         ))}
                       </tbody>
-                    )) : (
+                      );
+                    }) : (
                       <tbody>
                         {visibleTxns.map(t => (
                           <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
-                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
                         ))}
                       </tbody>
@@ -1634,10 +1713,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       state and the same visibleCols toggles to pick which
                       attributes show in the meta line. */}
                   <div className="md:hidden divide-y divide-border/10">
-                    {groupedTxns ? groupedTxns.map(g => (
+                    {groupedTxns ? groupedTxns.map(g => {
+                      const isCollapsed = collapsedGroups.has(g.key);
+                      return (
                       <div key={g.key}>
-                        <div className="bg-muted/30 px-4 py-2 flex items-center justify-between gap-3 border-b border-border/15">
+                        <div className="bg-muted/30 px-4 py-2 flex items-center justify-between gap-3 border-b border-border/15 cursor-pointer active:bg-muted/50"
+                          onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
+                            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                             <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
                             <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
                               {g.items.length}
@@ -1648,25 +1731,28 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             <div className="text-[13px] font-bold text-foreground tabular leading-tight mt-0.5">{fmtUSD(g.total)}</div>
                           </div>
                         </div>
+                        {!isCollapsed && (
                         <div className="divide-y divide-border/10">
                           {g.items.map(t => (
                             <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                               nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
-                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
                           ))}
                         </div>
+                        )}
                       </div>
-                    )) : (
+                      );
+                    }) : (
                       <>
                         {visibleTxns.map(t => (
                           <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
-                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+                            onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
                         ))}
                       </>
@@ -1763,8 +1849,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {colsMenu.open && colsMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
-          <div className="fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-hidden py-1"
-            style={{ top: colsMenu.pos.top, right: colsMenu.pos.right, border: "1px solid var(--gold-border)" }}>
+          <div className="fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
+            style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
             <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
             {COLUMN_DEFS.map(c => {
               const checked = visibleCols.has(c.key);
@@ -1796,8 +1882,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {groupMenu.open && groupMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
-          <div className="fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-hidden py-1"
-            style={{ top: groupMenu.pos.top, right: groupMenu.pos.right, border: "1px solid var(--gold-border)" }}>
+          <div className="fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
+            style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
             <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
             {GROUP_OPTIONS.map(g => (
               <button key={g.key} onClick={()=>{ setGroupBy(g.key); groupMenu.close(); }}
@@ -1993,8 +2079,14 @@ const SortableTh = ({ label, active, desc, onClick, align="left", onResizeStart,
 // list), and Ignored (Credit Card Payment / Internal Transfer) — categories
 // that exist for bookkeeping but shouldn't be mistaken for real spend.
 export interface CategoryPickerPopoverProps {
-  pos: { top: number; right: number } | null;
+  pos: { top?: number; bottom?: number; right: number; maxHeight?: number } | null;
   current: string;
+  // Signed amount of the transaction being categorized, when known — a debit
+  // (positive) puts the Expenses section first, a credit (negative) puts
+  // Income first. Neither section is hidden: a refund is a negative-amount
+  // transaction that still belongs under an expense category, so the picker
+  // only reorders for convenience, never filters by sign.
+  amount?: number;
   expenseCategories: string[];
   incomeCategories: string[];
   ignoredCategories: string[];
@@ -2005,19 +2097,33 @@ export interface CategoryPickerPopoverProps {
   onSelect: (cat: string) => void;
   onAddCategory: (name: string, type: "income"|"expense") => void;
   onRemoveCategory?: (name: string) => void;
+  // Custom categories only — renaming a built-in would silently break its
+  // auto-categorization since Plaid-category mapping matches on the literal
+  // string, so this is only ever offered next to a custom entry.
+  onRenameCategory?: (oldName: string, newName: string) => void;
   onClose: () => void;
 }
 
 export function CategoryPickerPopover({
-  pos, current, expenseCategories, incomeCategories, ignoredCategories, customCategories,
-  categoryIcon, catColor, formatCat, onSelect, onAddCategory, onRemoveCategory, onClose,
+  pos, current, amount, expenseCategories, incomeCategories, ignoredCategories, customCategories,
+  categoryIcon, catColor, formatCat, onSelect, onAddCategory, onRemoveCategory, onRenameCategory, onClose,
 }: CategoryPickerPopoverProps) {
   const [adding, setAdding] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftType, setDraftType] = useState<"expense"|"income">("expense");
   const [search, setSearch] = useState("");
+  const [renamingCat, setRenamingCat] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   if (!pos) return null;
+
+  const submitRename = () => {
+    const trimmed = renameDraft.trim();
+    if (trimmed && renamingCat && trimmed !== renamingCat && onRenameCategory) {
+      onRenameCategory(renamingCat, trimmed);
+    }
+    setRenamingCat(null);
+  };
 
   const customExpense = customCategories.filter(c => c.type === "expense").map(c => c.name);
   const customIncome = customCategories.filter(c => c.type === "income").map(c => c.name);
@@ -2036,6 +2142,20 @@ export function CategoryPickerPopover({
     const Icon = categoryIcon(cat);
     const color = catColor(cat);
     const active = cat === current;
+
+    if (renamingCat === cat) {
+      return (
+        <div className="flex items-center gap-1 px-2 py-1">
+          <input autoFocus value={renameDraft} onChange={e=>setRenameDraft(e.target.value)}
+            onClick={e=>e.stopPropagation()}
+            onKeyDown={e=>{ if (e.key==="Enter") submitRename(); if (e.key==="Escape") setRenamingCat(null); }}
+            className="flex-1 min-w-0 h-7 px-2 rounded-md bg-muted/40 border border-[hsl(var(--primary)/0.4)] text-[12px] text-foreground outline-none"/>
+          <button onClick={submitRename} aria-label="Save name" className="h-7 w-7 grid place-items-center rounded-md bg-gold shrink-0"><Check className="h-3 w-3"/></button>
+          <button onClick={()=>setRenamingCat(null)} aria-label="Cancel rename" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0"><X className="h-3 w-3"/></button>
+        </div>
+      );
+    }
+
     return (
       <div className="group/catrow flex items-center">
         <button onClick={() => { onSelect(cat); onClose(); }}
@@ -2046,6 +2166,12 @@ export function CategoryPickerPopover({
           <span className="text-[12.5px] text-foreground flex-1 truncate">{formatCat(cat)}</span>
           {active && <Check className="h-3 w-3 text-positive shrink-0"/>}
         </button>
+        {removable && onRenameCategory && (
+          <button onClick={(e)=>{ e.stopPropagation(); setRenamingCat(cat); setRenameDraft(cat); }} aria-label={`Rename ${cat}`}
+            className="px-1 opacity-0 group-hover/catrow:opacity-100 text-muted-foreground hover:text-foreground transition-all shrink-0">
+            <Pencil className="h-3 w-3"/>
+          </button>
+        )}
         {removable && onRemoveCategory && (
           <button onClick={()=>onRemoveCategory(cat)} aria-label={`Remove ${cat}`}
             className="px-1.5 opacity-0 group-hover/catrow:opacity-100 text-muted-foreground hover:text-negative transition-all shrink-0">
@@ -2069,11 +2195,23 @@ export function CategoryPickerPopover({
     );
   };
 
+  // Whichever section matches the transaction's own direction (debit →
+  // Expenses, credit → Income) renders first since that's almost always
+  // where the right category actually is — but both stay fully visible and
+  // scrollable below, since sign alone doesn't determine category (a refund
+  // is a negative-amount transaction that still belongs under an expense
+  // category).
+  const expensesSection = <Section key="expenses" label="Expenses" cats={expenseCategories} customCats={customExpense} />;
+  const incomeSection = <Section key="income" label="Income" cats={incomeCategories} customCats={customIncome} />;
+  const orderedSections = amount != null && amount < 0
+    ? [incomeSection, expensesSection]
+    : [expensesSection, incomeSection];
+
   return createPortal(
     <>
       <div className="fixed inset-0 z-[998]" onClick={onClose} />
-      <div className="fixed z-[999] w-72 max-h-[26rem] flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
-        style={{ top: pos.top, right: pos.right }} onClick={e=>e.stopPropagation()}>
+      <div className="fixed z-[999] w-64 flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+        style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight ?? 360 }} onClick={e=>e.stopPropagation()}>
         <div className="p-2 border-b border-border/30 shrink-0">
           {adding ? (
             <div className="space-y-1.5 p-1">
@@ -2104,9 +2242,8 @@ export function CategoryPickerPopover({
               className="w-full h-7 pl-7 pr-2 rounded-lg bg-muted/40 border border-border/60 text-[11.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-1 pb-1.5">
-          <Section label="Expenses" cats={expenseCategories} customCats={customExpense} />
-          <Section label="Income" cats={incomeCategories} customCats={customIncome} />
+        <div className="flex-1 overflow-y-auto px-1 pb-1.5 min-h-0">
+          {orderedSections}
           <Section label="Ignored" cats={ignoredCategories} />
         </div>
       </div>
@@ -2118,7 +2255,7 @@ export function CategoryPickerPopover({
 // ── Transaction row (table) ─────────────────────────────────────────────────
 const TxnRow = ({
   t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
-  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory,
+  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
   selected, onToggleSelect,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
@@ -2126,7 +2263,7 @@ const TxnRow = ({
   nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Set<string>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
-  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void;
+  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
   selected: boolean; onToggleSelect: (id:string)=>void;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
@@ -2174,10 +2311,10 @@ const TxnRow = ({
             <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
           </button>
           {catMenu.open && (
-            <CategoryPickerPopover pos={catMenu.pos} current={cat}
+            <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
               expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
               customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
-              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
               onClose={catMenu.close}/>
           )}
         </td>
@@ -2203,7 +2340,7 @@ const TxnRow = ({
 // (category/date/status/account) as a compact meta line underneath.
 const MobileTxnRow = ({
   t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
-  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory,
+  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
   selected, onToggleSelect,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
@@ -2211,7 +2348,7 @@ const MobileTxnRow = ({
   nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Set<string>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
-  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void;
+  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
   selected: boolean; onToggleSelect: (id:string)=>void;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
@@ -2264,10 +2401,10 @@ const MobileTxnRow = ({
             <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
           </button>
           {catMenu.open && (
-            <CategoryPickerPopover pos={catMenu.pos} current={cat}
+            <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
               expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
               customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
-              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory}
+              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
               onClose={catMenu.close}/>
           )}
         </div>
