@@ -54,6 +54,19 @@ export interface SavingsGoal {
   obligationId?: string;     // set when kind === "obligation"
 }
 
+// A named "recurring budget entry" — e.g. "Mortgage Payment" or "Netflix" —
+// with EXPLICIT transaction membership (txnIds), not just a merchant-string
+// match, so the user can freely add/remove individual transactions from it
+// (a mis-matched one-off charge, a merchant renamed by the bank, etc.).
+export interface RecurringGroup {
+  id: string;
+  name: string;
+  frequency: "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
+  expectedAmount: number;
+  txnIds: string[];
+  createdAt: string;
+}
+
 // A single split line on a transaction — the transaction's own amount is left
 // untouched; splits just record how the user wants it broken down internally
 // for reporting/reading purposes.
@@ -90,6 +103,7 @@ export interface UserSettings {
   // auto-detected value"; true/false means the user has explicitly said so.
   recurringOverrides: Record<string, boolean>;
   txnSplits: Record<string, TxnSplit[]>;
+  recurringGroups: RecurringGroup[];
 }
 
 const DEFAULTS: UserSettings = {
@@ -99,7 +113,7 @@ const DEFAULTS: UserSettings = {
   dismissedInsights: [], dismissedActions: [], dismissedRecurring: [], recurringDismissals: [],
   overageFundingPrefs: {}, plannedTransfers: [], savingsGoals: [],
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
-  txnTags: {}, txnNotes: {}, recurringOverrides: {}, txnSplits: {},
+  txnTags: {}, txnNotes: {}, recurringOverrides: {}, txnSplits: {}, recurringGroups: [],
 };
 
 // Migrate existing localStorage data on first load (one-time)
@@ -113,7 +127,7 @@ const migrateFromLocalStorage = (): Partial<UserSettings> => {
     accountRoles: get("sentryfi_account_roles", {}),
     catOverrides: get("sentryfi_cat_overrides", {}),
     catRules: get("sentryfi_cat_rules", []),
-    customCats: get("sentryfi_custom_categories", []),
+    customCats: dedupeCustomCats(get("sentryfi_custom_categories", [])),
     nameOverrides: get("sentryfi_name_overrides", {}),
     nameRules: get("sentryfi_name_rules", {}),
     manualIncome: get("sentryfi_manual_income", []),
@@ -129,13 +143,29 @@ const migrateFromLocalStorage = (): Partial<UserSettings> => {
   };
 };
 
+// Collapses near-duplicate custom categories that differ only by case or
+// stray whitespace (e.g. "Internal Transfers" vs "internal transfers "),
+// which could previously slip in as separate entries and show up as repeats
+// of the same category in the picker. Runs on every load so pre-existing
+// duplicates from before this fix clean themselves up automatically — no
+// manual cleanup required. Later entries in the array win.
+const dedupeCustomCats = (list: CustomCategory[]): CustomCategory[] => {
+  const byKey = new Map<string, CustomCategory>();
+  for (const c of list) {
+    const trimmed = (c?.name ?? "").trim();
+    if (!trimmed) continue;
+    byKey.set(trimmed.toLowerCase(), { name: trimmed, type: c.type });
+  }
+  return Array.from(byKey.values());
+};
+
 const dbToSettings = (row: any): UserSettings => ({
   budgets:            row.budgets           ?? {},
   accountRoles:       row.account_roles     ?? {},
   catOverrides:       row.cat_overrides     ?? {},
   catRules:           row.cat_rules         ?? [],
   smartRules:         row.smart_rules       ?? [],
-  customCats:         row.custom_cats       ?? [],
+  customCats:         dedupeCustomCats(row.custom_cats ?? []),
   nameOverrides:      row.name_overrides    ?? {},
   nameRules:          row.name_rules        ?? {},
   manualIncome:       row.manual_income     ?? [],
@@ -156,6 +186,7 @@ const dbToSettings = (row: any): UserSettings => ({
   txnNotes:           row.txn_notes         ?? {},
   recurringOverrides: row.recurring_overrides ?? {},
   txnSplits:          row.txn_splits        ?? {},
+  recurringGroups:    Array.isArray(row.recurring_groups) ? row.recurring_groups : [],
 });
 
 const settingsToDb = (s: UserSettings) => ({
@@ -185,6 +216,7 @@ const settingsToDb = (s: UserSettings) => ({
   txn_notes:           s.txnNotes,
   recurring_overrides: s.recurringOverrides,
   txn_splits:          s.txnSplits,
+  recurring_groups:    s.recurringGroups,
 });
 
 export const useUserSettings = (userId: string | undefined) => {
@@ -327,10 +359,21 @@ export const useUserSettings = (userId: string | undefined) => {
   const toggleSmartRule = (id: string) =>
     update({ smartRules: latestSettings.current.smartRules.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r) });
 
-  const addCustomCat = (name: string, type: "income" | "expense") =>
-    update({ customCats: [...latestSettings.current.customCats.filter(c => c.name !== name), { name, type }] });
-  const removeCustomCat = (name: string) =>
-    update({ customCats: latestSettings.current.customCats.filter(c => c.name !== name) });
+  // Case/whitespace-insensitive dedupe on the way in — without this, adding
+  // "Internal Transfers" once and "internal transfers " another time (e.g.
+  // from two different transaction rows) creates two near-identical entries
+  // that both show up in the picker instead of one being treated as the same
+  // category. Trimmed name of the newest add wins.
+  const addCustomCat = (name: string, type: "income" | "expense") => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    update({ customCats: [...latestSettings.current.customCats.filter(c => c.name.trim().toLowerCase() !== key), { name: trimmed, type }] });
+  };
+  const removeCustomCat = (name: string) => {
+    const key = name.trim().toLowerCase();
+    update({ customCats: latestSettings.current.customCats.filter(c => c.name.trim().toLowerCase() !== key) });
+  };
   // Renames a custom category and cascades the new name into every place a
   // category is stored as a plain string — per-transaction overrides, text
   // rules, smart-rule conditions/actions, and budget keys — so nothing gets
@@ -339,7 +382,7 @@ export const useUserSettings = (userId: string | undefined) => {
     const trimmed = newName.trim();
     if (!trimmed || trimmed === oldName) return;
     const s = latestSettings.current;
-    if (s.customCats.some(c => c.name === trimmed)) return; // don't merge into an existing category by accident
+    if (s.customCats.some(c => c.name !== oldName && c.name.trim().toLowerCase() === trimmed.toLowerCase())) return; // don't merge into an existing category by accident
 
     const customCats = s.customCats.map(c => c.name === oldName ? { ...c, name: trimmed } : c);
     const catOverrides = Object.fromEntries(
@@ -481,6 +524,26 @@ export const useUserSettings = (userId: string | undefined) => {
   };
   const clearTxnSplits = (txnId: string) => setTxnSplits(txnId, []);
 
+  // ── Recurring budget entries (Budget page) ──
+  const addRecurringGroup = (group: Omit<RecurringGroup, "id" | "createdAt">) =>
+    update({ recurringGroups: [...latestSettings.current.recurringGroups, { ...group, id: `rg_${Date.now()}`, createdAt: new Date().toISOString() }] });
+  const removeRecurringGroup = (id: string) =>
+    update({ recurringGroups: latestSettings.current.recurringGroups.filter(g => g.id !== id) });
+  const updateRecurringGroup = (id: string, patch: Partial<Omit<RecurringGroup, "id" | "createdAt">>) =>
+    update({ recurringGroups: latestSettings.current.recurringGroups.map(g => g.id === id ? { ...g, ...patch } : g) });
+  const addTxnToRecurringGroup = (groupId: string, txnId: string) =>
+    update({ recurringGroups: latestSettings.current.recurringGroups.map(g => g.id === groupId && !g.txnIds.includes(txnId) ? { ...g, txnIds: [...g.txnIds, txnId] } : g) });
+  const removeTxnFromRecurringGroup = (groupId: string, txnId: string) =>
+    update({ recurringGroups: latestSettings.current.recurringGroups.map(g => g.id === groupId ? { ...g, txnIds: g.txnIds.filter(id => id !== txnId) } : g) });
+
+  // One-time reset for the Budget page's tracked data — wipes per-category
+  // budget targets, tracked recurring-expense entries, and planned-savings
+  // goals so a reworked model can start clean instead of mixing with
+  // whatever was tracked under the old one. Does NOT touch obligations
+  // (a separate Supabase table) or any transaction-level data.
+  const resetBudgetTracking = () =>
+    update({ budgets: {}, recurringGroups: [], savingsGoals: [] });
+
   return {
     settings, loaded,
     // Raw updater for anything not covered
@@ -506,5 +569,8 @@ export const useUserSettings = (userId: string | undefined) => {
     setTxnNote,
     setRecurringOverride, clearRecurringOverride,
     setTxnSplits, clearTxnSplits,
+    addRecurringGroup, removeRecurringGroup, updateRecurringGroup,
+    addTxnToRecurringGroup, removeTxnFromRecurringGroup,
+    resetBudgetTracking,
   };
 };

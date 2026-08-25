@@ -2494,9 +2494,28 @@ const TxnDetailModal = ({
           value={rawCat ?? "Other"}
           onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}
           className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
-          {[...ALL_CATEGORIES, ...customCategories.map(cx=>cx.name)].map(cat => (
-            <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
-          ))}
+          {/* Grouped the same way as the table's category picker — Expenses,
+              Income, Ignored — via native <optgroup>s instead of one long
+              flat list. Uses the full classification arrays (not the
+              shorter curated *_PICKER lists) so a transaction already
+              assigned an less-common category like "Salary" or "Transfer
+              In" still has its current value represented as a selectable
+              option instead of silently falling off the list. */}
+          <optgroup label="Expenses">
+            {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat => (
+              <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Income">
+            {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat => (
+              <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Ignored">
+            {IGNORED_CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+            ))}
+          </optgroup>
           <option value="__add_new__">+ Add new category…</option>
         </select>
         {isCustomCat(rawCat) && onRenameCategory && (
@@ -2962,7 +2981,15 @@ const TxnDetailModal = ({
                           <select value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
                             className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
                             <option value="">Category...</option>
-                            {[...ALL_CATEGORIES,...customCategories.map(cx=>cx.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                            <optgroup label="Expenses">
+                              {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                            </optgroup>
+                            <optgroup label="Income">
+                              {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                            </optgroup>
+                            <optgroup label="Ignored">
+                              {IGNORED_CATEGORIES.map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                            </optgroup>
                           </select>
                         )}
                         {action.type === "rename" && (
@@ -6548,9 +6575,21 @@ export const LivePlaidDashboard = ({
           incomeCategories={INCOME_CATEGORIES_PICKER}
           ignoredCategories={IGNORED_CATEGORIES}
           customCategories={customCategories}
-          onSelectCategory={(t, cat) => setOverride(t.id, cat)}
+          onSelectCategory={(t, cat) => {
+            setOverride(t.id, cat);
+            // Manually re-categorizing a transaction is an explicit signal
+            // that it isn't part of whatever recurring pattern it was
+            // previously attached to — drop it from any recurring group it
+            // belongs to and record an explicit "not recurring" override so
+            // Budget's recurring-expense tracking doesn't keep counting it
+            // under the old assignment.
+            const inGroup = settings.recurringGroups.find(g => g.txnIds.includes(t.id));
+            if (inGroup) S.removeTxnFromRecurringGroup(inGroup.id, t.id);
+            S.setRecurringOverride(t.id, false);
+          }}
           onAddCategory={addCategory}
           onRemoveCategory={removeCategory}
+          onRenameCategory={renameCategory}
           txnTags={settings.txnTags}
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
         />
@@ -6586,6 +6625,16 @@ export const LivePlaidDashboard = ({
         savingsGoals={settings.savingsGoals}
         addSavingsGoal={S.addSavingsGoal}
         removeSavingsGoal={S.removeSavingsGoal}
+        recurringOverrides={settings.recurringOverrides}
+        recurringGroups={settings.recurringGroups}
+        addRecurringGroup={S.addRecurringGroup}
+        removeRecurringGroup={S.removeRecurringGroup}
+        updateRecurringGroup={S.updateRecurringGroup}
+        addTxnToRecurringGroup={S.addTxnToRecurringGroup}
+        removeTxnFromRecurringGroup={S.removeTxnFromRecurringGroup}
+        dismissedRecurring={settings.dismissedRecurring}
+        dismissRecurring={dismissRecurring}
+        resetBudgetTracking={S.resetBudgetTracking}
       />
     );
   }
