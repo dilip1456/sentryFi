@@ -269,7 +269,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
                     <div className="rounded-xl border border-gold/20 bg-gold/5 px-4 py-3 space-y-1">
                       <div className="text-[12.5px] text-gold font-semibold uppercase tracking-wide">Estimated from your loan details</div>
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[22px] font-bold text-foreground">${Math.round(estimate.balance).toLocaleString()}</span>
+                        <span className="text-[22px] font-bold text-foreground tabular">${Math.round(estimate.balance).toLocaleString()}</span>
                         <span className="text-[13px] text-muted-foreground">remaining balance</span>
                       </div>
                       <div className="text-[13px] text-muted-foreground">
@@ -323,7 +323,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               {isMortgage && form.property_value && (form.current_balance ?? (estimate?.balance ?? 0)) > 0 && (
                 <div className="rounded-xl border border-[hsl(var(--primary)/0.2)] bg-[hsl(var(--primary)/0.05)] px-4 py-3">
                   <div className="text-[12.5px] text-[hsl(var(--primary))] font-semibold uppercase tracking-wide mb-1">Home equity</div>
-                  <div className="text-[20px] font-bold text-foreground">
+                  <div className="text-[20px] font-bold text-foreground tabular">
                     ${(form.property_value - (form.current_balance ?? Math.round(estimate?.balance ?? 0))).toLocaleString()}
                   </div>
                   <div className="text-[13px] text-muted-foreground">
@@ -377,7 +377,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               <div className="h-14 w-14 rounded-full bg-gold/10 border border-gold/30 grid place-items-center mx-auto">
                 <Check className="h-6 w-6 text-gold" />
               </div>
-              <div className="text-[16px] font-semibold text-foreground">Account saved!</div>
+              <div className="font-display text-[16px] text-foreground">Account saved!</div>
               <div className="text-[14px] text-muted-foreground">
                 {form.name} has been added to your dashboard and Money Map.
               </div>

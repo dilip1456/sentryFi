@@ -4,6 +4,11 @@ const corsHeaders = {
 };
 
 const GROQ_KEY = Deno.env.get("GROQ_API_KEY");
+// llama3-70b-8192 is a decommissioned Groq model (superseded by the 3.1/3.3
+// generations, which were themselves later retired too) — every request was
+// failing. openai/gpt-oss-120b is Groq's current recommended replacement for
+// this capability tier; see https://console.groq.com/docs/deprecations.
+const GROQ_MODEL = "openai/gpt-oss-120b";
 
 const CATEGORIES = [
   "Food & Drink", "Groceries", "Transportation", "Travel", "Shopping",
@@ -39,7 +44,7 @@ If nothing is wrong return: {"suggestions":[]}`;
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: "llama3-70b-8192",
+        model: GROQ_MODEL,
         temperature: 0.1,
         max_tokens: 800,
         messages: [{ role: "user", content: prompt }],

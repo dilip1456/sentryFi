@@ -15,7 +15,7 @@ export interface AccountRoleInfo {
   label?: string;
 }
 
-export interface ManualIncomeItem { id: string; label: string; amount: number; }
+export interface ManualIncomeItem { id: string; label: string; amount: number; accountId?: string; }
 export interface CustomCategory { name: string; type: "income" | "expense"; }
 export interface RecurringDismissal {
   merchant: string;          // normalized merchant key
@@ -65,6 +65,7 @@ export interface RecurringGroup {
   expectedAmount: number;
   txnIds: string[];
   createdAt: string;
+  accountId?: string; // which account this bill is paid from, if known
 }
 
 // A single split line on a transaction — the transaction's own amount is left
@@ -104,6 +105,11 @@ export interface UserSettings {
   recurringOverrides: Record<string, boolean>;
   txnSplits: Record<string, TxnSplit[]>;
   recurringGroups: RecurringGroup[];
+  // Credit-card autopay mapping — which everyday/checking account is set up
+  // to auto-pay each credit card's balance. Keyed by the card's account_id,
+  // valued by the funding account's account_id. Mirrors the "Credit Cards /
+  // Autopay from" block users already keep by hand in a spreadsheet.
+  cardAutopayFrom: Record<string, string>;
 }
 
 const DEFAULTS: UserSettings = {
@@ -114,6 +120,7 @@ const DEFAULTS: UserSettings = {
   overageFundingPrefs: {}, plannedTransfers: [], savingsGoals: [],
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
   txnTags: {}, txnNotes: {}, recurringOverrides: {}, txnSplits: {}, recurringGroups: [],
+  cardAutopayFrom: {},
 };
 
 // Migrate existing localStorage data on first load (one-time)
@@ -187,6 +194,7 @@ const dbToSettings = (row: any): UserSettings => ({
   recurringOverrides: row.recurring_overrides ?? {},
   txnSplits:          row.txn_splits        ?? {},
   recurringGroups:    Array.isArray(row.recurring_groups) ? row.recurring_groups : [],
+  cardAutopayFrom:    row.card_autopay_from  ?? {},
 });
 
 const settingsToDb = (s: UserSettings) => ({
@@ -217,6 +225,7 @@ const settingsToDb = (s: UserSettings) => ({
   recurring_overrides: s.recurringOverrides,
   txn_splits:          s.txnSplits,
   recurring_groups:    s.recurringGroups,
+  card_autopay_from:   s.cardAutopayFrom,
 });
 
 export const useUserSettings = (userId: string | undefined) => {
@@ -411,6 +420,11 @@ export const useUserSettings = (userId: string | undefined) => {
   };
   const saveNameRule = (merchant: string, name: string) =>
     update({ nameRules: { ...latestSettings.current.nameRules, [merchant]: name } });
+  const removeNameRule = (merchant: string) => {
+    const next = { ...latestSettings.current.nameRules };
+    delete next[merchant];
+    update({ nameRules: next });
+  };
 
   const addManualIncome = (item: ManualIncomeItem) =>
     update({ manualIncome: [...latestSettings.current.manualIncome, item] });
@@ -544,6 +558,15 @@ export const useUserSettings = (userId: string | undefined) => {
   const resetBudgetTracking = () =>
     update({ budgets: {}, recurringGroups: [], savingsGoals: [] });
 
+  // ── Credit card autopay mapping ──
+  const setCardAutopayFrom = (cardAccountId: string, fundingAccountId: string) =>
+    update({ cardAutopayFrom: { ...latestSettings.current.cardAutopayFrom, [cardAccountId]: fundingAccountId } });
+  const removeCardAutopayFrom = (cardAccountId: string) => {
+    const next = { ...latestSettings.current.cardAutopayFrom };
+    delete next[cardAccountId];
+    update({ cardAutopayFrom: next });
+  };
+
   return {
     settings, loaded,
     // Raw updater for anything not covered
@@ -555,7 +578,7 @@ export const useUserSettings = (userId: string | undefined) => {
     addCatRule, updateCatRule, removeCatRule, toggleCatRule,
     addSmartRule, updateSmartRule, removeSmartRule, toggleSmartRule,
     addCustomCat, removeCustomCat, renameCustomCat,
-    setNameOverride, bulkSetNameOverride, saveNameRule,
+    setNameOverride, bulkSetNameOverride, saveNameRule, removeNameRule,
     addManualIncome, removeManualIncome,
     toggleManualInternal,
     dismissInsight, dismissAction, dismissRecurring, dismissRecurringWithReason, clearRecurringDismissals,
@@ -572,5 +595,6 @@ export const useUserSettings = (userId: string | undefined) => {
     addRecurringGroup, removeRecurringGroup, updateRecurringGroup,
     addTxnToRecurringGroup, removeTxnFromRecurringGroup,
     resetBudgetTracking,
+    setCardAutopayFrom, removeCardAutopayFrom,
   };
 };

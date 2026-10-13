@@ -2,6 +2,12 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const GROQ_KEY = Deno.env.get('GROQ_API_KEY');
+// llama-3.3-70b-versatile was decommissioned by Groq on 2026-08-16 (every
+// request started failing with a 404 "does not exist" from Groq's own API,
+// surfaced to the client as an opaque 500 "Groq API error"). openai/gpt-oss-120b
+// is Groq's own recommended replacement for that model's capability tier —
+// see https://console.groq.com/docs/deprecations.
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 // ── Types ───────────────────────────────────────────────────────
 type Account = {
@@ -91,7 +97,7 @@ Card name: "${cardName}"`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: GROQ_MODEL,
         temperature: 0.1,
         max_tokens: 512,
         messages: [{ role: 'user', content: prompt }],
@@ -489,7 +495,7 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: GROQ_MODEL,
         temperature: 0.3,
         max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
@@ -499,7 +505,11 @@ Deno.serve(async (req) => {
     if (!res.ok) {
       const errText = await res.text();
       console.error('[analyze-finances] Groq error:', errText);
-      return json({ error: 'Groq API error' }, 500);
+      // Surface a trimmed version of Groq's own error text instead of a bare
+      // "Groq API error" — that opaque message is exactly what made the
+      // model-decommission failure above impossible to diagnose from the
+      // client without shell access to the function's own logs.
+      return json({ error: `Groq API error: ${errText.slice(0, 300)}` }, 500);
     }
 
     const aiResponse = await res.json();

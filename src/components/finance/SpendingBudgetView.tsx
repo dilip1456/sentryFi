@@ -7,7 +7,7 @@ import { useCountUp } from "@/hooks/useCountUp";
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, EyeOff, ChevronDown,
-  Settings, ChevronsDownUp, ChevronsUpDown,
+  Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -42,6 +42,13 @@ export interface SpendingBudgetViewProps {
   // wired tagging yet.
   txnTags:Record<string,string[]>;
   onAddTag?:(id:string, tag:string)=>void;
+  // Opens the Transaction Rules manager (Smart/Category/Name rules) — the
+  // toolbar's only entry point into a feature that otherwise has no way to
+  // be viewed or run once created.
+  onOpenRules?:()=>void;
+  // Opens the "Import statement" modal — a PDF-upload entry point living in
+  // this same toolbar since that's where transactions are already browsed.
+  onOpenImport?:()=>void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -259,7 +266,7 @@ function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
 // so it's a one-line flip to bring back.
 const SHOW_BURN_RUNWAY = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -277,7 +284,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   // ── Granularity toggle (day/week/month/year) — each granularity keeps its
   // own independent offset so switching back and forth doesn't lose your place. ──
-  const [granularity, setGranularity] = useState<"day"|"week"|"month"|"year">("month");
+  // Defaults to "month" (current month) on landing — "All" is still one tap
+  // away in the tab row for anyone who wants to see everything at once,
+  // including older imported history.
+  const [granularity, setGranularity] = useState<"all"|"day"|"week"|"month"|"year">("month");
   const [dayOffset, setDayOffset] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0);
   const [yearOffset, setYearOffset] = useState(0);
@@ -304,6 +314,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // granularities compute a simple rolling window relative to today.
   const activeRange = useMemo(() => {
     const base = new Date(); base.setHours(0,0,0,0);
+    if (granularity==="all") {
+      return { start: "0000-01-01", end: base.toISOString().slice(0,10), isCurrent: true, label: "All time" };
+    }
     if (granularity==="day") {
       const d = new Date(base); d.setDate(d.getDate()+dayOffset);
       const iso = d.toISOString().slice(0,10);
@@ -338,7 +351,23 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [showBulkTagInput, setShowBulkTagInput] = useState(false);
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
-  const [search, setSearch] = useState(initialSearch ?? "");
+  // Category name currently shown in the details/rename dialog — separate
+  // from catSel (which drives the transaction-feed filter) so opening details
+  // never disturbs whatever filter is already active.
+  const [detailsCat, setDetailsCat] = useState<string | null>(null);
+  // Text search is committed on Enter rather than filtering live on every
+  // keystroke, and more than one term can be active at once (each shown as
+  // its own removable chip) — a transaction has to match every committed
+  // term to stay visible, so each addition narrows further.
+  const [searchDraft, setSearchDraft] = useState(initialSearch ?? "");
+  const [searchTerms, setSearchTerms] = useState<string[]>(initialSearch ? [initialSearch] : []);
+  const commitSearchDraft = () => {
+    const q = searchDraft.trim();
+    if (!q) return;
+    setSearchTerms(prev => prev.includes(q) ? prev : [...prev, q]);
+    setSearchDraft("");
+  };
+  const removeSearchTerm = (term: string) => setSearchTerms(prev => prev.filter(t => t !== term));
   const [sortDesc, setSortDesc] = useState(true);
   const [sortBy, setSortBy] = useState<SortKey>("date");
   const handleSort = (key: SortKey) => {
@@ -465,38 +494,54 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   };
   const chartRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { if (initialSearch !== undefined) setSearch(initialSearch); }, [initialSearch]);
+  // An externally-driven search (e.g. "Find similar" from the transaction
+  // detail modal) commits immediately — it's a deliberate jump-to action, not
+  // something that should also need an Enter press.
+  useEffect(() => {
+    if (initialSearch !== undefined) { setSearchDraft(initialSearch); setSearchTerms(initialSearch ? [initialSearch] : []); }
+  }, [initialSearch]);
 
   const isExpenseTxn = useCallback((t: PTxn) => {
     const cat = getEffectiveCategory(t) ?? "Other";
     return !isIncomeCategory(cat, Number(t.amount)) && !isTransferLikeCategory(cat);
   }, [getEffectiveCategory, isIncomeCategory]);
 
+  // Whether a transaction belongs in the browsable Spending list/category
+  // chips at all. Unlike isExpenseTxn (which also excludes income — correct
+  // for "Total Spent"/budget math, which income should never count toward),
+  // this only drops literal internal transfers and credit-card/loan payments
+  // — income is a normal, visible category here, just not a *spend* one.
+  const isBrowsableTxn = useCallback((t: PTxn) => {
+    const cat = getEffectiveCategory(t) ?? "Other";
+    return !isTransferLikeCategory(cat);
+  }, [getEffectiveCategory]);
+
   // ── Transactions within the active range (respecting the category filter).
   // Defined early since totals for the day/week/year granularities are derived
   // directly from this list rather than from the month-bucket machinery below. ──
   const periodTxns = useMemo(() => {
     if (catSel === INTERNAL_PSEUDO_CAT) {
-      // Selecting the pseudo-category shows exactly what it excludes — the
-      // inverse of the normal expense filter — in the same transaction feed.
+      // Selecting the pseudo-category shows exactly what it excludes — internal
+      // transfers and credit-card/loan payments. Income is no longer bucketed
+      // in here since it's now a normal, directly-selectable category.
       return txns.filter(t =>
         t.date >= activeRange.start && t.date <= activeRange.end &&
-        (internalTxnIds.has(t.id) || !isExpenseTxn(t))
+        (internalTxnIds.has(t.id) || isTransferLikeCategory(getEffectiveCategory(t) ?? "Other"))
       );
     }
     return txns.filter(t =>
-      !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end &&
+      !internalTxnIds.has(t.id) && isBrowsableTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end &&
       (!catSel || (getEffectiveCategory(t) ?? "Other") === catSel)
     );
-  }, [txns, internalTxnIds, isExpenseTxn, activeRange, catSel, getEffectiveCategory]);
+  }, [txns, internalTxnIds, isBrowsableTxn, activeRange, catSel, getEffectiveCategory]);
 
   // Same as periodTxns but ignoring the category filter — used to build the
   // Categories list itself, so clicking a category doesn't make every other
   // category disappear from its own picker (periodTxns above is intentionally
   // narrowed to catSel for the transaction table/chips, not for this).
   const periodTxnsAllCats = useMemo(() => txns.filter(t =>
-    !internalTxnIds.has(t.id) && isExpenseTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end
-  ), [txns, internalTxnIds, isExpenseTxn, activeRange]);
+    !internalTxnIds.has(t.id) && isBrowsableTxn(t) && t.date >= activeRange.start && t.date <= activeRange.end
+  ), [txns, internalTxnIds, isBrowsableTxn, activeRange]);
 
   // ── Per-month, per-category totals across the whole 12-month window ──────
   const catMonthlyTotals = useMemo(() => {
@@ -513,6 +558,25 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     }
     return out;
   }, [txns, internalTxnIds, monthBuckets, lastIdx, isExpenseTxn, getEffectiveCategory]);
+
+  // Same per-month/per-category breakdown as catMonthlyTotals, but for income
+  // categories — kept fully separate so income never leaks into overallMonthly
+  // (Total Spent, budget pacing, "safe to spend"), only into the Categories
+  // list below where it's shown as a normal, browsable category.
+  const incomeCatMonthlyTotals = useMemo(() => {
+    const out: Record<string, number[]> = {};
+    for (const t of txns) {
+      if (internalTxnIds.has(t.id)) continue;
+      if (t.date < monthBuckets[0].start || t.date > monthBuckets[lastIdx].end) continue;
+      const cat = getEffectiveCategory(t) ?? "Other";
+      if (!isIncomeCategory(cat, Number(t.amount))) continue;
+      const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
+      if (bi === -1) continue;
+      if (!out[cat]) out[cat] = new Array(monthBuckets.length).fill(0);
+      out[cat][bi] += Math.abs(Number(t.amount));
+    }
+    return out;
+  }, [txns, internalTxnIds, monthBuckets, lastIdx, isIncomeCategory, getEffectiveCategory]);
 
   const overallMonthly = useMemo(() => {
     const out = new Array(monthBuckets.length).fill(0);
@@ -571,7 +635,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const monthTotalSpent = overallMonthly[selIdx] ?? 0;
   const prevTotalSpent = overallMonthly[selIdx-1] ?? 0;
   const momPct = granularity==="month" && prevTotalSpent > 0 ? Math.round(((monthTotalSpent - prevTotalSpent) / prevTotalSpent) * 100) : null;
-  const totalSpent = granularity==="month" ? monthTotalSpent : periodTxns.reduce((s,t)=>s+Number(t.amount),0);
+  // periodTxns now includes income (it's browsable), so "Total Spent" for the
+  // non-month granularities has to re-exclude it here rather than relying on
+  // periodTxns already being expense-only.
+  const totalSpent = granularity==="month" ? monthTotalSpent : periodTxns.filter(isExpenseTxn).reduce((s,t)=>s+Number(t.amount),0);
 
   // Total income for the active period (ignores the category filter — earnings
   // aren't spend-category-scoped — shown alongside Total Spent in the header's
@@ -698,37 +765,54 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // pre-computed bucket data for arbitrary days/weeks/years. ────────────────
   const catRows = useMemo(() => {
     if (granularity === "month") {
-      return Object.entries(catMonthlyTotals)
-        .map(([cat,arr]) => {
-          const spend = arr[selIdx] ?? 0;
-          const prevSpend = arr[selIdx-1] ?? 0;
-          const mom = prevSpend > 0 ? Math.round(((spend-prevSpend)/prevSpend)*100) : null;
-          const sparkline = arr.slice(Math.max(0,selIdx-5), selIdx+1);
-          return { cat, spend, mom, sparkline };
-        })
+      const rowFor = ([cat,arr]: [string, number[]]) => {
+        const spend = arr[selIdx] ?? 0;
+        const prevSpend = arr[selIdx-1] ?? 0;
+        const mom = prevSpend > 0 ? Math.round(((spend-prevSpend)/prevSpend)*100) : null;
+        const sparkline = arr.slice(Math.max(0,selIdx-5), selIdx+1);
+        return { cat, spend, mom, sparkline };
+      };
+      return [...Object.entries(catMonthlyTotals).map(rowFor), ...Object.entries(incomeCatMonthlyTotals).map(rowFor)]
         .filter(c => c.spend > 0)
         .sort((a,b) => b.spend-a.spend);
     }
     const map: Record<string, number> = {};
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
-      map[cat] = (map[cat] ?? 0) + Number(t.amount);
+      // Income amounts are negative (money in) — take the magnitude so an
+      // income category's row reads as a normal positive figure like every
+      // expense category, instead of a confusing negative "spend".
+      const amt = isIncomeCategory(cat, Number(t.amount)) ? Math.abs(Number(t.amount)) : Number(t.amount);
+      map[cat] = (map[cat] ?? 0) + amt;
     }
     return Object.entries(map)
       .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
       .sort((a,b) => b.spend-a.spend);
-  }, [granularity, catMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory]);
+  }, [granularity, catMonthlyTotals, incomeCatMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory, isIncomeCategory]);
 
   // Feeds the "View Budget" dialog's two columns: categories you've actually
   // spent in this period but haven't budgeted yet (left), and every category
   // that already has a budget, cross-referenced against this period's spend
   // if any (right). Kept separate from catRows so the dialog doesn't need to
   // recompute this itself.
-  const budgetNeeds = useMemo(() => catRows.filter(c => budgets[c.cat] == null), [catRows, budgets]);
+  // Income categories are excluded here — catRows now carries them for the
+  // browsable Categories list, but budgeting is inherently a spend concept,
+  // so an income category (e.g. "Salary") shouldn't show up asking to be budgeted.
+  const budgetNeeds = useMemo(() => catRows.filter(c => budgets[c.cat] == null && !incomeCategories.includes(c.cat)), [catRows, budgets, incomeCategories]);
   const budgetDefined = useMemo(() => Object.entries(budgets)
     .map(([cat, budget]) => ({ cat, budget, spend: catRows.find(c => c.cat === cat)?.spend ?? 0 }))
     .sort((a, b) => b.spend - a.spend),
   [budgets, catRows]);
+
+  // Stats backing the category details dialog — recomputed only while it's
+  // open, straight from periodTxnsAllCats so the count/spend/mom always match
+  // whatever's currently shown in the Categories list, regardless of granularity.
+  const detailsCatStats = useMemo(() => {
+    if (!detailsCat) return null;
+    const row = catRows.find(c => c.cat === detailsCat);
+    const count = periodTxnsAllCats.filter(t => (getEffectiveCategory(t) ?? "Other") === detailsCat).length;
+    return { spend: row?.spend ?? 0, mom: row?.mom ?? null, count };
+  }, [detailsCat, catRows, periodTxnsAllCats, getEffectiveCategory]);
 
   // Transactions in the active period that are deliberately excluded from
   // spend totals — internal transfers, income, credit-card/loan payments.
@@ -761,7 +845,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [nameOverrides, getEffectiveCategory, accounts]);
 
   const visibleTxns = useMemo(() => {
-    let t = [...periodTxns];
+    const searching = searchTerms.length > 0;
+    // A search is a "find this transaction" action, not normal browsing — it
+    // deliberately looks across every period and category, not just the one
+    // currently selected, so it isn't pre-scoped by periodTxns (which is
+    // narrowed to activeRange + catSel). The other filter-panel controls
+    // (account/type/amount/date/tag) still apply on top, since those are
+    // filters the user explicitly set, not automatic period scoping.
+    let t = searching ? txns.filter(x => !internalTxnIds.has(x.id)) : [...periodTxns];
     if (accountFilter) t = t.filter(x => x.account_id === accountFilter);
     if (typeFilter === "in") t = t.filter(x => Number(x.amount) < 0);
     else if (typeFilter === "out") t = t.filter(x => Number(x.amount) > 0);
@@ -787,9 +878,18 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       t = t.filter(x => x.date.startsWith(filterYear));
     }
     if (tagFilter.length > 0) t = t.filter(x => (txnTags[x.id] ?? []).some(tag => tagFilter.includes(tag)));
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      t = t.filter(x => (nameOverrides[x.id]??x.merchant_name??x.name??"").toLowerCase().includes(q) || (x.name??"").toLowerCase().includes(q) || (getEffectiveCategory(x)??"").toLowerCase().includes(q));
+    if (searching) {
+      t = t.filter(x => {
+        const desc = (nameOverrides[x.id] ?? x.merchant_name ?? x.name ?? "").toLowerCase();
+        const stmt = (x.name ?? "").toLowerCase();
+        const cat = (getEffectiveCategory(x) ?? "").toLowerCase();
+        // Every committed term must match — each addition narrows further,
+        // rather than broadening like the tag/category filters do.
+        return searchTerms.every(term => {
+          const q = term.toLowerCase();
+          return desc.includes(q) || stmt.includes(q) || cat.includes(q);
+        });
+      });
     }
     t.sort((a,b) => {
       const va = sortValueFor(a, sortBy), vb = sortValueFor(b, sortBy);
@@ -797,7 +897,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, search, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+  }, [periodTxns, txns, internalTxnIds, searchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
   const accountsInPeriod = useMemo(() => {
@@ -821,9 +921,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [periodTxns, txnTags]);
   const toggleTagFilter = (tag: string) => setTagFilter(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
 
-  const hasActiveFilters = !!(search || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
+  const hasActiveFilters = !!(searchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
   const clearFilters = () => {
-    setSearch(""); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
+    setSearchDraft(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
     setTypeFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
   };
   // "date" desc (newest first) is the default sort — anything else counts as
@@ -831,23 +931,38 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const hasActiveSort = !(sortBy === "date" && sortDesc);
   const clearSort = () => { setSortBy("date"); setSortDesc(true); };
 
-  // Resolves the group label for a transaction under the current groupBy mode.
+  // Resolves the group label for a transaction under the current groupBy
+  // mode. "date" grouping adapts to whatever granularity the header's period
+  // scrubber is on, since grouping by exact day makes sense browsing a
+  // month/week but not when looking at a whole year or all-time — that would
+  // produce hundreds of one-line day groups instead of a useful breakdown.
   const groupLabelFor = useCallback((t: PTxn): string => {
     switch (groupBy) {
       case "account": return accounts.find(a => a.account_id === t.account_id)?.name ?? "Unknown account";
-      case "date": return t.date;
+      case "date":
+        if (granularity === "all") return t.date.slice(0, 4);   // by year
+        if (granularity === "year") return t.date.slice(0, 7);  // by month
+        return t.date;                                          // by day (month/week/day)
       case "category": return formatCat(getEffectiveCategory(t) ?? "Other");
       case "status": return t.pending ? "Pending" : "Posted";
       default: return "";
     }
-  }, [groupBy, accounts, formatCat, getEffectiveCategory]);
+  }, [groupBy, granularity, accounts, formatCat, getEffectiveCategory]);
 
-  // Human-friendly heading for a group key — dates get calendar formatting,
-  // account/category/status groups just show the label as-is.
+  // Human-friendly heading for a group key — dates get calendar formatting
+  // matched to the same granularity-driven bucket size as groupLabelFor
+  // above; account/category/status groups just show the label as-is.
   const groupHeading = useCallback((key: string): string => {
-    if (groupBy === "date") return rDate(key);
+    if (groupBy === "date") {
+      if (granularity === "all") return key; // "2024"
+      if (granularity === "year") {
+        const [y, m] = key.split("-").map(Number);
+        return new Date(y, (m || 1) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      }
+      return rDate(key); // exact day — Today/Yesterday/weekday
+    }
     return key || "Uncategorized";
-  }, [groupBy]);
+  }, [groupBy, granularity]);
 
   // Buckets visibleTxns into ordered groups (order follows visibleTxns' own
   // sort, so grouping composes with whichever column you've sorted by).
@@ -959,7 +1074,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             {/* Left: duration toggle + spend bar spikes */}
             <div className="min-w-0">
               <div className="flex bg-muted/50 rounded-lg p-0.5 gap-0.5 w-fit mb-3">
-                {(["day","week","month","year"] as const).map(g => (
+                {(["all","day","week","month","year"] as const).map(g => (
                   <button key={g} onClick={() => setGranularity(g)}
                     className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition-all",
                       granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -968,7 +1083,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 ))}
               </div>
 
-              {granularity==="day" ? (
+              {granularity==="all" ? (
+                /* No scrubber to bucket "all time" into — just a plain label,
+                   same vertical footprint as the other tabs so switching
+                   between them doesn't reflow the header. */
+                <div className="h-8 flex items-center text-[11px] text-muted-foreground/70">
+                  Every transaction on record, across every account and year.
+                </div>
+              ) : granularity==="day" ? (
                 /* 14-day scrubber — same bar format as the other granularities
                    so the header never changes height when switching tabs. */
                 <div>
@@ -1205,12 +1327,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </div>
         )}
 
-        {/* ═══ 4. Categories + transactions (center) alongside a fixed,
-            non-scrolling Insights panel (right) ═══════════════════════════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 lg:flex-1 lg:min-h-0">
-
-          {/* Center: categories (narrow) + transaction feed, each scrolling independently */}
-          <div className="flex flex-col lg:flex-row gap-4 min-w-0 lg:min-h-0">
+        {/* ═══ 4. Categories + transactions ═══════════════════════════════ */}
+        <div className="flex flex-col lg:flex-row gap-4 min-w-0 lg:flex-1 lg:min-h-0">
 
           {/* Categories — colorful cards, vertically scrollable. Each card
               shows its budget progress if one's set, or a "Set budget" pill
@@ -1228,8 +1346,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {catRows.map((c,i) => {
                   const col = catColor(c.cat);
                   const b = budgets[c.cat];
-                  const over = !!b && c.spend > b;
-                  const actualPct = b ? Math.min((c.spend/b)*100,100) : 0;
+                  const over = b != null && c.spend > b;
+                  const actualPct = b ? Math.min((c.spend/b)*100,100) : (b === 0 && c.spend > 0 ? 100 : 0);
                   const active = catSel === c.cat;
                   const isObligation = OBLIGATION_LIKE_CATS.has(c.cat);
                   // Obligation categories show "Met" (the payment posted this
@@ -1251,9 +1369,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         backgroundColor: active ? `${col}26` : `${col}10`,
                         borderLeft: `3px solid ${col}`,
                       }}
-                      className="bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
+                      className="group/catlistrow bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-[10.5px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
+                        <button onClick={(e)=>{ e.stopPropagation(); setDetailsCat(c.cat); }}
+                          aria-label={`View ${formatCat(c.cat)} details`}
+                          // Always visible below the md breakpoint — a
+                          // hover-only reveal is undiscoverable on touch
+                          // devices, which have no hover state at all, so
+                          // this would otherwise be an invisible dead zone
+                          // on mobile even though tapping it still works.
+                          className="opacity-100 md:opacity-0 md:group-hover/catlistrow:opacity-100 focus:opacity-100 shrink-0 h-4 w-4 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground transition-all">
+                          <Pencil className="h-2.5 w-2.5"/>
+                        </button>
                         {c.mom !== null && (
                           <span className={cn("text-[9px] font-semibold shrink-0", c.mom>0?"text-negative":"text-positive")}>{c.mom>0?"+":""}{c.mom}%</span>
                         )}
@@ -1360,7 +1488,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               <div className="flex items-center gap-1.5 flex-wrap">
                 <div className="relative w-56 shrink-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
-                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by description..."
+                  <input value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } }}
+                    placeholder="Search, then press Enter…"
                     className="w-full h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
                 </div>
 
@@ -1405,6 +1535,18 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
                   <Settings className="h-3.5 w-3.5"/>
                 </button>
+                {onOpenRules && (
+                  <button onClick={onOpenRules} title="View and run transaction rules"
+                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
+                    <Wand2 className="h-3.5 w-3.5"/>
+                  </button>
+                )}
+                {onOpenImport && (
+                  <button onClick={onOpenImport} title="Import a bank statement PDF"
+                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
+                    <Upload className="h-3.5 w-3.5"/>
+                  </button>
+                )}
               </div>
 
               {/* Active filter/sort/group chips — their own row below the
@@ -1430,12 +1572,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     <button onClick={()=>setCatSel(null)} aria-label="Clear category filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
                   </span>
                 )}
-                {search && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    "{search}"
-                    <button onClick={()=>setSearch("")} aria-label="Clear search filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                {searchTerms.map(term => (
+                  <span key={term} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    "{term}"
+                    <button onClick={()=>removeSearchTerm(term)} aria-label={`Clear search filter ${term}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
                   </span>
-                )}
+                ))}
                 {accountFilter && (
                   <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
                     {accountsInPeriod.find(a=>a.account_id===accountFilter)?.name ?? "Account"}
@@ -1467,8 +1609,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 ))}
                 {dateMode!=="none" && (
                   <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {dateMode==="range" ? `${dateFrom||"…"} – ${dateTo||"…"}` : dateMode==="lastN" ? `Last ${lastNDays}d` : `Year ${filterYear}`}
+                    {dateMode==="range" ? `${dateFrom||"…"} – ${dateTo||"…"}` : dateMode==="lastN" ? `Last ${lastNDays}d` : (filterYear ? `Year ${filterYear}` : "All years")}
                     <button onClick={()=>setDateMode("none")} aria-label="Clear date filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                  </span>
+                )}
+                {granularity==="year" && (
+                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
+                    Year: {yearBuckets[selYearIdx]?.label}
+                    <button onClick={()=>{ setGranularity("all"); setYearOffset(0); }} aria-label="Clear year view" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
                   </span>
                 )}
 
@@ -1485,7 +1633,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {filtersMenu.open && filtersMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={filtersMenu.close}/>
-                  <div className="fixed z-[999] w-80 overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
+                  <div className="spending-v2 fixed z-[999] w-80 overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
                     style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
 
                     <div>
@@ -1537,7 +1685,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         </div>
                       )}
                       {dateMode==="year" && (
-                        <input type="number" value={filterYear} onChange={e=>setFilterYear(e.target.value)} className="w-24 h-8 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none"/>
+                        <div className="flex items-center gap-2">
+                          <input type="number" value={filterYear} disabled={filterYear===""} onChange={e=>setFilterYear(e.target.value)}
+                            className="w-24 h-8 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none disabled:opacity-40"/>
+                          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                            <input type="checkbox" checked={filterYear===""}
+                              onChange={e=>setFilterYear(e.target.checked ? "" : String(new Date().getFullYear()))}/>
+                            All years
+                          </label>
+                        </div>
                       )}
                     </div>
 
@@ -1603,7 +1759,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {sortMenu.open && sortMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={sortMenu.close}/>
-                  <div className="fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
+                  <div className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
                     style={{top:sortMenu.pos.top, bottom:sortMenu.pos.bottom, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
                     {(["date","amount"] as const).map(key => (
                       <button key={key} onClick={()=>{ handleSort(key); }}
@@ -1762,55 +1918,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               )}
             </div>
           </div>
-          </div>
-
-          {/* Insights — right. Fixed, non-scrolling panel: top spending
-              categories, committed charges over the next 30 days, and
-              today's safe-to-spend number. Content is deliberately capped
-              (top 5 categories) so it never needs its own scrollbar. */}
-          <div className="surface-card p-4 space-y-4 overflow-hidden lg:w-[280px] lg:shrink-0">
-            <div>
-              <div className="text-[13px] font-semibold text-foreground mb-2.5">Top spending categories</div>
-              {catRows.length === 0 ? (
-                <div className="text-[12.5px] text-muted-foreground py-2 text-center">No spend yet this period.</div>
-              ) : (
-                <div className="space-y-2">
-                  {catRows.slice(0, 5).map(c => {
-                    const col = catColor(c.cat);
-                    const pct = Math.max((c.spend / catRows[0].spend) * 100, 4);
-                    return (
-                      <div key={c.cat} className="min-w-0">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="text-[12.5px] font-medium text-foreground truncate">{formatCat(c.cat)}</span>
-                          <span className="text-[12px] font-bold text-foreground tabular shrink-0">{fmtUSD(c.spend)}</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-border/20 mt-1 overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{width:`${pct}%`,background:col}}/>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {isCurrentMonth && (
-              <>
-                <div className="pt-3.5 border-t border-border/15">
-                  <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Committed next 30 days</div>
-                  <div className="text-[18px] font-display font-semibold text-foreground tabular mt-0.5">{fmtUSD(committedNext30)}</div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">{next30Recurring.length} recurring charge{next30Recurring.length !== 1 ? "s" : ""}</div>
-                </div>
-                <div className="pt-3.5 border-t border-border/15">
-                  <div className="text-[10.5px] text-muted-foreground uppercase tracking-wide">Safe to spend today</div>
-                  <div className="text-[18px] font-display font-semibold text-foreground tabular mt-0.5">
-                    {safeToSpendToday !== null ? fmtUSD(safeToSpendToday) : "—"}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground mt-0.5">{safeToSpendToday !== null ? `${daysLeft} days left this month` : "Set a budget to see this"}</div>
-                </div>
-              </>
-            )}
-          </div>
         </div>
       </div>
 
@@ -1833,7 +1940,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           carousel's off-screen panel). Positioned from the dot's real
           on-screen coordinates, captured on hover. */}
       {dotTooltip && createPortal(
-        <div className="fixed z-[400] w-max max-w-[190px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none"
+        <div className="spending-v2 fixed z-[400] w-max max-w-[190px] rounded-lg bg-popover border border-border shadow-xl px-2.5 py-1.5 pointer-events-none"
           style={{
             left: dotTooltip.x, top: dotTooltip.above ? dotTooltip.y - 8 : dotTooltip.y + 8,
             transform: `translate(-50%, ${dotTooltip.above ? "-100%" : "0"})`,
@@ -1849,7 +1956,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {colsMenu.open && colsMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
-          <div className="fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
+          <div className="spending-v2 fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
             <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
             {COLUMN_DEFS.map(c => {
@@ -1882,7 +1989,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {groupMenu.open && groupMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
-          <div className="fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
+          <div className="spending-v2 fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
             <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
             {GROUP_OPTIONS.map(g => (
@@ -1907,9 +2014,144 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         setBudget={setBudget} removeBudget={removeBudget}
         catColor={catColor} formatCat={formatCat}
       />
+
+      {/* Category details — opened from the small pencil affordance on a
+          Categories-list row (not the row click itself, which still just
+          filters). Shows this period's stats plus a budget editor, and a
+          rename box gated to custom categories only. */}
+      <CategoryDetailsDialog
+        open={!!detailsCat} onClose={()=>setDetailsCat(null)} cat={detailsCat}
+        formatCat={formatCat} catColor={catColor} categoryIcon={categoryIcon}
+        spend={detailsCatStats?.spend ?? 0} mom={detailsCatStats?.mom ?? null} txnCount={detailsCatStats?.count ?? 0}
+        budget={detailsCat != null ? budgets[detailsCat] : undefined}
+        isObligation={detailsCat != null && OBLIGATION_LIKE_CATS.has(detailsCat)}
+        isCustom={detailsCat != null && customCategories.some(cc => cc.name === detailsCat)}
+        onRename={onRenameCategory} setBudget={setBudget} removeBudget={removeBudget}
+      />
     </div>
   );
 }
+
+// ── Category details dialog ──────────────────────────────────────────────────
+// Opened by clicking the pencil that appears on hover over a Categories-list
+// row. Shows the category's current-period stats and a budget editor inline,
+// plus a rename box — but renaming is only offered for custom categories
+// (see the matching guard/comment on CategoryPickerPopoverProps.onRenameCategory
+// below: renaming a built-in silently breaks its Plaid-category auto-mapping).
+const CategoryDetailsDialog = ({
+  open, onClose, cat, formatCat, catColor, categoryIcon, spend, mom, txnCount, budget,
+  isObligation, isCustom, onRename, setBudget, removeBudget,
+}: {
+  open: boolean; onClose: () => void; cat: string | null;
+  formatCat: (c: string) => string; catColor: (c: string) => string; categoryIcon: (c: string) => React.ElementType;
+  spend: number; mom: number | null; txnCount: number; budget?: number;
+  isObligation: boolean; isCustom: boolean;
+  onRename?: (oldName: string, newName: string) => void;
+  setBudget: (cat: string, amount: number) => void; removeBudget?: (cat: string) => void;
+}) => {
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [budgetDraft, setBudgetDraft] = useState("");
+
+  useEffect(() => {
+    setRenaming(false);
+    setBudgetDraft(budget != null ? String(budget) : "");
+  }, [cat, budget]);
+
+  if (!cat) return null;
+  const Icon = categoryIcon(cat);
+  const col = catColor(cat);
+
+  const submitRename = () => {
+    const trimmed = renameDraft.trim();
+    if (trimmed && trimmed !== cat && onRename) onRename(cat, trimmed);
+    setRenaming(false);
+    onClose();
+  };
+  const submitBudget = () => {
+    const n = parseFloat(budgetDraft);
+    if (!isNaN(n) && n >= 0) setBudget(cat, n);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o)=>{ if (!o) onClose(); }}>
+      <DialogContent className="spending-v2 max-w-sm p-0 overflow-hidden gap-0">
+        <div className="px-5 pt-5 pb-4 border-b border-border/20 flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg grid place-items-center shrink-0" style={{backgroundColor:`${col}22`, color:col}}>
+            <Icon className="h-4 w-4"/>
+          </div>
+          <div className="min-w-0 flex-1">
+            {renaming ? (
+              <div className="flex items-center gap-1.5">
+                <input autoFocus value={renameDraft} onChange={e=>setRenameDraft(e.target.value)}
+                  onKeyDown={e=>{ if (e.key==="Enter") submitRename(); if (e.key==="Escape") setRenaming(false); }}
+                  className="flex-1 min-w-0 h-8 px-2 rounded-md bg-muted/40 border border-[hsl(var(--primary)/0.4)] text-[14px] font-semibold text-foreground outline-none"/>
+                <button onClick={submitRename} aria-label="Save name" className="h-8 w-8 grid place-items-center rounded-md bg-gold shrink-0"><Check className="h-3.5 w-3.5"/></button>
+                <button onClick={()=>setRenaming(false)} aria-label="Cancel rename" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground shrink-0"><X className="h-3.5 w-3.5"/></button>
+              </div>
+            ) : (
+              <DialogTitle className="text-[15px] font-display font-semibold truncate flex items-center gap-1.5">
+                {formatCat(cat)}
+                {isCustom && onRename && (
+                  <button onClick={()=>{ setRenaming(true); setRenameDraft(cat); }} aria-label={`Rename ${formatCat(cat)}`}
+                    className="h-5 w-5 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground transition-colors shrink-0">
+                    <Pencil className="h-3 w-3"/>
+                  </button>
+                )}
+              </DialogTitle>
+            )}
+            <DialogDescription className="text-[11.5px] text-muted-foreground mt-0.5">
+              {isObligation ? "Obligation" : isCustom ? "Custom category" : "Built-in category"}
+            </DialogDescription>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-muted-foreground">{isObligation ? "Paid this period" : "Spent this period"}</span>
+            <span className="font-semibold text-foreground tabular">{fmtUSD(spend)}</span>
+          </div>
+          {mom !== null && (
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="text-muted-foreground">Vs. last month</span>
+              <span className={cn("font-semibold tabular", mom>0?"text-negative":"text-positive")}>{mom>0?"+":""}{mom}%</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between text-[13px]">
+            <span className="text-muted-foreground">Transactions</span>
+            <span className="font-semibold text-foreground tabular">{txnCount}</span>
+          </div>
+
+          {!isObligation && (
+            <div className="pt-2 border-t border-border/15">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Monthly budget</div>
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted-foreground">$</span>
+                  <input type="number" min={0} step={10} value={budgetDraft} placeholder="No budget set"
+                    onChange={e=>setBudgetDraft(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==="Enter") submitBudget(); }}
+                    className="w-full h-8 pl-5 pr-2 rounded-md bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.4)]"/>
+                </div>
+                <button onClick={submitBudget} className="h-8 px-2.5 rounded-md bg-gold text-[12px] font-semibold shrink-0">Save</button>
+                {budget != null && removeBudget && (
+                  <button onClick={()=>{ removeBudget(cat); setBudgetDraft(""); }} aria-label="Remove budget"
+                    className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0"><Trash2 className="h-3.5 w-3.5"/></button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isCustom && (
+            <div className="text-[11px] text-muted-foreground/70 pt-1">
+              Built-in categories can't be renamed here — it would break automatic categorization for future transactions. Create a custom category instead if you need a different name.
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 // ── Manage Budgets dialog ────────────────────────────────────────────────────
 const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, removeBudget, catColor, formatCat }: {
@@ -1926,7 +2168,7 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
 
   return (
     <Dialog open={open} onOpenChange={(o)=>{ if (!o) { onClose(); setEditingCat(null); } }}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden gap-0">
+      <DialogContent className="spending-v2 max-w-2xl p-0 overflow-hidden gap-0">
         <div className="px-5 pt-5 pb-3 border-b border-border/20">
           <DialogTitle className="text-[17px] font-display font-semibold">Manage budgets</DialogTitle>
           <DialogDescription className="text-[12.5px] text-muted-foreground mt-0.5">
@@ -2210,7 +2452,7 @@ export function CategoryPickerPopover({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[998]" onClick={onClose} />
-      <div className="fixed z-[999] w-64 flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+      <div className="spending-v2 fixed z-[999] w-64 flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
         style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight ?? 360 }} onClick={e=>e.stopPropagation()}>
         <div className="p-2 border-b border-border/30 shrink-0">
           {adding ? (
