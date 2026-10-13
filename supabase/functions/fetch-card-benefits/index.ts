@@ -3,6 +3,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const GROQ_KEY = Deno.env.get("GROQ_API_KEY");
+// llama3-70b-8192 is a decommissioned Groq model — same issue as
+// ai-categorize and analyze-finances. openai/gpt-oss-120b is Groq's current
+// recommended replacement; see https://console.groq.com/docs/deprecations.
+const GROQ_MODEL = "openai/gpt-oss-120b";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -26,7 +30,7 @@ Return [] for any card you don't have info on.`;
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_KEY}` },
       body: JSON.stringify({
-        model: "llama3-70b-8192",
+        model: GROQ_MODEL,
         temperature: 0.1,
         max_tokens: 3000,
         messages: [{ role: "user", content: prompt }],

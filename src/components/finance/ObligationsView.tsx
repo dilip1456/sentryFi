@@ -1,35 +1,60 @@
 /**
- * ObligationsView — Zero-based income allocation, fully auto-detected
+ * Obligations data layer — what you owe and have to pay, fully auto-detected.
  *
- * On first load with no obligations, auto-analyzes 3 months of transactions:
- *   Fixed     — same merchant 2+ months, amount stable (<10% variance)
- *   Flex      — utility/telecom/insurance categories, variable amount
- *   Envelope  — discretionary Plaid categories, limit = 3mo average
- *   Goal      — suggests emergency fund based on income
+ * This used to be a standalone, separately-styled "ObligationsView" component
+ * mounted inside BudgetPage's Obligations section, with its own bucket cards,
+ * its own income bar, and its own bulk-review wizard. That made Obligations
+ * look and behave differently from Income/Expenses/Savings on the same page.
+ * Now this file only owns the data (Supabase-backed CRUD, detection, spend
+ * math) via the `useObligations` hook — BudgetPage renders the actual rows
+ * itself, using the exact same EntryRow/DetectedRow components as every
+ * other section, and folds detected candidates into the page's single
+ * shared "Detected" column instead of a separate review panel.
+ *
+ * Scoped to genuine must-pay bills only — Fixed commitments (same amount,
+ * same merchant, every month) and Flex bills (same merchant, variable
+ * amount, still a real recurring bill like a utility). Discretionary
+ * spending limits and savings goals used to live here too as "Envelope"
+ * and "Goal" buckets, but that duplicated BudgetPage's own Expenses and
+ * Savings sections one level up — same money, tracked twice, under two
+ * different names. Removed so "Obligations" means one thing.
+ *
+ * Detection auto-analyzes 3 months of transactions, same as every other
+ * detector on the page — no manual "click to detect" step, and a
+ * flagged-wrong merchant (shared blacklist with the rest of the page)
+ * never resurfaces:
+ *   Fixed — same merchant, same amount (<8% variance), same day of month,
+ *           3 months running
+ *   Flex  — same merchant, same day of month, 3 months running, amount varies
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import {
-  Lock, Zap, ShoppingBag, Target, Plus, X,
-  AlertTriangle, CheckCircle2, Shuffle, Wallet,
-  Pencil, ArrowRight, Sparkles, ChevronRight, Info, Loader2
-} from "lucide-react";
+import { Lock, Zap, X, ArrowRight, Wallet } from "lucide-react";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface Obligation {
+export interface Obligation {
   id: string;
   name: string;
-  type: "fixed" | "flex" | "envelope" | "goal";
+  type: "fixed" | "flex";
   amount: number;
   category?: string;
   merchant_hint?: string;
-  goal_target?: number;
-  goal_deadline?: string;
   sort_order: number;
+  // Which account the payment actually drafts from — a "have to pay without
+  // fail" obligation should say where the money comes from, not just the
+  // amount. Null/undefined means it hasn't been tagged yet.
+  funding_account_id?: string | null;
+}
+
+export interface PAccountLite {
+  account_id: string;
+  name?: string | null;
+  official_name?: string | null;
+  mask?: string | null;
 }
 
 interface PTxn {
@@ -43,21 +68,11 @@ interface PTxn {
   [k: string]: any;
 }
 
-interface Props {
-  txns: PTxn[];
-  month: string;
-  formatCat: (s: string) => string;
-  catColor: (s: string) => string;
-  getEffectiveCategory: (t: PTxn) => string;
-}
-
 // ─── Bucket metadata ────────────────────────────────────────────────────────
 
-const BUCKETS = [
-  { type: "fixed" as const,    label: "Fixed",    full: "Fixed Commitments", sublabel: "Same every month",           icon: Lock,        colorClass: "text-blue-400",   bg: "bg-blue-500/10",   border: "border-blue-500/20",   bar: "bg-blue-500" },
-  { type: "flex" as const,     label: "Flex",     full: "Flex Bills",         sublabel: "Variable — max threshold",   icon: Zap,         colorClass: "text-amber-400",  bg: "bg-amber-500/10",  border: "border-amber-500/20",  bar: "bg-amber-500" },
-  { type: "envelope" as const, label: "Envelope", full: "Spending Envelopes", sublabel: "Discretionary limits",       icon: ShoppingBag, colorClass: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/20", bar: "bg-violet-500" },
-  { type: "goal" as const,     label: "Goal",     full: "Savings Goals",      sublabel: "Monthly allocation",          icon: Target,      colorClass: "text-emerald-400",bg: "bg-emerald-500/10",border: "border-emerald-500/20",bar: "bg-emerald-500" },
+export const OBLIGATION_BUCKETS = [
+  { type: "fixed" as const, label: "Fixed", sublabel: "Same every month",         icon: Lock, colorClass: "text-blue-400",  bg: "bg-blue-500/10" },
+  { type: "flex" as const,  label: "Flex",  sublabel: "Variable — max threshold", icon: Zap,  colorClass: "text-amber-400", bg: "bg-amber-500/10" },
 ] as const;
 
 // ─── Category classification ─────────────────────────────────────────────────
@@ -73,18 +88,49 @@ const FLEX_CATS = [
 ];
 const INCOME_CATS = ["income","payroll","deposit","transfer_in","wages"];
 
+// Discretionary, spend-as-you-go categories — even when the same restaurant
+// or grocery store lands on a similar day/amount for a few months running,
+// that's a spending habit, not a contractual bill, and it's already tracked
+// under Expenses. Obligations should only ever surface genuine fixed and
+// properly scheduled bills (rent, utilities, insurance, loan payments,
+// subscriptions), never routine discretionary spend.
+const DISCRETIONARY_CATEGORIES = [
+  "food & drink", "groceries", "shopping", "travel", "entertainment",
+];
+// Gambling is adhoc by nature no matter how regular it looks — excluded by
+// merchant name since it can land in Entertainment or an uncategorized
+// "Other" bucket depending on how the bank/Plaid classifies it.
+const GAMBLING_KEYWORDS = [
+  "casino","sportsbook","draftkings","fanduel","betmgm","caesars","bet365",
+  "lottery","lotto","poker","wager","bovada","betrivers",
+];
+// Merchant-name overrides that pull a transaction back OUT of the
+// discretionary exclusion above — a real subscription/membership can be
+// filed under a discretionary-sounding category (e.g. Netflix/Spotify often
+// land under "Entertainment") but is still a genuine recurring bill.
+const DISCRETIONARY_OVERRIDE_KEYWORDS = [
+  "netflix","spotify","hulu","disney+","hbo max","paramount+","peacock",
+  "amazon prime","apple tv","apple music","youtube premium","gym","fitness",
+];
+
+function isDiscretionarySpend(cat: string, merchantName: string): boolean {
+  const c = cat.toLowerCase();
+  const n = merchantName.toLowerCase();
+  if (GAMBLING_KEYWORDS.some(k => n.includes(k))) return true;
+  if (!DISCRETIONARY_CATEGORIES.includes(c)) return false;
+  return !DISCRETIONARY_OVERRIDE_KEYWORDS.some(k => n.includes(k));
+}
+
 function isIncomeAmount(amount: number, cat: string): boolean {
   return amount > 0 && INCOME_CATS.some(k => cat.toLowerCase().includes(k));
 }
 
-function classifyCategory(cat: string, name: string): "fixed" | "flex" | "envelope" | null {
+function classifyCategory(cat: string, name: string): "fixed" | "flex" | null {
   const c = cat.toLowerCase();
   const n = name.toLowerCase();
   if (FLEX_CATS.some(k => c.includes(k))) return "flex";
   if (FLEX_KEYWORDS.some(k => n.includes(k) || c.includes(k))) return "flex";
   if (["loan","mortgage","payment","car_payment","credit_card"].some(k => c.includes(k) || n.includes(k))) return "fixed";
-  if (["food","dining","restaurant","entertainment","shopping","travel","transport",
-       "personal","health","education","recreation"].some(k => c.includes(k))) return "envelope";
   return null;
 }
 
@@ -140,24 +186,30 @@ function dayOfMonthSpread(dates: string[]): { typicalDay: number; spread: number
 
 // ─── Auto-detection ──────────────────────────────────────────────────────────
 
-interface Detected {
+export interface DetectedObligation {
   name: string;
-  type: "fixed" | "flex" | "envelope" | "goal";
+  type: "fixed" | "flex";
   amount: number;
   category?: string;
   merchant_hint?: string;
-  goal_target?: number;
-  selected: boolean;
+  // Raw merchant string — the key used against the page's shared
+  // dismissed/flagged blacklist, consistent with every other detector.
+  merchant: string;
   confidence: "high" | "medium";
-  // Plain-language explanation of why this was flagged — shown to the user
-  // in the review panel so "keep or remove" is an informed choice, not a
-  // guess about what the app saw.
+  // Plain-language explanation of why this was flagged, plus the literal
+  // transactions behind it — shown in the review-pattern popup so "add or
+  // flag it wrong" is an informed choice, not a guess about what the app saw.
   reason: string;
+  txns: { date: string; amount: number }[];
+  // Which account most of the matched charges actually drafted from — lets
+  // "add" prefill funding_account_id instead of leaving it untagged, same as
+  // every other account-attributed detector on the page.
+  accountId?: string;
 }
 
-function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[] {
+function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): DetectedObligation[] {
   const now = new Date();
-  const results: Detected[] = [];
+  const results: DetectedObligation[] = [];
 
   // Build 3 months of expense transactions
   const months: string[] = [];
@@ -169,29 +221,22 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
   const expenseTxns = allTxns.filter(t => {
     const amt = Number(t.amount);
     const cat = getEffCat(t).toLowerCase();
-    return amt < 0 && !isIncomeAmount(amt, cat) && !t.pending;
+    const merchantName = (t.merchant_name || t.name || "").trim();
+    return amt < 0 && !isIncomeAmount(amt, cat) && !t.pending
+      && !isDiscretionarySpend(cat, merchantName);
   });
-
-  const incomeTxns = allTxns.filter(t => {
-    const amt = Number(t.amount);
-    const cat = getEffCat(t).toLowerCase();
-    return isIncomeAmount(amt, cat) && !t.pending;
-  });
-
-  // Monthly income avg
-  const monthlyIncome = months.reduce((s, m) => {
-    const monthInc = incomeTxns
-      .filter(t => t.date?.startsWith(m))
-      .reduce((a, t) => a + Number(t.amount), 0);
-    return s + monthInc;
-  }, 0) / 3;
 
   // ── FIXED & FLEX: group by merchant, check recurrence ──────────────────
 
-  const byMerchant: Record<string, { txns: PTxn[]; byMonth: Record<string, number[]> }> = {};
+  // Keyed by a NORMALIZED merchant string (cleaned of trailing reference/
+  // trace numbers, lowercased) — grouping by the raw literal string missed
+  // most real recurring bills, since banks routinely tack a different
+  // trace/confirmation number onto the same merchant every single charge.
+  const byMerchant: Record<string, { display: string; txns: PTxn[]; byMonth: Record<string, number[]> }> = {};
   for (const t of expenseTxns) {
-    const key = (t.merchant_name || t.name || "Unknown").trim();
-    if (!byMerchant[key]) byMerchant[key] = { txns: [], byMonth: {} };
+    const raw = (t.merchant_name || t.name || "Unknown").trim();
+    const key = cleanName(raw).toLowerCase();
+    if (!byMerchant[key]) byMerchant[key] = { display: raw, txns: [], byMonth: {} };
     byMerchant[key].txns.push(t);
     const m = t.date?.slice(0, 7) ?? "";
     if (months.includes(m)) {
@@ -200,9 +245,8 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
     }
   }
 
-  const usedMerchants = new Set<string>();
-
-  for (const [merchant, data] of Object.entries(byMerchant)) {
+  for (const data of Object.values(byMerchant)) {
+    const merchant = data.display;
     const monthsPresent = Object.keys(data.byMonth).filter(m => months.includes(m));
     // Require the charge to show up in all 3 of the trailing months, not
     // just 2 of 3 — a single repeat isn't a confirmed recurring pattern and
@@ -225,6 +269,14 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
     const guessedType = classifyCategory(cat, merchant);
     const cleanedName = cleanName(merchant);
     const dayLabel = ORDINAL(typicalDay);
+    const txnPattern = relevantTxns.map(t => ({ date: t.date, amount: Math.abs(Number(t.amount)) }));
+    // Which account most of the matched charges actually drafted from — the
+    // account this bill is really paid out of, so "add" can prefill
+    // funding_account_id instead of leaving it untagged.
+    const acctCounts: Record<string, number> = {};
+    for (const t of relevantTxns) if (t.account_id) acctCounts[t.account_id] = (acctCounts[t.account_id] ?? 0) + 1;
+    const acctEntries = Object.entries(acctCounts).sort((a,b) => b[1]-a[1]);
+    const accountId = acctEntries.length > 0 ? acctEntries[0][0] : undefined;
 
     if (avg < 2) continue; // skip tiny amounts
 
@@ -235,12 +287,13 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
         type: "fixed",
         amount: Math.round(avg * 100) / 100,
         merchant_hint: merchant.split(" ")[0],
+        merchant,
         category: cat,
-        selected: true,
         confidence: "high",
         reason: `Charged ${fmtUSD(avg)} on/around the ${dayLabel} of the month, 3 months in a row`,
+        txns: txnPattern,
+        accountId,
       });
-      usedMerchants.add(merchant);
     } else if (guessedType === "flex" || maxVariance < 0.4) {
       // Same day each month, 3 months running, but the amount varies → Flex
       results.push({
@@ -248,264 +301,155 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): Detected[]
         type: "flex",
         amount: Math.round(avg * 1.2 * 100) / 100,
         merchant_hint: merchant.split(" ")[0],
+        merchant,
         category: cat,
-        selected: true,
         confidence: "medium",
         reason: `Recurs around the ${dayLabel} of the month, 3 months in a row — amount varies (${fmtUSD(avg*0.8)}–${fmtUSD(avg*1.2)})`,
+        txns: txnPattern,
+        accountId,
       });
-      usedMerchants.add(merchant);
     }
-  }
-
-  // ── ENVELOPES: group remaining by category ──────────────────────────────
-
-  const catSpend: Record<string, number[]> = {};
-  for (const t of expenseTxns) {
-    const m = t.date?.slice(0, 7) ?? "";
-    if (!months.includes(m)) continue;
-    const merchant = (t.merchant_name || t.name || "").trim();
-    if (usedMerchants.has(merchant)) continue; // already in fixed/flex
-    const cat = getEffCat(t);
-    if (INCOME_CATS.some(k => cat.toLowerCase().includes(k))) continue;
-    if (!catSpend[cat]) catSpend[cat] = [0, 0, 0];
-    const idx = months.indexOf(m);
-    catSpend[cat][idx] += Math.abs(Number(t.amount));
-  }
-
-  const SKIP_CATS = new Set(["transfer","payment","credit_card","internal","other_income","payroll"]);
-
-  for (const [cat, amounts] of Object.entries(catSpend)) {
-    if (SKIP_CATS.has(cat.toLowerCase())) continue;
-    const nonZero = amounts.filter(a => a > 0);
-    // Require real spend in every one of the 3 tracked months, not just 2 —
-    // same reasoning as fixed/flex: one repeat isn't a confirmed pattern.
-    if (nonZero.length < 3) continue;
-    const avg = amounts.reduce((a, b) => a + b, 0) / 3;
-    if (avg < 10) continue;
-
-    results.push({
-      name: cat.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-      type: "envelope",
-      amount: Math.round(avg * 1.1 * 100) / 100, // 10% buffer
-      category: cat,
-      selected: true,
-      confidence: "high",
-      reason: `Spent in this category every month for the last 3 months, averaging ${fmtUSD(avg)}/mo`,
-    });
-  }
-
-  // ── GOAL: Emergency fund suggestion ────────────────────────────────────
-
-  if (monthlyIncome > 0) {
-    const totalExpenses = results.filter(r => r.type !== "goal").reduce((s, r) => s + r.amount, 0);
-    const suggested = Math.round(Math.min(monthlyIncome * 0.1, 500));
-    results.push({
-      name: "Emergency Fund",
-      type: "goal",
-      amount: suggested,
-      goal_target: totalExpenses * 3,
-      selected: false, // opt-in for goals
-      confidence: "medium",
-      reason: `Suggested based on your average monthly income of ${fmtUSD(monthlyIncome)} — not detected from a specific transaction`,
-    });
   }
 
   return results;
 }
 
-// ─── Setup wizard modal ──────────────────────────────────────────────────────
+// ─── Spend math ───────────────────────────────────────────────────────────────
 
-interface SetupWizardProps {
-  detected: Detected[];
-  userId: string;
-  onDone: () => void;
-  onSkip: () => void;
+function spentForObligation(ob: Obligation, txns: PTxn[], getEffCat: (t: PTxn) => string): number {
+  return txns.filter(t => {
+    const amt = Number(t.amount);
+    if (amt >= 0) return false;
+    const name = (t.merchant_name || t.name || "").toLowerCase();
+    const cat  = getEffCat(t).toLowerCase();
+    if (ob.merchant_hint && name.includes(ob.merchant_hint.toLowerCase())) return true;
+    if (ob.category && cat.includes(ob.category.toLowerCase())) return true;
+    return false;
+  }).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
 }
 
-function SetupWizard({ detected, userId, onDone, onSkip }: SetupWizardProps) {
-  const [items, setItems] = useState<Detected[]>(detected);
-  const [saving, setSaving] = useState(false);
-  const [editIdx, setEditIdx] = useState<number | null>(null);
+// ─── Hook ───────────────────────────────────────────────────────────────────
 
-  const toggle = (i: number) => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, selected: !x.selected } : x));
-  const updateAmt = (i: number, val: string) => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, amount: parseFloat(val) || 0 } : x));
+export function useObligations(
+  txns: PTxn[],
+  getEffectiveCategory: (t: PTxn) => string,
+  month: string,
+  dismissedRecurringSet: Set<string>,
+) {
+  const [obligations, setObs] = useState<Obligation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const byType = (type: string) => items.map((x, i) => ({ ...x, _idx: i })).filter(x => x.type === type);
-  const selectedCount = items.filter(x => x.selected).length;
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null)); }, []);
 
-  const save = async () => {
-    setSaving(true);
-    const toCreate = items.filter(x => x.selected).map((x, i) => ({
-      user_id: userId,
-      name: x.name,
-      type: x.type,
-      amount: x.amount,
-      category: x.category ?? null,
-      merchant_hint: x.merchant_hint ?? null,
-      goal_target: x.goal_target ?? null,
-      sort_order: i,
-    }));
-    if (toCreate.length > 0) {
-      await supabase.from("obligations").insert(toCreate);
-    }
-    setSaving(false);
-    onDone();
-  };
+  const loadObs = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase.from("obligations").select("*").eq("user_id", userId).eq("active", true).order("sort_order");
+    setObs((data ?? []) as Obligation[]);
+    setLoading(false);
+  }, [userId]);
 
-  return (
-    <div className="rounded-2xl border border-primary/25 bg-primary/[0.04] mb-6 overflow-hidden">
-      {/* Header — a review panel alongside the rest of the page, not a
-          full-screen takeover, so obligations already set up (or the empty
-          "+ Add" placeholders) stay visible and usable while reviewing. */}
-      <div className="px-4 md:px-5 pt-4 pb-3 border-b border-primary/15 flex items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <p className="font-bold text-sm">Potential obligations detected</p>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {detected.length} found from your last 3 months of transactions — review each and decide what to keep
-          </p>
-        </div>
-        <button onClick={onSkip} className="shrink-0 text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors">
-          Dismiss
-        </button>
-      </div>
+  useEffect(() => { loadObs(); }, [loadObs]);
 
-      {/* List */}
-      <div className="max-h-[26rem] overflow-y-auto px-4 py-4 space-y-5">
-        {BUCKETS.map(bucket => {
-          const bItems = byType(bucket.type);
-          if (bItems.length === 0) return null;
-          const Icon = bucket.icon;
+  const monthTxns = useMemo(() => txns.filter(t => t.date?.startsWith(month)), [txns, month]);
 
-          return (
-            <div key={bucket.type}>
-              <div className="flex items-center gap-2 mb-2">
-                <div className={cn("h-6 w-6 rounded-md flex items-center justify-center", bucket.bg)}>
-                  <Icon className={cn("h-3.5 w-3.5", bucket.colorClass)} />
-                </div>
-                <span className="text-sm font-semibold">{bucket.full}</span>
-                <span className="text-xs text-muted-foreground">{bucket.sublabel}</span>
-              </div>
+  const spentMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const ob of obligations) m[ob.id] = spentForObligation(ob, monthTxns, getEffectiveCategory);
+    return m;
+  }, [obligations, monthTxns, getEffectiveCategory]);
 
-              <div className="space-y-1.5">
-                {bItems.map((item) => {
-                  const i = item._idx;
-                  const isEditing = editIdx === i;
-                  return (
-                    <div key={i}
-                      className={cn(
-                        "flex items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors",
-                        item.selected ? `${bucket.border} ${bucket.bg}` : "border-border bg-card/30 opacity-50"
-                      )}
-                    >
-                      {/* Checkbox */}
-                      <button onClick={() => toggle(i)}
-                        aria-label={`${item.selected ? "Deselect" : "Select"} ${item.name}`}
-                        className={cn("h-5 w-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-colors",
-                          item.selected ? `${bucket.bar.replace("bg-","border-")} ${bucket.bar}` : "border-border"
-                        )}
-                      >
-                        {item.selected && <CheckCircle2 className="h-3 w-3 text-white" />}
-                      </button>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.name}</p>
-                        <p className="text-[10.5px] text-muted-foreground/80 leading-snug">{item.reason}</p>
-                        {item.confidence === "medium" && (
-                          <p className="text-[10px] text-muted-foreground/60">Estimated — adjust if needed</p>
-                        )}
-                      </div>
-
-                      {/* Amount */}
-                      {isEditing ? (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-xs text-muted-foreground">$</span>
-                          <input
-                            autoFocus
-                            type="text" inputMode="decimal"
-                            defaultValue={item.amount.toFixed(0)}
-                            onBlur={e => { updateAmt(i, e.target.value); setEditIdx(null); }}
-                            onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") { updateAmt(i, (e.target as HTMLInputElement).value); setEditIdx(null); }}}
-                            className="w-20 bg-transparent border-b border-primary outline-none text-right text-sm font-bold py-0.5"
-                          />
-                        </div>
-                      ) : (
-                        <button onClick={() => setEditIdx(i)} className="flex items-center gap-1 shrink-0 group">
-                          <span className="text-sm font-bold">{fmtUSD(item.amount)}</span>
-                          <Pencil className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                        </button>
-                      )}
-                      {bucket.type === "flex" && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">max</span>
-                      )}
-                      {bucket.type === "goal" && item.goal_target && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">of {fmtUSD(item.goal_target)}</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-primary/15 flex items-center gap-3">
-        <p className="text-xs text-muted-foreground flex-1">
-          {selectedCount} selected · tap amount to adjust · uncheck to skip
-        </p>
-        <button
-          onClick={save}
-          disabled={saving || selectedCount === 0}
-          className="shrink-0 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm disabled:opacity-40 flex items-center justify-center gap-2"
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {saving ? "Adding…" : `Add ${selectedCount} obligation${selectedCount !== 1 ? "s" : ""}`}
-        </button>
-      </div>
-    </div>
+  const exceeded = useMemo(() =>
+    obligations.filter(ob => spentMap[ob.id] > ob.amount)
+               .map(ob => ({ ob, over: spentMap[ob.id] - ob.amount })),
+    [obligations, spentMap]
   );
+
+  // Always-on detection, same as every other detector on the page — no
+  // separate "click to detect" step. Flagged-wrong merchants (shared
+  // blacklist) and merchants already tracked never resurface.
+  const detected = useMemo(() => {
+    if (!userId || loading) return [];
+    return autoDetect(txns, getEffectiveCategory)
+      .filter(d => !dismissedRecurringSet.has(d.merchant.toLowerCase()))
+      .filter(d => !obligations.some(ob => ob.name.toLowerCase() === d.name.toLowerCase()));
+  }, [txns, getEffectiveCategory, userId, loading, obligations, dismissedRecurringSet]);
+
+  const addObligation = useCallback(async (payload: {
+    name: string; type: Obligation["type"]; amount: number;
+    category?: string | null; merchant_hint?: string | null; funding_account_id?: string | null;
+  }) => {
+    if (!userId) return;
+    await supabase.from("obligations").insert({ user_id: userId, sort_order: obligations.length, active: true, ...payload });
+    await loadObs();
+  }, [userId, obligations.length, loadObs]);
+
+  const updateObligation = useCallback(async (id: string, patch: Partial<Obligation>) => {
+    await supabase.from("obligations").update(patch).eq("id", id);
+    await loadObs();
+  }, [loadObs]);
+
+  const removeObligation = useCallback(async (id: string) => {
+    await supabase.from("obligations").delete().eq("id", id);
+    await loadObs();
+  }, [loadObs]);
+
+  // Fixed obligations are the one detection this page treats as certain
+  // enough to add on its own, not just suggest — same amount, same
+  // merchant, same day of month, three months running is as close to
+  // "100% sure this is a real bill" as detection gets. Flex (variable
+  // amount) stays a suggestion, since "recurs, but the amount moves
+  // around" is closer to "probably recurring" than settled fact.
+  // `pendingAutoAdd` guards against firing the insert twice for the same
+  // merchant while the first insert is still in flight (this effect can
+  // re-run before `obligations` reflects the just-added row).
+  const pendingAutoAdd = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!userId || loading) return;
+    const highConfidence = detected.filter(d => d.confidence === "high" && d.type === "fixed");
+    for (const d of highConfidence) {
+      const key = d.merchant.toLowerCase();
+      if (pendingAutoAdd.current.has(key)) continue;
+      pendingAutoAdd.current.add(key);
+      addObligation({ name: d.name, type: d.type, amount: d.amount, category: d.category ?? null, merchant_hint: d.merchant_hint ?? null })
+        .finally(() => pendingAutoAdd.current.delete(key));
+    }
+  }, [detected, userId, loading, addObligation]);
+
+  return { obligations, loading, userId, spentMap, exceeded, detected, addObligation, updateObligation, removeObligation };
 }
 
-// ─── Edit modal ──────────────────────────────────────────────────────────────
+// ─── Add/Edit modal ────────────────────────────────────────────────────────
 
 interface EditModalProps {
   initial?: Partial<Obligation>;
   defaultType?: Obligation["type"];
-  userId: string;
-  onSave: () => void;
+  accounts: PAccountLite[];
+  onSubmit: (payload: {
+    name: string; type: Obligation["type"]; amount: number;
+    category?: string | null; merchant_hint?: string | null; funding_account_id?: string | null;
+  }) => void;
+  onDelete?: () => void;
   onClose: () => void;
 }
 
-function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: EditModalProps) {
+export function ObligationEditModal({ initial, defaultType = "fixed", accounts, onSubmit, onDelete, onClose }: EditModalProps) {
   const [name, setName]      = useState(initial?.name ?? "");
   const [type, setType]      = useState<Obligation["type"]>(initial?.type ?? defaultType);
   const [amount, setAmount]  = useState(String(initial?.amount ?? ""));
   const [category, setCat]   = useState(initial?.category ?? "");
   const [merchant, setMerch] = useState(initial?.merchant_hint ?? "");
-  const [goalT, setGoalT]    = useState(String(initial?.goal_target ?? ""));
-  const [saving, setSaving]  = useState(false);
+  const [fundingAcct, setFundingAcct] = useState(initial?.funding_account_id ?? "");
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!name.trim() || !amount) return;
-    setSaving(true);
-    const payload = { user_id: userId, name: name.trim(), type, amount: parseFloat(amount),
-      category: category || null, merchant_hint: merchant || null,
-      goal_target: type === "goal" && goalT ? parseFloat(goalT) : null };
-    if (initial?.id) await supabase.from("obligations").update(payload).eq("id", initial.id);
-    else await supabase.from("obligations").insert(payload);
-    setSaving(false);
-    onSave();
+    const amt = parseFloat(amount);
+    if (isNaN(amt) || amt <= 0) return;
+    onSubmit({ name: name.trim(), type, amount: amt, category: category || null, merchant_hint: merchant || null, funding_account_id: fundingAcct || null });
+    onClose();
   };
 
-  const handleDelete = async () => {
-    if (!initial?.id) return;
-    await supabase.from("obligations").delete().eq("id", initial.id);
-    onSave();
-  };
+  const handleDelete = () => { onDelete?.(); onClose(); };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -516,10 +460,10 @@ function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: 
         </div>
         <div className="px-5 py-5 space-y-4">
           <div className="flex gap-1.5 flex-wrap">
-            {BUCKETS.map(b => (
+            {OBLIGATION_BUCKETS.map(b => (
               <button key={b.type} onClick={() => setType(b.type)}
                 className={cn("px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-                  type === b.type ? `${b.bg} ${b.colorClass} ${b.border}` : "bg-muted/40 text-muted-foreground border-transparent")}>
+                  type === b.type ? `${b.bg} ${b.colorClass} border-transparent` : "bg-muted/40 text-muted-foreground border-transparent")}>
                 {b.label}
               </button>
             ))}
@@ -527,12 +471,12 @@ function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: 
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Name</label>
             <input value={name} onChange={e => setName(e.target.value)}
-              placeholder={type === "fixed" ? "Mortgage" : type === "flex" ? "Electricity" : type === "envelope" ? "Dining out" : "Emergency fund"}
+              placeholder={type === "fixed" ? "Mortgage" : "Electricity"}
               className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-primary/50" />
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">
-              {type === "fixed" ? "Monthly amount" : type === "flex" ? "Monthly max" : type === "goal" ? "Monthly contribution" : "Monthly limit"}
+              {type === "fixed" ? "Monthly amount" : "Monthly max"}
             </label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
@@ -541,24 +485,28 @@ function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: 
                 className="w-full bg-muted/40 border border-border rounded-xl pl-7 pr-3.5 py-2.5 text-sm outline-none focus:border-primary/50" />
             </div>
           </div>
-          {type === "goal" && (
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 block">Target total</label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                <input value={goalT} onChange={e => setGoalT(e.target.value.replace(/[^0-9.]/g, ""))}
-                  placeholder="10,000" type="text" inputMode="decimal"
-                  className="w-full bg-muted/40 border border-border rounded-xl pl-7 pr-3.5 py-2.5 text-sm outline-none focus:border-primary/50" />
-              </div>
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Pay from account</label>
+            <select value={fundingAcct} onChange={e => setFundingAcct(e.target.value)}
+              className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-primary/50 text-foreground">
+              <option value="">Not tagged yet</option>
+              {accounts.map(a => (
+                <option key={a.account_id} value={a.account_id}>
+                  {a.name ?? a.official_name ?? "Account"}{a.mask ? ` ••${a.mask}` : ""}
+                </option>
+              ))}
+            </select>
+            {!fundingAcct && (
+              <p className="text-[10.5px] text-amber-400/90 mt-1">Tag where this gets paid from — a must-pay bill should never be a mystery.</p>
+            )}
+          </div>
           <div className="flex gap-2 pt-1">
-            {initial?.id && (
+            {initial?.id && onDelete && (
               <button onClick={handleDelete} className="flex-1 py-2.5 rounded-xl border border-destructive/40 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">Delete</button>
             )}
-            <button onClick={handleSave} disabled={saving || !name.trim() || !amount}
+            <button onClick={handleSave} disabled={!name.trim() || !amount}
               className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-40">
-              {saving ? "Saving…" : "Save"}
+              Save
             </button>
           </div>
         </div>
@@ -571,22 +519,25 @@ function EditModal({ initial, defaultType = "fixed", userId, onSave, onClose }: 
 
 interface CoverModalProps {
   exceeded: { ob: Obligation; over: number }[];
-  envelopes: Obligation[];
-  goals: Obligation[];
   month: string;
   userId: string;
+  onRaiseLimit: (ob: Obligation, newAmount: number) => void;
   onClose: () => void;
 }
 
-function CoverModal({ exceeded, envelopes, goals, month, userId, onClose }: CoverModalProps) {
+// "How to cover this" no longer means borrowing from another bucket (there
+// is no Envelope/Goal bucket anymore) — it's either a real one-time
+// exception, or a sign the bill's budgeted amount is set too low and should
+// just be raised to match reality going forward.
+export function CoverModal({ exceeded, month, userId, onRaiseLimit, onClose }: CoverModalProps) {
   const [done, setDone] = useState(false);
   const totalOver = exceeded.reduce((s, e) => s + e.over, 0);
 
-  const act = async (fromId: string | null, type: string, note: string) => {
+  const absorb = async () => {
     for (const e of exceeded) {
       await supabase.from("cover_actions").insert({
-        user_id: userId, month, from_id: fromId, to_id: e.ob.id,
-        amount: e.over, action_type: type, note,
+        user_id: userId, month, from_id: null, to_id: e.ob.id,
+        amount: e.over, action_type: "absorb", note: "One-time exception",
       });
     }
     setDone(true);
@@ -595,8 +546,7 @@ function CoverModal({ exceeded, envelopes, goals, month, userId, onClose }: Cove
   if (done) return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-card rounded-2xl p-8 mx-4 text-center max-w-sm w-full" onClick={e => e.stopPropagation()}>
-        <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto mb-3" />
-        <p className="font-semibold text-lg">Logged</p>
+        <p className="font-display text-lg text-foreground">Logged</p>
         <p className="text-muted-foreground text-sm mt-1">Covered {fmtUSD(totalOver)} this month</p>
         <button onClick={onClose} className="mt-5 w-full bg-primary text-primary-foreground py-2.5 rounded-xl font-medium text-sm">Done</button>
       </div>
@@ -614,321 +564,32 @@ function CoverModal({ exceeded, envelopes, goals, month, userId, onClose }: Cove
           <button onClick={onClose} aria-label="Close" className="h-8 w-8 flex items-center justify-center rounded-full hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="px-5 py-4 space-y-2 max-h-[70vh] overflow-y-auto">
-          <div className="bg-destructive/10 rounded-xl p-3 mb-3 space-y-1">
+          <div className="space-y-1.5 mb-3">
             {exceeded.map(e => (
-              <div key={e.ob.id} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{e.ob.name}</span>
-                <span className="text-destructive font-medium">+{fmtUSD(e.over)}</span>
+              <div key={e.ob.id} className="rounded-xl border border-destructive/25 bg-destructive/5 p-3">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="font-medium">{e.ob.name}</span>
+                  <span className="text-destructive font-medium">+{fmtUSD(e.over)}</span>
+                </div>
+                <button onClick={() => { onRaiseLimit(e.ob, Math.round((e.ob.amount + e.over) * 100) / 100); onClose(); }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-muted/50 transition-colors text-left">
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs">Raise budgeted amount to {fmtUSD(e.ob.amount + e.over)}</span>
+                </button>
               </div>
             ))}
           </div>
-          {envelopes.filter(e => !exceeded.find(x => x.ob.id === e.id)).map(env => (
-            <button key={env.id} onClick={() => act(env.id, "shift", `Shifted from ${env.name}`)}
-              className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
-              <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center shrink-0"><Shuffle className="h-3.5 w-3.5 text-violet-400" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Shift from {env.name}</p>
-                <p className="text-xs text-muted-foreground">{fmtUSD(env.amount)} budgeted</p>
-              </div>
-              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-          ))}
-          {goals.slice(0, 2).map(g => (
-            <button key={g.id} onClick={() => act(g.id, "goal_borrow", `Borrowed from ${g.name}`)}
-              className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
-              <div className="h-8 w-8 rounded-full bg-emerald-500/15 flex items-center justify-center shrink-0"><Target className="h-3.5 w-3.5 text-emerald-400" /></div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">Pause {g.name} this month</p>
-                <p className="text-xs text-muted-foreground">Borrow from your savings goal</p>
-              </div>
-              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-            </button>
-          ))}
-          <button onClick={() => act(null, "absorb", "One-time exception")}
+          <button onClick={absorb}
             className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
             <div className="h-8 w-8 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0"><Wallet className="h-3.5 w-3.5 text-orange-400" /></div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium">It's a one-time thing — absorb it</p>
-              <p className="text-xs text-muted-foreground">Log as an exception this month</p>
+              <p className="text-xs text-muted-foreground">Log as an exception, leave the budgeted amount as is</p>
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─── Main component ──────────────────────────────────────────────────────────
-
-function detectIncome(txns: PTxn[], getEffCat: (t: PTxn) => string): number {
-  return txns
-    .filter(t => {
-      const amt = Number(t.amount);
-      const cat = getEffCat(t).toLowerCase();
-      return amt > 0 && INCOME_CATS.some(k => cat.includes(k)) && !t.pending;
-    })
-    .reduce((s, t) => s + Number(t.amount), 0);
-}
-
-function spentForObligation(ob: Obligation, txns: PTxn[], getEffCat: (t: PTxn) => string): number {
-  return txns.filter(t => {
-    const amt = Number(t.amount);
-    if (amt >= 0) return false;
-    const name = (t.merchant_name || t.name || "").toLowerCase();
-    const cat  = getEffCat(t).toLowerCase();
-    if (ob.merchant_hint && name.includes(ob.merchant_hint.toLowerCase())) return true;
-    if (ob.category && cat.includes(ob.category.toLowerCase())) return true;
-    return false;
-  }).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-}
-
-export function ObligationsView({ txns, month, formatCat, catColor, getEffectiveCategory }: Props) {
-  const [obligations, setObs]   = useState<Obligation[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [userId, setUserId]     = useState<string | null>(null);
-  const [detected, setDetected] = useState<Detected[] | null>(null);
-  const [editing, setEditing]   = useState<Partial<Obligation> | null>(null);
-  const [addType, setAddType]   = useState<Obligation["type"] | null>(null);
-  const [coverModal, setCover]  = useState(false);
-
-  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null)); }, []);
-
-  const loadObs = useCallback(async () => {
-    if (!userId) return;
-    const { data } = await supabase.from("obligations").select("*").eq("user_id", userId).eq("active", true).order("sort_order");
-    const obs = (data ?? []) as Obligation[];
-    setObs(obs);
-
-    // Auto-detect if empty
-    if (obs.length === 0 && txns.length > 0) {
-      const d = autoDetect(txns, getEffectiveCategory);
-      setDetected(d);
-    }
-    setLoading(false);
-  }, [userId, txns, getEffectiveCategory]);
-
-  useEffect(() => { loadObs(); }, [loadObs]);
-
-  // ── Numbers ───────────────────────────────────────────────────────────────
-
-  const monthTxns = useMemo(() => txns.filter(t => t.date?.startsWith(month)), [txns, month]);
-  const income    = useMemo(() => detectIncome(monthTxns, getEffectiveCategory), [monthTxns, getEffectiveCategory]);
-
-  const spentMap = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const ob of obligations) m[ob.id] = spentForObligation(ob, monthTxns, getEffectiveCategory);
-    return m;
-  }, [obligations, monthTxns, getEffectiveCategory]);
-
-  const bucketTotals = useMemo(() => {
-    const t: Record<string, number> = { fixed: 0, flex: 0, envelope: 0, goal: 0 };
-    for (const ob of obligations) t[ob.type] += ob.amount;
-    return t;
-  }, [obligations]);
-
-  const totalAllocated = Object.values(bucketTotals).reduce((a, b) => a + b, 0);
-  const freeAmount     = income - totalAllocated;
-
-  const exceeded = useMemo(() =>
-    obligations.filter(ob => ob.type !== "goal" && spentMap[ob.id] > ob.amount)
-               .map(ob => ({ ob, over: spentMap[ob.id] - ob.amount })),
-    [obligations, spentMap]
-  );
-
-  const byType = (type: Obligation["type"]) => obligations.filter(o => o.type === type);
-
-  if (loading) return (
-    <div className="flex-1 flex items-center justify-center py-24">
-      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-    </div>
-  );
-
-  return (
-    <div className="flex flex-col min-h-full">
-      {/* Detected candidates render as a review panel alongside the normal
-          view — not a forced full-screen wizard — so the user can see and
-          keep using whatever obligations already exist while deciding what
-          (if anything) from the detection pass to add. */}
-      {detected !== null && detected.length > 0 && userId && (
-        <div className="px-4 md:px-8 pt-5">
-          <SetupWizard
-            detected={detected}
-            userId={userId}
-            onDone={() => { setDetected(null); loadObs(); }}
-            onSkip={() => setDetected(null)}
-          />
-        </div>
-      )}
-
-      {/* ── Income allocation bar ──────────────────────────────────────────── */}
-      <div className="px-4 md:px-8 pt-5 pb-4">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <p className="text-xs text-muted-foreground mb-0.5">Monthly Income</p>
-            <p className="text-2xl font-bold tracking-tight">{income > 0 ? fmtUSD(income) : "—"}</p>
-            {income === 0 && <p className="text-[11px] text-muted-foreground/60 mt-0.5 flex items-center gap-1"><Info className="h-3 w-3"/>Auto-detected from transactions</p>}
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-muted-foreground mb-0.5">{freeAmount >= 0 ? "Free" : "Over allocated"}</p>
-            <p className={cn("text-xl font-bold", freeAmount >= 0 ? "text-emerald-400" : "text-destructive")}>{fmtUSD(Math.abs(freeAmount))}</p>
-          </div>
-        </div>
-
-        {income > 0 && totalAllocated > 0 && (
-          <>
-            <div className="h-2.5 rounded-full bg-muted overflow-hidden flex gap-px">
-              {BUCKETS.map(b => {
-                const pct = Math.min((bucketTotals[b.type] / income) * 100, 100);
-                if (pct < 0.5) return null;
-                return <div key={b.type} style={{ width: `${pct}%` }} className={cn("h-full", b.bar)} />;
-              })}
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-              {BUCKETS.map(b => {
-                if (!bucketTotals[b.type]) return null;
-                const pct = Math.round((bucketTotals[b.type] / income) * 100);
-                return (
-                  <div key={b.type} className="flex items-center gap-1.5">
-                    <div className={cn("h-2 w-2 rounded-full", b.bar)} />
-                    <span className="text-[11px] text-muted-foreground">{b.label} {fmtUSD(bucketTotals[b.type])} ({pct}%)</span>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Exceeded alert ────────────────────────────────────────────────── */}
-      {exceeded.length > 0 && (
-        <div className="mx-4 md:mx-8 mb-4 rounded-xl bg-destructive/10 border border-destructive/25 p-3.5 flex items-start gap-3">
-          <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium">
-              {exceeded.length === 1
-                ? `${exceeded[0].ob.name} over by ${fmtUSD(exceeded[0].over)}`
-                : `${exceeded.length} over · ${fmtUSD(exceeded.reduce((s,e) => s+e.over, 0))} total`}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">{exceeded.map(e => e.ob.name).join(", ")}</p>
-          </div>
-          <button onClick={() => setCover(true)} className="shrink-0 px-3 py-1.5 bg-destructive text-destructive-foreground rounded-lg text-xs font-medium">
-            How to cover
-          </button>
-        </div>
-      )}
-
-      {/* ── Buckets ───────────────────────────────────────────────────────── */}
-      <div className="px-4 md:px-8 pb-10 space-y-6">
-        {BUCKETS.map(bucket => {
-          const items  = byType(bucket.type);
-          const Icon   = bucket.icon;
-          const isGoal = bucket.type === "goal";
-
-          return (
-            <div key={bucket.type}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className={cn("h-6 w-6 rounded-md flex items-center justify-center", bucket.bg)}>
-                    <Icon className={cn("h-3.5 w-3.5", bucket.colorClass)} />
-                  </div>
-                  <span className="text-sm font-semibold">{bucket.full}</span>
-                  <span className="text-xs text-muted-foreground hidden sm:inline">{bucket.sublabel}</span>
-                </div>
-                <button onClick={() => setAddType(bucket.type)}
-                  aria-label={`Add ${bucket.full.toLowerCase()}`}
-                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-muted/60 hover:bg-muted transition-colors">
-                  <Plus className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </div>
-
-              {items.length === 0 ? (
-                <button onClick={() => setAddType(bucket.type)}
-                  className="w-full py-4 rounded-xl border border-dashed border-border text-xs text-muted-foreground/60 hover:border-primary/30 hover:text-muted-foreground transition-colors">
-                  + Add {bucket.full.toLowerCase()}
-                </button>
-              ) : (
-                <div className="space-y-1.5">
-                  {items.map(ob => {
-                    const spent  = spentMap[ob.id] ?? 0;
-                    const pct    = ob.amount > 0 ? Math.min((spent / ob.amount) * 100, 100) : 0;
-                    const isOver = !isGoal && spent > ob.amount;
-                    const goalPct = isGoal && ob.goal_target ? Math.min((spent / ob.goal_target) * 100, 100) : 0;
-
-                    return (
-                      <div key={ob.id}
-                        className={cn("rounded-xl border p-3.5", isOver ? "border-destructive/30 bg-destructive/5" : "border-border bg-card/50")}>
-                        <div className="flex items-center gap-3">
-                          <div className={cn("h-2 w-2 rounded-full shrink-0",
-                            isOver ? "bg-destructive" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500")} />
-                          <p className="text-sm font-medium flex-1 truncate">{ob.name}</p>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {isOver && <span className="text-xs text-destructive font-semibold">+{fmtUSD(spent - ob.amount)}</span>}
-                            {!isOver && !isGoal && pct >= 80 && <span className="text-xs text-amber-500 font-semibold">Nearing limit</span>}
-                            <span className={cn("text-sm font-bold", isOver && "text-destructive")}>{fmtUSD(isGoal ? ob.amount : spent)}</span>
-                            <span className="text-xs text-muted-foreground">{isGoal ? "/mo" : `/ ${fmtUSD(ob.amount)}`}</span>
-                            <button onClick={() => setEditing(ob)}
-                              aria-label={`Edit ${ob.name}`}
-                              className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted transition-colors ml-1">
-                              <Pencil className="h-3.5 w-3.5 text-muted-foreground/50" />
-                            </button>
-                          </div>
-                        </div>
-                        {!isGoal && ob.amount > 0 && (
-                          <div className="mt-2 ml-5 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div className={cn("h-full rounded-full transition-all",
-                              isOver ? "bg-destructive" : pct >= 80 ? "bg-amber-500" : bucket.bar)}
-                              style={{ width: `${pct}%` }} />
-                          </div>
-                        )}
-                        {isGoal && ob.goal_target && (
-                          <div className="mt-2 ml-5">
-                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${goalPct}%` }} />
-                            </div>
-                            <p className="text-[11px] text-muted-foreground mt-1">
-                              {fmtUSD(spent)} saved of {fmtUSD(ob.goal_target)}
-                              {ob.goal_deadline && ` · ${Math.max(1, Math.ceil((new Date(ob.goal_deadline).getTime()-Date.now())/(1000*60*60*24*30)))}mo left`}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Re-run detection */}
-        {obligations.length > 0 && (
-          <>
-            <button
-              onClick={() => { const d = autoDetect(txns, getEffectiveCategory); setDetected(d); }}
-              className="w-full py-3 rounded-xl border border-dashed border-primary/30 text-xs text-primary/70 hover:text-primary hover:border-primary/60 transition-colors flex items-center justify-center gap-2"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Re-run auto-detection
-            </button>
-            {detected !== null && detected.length === 0 && (
-              <p className="text-center text-xs text-muted-foreground -mt-2">
-                No new recurring patterns found — nothing shows up in all 3 of the last 3 months on a consistent date.
-              </p>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Modals ────────────────────────────────────────────────────────── */}
-      {(editing || addType) && userId && (
-        <EditModal initial={editing ?? { type: addType ?? "fixed" }} defaultType={addType ?? editing?.type ?? "fixed"}
-          userId={userId} onSave={() => { setEditing(null); setAddType(null); loadObs(); }} onClose={() => { setEditing(null); setAddType(null); }} />
-      )}
-      {coverModal && userId && (
-        <CoverModal exceeded={exceeded} envelopes={byType("envelope")} goals={byType("goal")}
-          month={month} userId={userId} onClose={() => setCover(false)} />
-      )}
     </div>
   );
 }

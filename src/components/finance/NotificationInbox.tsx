@@ -190,7 +190,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     <div className={cn("h-11 w-11 rounded-xl grid place-items-center mb-3", color)}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    <div className="text-[16px] font-bold text-foreground leading-snug">{selected.title}</div>
+                    <div className="font-display text-[16px] text-foreground leading-snug">{selected.title}</div>
                     <div className="text-[12.5px] text-muted-foreground mt-1">{selected.body}</div>
                     <div className="text-[10px] text-muted-foreground/40 mt-2">{timeAgo(selected.created_at)}</div>
                   </div>

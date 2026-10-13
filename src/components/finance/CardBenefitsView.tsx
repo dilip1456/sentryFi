@@ -412,7 +412,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="text-[13px] font-bold text-positive">+{fmtUSD(gain)}/yr</div>
+                          <div className="text-[13px] font-bold text-positive tabular">+{fmtUSD(gain)}/yr</div>
                           <div className="text-[10.5px] text-muted-foreground">potential savings</div>
                         </div>
                       </div>

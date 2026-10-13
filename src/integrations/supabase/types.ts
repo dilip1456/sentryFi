@@ -14,6 +14,90 @@ export type Database = {
   }
   public: {
     Tables: {
+      cover_actions: {
+        Row: {
+          action_type: string
+          amount: number
+          created_at: string
+          from_id: string | null
+          id: string
+          month: string
+          note: string | null
+          to_id: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          amount?: number
+          created_at?: string
+          from_id?: string | null
+          id?: string
+          month: string
+          note?: string | null
+          to_id: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          amount?: number
+          created_at?: string
+          from_id?: string | null
+          id?: string
+          month?: string
+          note?: string | null
+          to_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      obligations: {
+        Row: {
+          active: boolean
+          amount: number
+          category: string | null
+          created_at: string
+          funding_account_id: string | null
+          goal_deadline: string | null
+          goal_target: number | null
+          id: string
+          merchant_hint: string | null
+          name: string
+          sort_order: number
+          type: string
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          amount?: number
+          category?: string | null
+          created_at?: string
+          funding_account_id?: string | null
+          goal_deadline?: string | null
+          goal_target?: number | null
+          id?: string
+          merchant_hint?: string | null
+          name: string
+          sort_order?: number
+          type?: string
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          amount?: number
+          category?: string | null
+          created_at?: string
+          funding_account_id?: string | null
+          goal_deadline?: string | null
+          goal_target?: number | null
+          id?: string
+          merchant_hint?: string | null
+          name?: string
+          sort_order?: number
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plaid_accounts: {
         Row: {
           account_id: string

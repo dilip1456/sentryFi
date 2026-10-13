@@ -18,7 +18,7 @@ import { type CategoryRule, type RuleMatchType } from "@/hooks/useCategoryRules"
 import { CategoryManager } from "@/components/finance/CategoryManager";
 import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
-import { BudgetView } from "@/components/finance/BudgetView";
+import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { BudgetPage } from "@/components/finance/BudgetPage";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
@@ -26,6 +26,8 @@ import {
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
 import { fmtUSD } from "@/lib/format";
+import { findDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
+import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
@@ -56,6 +58,82 @@ type PTxn = {
   name: string | null; merchant_name: string | null; category: string[] | null;
   pending: boolean | null; payment_channel: string | null;
 };
+// PostgREST caps any unbounded select at ~1000 rows by default — once total
+// transaction volume (synced + imported) crosses that line, an ordinary
+// `.select("*")` silently returns only the newest page and drops the rest.
+// That's exactly what made previously-imported older statements (e.g. 2021)
+// disappear the moment enough newer transactions (2024-26 imports, or just
+// ordinary Plaid sync activity) pushed the total past the cap — the data was
+// never deleted, just no longer inside the one page being fetched. Paging
+// through in fixed-size chunks until a page comes back short guarantees every
+// row is retrieved regardless of how many years of history are stored.
+async function fetchAllTransactions(userId: string): Promise<PTxn[]> {
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  const all: PTxn[] = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from("plaid_transactions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("date", { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) { console.error("[fetchAllTransactions]", error.message); break; }
+    const rows = (data ?? []) as PTxn[];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
+}
+
+// Finds and permanently deletes duplicate rows (same account+date+amount+
+// vendor — see lib/dedup.ts) every time transactions are fetched, so overlap
+// between a PDF import and live Plaid sync (or between two overlapping
+// imports) never lingers as double-counted spend. Returns the list with the
+// removed rows already filtered out; if the delete itself fails, the rows are
+// left in place rather than hidden from the UI while still sitting in the DB.
+async function dedupeTransactions(userId: string, rows: PTxn[]): Promise<PTxn[]> {
+  const dupIds = findDuplicateIds(rows);
+  if (dupIds.length === 0) return rows;
+  const { error } = await supabase.from("plaid_transactions").delete().eq("user_id", userId).in("id", dupIds);
+  if (error) {
+    console.error("[dedupeTransactions]", error.message);
+    return rows;
+  }
+  toast.info(`Cleaned up ${dupIds.length} duplicate transaction${dupIds.length > 1 ? "s" : ""}`);
+  const removeSet = new Set(dupIds);
+  return rows.filter(r => !removeSet.has(r.id));
+}
+
+// Backfills clean descriptions onto rows imported before cleanDescription()
+// existed (or from before a parser fix improved it) — every row created by
+// the PDF importer is tagged by its transaction_id prefix, so this doesn't
+// need the settings-based "Imported" tag to find them. Self-limiting: once a
+// row's stored name matches its cleaned form there's nothing left to update,
+// so this becomes a no-op on every load after the first pass (and newly
+// imported rows are already clean coming out of parseStatement, so they
+// never show up here at all). Runs before dedupeTransactions so the stricter
+// vendor-matching duplicate check compares clean text on both sides.
+async function cleanImportedDescriptions(userId: string, rows: PTxn[]): Promise<PTxn[]> {
+  const fixes = rows
+    .filter(t => t.transaction_id?.startsWith(IMPORT_ID_PREFIX) && t.name)
+    .map(t => ({ id: t.id, cleaned: cleanDescription(t.name as string) }))
+    .filter(f => f.cleaned && f.cleaned !== rows.find(r => r.id === f.id)?.name);
+  if (fixes.length === 0) return rows;
+  const results = await Promise.allSettled(
+    fixes.map(f => supabase.from("plaid_transactions").update({ name: f.cleaned }).eq("id", f.id).eq("user_id", userId))
+  );
+  const cleanMap = new Map<string, string>();
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled" && !r.value.error) cleanMap.set(fixes[i].id, fixes[i].cleaned);
+    else console.error("[cleanImportedDescriptions]", r.status === "fulfilled" ? r.value.error?.message : r.reason);
+  });
+  if (cleanMap.size === 0) return rows;
+  toast.info(`Tidied up ${cleanMap.size} imported transaction description${cleanMap.size > 1 ? "s" : ""}`);
+  return rows.map(t => cleanMap.has(t.id) ? { ...t, name: cleanMap.get(t.id)! } : t);
+}
+
 type ActionItem = { id: string; priority: "urgent"|"soon"|"info"; title: string; detail: string; cta: string; icon: typeof Wallet; reviewCategory?: string; };
 type AIInsight  = { id: string; severity: "high"|"medium"|"low"; category: string; title: string; what: string; why: string; action: string; impact: string; impactValue: number };
 type Bucket     = "cash" | "credit" | "loan" | "investment" | "other";
@@ -175,6 +253,10 @@ const EXPENSE_CATEGORIES = [
   "Financial Services", "Bank Fees", "Business",
   // Giving & transfers
   "Charitable Giving", "Transfer Out", "Internal Transfer",
+  // Refunds/returns net back against spend, not income (see "Tax|Refund"
+  // mapping below) — a return must reduce what you spent, never count as
+  // money earned.
+  "Refund / Reimbursement",
   "Other",
 ];
 
@@ -184,10 +266,14 @@ const EXPENSE_CATEGORIES = [
 // "Interest Earned" are newer, simpler names added alongside the originals
 // rather than replacing them, so nothing already categorized as "Salary" or
 // "Transfer In" silently stops counting as income.
+// NOTE: "Refund / Reimbursement" deliberately lives in EXPENSE_CATEGORIES,
+// not here — a refund/return is money coming back from something you
+// already spent on, not newly earned income. Keeping it on the expense
+// side means it nets the relevant spend down instead of inflating income.
 const INCOME_CATEGORIES = [
   "Income", "Dividends", "Interest Earned",
   "Salary", "Freelance Income", "Interest & Dividends",
-  "Refund / Reimbursement", "Transfer In", "Other Income",
+  "Transfer In", "Other Income",
 ];
 
 // The curated set actually offered in the category picker's "Income" section
@@ -1177,7 +1263,10 @@ const PLAID_CATEGORY_MAP: Record<string, string> = {
   // ── Tax ───────────────────────────────────────────────────
   "Tax":                                     "Financial Services",
   "Tax|Payment":                             "Financial Services",
-  "Tax|Refund":                              "Income",
+  // A tax refund is money back on tax you already paid, not new income —
+  // classify it like any other refund so it nets against spend instead of
+  // being counted as earnings.
+  "Tax|Refund":                              "Refund / Reimbursement",
 
   // ── Transfer ──────────────────────────────────────────────
   "Transfer":                                "Transfer Out",
@@ -1299,7 +1388,12 @@ const isIncomeCategory = (
   const custom = customCategories.find(c => c.name.toLowerCase() === cat.toLowerCase());
   if (custom) return custom.type === "income";
   if (INCOME_CATEGORIES.some(c => c.toLowerCase() === cat.toLowerCase())) return true;
-  if (EXPENSE_CATEGORIES.some(c => c.toLowerCase() === cat.toLowerCase())) return false;
+  // "Other" is EXPENSE_CATEGORIES' catch-all for anything that failed to
+  // categorize (null/unmapped Plaid category) — it is NOT a deliberate
+  // "this is an expense" assignment, so it must not hard-block a real
+  // income deposit (e.g. a paycheck whose category never got backfilled)
+  // from falling through to the sign-based fallback below.
+  if (cat.toLowerCase() !== "other" && EXPENSE_CATEGORIES.some(c => c.toLowerCase() === cat.toLowerCase())) return false;
   // Unclassified category — fall back to sign (negative = money in) if given.
   return fallbackAmount != null ? fallbackAmount < 0 : false;
 };
@@ -2552,8 +2646,10 @@ const TxnDetailModal = ({
               {(merchant ?? "?").charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[15px] font-semibold text-foreground truncate">{currentDisplayName}</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">{dateStr}{account ? ` · ${account.name}` : ""}{txn.pending ? " · Pending" : ""}</p>
+              <p className="font-display text-[15px] text-foreground truncate">{currentDisplayName}</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5 truncate">
+                {dateStr}{account ? ` · ${account.name ?? account.official_name ?? "account"}${account.mask ? ` ··${account.mask}` : ""}` : ""}{txn.pending ? " · Pending" : ""}
+              </p>
             </div>
             <div className="text-right shrink-0">
               <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
@@ -2581,32 +2677,19 @@ const TxnDetailModal = ({
           {tab === "info" && (
             <div className="px-5 pb-5 space-y-3">
 
-              {/* Amount + date hero */}
-              <div className="flex items-center justify-between py-3 border-b border-border/20">
-                <div className="min-w-0 mr-3">
-                  <p className="text-[12px] text-muted-foreground">Amount</p>
-                  <p className={cn("text-[22px] font-black leading-tight tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
-                    {isIncome ? "+" : ""}{fmtUSD(Math.abs(Number(txn.amount)))}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[12px] text-muted-foreground">{txn.pending ? "Pending" : "Posted"}</p>
-                  <p className="text-[13px] font-semibold text-foreground">
-                    {new Date(txn.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
-                </div>
-              </div>
-
               {/* Category — dropdown, plus inline "add new" / rename */}
               <div>
                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
                 {renderCategoryField()}
               </div>
 
-              {/* Field/value grid — constrained to prevent overflow */}
+              {/* Field/value grid — constrained to prevent overflow. Merchant is
+                  only shown here when it differs from the title above (i.e. a
+                  custom display name is hiding the real merchant) — otherwise
+                  it's the same text already visible in the header. */}
               <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
                 {([
-                  ["Merchant",  merchant ?? "—"],
+                  ...(merchant && merchant !== currentDisplayName ? [["Merchant", merchant]] : []),
                   ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "—"],
                   ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
                 ] as [string,string][]).map(([label, value]) => (
@@ -2917,16 +3000,6 @@ const TxnDetailModal = ({
           )}
         </div>
 
-        {/* ── Footer: source account ─────────────────────────── */}
-        <div className="shrink-0 px-5 py-3 border-t border-border/30 flex items-center gap-2">
-          <Landmark className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0"/>
-          <p className="text-[11.5px] text-muted-foreground truncate">
-            {account
-              ? <>From <span className="text-foreground font-medium">{account.name ?? account.official_name ?? "account"}</span>{account.mask ? ` ··${account.mask}` : ""}</>
-              : "Account unknown"}
-          </p>
-        </div>
-
         {/* ── Rule creation overlay sheet ─────────────────────── */}
         {ruleOpen && (
           <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/50 rounded-2xl" onClick={() => setRuleOpen(false)}>
@@ -2935,7 +3008,7 @@ const TxnDetailModal = ({
                 <div className="w-8 h-1 rounded-full bg-muted-foreground/30"/>
               </div>
               <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 shrink-0">
-                <p className="text-[15px] font-bold text-foreground">Create rule</p>
+                <p className="font-display text-[15px] text-foreground">Create rule</p>
                 <button onClick={() => setRuleOpen(false)} aria-label="Close" className="h-8 w-8 grid place-items-center rounded-full bg-muted/60 text-muted-foreground">
                   <X className="h-4 w-4"/>
                 </button>
@@ -3050,7 +3123,7 @@ const SpendingCatPopup = ({ cat, txns, accounts, nameOverrides, onClose, onOpenD
             <Icon className="h-4 w-4"/>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[15px] font-semibold text-foreground">{formatCat(cat)}</div>
+            <div className="font-display text-[15px] text-foreground">{formatCat(cat)}</div>
             <div className="text-[12.5px] text-muted-foreground">{txns.length} transactions · {fmtUSD(total)}</div>
           </div>
         </div>
@@ -3716,8 +3789,35 @@ const GrantConsentButton = ({ itemId, onGranted }: { itemId: string; onGranted: 
   );
 };
 
+// Finer-grained grouping used only in the main Accounts panel — the app-wide
+// Bucket/mapBucket lump every depository account into one "Checking & Savings"
+// bucket, which is the right level of detail for net-worth/summary views but
+// too coarse here: this is the list the user actually scans account-by-account,
+// so Checking, Savings, and High-Yield Savings are split out as their own groups.
+type AccountGroup = "checking" | "savings" | "hysa" | "credit" | "loan" | "investment" | "other";
+const ACCOUNT_GROUP_ORDER: AccountGroup[] = ["checking", "savings", "hysa", "credit", "loan", "investment", "other"];
+const ACCOUNT_GROUP_META: Record<AccountGroup, { label: string; icon: React.ElementType }> = {
+  checking:   { label: "Checking",           icon: Wallet },
+  savings:    { label: "Savings",            icon: PiggyBank },
+  hysa:       { label: "High-Yield Savings", icon: PiggyBank },
+  credit:     { label: "Credit Cards",       icon: CreditCard },
+  loan:       { label: "Loans & Mortgages",  icon: Building2 },
+  investment: { label: "Investments",        icon: TrendingUp },
+  other:      { label: "Other",              icon: Landmark },
+};
+const mapAccountGroup = (a: PAccount, instName: string, apr?: number | null): AccountGroup => {
+  if (a.type === "credit") return "credit";
+  if (a.type === "loan") return "loan";
+  if (a.type === "investment") return "investment";
+  const sub = (a.subtype ?? "").toLowerCase();
+  if (sub === "checking") return "checking";
+  if (sub === "savings") return isHYSA(a, instName, apr) ? "hysa" : "savings";
+  if (sub.includes("money market") || sub === "hsa") return "savings";
+  return "other";
+};
+
 // ── Account detail dialog ──────────────────────────────────────
-// ── AccountsPanel — collapsible buckets + account rows ──────────
+// ── AccountsPanel — collapsible groups + account rows ──────────
 const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onSelect, onAddAccount, onEditManual, onDeleteManual }: {
   accounts: PAccount[];
   manualAccounts: ManualAccount[];
@@ -3732,7 +3832,8 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
   const [openBuckets, setOpenBuckets] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpenBuckets(p => ({ ...p, [k]: !p[k] }));
 
-  const activeBuckets = bucketOrder.filter(b => accounts.some(a => mapBucket(a.type, a.subtype) === b));
+  const groupFor = (a: PAccount) => mapAccountGroup(a, getInstNameFor(a, items), accountMeta[a.id]?.apr);
+  const activeBuckets = ACCOUNT_GROUP_ORDER.filter(b => accounts.some(a => groupFor(a) === b));
   const hasManual = manualAccounts.length > 0;
 
   // Net cash computed across depository accounts
@@ -3754,23 +3855,23 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
         </div>
       )}
 
-      {/* Collapsible buckets */}
+      {/* Collapsible groups */}
       {activeBuckets.map(bucket => {
-        const list = accounts.filter(a => mapBucket(a.type, a.subtype) === bucket);
+        const list = accounts.filter(a => groupFor(a) === bucket);
         const total = list.reduce((s,a)=> s + (isDebt(a.type) ? -Math.abs(Number(a.current_balance)||0) : (Number(a.current_balance)||0)), 0);
         const open = !!openBuckets[bucket];
-        const BucketIcon = bucketMeta[bucket].icon ?? Building2;
+        const BucketIcon = ACCOUNT_GROUP_META[bucket].icon ?? Building2;
         const debt = total < 0;
         return (
           <div key={bucket}>
-            {/* Bucket header — tap to expand */}
+            {/* Group header — tap to expand */}
             <button onClick={() => toggle(bucket)}
               className="w-full flex items-center gap-3 px-4 md:px-5 py-3.5 hover:bg-surface-hover/20 transition-colors text-left">
               <div className="h-8 w-8 rounded-xl bg-secondary/60 grid place-items-center shrink-0">
                 <BucketIcon className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-[14px] font-semibold text-foreground">{bucketMeta[bucket].label}</span>
+                <span className="text-[14px] font-semibold text-foreground">{ACCOUNT_GROUP_META[bucket].label}</span>
                 <span className="ml-2 text-[11px] text-muted-foreground/50">{list.length}</span>
               </div>
               <span className={cn("text-[15px] font-bold tabular shrink-0 mr-1", debt ? "text-negative" : "text-foreground")}>
@@ -4392,6 +4493,7 @@ export const LivePlaidDashboard = ({
   const bulkSetNameOverride = S.bulkSetNameOverride;
   const nameRules = settings.nameRules;
   const saveNameRule = S.saveNameRule;
+  const removeNameRule = S.removeNameRule;
   const manualIncome = settings.manualIncome;
   const addManualIncome = (item: { id: string; label: string; amount: number }) => S.addManualIncome(item);
   const removeManualIncome = (id: string) => S.removeManualIncome(id);
@@ -4476,6 +4578,10 @@ export const LivePlaidDashboard = ({
   const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [openInsight, setOpenInsight] = useState<AIInsight|null>(null);
+  // Which Saving opportunities row is expanded inline — collapsed rows stay a
+  // fixed, compact height so the list scans quickly; expanding one doesn't
+  // resize its neighbors.
+  const [expandedInsightId, setExpandedInsightId] = useState<string|null>(null);
   const [period, setPeriod]         = useState<Period>("1M");
   const [editingBudgetCat, setEditingBudgetCat] = useState<string|null>(null);
   const [openPickerTxn, setOpenPickerTxn] = useState<PTxn|null>(null);
@@ -4483,6 +4589,7 @@ export const LivePlaidDashboard = ({
   const [budgetDraft, setBudgetDraft] = useState("");
   const [showCatManager, setShowCatManager] = useState(false);
   const [showRulesManager, setShowRulesManager] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [openActionItem, setOpenActionItem] = useState<ActionItem|null>(null);
   const [spendingPopup, setSpendingPopup] = useState<string|null>(null);
   const [spendPopupLimit, setSpendPopupLimit] = useState<5|10|"all">(5);
@@ -4589,8 +4696,8 @@ export const LivePlaidDashboard = ({
   };
 
   // Panel order for overall dashboard (drag-and-drop)
-  const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "top-spending", "upcoming-charges"];
-  const panelOrder = (settings.panelOrder?.length === 4 && DEFAULT_PANEL_ORDER.every(id => settings.panelOrder.includes(id))) ? settings.panelOrder : DEFAULT_PANEL_ORDER;
+  const DEFAULT_PANEL_ORDER = ["action-items", "saving-opps", "upcoming-charges"];
+  const panelOrder = (settings.panelOrder?.length === 3 && DEFAULT_PANEL_ORDER.every(id => settings.panelOrder.includes(id))) ? settings.panelOrder : DEFAULT_PANEL_ORDER;
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
@@ -4627,27 +4734,34 @@ export const LivePlaidDashboard = ({
     if (!user) return;
     setLoading(true);
     try {
-      // 13 months back so the Spending screen's 12-month scrubber always has a
-      // full year of real history to show, not just the trailing quarter.
-      const twelveMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-13); return d.toISOString().slice(0,10); })();
-      const [accsRes, txnsRes, itsRes, cdRes] = await Promise.all([
+      // No date floor here — every detector downstream (recurring bills,
+      // yearly expenses, income patterns) already applies its own lookback
+      // window in JS once this data is loaded. A hard cutoff at this layer
+      // used to silently drop anything older than 13 months on every single
+      // refresh — including manually imported statement history from prior
+      // years, which would vanish again the moment the page next reloaded.
+      // Transactions are fetched via fetchAllTransactions (paginated — see
+      // its comment) rather than a plain .select(), since a plain select
+      // silently truncates at ~1000 rows once total volume crosses that line.
+      const [accsRes, txnsData, itsRes, cdRes] = await Promise.all([
         supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
-        supabase.from("plaid_transactions").select("*").eq("user_id",user.id).gte("date", twelveMonthsAgo).order("date",{ascending:false}),
+        fetchAllTransactions(user.id),
         supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
         supabase.from("plaid_credit_details").select("*").eq("user_id",user.id),
       ]);
       if (accsRes.error) console.error("[load] accounts:", accsRes.error.message);
-      if (txnsRes.error) console.error("[load] transactions:", txnsRes.error.message);
       if (itsRes.error)  console.error("[load] items:", itsRes.error.message);
       if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
       // Apply whatever succeeded — one failing table shouldn't blank the rest
       setAccounts((accsRes.data ?? []) as PAccount[]);
-      setTxns((txnsRes.data ?? []) as PTxn[]);
+      const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
+      const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
+      setTxns(dedupedTxns);
       setItems((itsRes.data ?? []) as PItem[]);
       setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
       // accountMeta auto-updates from settings
       setLastSyncedAt(new Date());
-      if (accsRes.error && txnsRes.error) {
+      if (accsRes.error && txnsData.length === 0) {
         toast.error("Failed to load financial data", { description: accsRes.error.message });
       }
     } catch (e) {
@@ -4756,9 +4870,12 @@ export const LivePlaidDashboard = ({
   const refreshTxns = useCallback(async () => {
     if (!user) return;
     setRefreshingTxns(true);
-    const twelveMonthsAgo = (() => { const d = new Date(); d.setMonth(d.getMonth()-13); return d.toISOString().slice(0,10); })();
-    const { data } = await supabase.from("plaid_transactions").select("*").eq("user_id", user.id).gte("date", twelveMonthsAgo).order("date", { ascending: false });
-    if (data) { setTxns(data as PTxn[]); setLastSyncedAt(new Date()); }
+    // Same no-cutoff, fully-paginated fetch as load() above — see its comment.
+    const data = await fetchAllTransactions(user.id);
+    const cleaned = await cleanImportedDescriptions(user.id, data);
+    const deduped = await dedupeTransactions(user.id, cleaned);
+    setTxns(deduped);
+    setLastSyncedAt(new Date());
     setRefreshingTxns(false);
   }, [user]);
 
@@ -4988,7 +5105,7 @@ export const LivePlaidDashboard = ({
   // Segmented switch between the merged Spending and Budget views.
   const SpendBudgetTabs = () => (
     <div className="flex bg-muted/40 rounded-full p-0.5 text-[13px] font-medium">
-      {([["spending", "Spending"], ["budget", "Budget"]] as const).map(([k, label]) => (
+      {([["spending", "Spending"], ["budget", "Overview"]] as const).map(([k, label]) => (
         <button key={k} onClick={() => onViewChange?.(k)}
           className={cn("px-5 py-1.5 rounded-full transition-all",
             view === k ? "bg-background text-foreground font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>
@@ -5358,104 +5475,55 @@ export const LivePlaidDashboard = ({
                     <Sparkles className="h-4 w-4 shrink-0 opacity-40" />Tap the refresh icon above to generate insights.
                   </div>
                 ) : (
-                  <div className="p-3 grid grid-cols-1 gap-3">
-                    {visibleInsights.slice(0,4).map(insight=>{
+                  // Fixed-height collapsed rows regardless of how many there are —
+                  // expanding one reveals its detail inline without resizing the
+                  // others, and the whole list scrolls once it outgrows ~5 rows
+                  // instead of pushing the rest of the page down.
+                  <div className={cn("divide-y divide-border/15", visibleInsights.length > 5 && "max-h-[340px] overflow-y-auto")}>
+                    {visibleInsights.map(insight=>{
                       const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
                       const sevDot = insight.severity==="high" ? "bg-negative" : insight.severity==="medium" ? "bg-warning" : "bg-info";
+                      const expanded = expandedInsightId === insight.id;
+                      const monthlyEquivalent = insight.impactValue > 0 ? insight.impactValue / 12 : 0;
                       return (
-                        <button key={insight.id} onClick={()=>setOpenInsight(insight)}
-                          className="group surface-card relative overflow-hidden p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--shadow-elevated)]">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center text-foreground/80">
-                              <CatIcon className="h-4 w-4" />
+                        <div key={insight.id}>
+                          <button onClick={()=>setExpandedInsightId(expanded ? null : insight.id)}
+                            className="group w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-surface-hover/30 transition-colors">
+                            <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center text-foreground/80 shrink-0 relative">
+                              <CatIcon className="h-3.5 w-3.5" />
+                              <span className={cn("absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full", sevDot)} />
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <div className={cn("h-1.5 w-1.5 rounded-full", sevDot)}>
-                                <div className={cn("absolute h-1.5 w-1.5 rounded-full animate-pulse-glow", sevDot, "opacity-50 blur-sm")} />
-                              </div>
-                              <span className="text-[12px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
-                            </div>
-                          </div>
-
-                          <h3 className="font-display text-[14px] font-medium mt-3 text-foreground leading-snug line-clamp-2">
-                            {insight.title}
-                          </h3>
-
-                          <div className="mt-3 pt-3 border-t border-border/60 flex items-end justify-between">
-                            <div>
-                              <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Opportunity</div>
-                              <div className="font-display text-[13px] tabular text-positive leading-tight">{insight.impact}</div>
-                            </div>
-                            <span className="inline-flex items-center gap-1 text-[12.5px] text-muted-foreground group-hover:text-foreground transition-colors">
-                              Details <ArrowRight className="h-3 w-3 group-hover:translate-x-0.5 transition-transform" />
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-
-            const panelTopSpending = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
-              <div className="surface-card overflow-hidden h-full">
-                <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
-                    <GripVertical className="h-3.5 w-3.5" />
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-[14px] text-primary">Top Spending</h3>
-                    <div className="text-[12px] text-muted-foreground mt-0.5">{new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})} · {fmtUSD(totalSpend)}</div>
-                  </div>
-                  <button onClick={()=>onCategorySelect?.("__spending__")}
-                    className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-lg border border-border/50 hover:border-border transition-colors shrink-0">
-                    View all <ArrowRight className="h-3 w-3" />
-                  </button>
-                </div>
-                {spendByCategory.length === 0 ? (
-                  <div className="px-4 py-6 text-[13px] text-muted-foreground text-center">No spending data.</div>
-                ) : (
-                  <div className="divide-y divide-border/20">
-                    {spendByCategory.slice(0,5).map(c=>{
-                      const Icon=categoryIcon(c.category); const color=catColor(c.category);
-                      const budget=budgets[c.category]; const pct=budget?(c.total/budget)*100:0;
-                      const over=budget&&c.total>budget; const near=budget&&!over&&pct>=70;
-                      const trend=spendTrends.find(t=>t.category===c.category);
-                      const topTxns=[...c.txns].sort((a,b)=>Number(b.amount)-Number(a.amount));
-                      const sharePct = totalSpend > 0 ? (c.total / totalSpend) * 100 : 0;
-                      return (
-                        <button key={c.category} onClick={()=>{setSpendingPopup(c.category);setSpendPopupLimit(5);}}
-                          className="group relative w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-surface-hover/40 transition-colors overflow-hidden">
-                          <div className="pointer-events-none absolute inset-y-0 left-0" style={{width:`${sharePct}%`, background:`${color}09`}} />
-                          <div className="relative h-8 w-8 rounded-xl grid place-items-center shrink-0 transition-transform group-hover:scale-105"
-                            style={{backgroundColor:`${color}1f`,color}}>
-                            <Icon className="h-3.5 w-3.5" />
-                          </div>
-                          <div className="relative flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[13.5px] text-foreground font-medium truncate">{formatCat(c.category)}</span>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {trend?.pct!=null&&trend.pct!==0&&(
-                                  <span className={cn("text-[12px] tabular px-1.5 py-0.5 rounded-full font-medium",
-                                    trend.delta>0?"bg-negative/10 text-negative":"bg-positive/10 text-positive")}>
-                                    {trend.delta>0?"+":""}{trend.pct}%
-                                  </span>
+                            <span className="flex-1 min-w-0 text-[13px] text-foreground font-medium truncate">{insight.title}</span>
+                            <span className="text-[12px] tabular text-positive font-semibold shrink-0">{insight.impact}</span>
+                            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/50 shrink-0 transition-transform", expanded && "rotate-180")} />
+                          </button>
+                          {expanded && (
+                            <div className="px-4 pb-3.5 -mt-0.5 space-y-2.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
+                                {monthlyEquivalent > 0 && (
+                                  <span className="text-[11px] text-muted-foreground">· {fmtUSD(monthlyEquivalent)}/mo</span>
                                 )}
-                                <span className="text-[14px] tabular font-semibold">{fmtUSD(c.total)}</span>
+                              </div>
+                              {([["What's happening", insight.what],["Why it matters", insight.why],["Suggested action", insight.action]] as [string,string][]).map(([label,body])=>(
+                                <div key={label}>
+                                  <div className="text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground/70 mb-0.5">{label}</div>
+                                  <p className="text-[12.5px] text-foreground/90 leading-snug">{body}</p>
+                                </div>
+                              ))}
+                              <div className="flex items-center gap-2 pt-1">
+                                <button onClick={()=>{ dismissInsight(insight.id); setExpandedInsightId(null); }}
+                                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border-strong text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
+                                  <X className="h-3 w-3" /> Dismiss
+                                </button>
+                                <button onClick={()=>setOpenInsight(insight)}
+                                  className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors ml-auto">
+                                  Full details <ArrowRight className="h-3 w-3" />
+                                </button>
                               </div>
                             </div>
-                            <div className="text-[12px] text-muted-foreground mt-0.5 truncate">
-                              {topTxns[0] ? `${nameOverrides[topTxns[0].id]??topTxns[0].merchant_name??topTxns[0].name??"Unknown"} · ${fmtUSD(Number(topTxns[0].amount))}` : `${c.count} transactions`}
-                            </div>
-                            {!!budget && (
-                              <div className="mt-1.5 h-0.5 rounded-full bg-border/40 overflow-hidden">
-                                <div className="h-full rounded-full" style={{width:`${Math.min(pct,100)}%`,backgroundColor:over?"hsl(var(--negative))":near?"hsl(var(--warning))":color}}/>
-                              </div>
-                            )}
-                          </div>
-                          <ChevronRight className="relative h-3.5 w-3.5 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
-                        </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -5596,7 +5664,6 @@ export const LivePlaidDashboard = ({
             const renderPanel = (id: string, dragHandle: React.HTMLAttributes<HTMLElement>) => {
               if (id === "action-items") return panelActionItems(dragHandle);
               if (id === "saving-opps") return panelSavingOpps(dragHandle);
-              if (id === "top-spending") return panelTopSpending(dragHandle);
               if (id === "upcoming-charges") return panelUpcomingCharges(dragHandle);
               return null;
             };
@@ -5790,7 +5857,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6163,7 +6230,7 @@ export const LivePlaidDashboard = ({
                 <Wallet className="h-6 w-6 text-[hsl(var(--primary))]" />
               </div>
               <div>
-                <div className="text-[15px] font-semibold text-foreground">Start a budget</div>
+                <div className="font-display text-[15px] text-foreground">Start a budget</div>
                 <div className="text-[13.5px] text-muted-foreground mt-1 max-w-xs mx-auto">Set a monthly limit for a category and track exactly how much is left to spend.</div>
               </div>
               <button onClick={() => { setEditingBudgetCat("__add__"); setBudgetDraft(""); setAddCatNameDraft(""); setAddCatCustom(""); }}
@@ -6592,8 +6659,43 @@ export const LivePlaidDashboard = ({
           onRenameCategory={renameCategory}
           txnTags={settings.txnTags}
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
+          onOpenRules={() => setShowRulesManager(true)}
+          onOpenImport={() => setShowImportModal(true)}
         />
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); setView("spending"); }}
+        <ImportStatementModal
+          open={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          accounts={accounts.map(a => {
+            const raw = a as unknown as Record<string, unknown>;
+            return { account_id: a.account_id, item_id: raw.item_id as string | undefined, name: a.name, official_name: a.official_name, mask: a.mask };
+          })}
+          userId={user?.id ?? ""}
+          onAddTag={(id, tag) => S.addTxnTag(id, tag)}
+          onImported={refreshTxns}
+        />
+        {showRulesManager && (
+          <RulesManager
+            rules={rules}
+            nameRules={nameRules}
+            allTxns={txns}
+            onRemoveCatRule={removeRule}
+            onToggleCatRule={toggleRule}
+            onUpdateCatRule={updateRule}
+            onAddCatRule={addRule}
+            onSaveNameRule={saveNameRule}
+            onRemoveNameRule={removeNameRule}
+            onClose={() => setShowRulesManager(false)}
+            smartRules={smartRules}
+            evalTxns={evalTxns}
+            accounts={accounts}
+            categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}
+            onAddSmartRule={addSmartRule}
+            onUpdateSmartRule={updateSmartRule}
+            onRemoveSmartRule={removeSmartRule}
+            onToggleSmartRule={toggleSmartRule}
+          />
+        )}
+        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6611,6 +6713,7 @@ export const LivePlaidDashboard = ({
 
   if (view==="budget") {
     return (
+      <>
       <BudgetPage
         txns={txns}
         accounts={accounts}
@@ -6625,6 +6728,7 @@ export const LivePlaidDashboard = ({
         savingsGoals={settings.savingsGoals}
         addSavingsGoal={S.addSavingsGoal}
         removeSavingsGoal={S.removeSavingsGoal}
+        updateSavingsGoal={S.updateSavingsGoal}
         recurringOverrides={settings.recurringOverrides}
         recurringGroups={settings.recurringGroups}
         addRecurringGroup={S.addRecurringGroup}
@@ -6634,8 +6738,35 @@ export const LivePlaidDashboard = ({
         removeTxnFromRecurringGroup={S.removeTxnFromRecurringGroup}
         dismissedRecurring={settings.dismissedRecurring}
         dismissRecurring={dismissRecurring}
+        dismissRecurringWithReason={dismissRecurringWithReason}
+        clearRecurringDismissals={S.clearRecurringDismissals}
         resetBudgetTracking={S.resetBudgetTracking}
+        budgets={budgets}
+        accountRoles={settings.accountRoles}
+        overageFundingPrefs={settings.overageFundingPrefs}
+        plannedTransfers={settings.plannedTransfers}
+        confirmOverageFunding={S.confirmOverageFunding}
+        dismissTransfer={S.dismissTransfer}
+        setBudget={S.setBudget}
+        removeBudget={S.removeBudget}
+        cardAutopayFrom={settings.cardAutopayFrom}
+        setCardAutopayFrom={S.setCardAutopayFrom}
+        removeCardAutopayFrom={S.removeCardAutopayFrom}
+        onOpenTxnDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
       />
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        tags={settings.txnTags[detailTxn.id] ?? []}
+        onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
+        onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
+        note={settings.txnNotes[detailTxn.id] ?? ""}
+        onSaveNote={(id,n)=>S.setTxnNote(id,n)}
+        isRecurringOverride={settings.recurringOverrides[detailTxn.id]}
+        onSetRecurringOverride={(id,val)=>S.setRecurringOverride(id,val)}
+        onClearRecurringOverride={(id)=>S.clearRecurringOverride(id)}
+        splits={settings.txnSplits[detailTxn.id] ?? []}
+        onSaveSplits={(id,sp)=>S.setTxnSplits(id,sp)}
+        />}
+      </>
     );
   }
 
@@ -6917,7 +7048,7 @@ export const LivePlaidDashboard = ({
 
               {/* Header */}
               <div className="px-5 pt-5 pb-4 border-b border-border/20 shrink-0">
-                <div className="text-[16px] font-bold text-foreground">Account roles</div>
+                <div className="font-display text-[16px] text-foreground">Account roles</div>
                 <div className="text-[12.5px] text-muted-foreground mt-1">
                   Tag each account so Money Map knows how to group them.
                 </div>

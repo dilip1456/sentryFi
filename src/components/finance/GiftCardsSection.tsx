@@ -28,6 +28,71 @@ const copyToClipboard = async (text: string, label: string) => {
 
 type GiftCardRow = Tables<"gift_cards">;
 
+// gift_card_activity isn't in the generated Supabase types yet (same reason
+// gift_cards itself already resolves loosely — see the pre-existing `never`
+// errors on GiftCardRow field access below), so this is a hand-written
+// mirror of the table shape defined in
+// supabase/migrations/20260925120000_gift_cards_trash_and_activity.sql.
+type GiftCardActivityKind = "added" | "spend" | "adjustment" | "removed" | "restored";
+type GiftCardActivityRow = {
+  id: string;
+  gift_card_id: string;
+  user_id: string;
+  kind: GiftCardActivityKind;
+  amount: number | null;
+  balance_after: number;
+  note: string | null;
+  created_at: string;
+};
+
+/** Append-only usage-trail insert. Fire-and-forget on purpose — a logging
+ *  failure shouldn't block or roll back the balance change that triggered it. */
+const logActivity = async (entry: {
+  gift_card_id: string; user_id: string; kind: GiftCardActivityKind;
+  amount: number | null; balance_after: number; note?: string | null;
+}) => {
+  const { error } = await supabase.from("gift_card_activity").insert({
+    gift_card_id: entry.gift_card_id,
+    user_id: entry.user_id,
+    kind: entry.kind,
+    amount: entry.amount,
+    balance_after: entry.balance_after,
+    note: entry.note ?? null,
+  });
+  if (error) console.error("[gift_card_activity] insert failed:", error.message);
+};
+
+const ACTIVITY_LABEL: Record<GiftCardActivityKind, string> = {
+  added: "Card added", spend: "Spent", adjustment: "Balance adjusted", removed: "Removed", restored: "Restored",
+};
+
+/** Compact usage trail shown inside the card detail popup and the desktop
+ *  preview panel — renders nothing when there's no history yet. */
+const ActivityHistoryList = ({ entries }: { entries: GiftCardActivityRow[] }) => {
+  if (!entries.length) return null;
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[12px] uppercase tracking-wider text-muted-foreground block">Activity</span>
+      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+        {entries.map(e => (
+          <div key={e.id} className="flex items-center justify-between gap-2 text-[12.5px]">
+            <div className="min-w-0 truncate">
+              <span className="text-foreground">{ACTIVITY_LABEL[e.kind]}</span>
+              {e.note && <span className="text-muted-foreground"> · {e.note}</span>}
+            </div>
+            <div className="flex items-center gap-2 shrink-0 text-muted-foreground">
+              {e.amount != null && (
+                <span className="tabular">{e.kind === "spend" && e.amount > 0 ? "-" : ""}{fmtUSD(Math.abs(Number(e.amount)))}</span>
+              )}
+              <span>{new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const EXPIRY_WARNING_DAYS = 30;
 
 // Illustrative cards shown only in demo/guest mode — this screen otherwise
@@ -210,11 +275,12 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
 /** Click-to-view popup for a card — read-only quick view with shortcuts into edit/spend/remove.
  *  Supports swiping left/right to browse other cards without closing the popup. */
 const CardDetailDialog = ({
-  cards, index, onIndexChange, onClose, onEdit, onLogSpend, onRemove, removingId,
+  cards, index, onIndexChange, onClose, onEdit, onLogSpend, onRemove, removingId, activityByCard,
 }: {
   cards: GiftCardRow[]; index: number; onIndexChange: (i: number) => void;
   onClose: () => void; onEdit: (card: GiftCardRow) => void; onLogSpend: (card: GiftCardRow) => void;
   onRemove: (card: GiftCardRow) => void; removingId: string | null;
+  activityByCard: Record<string, GiftCardActivityRow[]>;
 }) => {
   const [reveal, setReveal] = useState(false);
   const [dragX, setDragX] = useState(0);
@@ -350,6 +416,8 @@ const CardDetailDialog = ({
             </div>
           )}
 
+          <ActivityHistoryList entries={activityByCard[card.id] ?? []} />
+
           <div className="grid grid-cols-2 gap-1.5">
             <button onClick={() => onLogSpend(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
               <MinusCircle className="h-3.5 w-3.5" /> Log spend
@@ -380,16 +448,16 @@ const CardDetailDialog = ({
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete this gift card?</AlertDialogTitle>
+                <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This permanently removes {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
-                  {(card.card_number || card.card_number_last4 || card.pin) ? ", stored card number, and PIN" : ""} from SentryFi. This can't be undone.
+                  This moves {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
+                  {(card.card_number || card.card_number_last4 || card.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={() => onRemove(card)} className="bg-negative text-negative-foreground hover:bg-negative/90">
-                  Delete
+                  Remove
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -403,10 +471,14 @@ const CardDetailDialog = ({
 export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const { user } = useAuth();
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
+  const [trashCards, setTrashCards] = useState<GiftCardRow[]>([]);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [activity, setActivity] = useState<Record<string, GiftCardActivityRow[]>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [spendCard, setSpendCard] = useState<GiftCardRow | null>(null);
   const [editCard, setEditCard] = useState<GiftCardRow | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("table");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -420,14 +492,26 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const demoBlocked = () => toast("Create a free account to manage your gift cards", { description: "This is sample data in demo mode." });
 
   const load = useCallback(async () => {
-    if (demo) { setCards(DEMO_GIFT_CARDS); return; }
+    if (demo) { setCards(DEMO_GIFT_CARDS); setTrashCards([]); setActivity({}); return; }
     if (!user) return;
-    const { data, error } = await supabase
-      .from("gift_cards")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const [{ data, error }, { data: trashData, error: trashError }, { data: activityData, error: activityError }] = await Promise.all([
+      supabase.from("gift_cards").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
+      supabase.from("gift_cards").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false }),
+      supabase.from("gift_card_activity").select("*").order("created_at", { ascending: false }),
+    ]);
     if (error) { toast.error("Couldn't load gift cards", { description: error.message }); return; }
     setCards(data ?? []);
+    if (trashError) toast.error("Couldn't load removed cards", { description: trashError.message });
+    else setTrashCards(trashData ?? []);
+    if (activityError) {
+      console.error("[gift_card_activity] load failed:", activityError.message);
+    } else {
+      const grouped: Record<string, GiftCardActivityRow[]> = {};
+      for (const row of (activityData ?? []) as GiftCardActivityRow[]) {
+        (grouped[row.gift_card_id] ??= []).push(row);
+      }
+      setActivity(grouped);
+    }
   }, [user, demo]);
 
   useEffect(() => { load(); }, [load]);
@@ -464,12 +548,34 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
 
   const removeCard = async (id: string) => {
     if (demo) { demoBlocked(); return; }
+    const card = (cards ?? []).find(c => c.id === id);
     setRemovingId(id);
-    const { error } = await supabase.from("gift_cards").delete().eq("id", id);
+    const { error } = await supabase.from("gift_cards")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", id);
     setRemovingId(null);
     if (error) { toast.error("Couldn't remove card", { description: error.message }); return; }
-    toast.success("Gift card removed");
-    setCards(c => (c ?? []).filter(x => x.id !== id));
+    if (user && card) {
+      await logActivity({ gift_card_id: id, user_id: user.id, kind: "removed", amount: null, balance_after: Number(card.balance) });
+    }
+    toast.success("Gift card removed", { description: "Restore it anytime from Removed cards below." });
+    load();
+  };
+
+  const restoreCard = async (id: string) => {
+    if (demo) { demoBlocked(); return; }
+    const card = trashCards.find(c => c.id === id);
+    setRestoringId(id);
+    const { error } = await supabase.from("gift_cards")
+      .update({ deleted_at: null })
+      .eq("id", id);
+    setRestoringId(null);
+    if (error) { toast.error("Couldn't restore card", { description: error.message }); return; }
+    if (user && card) {
+      await logActivity({ gift_card_id: id, user_id: user.id, kind: "restored", amount: null, balance_after: Number(card.balance) });
+    }
+    toast.success("Gift card restored");
+    load();
   };
 
   const goTo = (i: number) => { if (!cards) return; setActiveIndex(Math.max(0, Math.min(cards.length - 1, i))); };
@@ -652,16 +758,16 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>Delete this gift card?</AlertDialogTitle>
+                            <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This permanently removes {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
-                              {(card.card_number || card.card_number_last4 || card.pin) ? ", stored card number, and PIN" : ""} from SentryFi. This can't be undone.
+                              This moves {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
+                              {(card.card_number || card.card_number_last4 || card.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={() => removeCard(card.id)} className="bg-negative text-negative-foreground hover:bg-negative/90">
-                              Delete
+                              Remove
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -715,6 +821,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                           {card.notes && <p className="text-muted-foreground text-[13px]">{card.notes}</p>}
                         </div>
                       )}
+                      <ActivityHistoryList entries={activity[card.id] ?? []} />
                       <button onClick={() => openSpend(card)}
                         className="w-full h-10 rounded-lg bg-gold text-[13.5px] font-semibold flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity">
                         <MinusCircle className="h-3.5 w-3.5" /> Log Spend
@@ -739,7 +846,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                       className="text-left space-y-2">
                       <GiftCardTile card={card} />
                       <div className="px-1">
-                        <div className="text-[13px] font-semibold text-foreground truncate">{card.brand_name}</div>
+                        <div className="font-display text-[13px] text-foreground truncate">{card.brand_name}</div>
                         <div className="flex items-center justify-between mt-0.5">
                           <span className={cn("text-[13px] tabular font-medium", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</span>
                           {status && <span className={cn("text-[10px] font-semibold", status === "expired" ? "text-negative" : "text-warning")}>{status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d`}</span>}
@@ -784,9 +891,40 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         </div>
       )}
 
+      {trashCards.length > 0 && (
+        <div className="surface-card overflow-hidden">
+          <button onClick={() => setTrashOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left">
+            <span className="text-[13px] font-medium text-muted-foreground inline-flex items-center gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" /> Removed cards ({trashCards.length})
+            </span>
+            <ChevronRight className={cn("h-4 w-4 text-muted-foreground/50 transition-transform", trashOpen && "rotate-90")} />
+          </button>
+          {trashOpen && (
+            <div className="divide-y divide-border/15 border-t border-border/20">
+              {trashCards.map(card => (
+                <div key={card.id} className="flex items-center gap-3 px-4 py-3">
+                  <MiniCardThumb card={card} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
+                    <div className="text-[12px] text-muted-foreground">
+                      {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${new Date(card.deleted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                    </div>
+                  </div>
+                  <button onClick={() => restoreCard(card.id)} disabled={restoringId === card.id}
+                    className="h-8 px-3 rounded-md border border-border-strong text-[12.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1.5">
+                    {restoringId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Restore"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
-      {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} />}
-      {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} />}
+      {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} onRemoveCard={() => removeCard(spendCard.id)} />}
+      {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} onRemoveCard={() => removeCard(editCard.id)} />}
       {detailIndex !== null && cards && cards[detailIndex] && (
         <CardDetailDialog
           cards={cards}
@@ -797,6 +935,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
           onLogSpend={(c) => { openSpend(c); setDetailIndex(null); }}
           onRemove={(c) => { removeCard(c.id); setDetailIndex(null); }}
           removingId={removingId}
+          activityByCard={activity}
         />
       )}
     </section>
@@ -893,7 +1032,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
     if (!user || !chosen || balance === "") return;
     setSaving(true);
     const bal = Number(balance) || 0;
-    const { error } = await supabase.from("gift_cards").insert({
+    const { data: inserted, error } = await supabase.from("gift_cards").insert({
       user_id: user.id,
       brand_name: chosen.name,
       domain: chosen.domain ?? null,
@@ -907,9 +1046,12 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
       pin: pin || null,
       expiry_date: expiryDate || null,
       notes: notes.trim() || null,
-    });
+    }).select().single();
     setSaving(false);
     if (error) { toast.error("Couldn't add gift card", { description: error.message }); return; }
+    if (inserted) {
+      await logActivity({ gift_card_id: (inserted as { id: string }).id, user_id: user.id, kind: "added", amount: null, balance_after: bal });
+    }
     toast.success(`${chosen.name} gift card added`);
     onOpenChange(false);
     onAdded();
@@ -1091,9 +1233,12 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
 /* ───────────────────────── Log spend dialog ───────────────────────── */
 
-const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose: () => void; onSaved: () => void }) => {
+const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCardRow; onClose: () => void; onSaved: () => void; onRemoveCard: () => void }) => {
+  const { user } = useAuth();
   const [spent, setSpent] = useState("");
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const newBalance = Math.max(0, Number(card.balance) - (Number(spent) || 0));
 
   const save = async () => {
@@ -1105,10 +1250,41 @@ const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose
     }).eq("id", card.id);
     setSaving(false);
     if (error) { toast.error("Couldn't update balance", { description: error.message }); return; }
+    if (user) {
+      await logActivity({
+        gift_card_id: card.id, user_id: user.id, kind: "spend",
+        amount: Number(spent) || 0, balance_after: newBalance, note: note.trim() || null,
+      });
+    }
     toast.success("Balance updated");
-    onClose();
     onSaved();
+    // Balance just hit zero — offer to remove the (now-empty) card instead of
+    // silently closing, rather than making the user notice and act later.
+    if (newBalance === 0 && Number(card.balance) > 0) { setConfirmRemove(true); return; }
+    onClose();
   };
+
+  if (confirmRemove) {
+    return (
+      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-sm surface-elevated border-border p-5 gap-4">
+          <DialogTitle className="font-display text-base text-foreground">{card.brand_name} is now empty</DialogTitle>
+          <DialogDescription className="text-[13.5px] text-muted-foreground">
+            This card's balance just hit $0. Remove it? You can still restore it later from Removed cards.
+          </DialogDescription>
+          <div className="flex gap-2">
+            <button onClick={() => { onRemoveCard(); onClose(); }}
+              className="flex-1 h-10 rounded-lg bg-negative text-negative-foreground text-[14px] font-medium hover:bg-negative/90 transition-colors">
+              Remove card
+            </button>
+            <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+              Keep it
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -1136,6 +1312,11 @@ const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose
           {spent !== "" && (
             <div className="text-[13px] text-muted-foreground">New balance: <span className="text-foreground font-medium tabular">{fmtUSD(newBalance)}</span></div>
           )}
+          <div>
+            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">What was it for? (optional)</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Coffee run"
+              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+          </div>
         </div>
         <div className="p-4 pt-0 flex gap-2">
           <button onClick={save} disabled={saving || spent === ""}
@@ -1153,7 +1334,8 @@ const LogSpendDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose
 
 /* ───────────────────────── Edit dialog ───────────────────────── */
 
-const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose: () => void; onSaved: () => void }) => {
+const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCardRow; onClose: () => void; onSaved: () => void; onRemoveCard: () => void }) => {
+  const { user } = useAuth();
   const [balance, setBalance] = useState(String(card.balance));
   const [cardNumber, setCardNumber] = useState(card.card_number ?? "");
   const [pin, setPin] = useState(card.pin ?? "");
@@ -1162,13 +1344,16 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
   const [verified, setVerified] = useState(card.balance_verified);
   const [revealSensitive, setRevealSensitive] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const last4 = cardNumber.replace(/\D/g, "").slice(-4);
 
   const save = async () => {
     setSaving(true);
+    const prevBal = Number(card.balance);
+    const newBal = Number(balance) || 0;
     const { error } = await supabase.from("gift_cards").update({
-      balance: Number(balance) || 0,
+      balance: newBal,
       card_number: cardNumber.replace(/\s/g, "") || null,
       card_number_last4: last4 || null,
       pin: pin || null,
@@ -1179,10 +1364,39 @@ const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onC
     }).eq("id", card.id);
     setSaving(false);
     if (error) { toast.error("Couldn't save changes", { description: error.message }); return; }
+    if (user && newBal !== prevBal) {
+      await logActivity({
+        gift_card_id: card.id, user_id: user.id, kind: "adjustment",
+        amount: newBal - prevBal, balance_after: newBal,
+      });
+    }
     toast.success("Gift card updated");
-    onClose();
     onSaved();
+    if (newBal === 0 && prevBal !== 0) { setConfirmRemove(true); return; }
+    onClose();
   };
+
+  if (confirmRemove) {
+    return (
+      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-sm surface-elevated border-border p-5 gap-4">
+          <DialogTitle className="font-display text-base text-foreground">{card.brand_name} is now empty</DialogTitle>
+          <DialogDescription className="text-[13.5px] text-muted-foreground">
+            This card's balance is now $0. Remove it? You can still restore it later from Removed cards.
+          </DialogDescription>
+          <div className="flex gap-2">
+            <button onClick={() => { onRemoveCard(); onClose(); }}
+              className="flex-1 h-10 rounded-lg bg-negative text-negative-foreground text-[14px] font-medium hover:bg-negative/90 transition-colors">
+              Remove card
+            </button>
+            <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+              Keep it
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const status = expiryStatus(expiryDate || null);
 
