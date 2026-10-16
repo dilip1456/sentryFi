@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     const { cards } = await req.json() as { cards: { account_id: string; name: string; official_name: string }[] };
     if (!cards?.length) return json({ benefits: {} });
 
-    const prompt = `You are a credit card benefits expert. For each card, list its KEY annual benefits that provide real dollar value. Focus on credits, travel perks, statement credits, lounge access, insurance — not basic things like fraud protection.
+    const prompt = `You are a credit card benefits expert. For each card, list its KEY annual benefits that provide real dollar value. Focus on credits, travel perks, statement credits, lounge access, insurance, not basic things like fraud protection.
 
 Cards:
 ${cards.map(c => `- account_id: ${c.account_id} | Card: ${c.official_name || c.name}`).join("\n")}
@@ -24,7 +24,8 @@ Return JSON only, no markdown:
 {"benefits":{"ACCOUNT_ID":[{"key":"unique_key","title":"Benefit name","description":"What it covers and how to use it","value":"$X/year","period":"annual"}]}}
 
 Period options: annual, monthly, per_stay, per_flight, per_purchase
-Return [] for any card you don't have info on.`;
+Return [] for any card you don't have info on.
+Never use em dashes (—) or double hyphens (--) in any title or description. Use a period, comma, or colon instead.`;
 
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",

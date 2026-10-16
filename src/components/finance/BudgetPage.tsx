@@ -329,7 +329,7 @@ function FlagIncorrectButton({ itemName, onSubmit }: { itemName: string; onSubmi
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Ignore "{itemName}"?</AlertDialogTitle>
-          <AlertDialogDescription>Say why — the detector won't make this mistake for it again.</AlertDialogDescription>
+          <AlertDialogDescription>Say why, so the detector won't make this mistake for it again.</AlertDialogDescription>
         </AlertDialogHeader>
         <div className="flex flex-wrap gap-1.5 py-1">
           {FLAG_REASONS.map(r => (
@@ -930,7 +930,7 @@ export function BudgetPage({
         key, merchant: cleanMerchantName(d.display), category: d.cat, frequency: freq, avgAmount, count: d.dates.length,
         txnIds: d.ids.filter(id => !groupedTxnIdSet.has(id)),
         txns: d.dates.map((date,i) => ({ date, amount: d.amounts[i] })),
-        reason: `${fmtUSD(avgAmount)} every ${Math.round(avgGap)} days, seen ${d.dates.length}x`,
+        reason: `${FREQ_LABEL[freq]}, ${fmtUSD(avgAmount)} every ${Math.round(avgGap)} days, seen ${d.dates.length}x`,
         accountId: mostCommon(d.accountIds),
       });
     }
@@ -1130,14 +1130,14 @@ export function BudgetPage({
     if (obligationsExceeded.length > 0) {
       const total = obligationsExceeded.reduce((s,e)=>s+e.over,0);
       return obligationsExceeded.length === 1
-        ? `${obligationsExceeded[0].ob.name} is over budget by ${fmtUSD(obligationsExceeded[0].over)} — see Obligations.`
-        : `${obligationsExceeded.length} obligations are over budget by ${fmtUSD(total)} total — see Obligations.`;
+        ? `${obligationsExceeded[0].ob.name} is over budget by ${fmtUSD(obligationsExceeded[0].over)}. See Obligations.`
+        : `${obligationsExceeded.length} obligations are over budget by ${fmtUSD(total)} total. See Obligations.`;
     }
     if (obligationsNeedingFundingAccount.length > 0) {
       return `${obligationsNeedingFundingAccount.length} obligation${obligationsNeedingFundingAccount.length!==1?"s":""} ${obligationsNeedingFundingAccount.length!==1?"have":"has"} no funding account tagged yet.`;
     }
     if (totalMonthlyIncome === 0) {
-      return "No income tracked yet — add a source or confirm a detected deposit to see your full picture.";
+      return "No income tracked yet. Add a source or confirm a detected deposit to see your full picture.";
     }
     if (freeToSpend < 0) {
       const drivers: { label: string; amt: number }[] = [
@@ -1251,7 +1251,7 @@ export function BudgetPage({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-[19px] md:text-[21px] font-semibold text-foreground tracking-tight">Financial overview</h1>
-            <p className="text-[12.5px] text-muted-foreground mt-0.5">Based on detected patterns and what you've set up — not a single month</p>
+            <p className="text-[12.5px] text-muted-foreground mt-0.5">Based on detected patterns and what you've set up, not a single month</p>
             <p className={cn("text-[12.5px] font-medium mt-1.5", freeToSpend < 0 || obligationsExceeded.length > 0 ? "text-negative" : obligationsNeedingFundingAccount.length > 0 ? "text-warning" : "text-foreground")}>
               {summaryLine}
             </p>
@@ -1317,7 +1317,7 @@ export function BudgetPage({
               color="text-emerald-400" bg="bg-emerald-500/12" total={totalMonthlyIncome} totalLabel="per month">
               <div className="divide-y divide-border/15">
                 {manualIncome.length === 0 ? (
-                  <p className="px-4 py-5 text-center text-[12px] text-muted-foreground/60">No income tracked yet — add a source, or check the Detected column for a repeating deposit to confirm.</p>
+                  <p className="px-4 py-5 text-center text-[12px] text-muted-foreground/60">No income tracked yet. Add a source, or check the Detected column for a repeating deposit to confirm.</p>
                 ) : (
                   manualIncome.map(m => (
                     <EntryRow key={m.id} label={m.label} amount={m.amount} accentClass="text-emerald-400"
@@ -1554,7 +1554,7 @@ export function BudgetPage({
 
                               {catRecurring.length > 0 && (
                                 <p className="text-[10px] text-muted-foreground/80 flex items-center gap-1">
-                                  <RefreshCw className="h-2.5 w-2.5 shrink-0"/> Includes recurring: {catRecurring.map(g=>g.name).join(", ")} — manage below
+                                  <RefreshCw className="h-2.5 w-2.5 shrink-0"/> Includes recurring: {catRecurring.map(g=>g.name).join(", ")}, manage below
                                 </p>
                               )}
 
@@ -1570,12 +1570,12 @@ export function BudgetPage({
                                   {catRecurring.map(g => (
                                     <div key={g.id} className="flex items-center justify-between gap-2">
                                       <span className="text-[11px] text-foreground truncate">{g.name}</span>
-                                      <span className="text-[10.5px] tabular text-muted-foreground shrink-0">{fmtUSD(g.expectedAmount * FREQ_MONTHLY_MULT[g.frequency])}/mo · tracked</span>
+                                      <span className="text-[10.5px] tabular text-muted-foreground shrink-0">{fmtUSD(g.expectedAmount * FREQ_MONTHLY_MULT[g.frequency])}/mo · {FREQ_LABEL[g.frequency]}</span>
                                     </div>
                                   ))}
                                   {detectedRecurringForCat.map(rc => (
                                     <div key={rc.key} className="flex items-center justify-between gap-2">
-                                      <span className="text-[11px] text-foreground truncate">{rc.merchant} <span className="text-muted-foreground/60 font-normal">· detected</span></span>
+                                      <span className="text-[11px] text-foreground truncate">{rc.merchant} <span className="text-muted-foreground/60 font-normal">· {FREQ_LABEL[rc.frequency]}, detected</span></span>
                                       <div className="flex items-center gap-1.5 shrink-0">
                                         <span className="text-[10.5px] tabular text-muted-foreground">{fmtUSD(rc.avgAmount)}/mo</span>
                                         <button onClick={()=>addDetected({ merchant: rc.merchant, category: rc.category, frequency: rc.frequency, txnIds: rc.txnIds }, "expenses", rc.merchant, rc.avgAmount)}
@@ -1584,7 +1584,7 @@ export function BudgetPage({
                                     </div>
                                   ))}
                                   {detectedYearlyForCat.length > 0 && (
-                                    <p className="text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground/60 pt-1">Yearly — won't show most months</p>
+                                    <p className="text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground/60 pt-1">Yearly, won't show most months</p>
                                   )}
                                   {detectedYearlyForCat.map(y => (
                                     <div key={y.merchant} className="flex items-center justify-between gap-2">
@@ -1601,7 +1601,7 @@ export function BudgetPage({
 
                               {over ? (
                                 <div>
-                                  <p className="text-[10.5px] text-negative font-medium">{fmtUSD(overAmt)} over budget — which account covers it?</p>
+                                  <p className="text-[10.5px] text-negative font-medium">{fmtUSD(overAmt)} over budget. Which account covers it?</p>
                                   {confirmed ? (
                                     <p className="text-[10.5px] text-positive mt-1 flex items-center gap-1">
                                       <Check className="h-3 w-3"/> Added to Home as a suggested transfer.
@@ -1627,14 +1627,14 @@ export function BudgetPage({
                                   )}
                                 </div>
                               ) : plan ? (
-                                <p className="text-[10.5px] text-muted-foreground">Covered by "{plan.name}" — {fmtUSD(plan.monthlyTarget)}/mo set aside</p>
+                                <p className="text-[10.5px] text-muted-foreground">Covered by "{plan.name}", {fmtUSD(plan.monthlyTarget)}/mo set aside</p>
                               ) : budget != null ? (
                                 <p className="text-[10.5px] text-muted-foreground">{fmtUSD(budget - c.spend)} left of budget this month</p>
                               ) : (
                                 <button
                                   onClick={()=>addSavingsGoal({ name: `${formatCat(c.cat)} fund`, monthlyTarget: Math.round(c.spend), kind: "category", category: c.cat })}
                                   className="text-[10.5px] text-[hsl(var(--primary))] font-medium hover:underline">
-                                  No plan yet — how are we covering this? Set aside {fmtUSD(c.spend)}/mo →
+                                  No plan yet. How are we covering this? Set aside {fmtUSD(c.spend)}/mo →
                                 </button>
                               )}
 
@@ -1825,7 +1825,7 @@ export function BudgetPage({
             <SectionShell icon={PiggyBank} label="Savings" sublabel="What you're setting aside on purpose"
               color="text-violet-400" bg="bg-violet-500/12" total={totalPlannedSavings} totalLabel="monthly target">
 
-              <SubLabel>Linked pools — pay for a category, unspent carries over</SubLabel>
+              <SubLabel>Linked pools, pay for a category, unspent carries over</SubLabel>
               <div className="divide-y divide-border/15">
                 {linkedPoolGoals.length === 0 && (
                   <p className="px-4 py-4 text-center text-[12px] text-muted-foreground/60">No pools linked to a category yet.</p>

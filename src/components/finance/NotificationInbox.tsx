@@ -279,7 +279,7 @@ const Row = ({ label, value, highlight }: { label: string; value: any; highlight
       highlight === "negative" ? "text-negative" :
       highlight === "warning" ? "text-warning" :
       "text-foreground")}>
-      {value ?? "—"}
+      {value ?? "-"}
     </span>
   </div>
 );

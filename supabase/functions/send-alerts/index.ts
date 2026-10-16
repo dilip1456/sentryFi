@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
           if (amt < largeThreshold) break;
           const merchant = t.merchant_name ?? t.name;
           const title = `💰 Large charge: ${merchant}`;
-          const body = `$${amt.toFixed(2)} — ${t.category?.[0] ?? ""}`;
+          const body = `$${amt.toFixed(2)} - ${t.category?.[0] ?? ""}`;
           const added = await saveAlert(admin, userId, "large_txn", `large_txn:${t.transaction_id}`, title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
@@ -285,7 +285,7 @@ Deno.serve(async (req) => {
 
       // Email summary
       if (pref.email_enabled !== false && toEmail) {
-        const subject = notifications.length === 1 ? notifications[0].title : `${notifications.length} alerts — Sentry Finance`;
+        const subject = notifications.length === 1 ? notifications[0].title : `${notifications.length} alerts - Sentry Finance`;
         const html = `<!DOCTYPE html><html><body style="background:#111827;font-family:system-ui;padding:24px">
 <h2 style="color:#F9F6EF;margin-bottom:16px">Sentry Finance</h2>
 ${notifications.map(n => `<div style="background:#1E2A40;border-radius:8px;padding:12px;margin-bottom:8px"><b style="color:#F9F6EF">${n.title}</b><br><span style="color:#8FA3BA;font-size:13px">${n.body}</span></div>`).join("")}
