@@ -54,15 +54,24 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
+      - name: Decode release keystore
+        working-directory: android/app
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > sentryfi-release.keystore
+
       - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
           KEYSTORE_PATH: "sentryfi-release.keystore"
-          KEYSTORE_ALIAS: "sentryfi-release"
-          KEYSTORE_STORE_PASSWORD: "REDACTED-ROTATED-SEE-GH-SECRETS"
-          KEYSTORE_KEY_PASSWORD: "REDACTED-ROTATED-SEE-GH-SECRETS"
+          KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+
+      - name: Remove decoded keystore
+        if: always()
+        working-directory: android/app
+        run: rm -f sentryfi-release.keystore
 
       - name: Copy APK
         run: |

@@ -38,4 +38,13 @@ android/local.properties
 # Misc build caches
 tsconfig.app.tsbuildinfo
 supabase/.temp
--e 
+
+# Signing material — never commit keystores or certs; CI decodes these from
+# a GitHub Actions secret at build time instead (see build-apk.yml)
+*.keystore
+*.jks
+*.pem
+*.p12
+*.pfx
+*.b64
+RELEASE_KEYSTORE_CREDENTIALS.txt
