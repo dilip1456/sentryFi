@@ -122,7 +122,7 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
       const accountById = new Map(accounts.map(a => [a.account_id, a]));
       for (const g of groups) {
         if (!accountById.get(g.accountId)?.item_id && rows.some(r => r.groupId === g.groupId && r.include)) {
-          toast.error(`"${g.label}" is mapped to an account that isn't linked to a Plaid item — pick a different account`);
+          toast.error(`"${g.label}" is mapped to an account that isn't linked to a Plaid item. Pick a different account`);
           setImporting(false);
           return;
         }
@@ -181,7 +181,7 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogTitle>Import statement</DialogTitle>
         <DialogDescription>
-          Upload one or more bank statement PDFs — every transaction found gets merged into your
+          Upload one or more bank statement PDFs. Every transaction found gets merged into your
           transaction list and tagged "{IMPORT_TAG}" so you can find it again later. A statement covering
           several accounts (checking plus savings, say) is split into one group per account below.
         </DialogDescription>
@@ -209,7 +209,7 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
               <div className="flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/25 px-3 py-2">
                 <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0 mt-0.5"/>
                 <p className="text-[11px] text-foreground">
-                  Didn't recognize the layout of {unrecognizedFiles.join(", ")} — rows were extracted with a best-effort
+                  Didn't recognize the layout of {unrecognizedFiles.join(", ")}, rows were extracted with a best-effort
                   scan. Double-check dates, descriptions and amounts before importing.
                 </p>
               </div>

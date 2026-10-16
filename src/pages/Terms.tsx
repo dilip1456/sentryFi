@@ -15,7 +15,7 @@ const Terms = () => (
 
     <main className="max-w-[760px] mx-auto px-4 md:px-8 py-10 md:py-14">
       <div className="mb-8 rounded-xl border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.08)] px-4 py-3 text-[13px] text-foreground">
-        <strong>Draft — pending legal review.</strong> This is placeholder language, not a finished legal
+        <strong>Draft, pending legal review.</strong> This is placeholder language, not a finished legal
         document. Have an attorney review and finalize this page before relying on it as a binding
         agreement with users.
       </div>

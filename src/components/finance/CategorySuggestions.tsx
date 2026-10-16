@@ -135,7 +135,7 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
       {pending > 0 && (
         <div className="divide-y divide-border/10">
           <div className="px-4 py-2 text-[12.5px] text-muted-foreground">
-            {pending} suggestion{pending !== 1 ? "s" : ""} — tap ✓ to apply, ✗ to skip
+            {pending} suggestion{pending !== 1 ? "s" : ""}, tap ✓ to apply, ✗ to skip
           </div>
           {suggestions.map(s => (
             <div key={s.id} className="px-4 py-3.5 flex items-start gap-3">

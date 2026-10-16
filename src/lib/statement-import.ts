@@ -31,7 +31,7 @@ function loadPdfJs(): Promise<any> {
       lib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`;
       resolve(lib);
     };
-    script.onerror = () => reject(new Error("Couldn't load the PDF reader — check your connection and try again"));
+    script.onerror = () => reject(new Error("Couldn't load the PDF reader. Check your connection and try again"));
     document.head.appendChild(script);
   });
   return pdfjsPromise;

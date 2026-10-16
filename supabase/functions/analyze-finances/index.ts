@@ -378,7 +378,7 @@ ${summary.creditCards.length > 0 ? JSON.stringify(summary.creditCards, null, 2) 
 ${summary.cardOpt.length > 0 ? JSON.stringify(summary.cardOpt, null, 2) : 'Only one card or insufficient data for optimization.'}
 
 ## Monthly Income & Spending (last 4 months, oldest to newest)
-Months are listed chronologically. A month flagged "inProgress": true is the current calendar month and is NOT finished yet — its totals are partial, so never describe it as "down" or "up" relative to a completed prior month without saying it's still in progress.
+Months are listed chronologically. A month flagged "inProgress": true is the current calendar month and is NOT finished yet, its totals are partial, so never describe it as "down" or "up" relative to a completed prior month without saying it's still in progress.
 ${JSON.stringify(summary.monthlyData, null, 2)}
 
 ## Top Merchants (last 90 days)
@@ -394,18 +394,20 @@ Income: $${summary.curIncome} | Expenses: $${summary.curExpenses}${summary.savin
 ## Task
 
 Generate 4-8 high-value insights. Prioritize:
-1. Card optimization opportunities (use the pre-calculated cardOpt data — cite exact card names with last 4 digits, dollar amounts missed)
+1. Card optimization opportunities (use the pre-calculated cardOpt data; cite exact card names with last 4 digits, dollar amounts missed)
 2. Spending spikes or patterns vs prior months (use monthlyData)
 3. Subscription overload or duplicates
 4. Credit utilization, upcoming due dates, overdue payments
-5. Savings rate health — flag if savings rate is <15% or negative; commend if >30%
+5. Savings rate health. Flag if savings rate is <15% or negative; commend if >30%
 
 Rules:
 - Reference actual merchant names, account/card names, and dollar amounts from the data provided
-- Every account and card in the data above includes a "mask" field with its real last-4 digits when known. When naming a specific account or card, append " ··" followed by that exact mask value (e.g. "Travel Credit Card ··0388"). If an account has no "mask" field, refer to it by name only — never invent or write a placeholder like "XXXX" or "1234"
-- For card swaps: "Use your [BestCard ··<real mask>] instead of [CurrentCard ··<real mask>] for [Category]" — using the literal mask digits from the data, not a placeholder
-- DO NOT generate generic advice — every insight must cite specific data
+- Every account and card in the data above includes a "mask" field with its real last-4 digits when known. When naming a specific account or card, append " ··" followed by that exact mask value (e.g. "Travel Credit Card ··0388"). If an account has no "mask" field, refer to it by name only. Never invent or write a placeholder like "XXXX" or "1234"
+- For card swaps: "Use your [BestCard ··<real mask>] instead of [CurrentCard ··<real mask>] for [Category]", using the literal mask digits from the data, not a placeholder
+- DO NOT generate generic advice. Every insight must cite specific data
 - Keep card optimization insights to top 2-3 highest-impact swaps only
+- CRITICAL: never confuse money IN with money OUT. The "income" figure in Monthly Income & Spending, and "curIncome", are money the user RECEIVED (paychecks, deposits, refunds, transfers in). Never describe these as a "large expense", "spending spike", overspending, or anything implying the user spent or lost that money. Only "expenses", "categories", "topMerchants", and "curExpenses" represent money the user actually spent. Before writing any insight about a large or unusual transaction, re-check which bucket (income vs expenses) it came from, and only flag it as a spending concern if it came from the expenses side
+- NEVER use em dashes (—) or double hyphens (--) anywhere in the generated text (title, what, why, action, impact). Use a period, comma, colon, or semicolon instead
 
 Return ONLY a JSON array, no markdown, no explanation:
 [
@@ -414,7 +416,7 @@ Return ONLY a JSON array, no markdown, no explanation:
     "severity": "high|medium|low",
     "category": "Spending|Savings|Credit|Cash Flow|Subscriptions|Rewards|Risk",
     "title": "Short headline (max 8 words)",
-    "what": "What is happening — specific numbers, card names, merchants",
+    "what": "What is happening: specific numbers, card names, merchants",
     "why": "Why this matters financially",
     "action": "Specific actionable next step with exact names",
     "impact": "Annual dollar impact description",

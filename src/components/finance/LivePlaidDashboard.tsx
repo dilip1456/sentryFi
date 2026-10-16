@@ -555,40 +555,44 @@ const buildMonthlyFlow = (
  */
 const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
   const ids = new Set<string>();
-  // Only patterns that reliably indicate own-account movement (not person-to-person).
-  // Excluded: zelle, venmo, cashapp — those are often real income/expense.
-  // Excluded: autopay, bill pay, online payment — those are real bill payments.
-  const OWN_TRANSFER = /\btransfer\b|pay yourself|\bfrom checking\b|\bto savings\b|\bto checking\b|\bfrom savings\b/i;
+  // Any transaction can be a candidate — the reliable signal that money moved
+  // between two of the user's OWN accounts isn't the wording of its category
+  // or description (a self-payment can be labeled "Salary", an ACH can carry
+  // no "transfer" wording at all), it's that another transaction of the exact
+  // opposite amount posted to a DIFFERENT one of the user's own accounts
+  // within a few days. Only transactions with a confirmed pair get marked —
+  // no fallback — since a lone transaction with no matching counterpart on
+  // another of the user's accounts could still be a real, unrelated expense
+  // or deposit. Grouped by exact amount first so this stays fast even across
+  // a large transaction history (only same-amount transactions are ever
+  // compared against each other) instead of an all-pairs scan.
+  const byAmount = new Map<string, PTxn[]>();
+  for (const t of txns) {
+    if (t.pending) continue;
+    const amt = Math.abs(Number(t.amount));
+    if (amt === 0) continue;
+    const key = amt.toFixed(2);
+    const group = byAmount.get(key);
+    if (group) group.push(t); else byAmount.set(key, [t]);
+  }
 
-  const isCandidate = (t: PTxn) =>
-    (t.category?.[0] ?? "").toLowerCase().includes("transfer") ||
-    OWN_TRANSFER.test(t.merchant_name ?? t.name ?? "");
-
-  const candidates = txns.filter(isCandidate);
-
-  for (const t of candidates) {
-    if (ids.has(t.id)) continue;
-    const amt = Number(t.amount);
-    const tDate = new Date(t.date + "T00:00:00");
-
-    // Require a matching opposite-sign transaction in a DIFFERENT account within 3 days.
-    // Without a confirmed pair, we do NOT auto-mark — better to miss some than to
-    // incorrectly hide real income or expenses (e.g. Zelle from a friend).
-    const match = candidates.find(o => {
-      if (o.id === t.id || ids.has(o.id)) return false;
-      if (o.account_id === t.account_id) return false;
-      const oAmt = Number(o.amount);
-      if (Math.abs(Math.abs(oAmt) - Math.abs(amt)) > 0.01) return false;
-      if (Math.sign(oAmt) === Math.sign(amt)) return false;
-      const oDate = new Date(o.date + "T00:00:00");
-      return Math.abs(tDate.getTime() - oDate.getTime()) <= 3 * 86400000;
-    });
-
-    if (match) {
-      ids.add(t.id);
-      ids.add(match.id);
+  for (const group of byAmount.values()) {
+    if (group.length < 2) continue;
+    for (const t of group) {
+      if (ids.has(t.id)) continue;
+      const amt = Number(t.amount);
+      const tDate = new Date(t.date + "T00:00:00");
+      const match = group.find(o =>
+        o.id !== t.id && !ids.has(o.id) &&
+        o.account_id !== t.account_id &&
+        Math.sign(Number(o.amount)) !== Math.sign(amt) &&
+        Math.abs(new Date(o.date + "T00:00:00").getTime() - tDate.getTime()) <= 3 * 86400000
+      );
+      if (match) {
+        ids.add(t.id);
+        ids.add(match.id);
+      }
     }
-    // No fallback — only mark as internal when we have a confirmed pair.
   }
   return ids;
 };
@@ -656,9 +660,17 @@ const detectRecurring = (
   // since category data from Plaid is reliable when present. Parking is included: it
   // is pay-per-use, not a subscription.
   const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal|parking/i;
+  // Credit card/loan payments are the user paying down their own debt, not a merchant
+  // charge to anticipate — Obligations already tracks statement due dates for these.
+  // Including them here made already-made card payments resurface as a projected
+  // "upcoming charge" a month out, which reads as showing a past payment as upcoming.
+  const PAYMENT_LIKE_CAT = /transfer|credit card payment|loan payment/i;
   // Merchant name patterns that indicate one-off or variable spend even when category data
   // is missing/generic — covers delivery apps, grocery/gas chains, restaurants, and parking.
   const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b|parking|parkmobile|paybyphone|spothero|garage\b|meter\b/i;
+  // Statement-descriptor patterns for card/loan payments when category data is missing —
+  // "Payment - Thank You" style descriptors Plaid's own category rarely labels precisely.
+  const PAYMENT_LIKE_MERCHANT = /payment\s*-?\s*thank\s*you|autopay|auto-pay|card payment|loan payment|statement credit|epayment|online payment/i;
 
   const norm = (t: PTxn) => (t.merchant_name ?? t.name ?? "").trim().toLowerCase()
     .replace(/\s+(and|&|llc|inc|co\.?|corp\.?)[\s,]*$/i, "").slice(0, 40);
@@ -670,9 +682,11 @@ const detectRecurring = (
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
     if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
+    if (PAYMENT_LIKE_CAT.test(cat0) || PAYMENT_LIKE_CAT.test(cat1)) return false;
     if (suppressCategories.has(cat0) || suppressCategories.has(cat1)) return false;
     const merchant = (t.merchant_name ?? t.name ?? "").toLowerCase();
     if (NON_RECURRING_MERCHANT.test(merchant)) return false;
+    if (PAYMENT_LIKE_MERCHANT.test(merchant)) return false;
     if (cat0.includes("transfer")) return false;
     if (suppressMerchants.has(norm(t))) return false; // user-dismissed merchants
     return true;
@@ -830,6 +844,22 @@ const generateActions = (
   const items: ActionItem[] = [];
   const realTxns = txns.filter(t => !internalIds.has(t.id));
 
+  // A positive amount alone isn't reliable proof something is a real expense —
+  // a Zelle/ACH transfer between a user's own accounts (e.g. paying yourself
+  // from a business account) can post as a positive debit on one side while
+  // still being categorized "Salary"/income or a transfer by name/rule. The
+  // "Large charge"/"Biggest expense" flags below were surfacing exactly that:
+  // a self-transfer labeled "Salary" flagged as an unusual expense. Category
+  // is the more authoritative signal here, so it's checked ahead of sign.
+  const TRANSFER_LIKE_RE = /transfer|credit card payment|loan payment/i;
+  const isRealExpenseTxn = (t: PTxn) => {
+    if (Number(t.amount) <= 0) return false;
+    const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
+    if (isIncomeCategory(cat, customCategories, Number(t.amount))) return false;
+    if (TRANSFER_LIKE_RE.test(cat)) return false;
+    return true;
+  };
+
   // Low checking balance
   const lowCheck = accounts.filter(a =>
     a.subtype === "checking" &&
@@ -945,8 +975,8 @@ const generateActions = (
           const canCover = checkingTotal >= bal;
           const coverNote = checkingAccounts.length > 0
             ? canCover
-              ? ` Checking has ${fmtUSD(checkingTotal)} — sufficient.`
-              : ` Checking has ${fmtUSD(checkingTotal)} — short by ${fmtUSD(bal - checkingTotal)}. Fund before due date.`
+              ? ` Checking has ${fmtUSD(checkingTotal)}, sufficient.`
+              : ` Checking has ${fmtUSD(checkingTotal)}, short by ${fmtUSD(bal - checkingTotal)}. Fund before due date.`
             : "";
           items.push({
             id: `cc-due-${cc.id}`, priority: daysUntil <= 3 ? "urgent" : "soon",
@@ -976,6 +1006,7 @@ const generateActions = (
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 7);
     const big = realTxns.filter(t =>
       Number(t.amount) > 500 &&
+      isRealExpenseTxn(t) &&
       !t.pending &&
       new Date(t.date + "T00:00:00") >= cutoff
     ).sort((a, b) => Number(b.amount) - Number(a.amount));
@@ -1045,7 +1076,7 @@ const generateActions = (
   (() => {
     const now = new Date();
     const monthTxns = realTxns.filter(t => {
-      if (Number(t.amount) <= 0 || t.pending) return false;
+      if (!isRealExpenseTxn(t) || t.pending) return false;
       const d = new Date(t.date + "T00:00:00");
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).sort((a, b) => Number(b.amount) - Number(a.amount));
@@ -2385,11 +2416,13 @@ const TxnDetailModal = ({
     const dates = [txn, ...samemerchantTxns].map(t => t.date).sort().reverse();
     const intervals = dates.slice(0,-1).map((d,i) => Math.round((new Date(d+"T00:00:00").getTime() - new Date(dates[i+1]+"T00:00:00").getTime()) / 86400000));
     const avg = intervals.reduce((s,v)=>s+v,0)/intervals.length;
-    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : null;
+    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : avg >= 340 && avg <= 390 ? "Yearly" : null;
   })();
 
   const [tab, setTab] = useState<"info"|"edit"|"obligations">("info");
   const [ruleOpen, setRuleOpen] = useState(false);
+  const [reportMiscatOpen, setReportMiscatOpen] = useState(false);
+  const [reportMiscatDraft, setReportMiscatDraft] = useState("");
   const [nameDraft, setNameDraft] = useState(currentDisplayName);
   const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
@@ -2527,6 +2560,27 @@ const TxnDetailModal = ({
       if (samemerchantTxns.length > 0) toast.success(`Applied to ${samemerchantTxns.length + 1} transactions`);
     }
     setShowCatPicker(false);
+  };
+
+  // "This is wrong" quick action — unlike the Edit tab's category field
+  // (which just changes this one transaction) or "+ Rule" (which creates a
+  // rule for whatever category is *currently* assigned), this fixes every
+  // other same-merchant transaction that's STILL miscategorized the same
+  // wrong way (never ones the user already corrected differently), and
+  // creates/updates the rule so future imports land in the right place too.
+  const otherMiscatTxns = merchant
+    ? samemerchantTxns.filter(t => (getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other") === (rawCat ?? "Other"))
+    : [];
+  const handleReportMiscategorized = (correctCat: string) => {
+    if (!correctCat) return;
+    onSelect(txn.id, correctCat);
+    otherMiscatTxns.forEach(t => onSelect(t.id, correctCat));
+    if (merchant) onAddRule(merchant, correctCat);
+    toast.success(otherMiscatTxns.length > 0
+      ? `Fixed ${otherMiscatTxns.length + 1} transactions · future ${merchant ?? "these"} charges will categorize correctly`
+      : `Fixed · future ${merchant ?? "these"} charges will categorize correctly`);
+    setReportMiscatOpen(false);
+    setReportMiscatDraft("");
   };
 
   // ── Category picker: add-new / rename, inline in both tabs' category field ──
@@ -2690,7 +2744,7 @@ const TxnDetailModal = ({
               <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
                 {([
                   ...(merchant && merchant !== currentDisplayName ? [["Merchant", merchant]] : []),
-                  ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "—"],
+                  ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "-"],
                   ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
                 ] as [string,string][]).map(([label, value]) => (
                   <div key={label} className="flex items-center gap-3 px-4 py-2.5 bg-card/50">
@@ -2716,7 +2770,7 @@ const TxnDetailModal = ({
                     isRecurringNow
                       ? "border-violet-500/40 text-violet-400 bg-violet-500/8"
                       : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  Recurring: {isRecurringNow ? "Yes" : "No"}
+                  Recurring: {isRecurringNow ? (recurringLabel ?? "Yes") : "No"}
                   {isRecurringOverride === undefined && recurringLabel && <span className="text-[9px] opacity-60">(auto)</span>}
                 </button>
                 {isRecurringOverride !== undefined && (
@@ -2821,7 +2875,7 @@ const TxnDetailModal = ({
               )}
 
               {/* Quick action row */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="grid grid-cols-3 gap-2 pt-1">
                 <button
                   onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
                   disabled={!merchant}
@@ -2832,6 +2886,12 @@ const TxnDetailModal = ({
                   onClick={() => setRuleOpen(true)}
                   className="py-2.5 rounded-xl border border-border/60 text-[11.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
                   + Rule
+                </button>
+                <button
+                  onClick={() => { setReportMiscatDraft(rawCat ?? "Other"); setReportMiscatOpen(true); }}
+                  title="Report this category as wrong and fix it everywhere"
+                  className="py-2.5 rounded-xl border border-negative/30 text-[11.5px] font-medium text-negative hover:bg-negative/10 transition-colors">
+                  Wrong category?
                 </button>
               </div>
             </div>
@@ -3087,6 +3147,57 @@ const TxnDetailModal = ({
                   setRuleOpen(false);
                 }} disabled={!ruleDraft.trim()} className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-[14px] font-bold disabled:opacity-40">
                   Save rule
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── "Wrong category?" overlay sheet ─────────────────────── */}
+        {reportMiscatOpen && (
+          <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/50 rounded-2xl" onClick={() => setReportMiscatOpen(false)}>
+            <div className="bg-card rounded-t-2xl border-t border-border/40 max-h-[82%] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-center pt-2.5 pb-1 shrink-0">
+                <div className="w-8 h-1 rounded-full bg-muted-foreground/30"/>
+              </div>
+              <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 shrink-0">
+                <p className="font-display text-[15px] text-foreground">What's the correct category?</p>
+                <button onClick={() => setReportMiscatOpen(false)} aria-label="Close" className="h-8 w-8 grid place-items-center rounded-full bg-muted/60 text-muted-foreground">
+                  <X className="h-4 w-4"/>
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+                <p className="text-[12.5px] text-muted-foreground leading-relaxed">
+                  Currently categorized as <span className="font-medium text-foreground">{humanizeCategory(rawCat ?? "Other", Number(txn.amount))}</span>.
+                  {otherMiscatTxns.length > 0
+                    ? ` This will also fix ${otherMiscatTxns.length} other ${merchant ?? "matching"} transaction${otherMiscatTxns.length===1?"":"s"} still categorized the same way, and`
+                    : " This will"} create a rule so future {merchant ?? "these"} charges are categorized correctly automatically.
+                </p>
+                <select value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}
+                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+                  <option value="" disabled>Choose the correct category…</option>
+                  <optgroup label="Expenses">
+                    {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat => (
+                      <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Income">
+                    {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat => (
+                      <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Ignored">
+                    {IGNORED_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="px-5 py-4 border-t border-border/30 shrink-0">
+                <button onClick={() => handleReportMiscategorized(reportMiscatDraft)}
+                  disabled={!reportMiscatDraft || reportMiscatDraft === (rawCat ?? "Other")}
+                  className="w-full py-3 rounded-xl bg-negative text-negative-foreground text-[14px] font-bold disabled:opacity-40">
+                  Fix it
                 </button>
               </div>
             </div>
@@ -3480,7 +3591,7 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
           {isPromo && (
             <span className="text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">0% APR</span>
           )}
-          {a.subtype === "savings" && isHYSA(a, instName, meta.apr) && (
+          {a.subtype === "savings" && isHYSA(a, instName, meta.apr, computeImpliedApy(a, txns).impliedApy) && (
             <span className="text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-positive/30 bg-positive/10 text-positive shrink-0">High Yield</span>
           )}
           {dueDaysAway != null && dueDaysAway <= 7 && (
@@ -3735,12 +3846,55 @@ const HYSA_INSTITUTIONS = ["marcus", "ally", "sofi", "discover", "american expre
   "north american savings", "dollar savings direct", "my banking direct", "evergreen", "patriot bank", "lendingclub"];
 // HYSA threshold — most checking/standard savings pay well under 1%, online HYSAs are typically 4%+
 const HYSA_APR_THRESHOLD = 3.0;
-const isHYSA = (a: PAccount, instName: string, apr?: number | null): boolean => {
+// Lower threshold used for a *computed* rate (derived from real interest the
+// account actually earned) rather than a manually-typed APR — the name/
+// institution list and the 3% manual-APR threshold above both depend on the
+// user doing something (naming their bank recognizably, or typing an APR in),
+// so most HYSAs never got flagged. A realized rate >1% is specific enough on
+// its own since ordinary checking/standard savings pay a small fraction of
+// that, per the user's own instruction.
+const HYSA_IMPLIED_RATE_THRESHOLD = 1.0;
+const isHYSA = (a: PAccount, instName: string, apr?: number | null, impliedApy?: number | null): boolean => {
   if (a.type !== "depository" || a.subtype !== "savings") return false;
   const haystack = `${a.name ?? ""} ${a.official_name ?? ""} ${instName}`.toLowerCase();
   if (/high.?yield|hysa|hys\b/.test(haystack)) return true;
   if (HYSA_INSTITUTIONS.some(inst => haystack.includes(inst))) return true;
-  return apr != null && apr >= HYSA_APR_THRESHOLD;
+  if (apr != null && apr >= HYSA_APR_THRESHOLD) return true;
+  return impliedApy != null && impliedApy >= HYSA_IMPLIED_RATE_THRESHOLD;
+};
+
+// Interest actually credited into an account (excludes interest *charged* on
+// debt, which is a cost, not income) — used to derive a real-world implied
+// rate instead of relying on the user to type an APR in.
+const isInterestEarnedTxn = (t: PTxn) => {
+  const hay = `${t.category?.[0] ?? ""} ${t.category?.[1] ?? ""}`.toLowerCase();
+  if (!hay.includes("interest") || hay.includes("interest charged")) return false;
+  return Number(t.amount) < 0; // money in, per this app's sign convention
+};
+const monthlyInterestFor = (accountId: string, txns: PTxn[], monthsBack: number): number => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() - monthsBack + 1, 0);
+  return txns.reduce((s, t) => {
+    if (t.account_id !== accountId || !isInterestEarnedTxn(t)) return s;
+    const d = new Date(t.date + "T00:00:00");
+    if (d < start || d > end) return s;
+    return s + Math.abs(Number(t.amount));
+  }, 0);
+};
+// Annualized rate implied by actual interest credits — last *completed*
+// month's interest alone (monthsBack starts at 1 so a mid-month credit this
+// month doesn't understate it) for the headline figure, averaged over the
+// last 3 completed months (skipping months with no credit) for a steadier
+// "average rate" since some banks post interest irregularly.
+const computeImpliedApy = (a: PAccount, txns: PTxn[]): { lastMonthInterest: number; impliedApy: number | null } => {
+  const bal = Math.abs(Number(a.current_balance) || 0);
+  const lastMonthInterest = monthlyInterestFor(a.account_id, txns, 1);
+  if (bal <= 0) return { lastMonthInterest, impliedApy: null };
+  const recentMonths = [1, 2, 3].map(mb => monthlyInterestFor(a.account_id, txns, mb)).filter(v => v > 0);
+  if (recentMonths.length === 0) return { lastMonthInterest, impliedApy: null };
+  const avgMonthly = recentMonths.reduce((s, v) => s + v, 0) / recentMonths.length;
+  return { lastMonthInterest, impliedApy: (avgMonthly * 12 / bal) * 100 };
 };
 
 // ── Grant additional consent (e.g. cards linked before Liabilities existed) ────
@@ -3796,22 +3950,27 @@ const GrantConsentButton = ({ itemId, onGranted }: { itemId: string; onGranted: 
 // so Checking, Savings, and High-Yield Savings are split out as their own groups.
 type AccountGroup = "checking" | "savings" | "hysa" | "credit" | "loan" | "investment" | "other";
 const ACCOUNT_GROUP_ORDER: AccountGroup[] = ["checking", "savings", "hysa", "credit", "loan", "investment", "other"];
-const ACCOUNT_GROUP_META: Record<AccountGroup, { label: string; icon: React.ElementType }> = {
-  checking:   { label: "Checking",           icon: Wallet },
-  savings:    { label: "Savings",            icon: PiggyBank },
-  hysa:       { label: "High-Yield Savings", icon: PiggyBank },
-  credit:     { label: "Credit Cards",       icon: CreditCard },
-  loan:       { label: "Loans & Mortgages",  icon: Building2 },
-  investment: { label: "Investments",        icon: TrendingUp },
-  other:      { label: "Other",              icon: Landmark },
+// Each group carries its own accent color so the category grid below reads
+// at a glance (blue for everyday cash, teal for money set aside, red for
+// debt, amber for loans, violet for investments) instead of every bucket
+// looking the same gray.
+const ACCOUNT_GROUP_META: Record<AccountGroup, { label: string; icon: React.ElementType; color: string; bg: string }> = {
+  checking:   { label: "Checking",           icon: Wallet,      color: "#60a5fa", bg: "rgba(96,165,250,0.14)" },
+  savings:    { label: "Savings",            icon: PiggyBank,   color: "#34d399", bg: "rgba(52,211,153,0.14)" },
+  hysa:       { label: "High-Yield Savings", icon: PiggyBank,   color: "#2dd4bf", bg: "rgba(45,212,191,0.14)" },
+  credit:     { label: "Credit Cards",       icon: CreditCard,  color: "#fb7185", bg: "rgba(251,113,133,0.14)" },
+  loan:       { label: "Loans & Mortgages",  icon: Building2,   color: "#fbbf24", bg: "rgba(251,191,36,0.14)" },
+  investment: { label: "Investments",        icon: TrendingUp,  color: "#a78bfa", bg: "rgba(167,139,250,0.14)" },
+  other:      { label: "Other",              icon: Landmark,    color: "#94a3b8", bg: "rgba(148,163,184,0.14)" },
 };
-const mapAccountGroup = (a: PAccount, instName: string, apr?: number | null): AccountGroup => {
+const MANUAL_GROUP_META = { label: "Manual", icon: Landmark, color: "#818cf8", bg: "rgba(129,140,248,0.14)" };
+const mapAccountGroup = (a: PAccount, instName: string, apr?: number | null, impliedApy?: number | null): AccountGroup => {
   if (a.type === "credit") return "credit";
   if (a.type === "loan") return "loan";
   if (a.type === "investment") return "investment";
   const sub = (a.subtype ?? "").toLowerCase();
   if (sub === "checking") return "checking";
-  if (sub === "savings") return isHYSA(a, instName, apr) ? "hysa" : "savings";
+  if (sub === "savings") return isHYSA(a, instName, apr, impliedApy) ? "hysa" : "savings";
   if (sub.includes("money market") || sub === "hsa") return "savings";
   return "other";
 };
@@ -3832,7 +3991,7 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
   const [openBuckets, setOpenBuckets] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpenBuckets(p => ({ ...p, [k]: !p[k] }));
 
-  const groupFor = (a: PAccount) => mapAccountGroup(a, getInstNameFor(a, items), accountMeta[a.id]?.apr);
+  const groupFor = (a: PAccount) => mapAccountGroup(a, getInstNameFor(a, items), accountMeta[a.id]?.apr, computeImpliedApy(a, txns).impliedApy);
   const activeBuckets = ACCOUNT_GROUP_ORDER.filter(b => accounts.some(a => groupFor(a) === b));
   const hasManual = manualAccounts.length > 0;
 
@@ -3843,145 +4002,189 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
   const totalCards = creditAccounts.reduce((s,a)=> s + (Number(a.current_balance)||0), 0);
   const netCash = totalCash - totalCards;
 
+  // Pre-compute each bucket's accounts/total once, shared by the category
+  // grid and the expanded account lists below it, instead of re-filtering
+  // the same accounts array twice.
+  const bucketData = activeBuckets.map(bucket => {
+    const list = accounts.filter(a => groupFor(a) === bucket);
+    const total = list.reduce((s,a)=> s + Math.abs(Number(a.current_balance)||0), 0);
+    const debt = bucket === "credit" || bucket === "loan";
+    return { bucket, list, total, debt };
+  });
+  const manualTotal = manualAccounts.reduce((s,a)=> s + Math.abs(Number(a.current_balance ?? 0)), 0);
+  const grandTotal = bucketData.reduce((s,b)=>s+b.total,0) + manualTotal;
+
+  const renderAccountRow = (a: PAccount) => {
+    const debt = isDebt(a.type);
+    const bal = Number(a.current_balance) || 0;
+    const m = accountMeta[a.id] ?? {};
+    const displayName = m.nickname || a.name || a.official_name || "Account";
+    const instName = getInstNameFor(a, items);
+    const brand = getBankBrand(instName);
+    return (
+      <button key={a.id} onClick={() => onSelect(a)}
+        className="w-full flex items-center gap-3 px-5 md:px-6 py-3 text-left hover:bg-surface-hover/30 transition-colors group">
+        {/* Bank brand avatar */}
+        <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
+          style={{ backgroundColor: brand.bg }}>
+          <span className="text-[11px] font-extrabold tracking-tight" style={{ color: brand.color }}>{brand.abbr}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
+          <div className="text-[11.5px] text-muted-foreground/70 truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
+        </div>
+        <span className={cn("text-[14px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
+          {fmtUSD(Math.abs(bal))}
+        </span>
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
+      </button>
+    );
+  };
+
   return (
-    <div className="surface-card overflow-hidden divide-y divide-border/15">
-      {/* Net cash summary strip */}
+    <div className="space-y-3">
+      {/* Net cash hero: headline figure plus a proportional bar showing where
+          the money actually sits across categories, colored to match the
+          category cards below instead of a plain text-only strip. */}
       {cashAccounts.length > 0 && creditAccounts.length > 0 && (
-        <div className="flex items-center justify-between px-4 md:px-5 py-3 bg-secondary/20">
-          <span className="text-[12px] text-muted-foreground">Net Cash</span>
-          <span className={cn("text-[15px] font-bold tabular", netCash >= 0 ? "text-positive" : "text-negative")}>
-            {fmtUSD(Math.abs(netCash))}
-          </span>
+        <div className="surface-card p-4 md:p-5">
+          <div className="flex items-baseline justify-between mb-3">
+            <span className="text-[12px] text-muted-foreground font-medium">Net Cash</span>
+            <span className={cn("text-[20px] font-bold tabular", netCash >= 0 ? "text-positive" : "text-negative")}>
+              {fmtUSD(Math.abs(netCash))}
+            </span>
+          </div>
+          {grandTotal > 0 && (
+            <div className="h-2.5 w-full rounded-full overflow-hidden flex bg-secondary/30">
+              {bucketData.filter(b => b.total > 0).map(({ bucket, total }) => (
+                <div key={bucket} title={`${ACCOUNT_GROUP_META[bucket].label}: ${fmtUSD(total)}`}
+                  style={{ width: `${(total / grandTotal) * 100}%`, background: ACCOUNT_GROUP_META[bucket].color }} />
+              ))}
+              {manualTotal > 0 && (
+                <div title={`Manual: ${fmtUSD(manualTotal)}`}
+                  style={{ width: `${(manualTotal / grandTotal) * 100}%`, background: MANUAL_GROUP_META.color }} />
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Collapsible groups */}
-      {activeBuckets.map(bucket => {
-        const list = accounts.filter(a => groupFor(a) === bucket);
-        const total = list.reduce((s,a)=> s + (isDebt(a.type) ? -Math.abs(Number(a.current_balance)||0) : (Number(a.current_balance)||0)), 0);
-        const open = !!openBuckets[bucket];
-        const BucketIcon = ACCOUNT_GROUP_META[bucket].icon ?? Building2;
-        const debt = total < 0;
-        return (
-          <div key={bucket}>
-            {/* Group header — tap to expand */}
-            <button onClick={() => toggle(bucket)}
-              className="w-full flex items-center gap-3 px-4 md:px-5 py-3.5 hover:bg-surface-hover/20 transition-colors text-left">
-              <div className="h-8 w-8 rounded-xl bg-secondary/60 grid place-items-center shrink-0">
-                <BucketIcon className="h-4 w-4 text-muted-foreground" />
+      {/* Category grid: each card is color-coded by account type (checking,
+          savings, credit, loans, investments) so the categorization reads at
+          a glance instead of one flat gray list. Tap a card to expand it. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
+        {bucketData.map(({ bucket, list, total, debt }) => {
+          const open = !!openBuckets[bucket];
+          const meta = ACCOUNT_GROUP_META[bucket];
+          const Icon = meta.icon;
+          return (
+            <button key={bucket} onClick={() => toggle(bucket)}
+              className="surface-card text-left p-3.5 rounded-2xl border-t-2 transition-all hover:shadow-md hover:-translate-y-0.5"
+              style={{ borderTopColor: meta.color, boxShadow: open ? `0 0 0 1px ${meta.color}66` : undefined }}>
+              <div className="h-9 w-9 rounded-xl grid place-items-center mb-2.5" style={{ background: meta.bg }}>
+                <Icon className="h-4 w-4" style={{ color: meta.color }} />
               </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-[14px] font-semibold text-foreground">{ACCOUNT_GROUP_META[bucket].label}</span>
-                <span className="ml-2 text-[11px] text-muted-foreground/50">{list.length}</span>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[12px] font-semibold text-foreground truncate">{meta.label}</span>
+                <ChevronDown className={cn("h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
               </div>
-              <span className={cn("text-[15px] font-bold tabular shrink-0 mr-1", debt ? "text-negative" : "text-foreground")}>
-                {fmtUSD(Math.abs(total))}
-              </span>
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
+              <div className="text-[10px] text-muted-foreground/60 mb-1">{list.length} account{list.length !== 1 ? "s" : ""}</div>
+              <div className={cn("text-[16px] font-bold tabular", debt ? "text-negative" : "text-foreground")}>{fmtUSD(total)}</div>
             </button>
-
-            {/* Account rows — shown when bucket is open */}
-            {open && (
-              <div className="border-t border-border/15 divide-y divide-border/10 bg-secondary/5">
-                {list.map(a => {
-                  const Icon = mapIcon(a.type, a.subtype);
-                  const debt = isDebt(a.type);
-                  const bal = Number(a.current_balance) || 0;
-                  const m = accountMeta[a.id] ?? {};
-                  const displayName = m.nickname || a.name || a.official_name || "Account";
-                  const instName = getInstNameFor(a, items);
-                  const brand = getBankBrand(instName);
-                  return (
-                    <button key={a.id} onClick={() => onSelect(a)}
-                      className="w-full flex items-center gap-3 px-5 md:px-6 py-3 text-left hover:bg-surface-hover/30 transition-colors group">
-                      {/* Bank brand avatar */}
-                      <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
-                        style={{ backgroundColor: brand.bg }}>
-                        <span className="text-[11px] font-extrabold tracking-tight" style={{ color: brand.color }}>{brand.abbr}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13.5px] text-foreground font-medium truncate">{displayName}</div>
-                        <div className="text-[11.5px] text-muted-foreground/70 truncate">{instName}{a.mask ? ` ··${a.mask}` : ""}</div>
-                      </div>
-                      <span className={cn("text-[14px] font-semibold tabular shrink-0", debt ? "text-negative" : "text-foreground")}>
-                        {fmtUSD(Math.abs(bal))}
-                      </span>
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
-                    </button>
-                  );
-                })}
+          );
+        })}
+        {hasManual && (() => {
+          const open = !!openBuckets["__manual__"];
+          return (
+            <button onClick={() => toggle("__manual__")}
+              className="surface-card text-left p-3.5 rounded-2xl border-t-2 transition-all hover:shadow-md hover:-translate-y-0.5"
+              style={{ borderTopColor: MANUAL_GROUP_META.color, boxShadow: open ? `0 0 0 1px ${MANUAL_GROUP_META.color}66` : undefined }}>
+              <div className="h-9 w-9 rounded-xl grid place-items-center mb-2.5" style={{ background: MANUAL_GROUP_META.bg }}>
+                <Landmark className="h-4 w-4" style={{ color: MANUAL_GROUP_META.color }} />
               </div>
-            )}
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[12px] font-semibold text-foreground truncate">Manual</span>
+                <ChevronDown className={cn("h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
+              </div>
+              <div className="text-[10px] text-muted-foreground/60 mb-1">{manualAccounts.length} account{manualAccounts.length !== 1 ? "s" : ""}</div>
+              <div className="text-[16px] font-bold tabular text-foreground">{fmtUSD(manualTotal)}</div>
+            </button>
+          );
+        })()}
+      </div>
+
+      {/* Expanded account lists, one surface-card per open category, tinted
+          with that category's own color so it's clear which card it belongs to. */}
+      {bucketData.filter(b => openBuckets[b.bucket]).map(({ bucket, list }) => {
+        const meta = ACCOUNT_GROUP_META[bucket];
+        const Icon = meta.icon;
+        return (
+          <div key={bucket} className="surface-card overflow-hidden">
+            <div className="flex items-center gap-2 px-4 md:px-5 py-2.5 border-b border-border/15" style={{ background: meta.bg }}>
+              <Icon className="h-3.5 w-3.5" style={{ color: meta.color }} />
+              <span className="text-[12px] font-semibold" style={{ color: meta.color }}>{meta.label}</span>
+            </div>
+            <div className="divide-y divide-border/10">
+              {list.map(renderAccountRow)}
+            </div>
           </div>
         );
       })}
 
-      {/* Manual accounts bucket */}
-      {hasManual && (() => {
-        const open = !!openBuckets["__manual__"];
-        return (
-          <div>
-            <button onClick={() => toggle("__manual__")}
-              className="w-full flex items-center gap-3 px-4 md:px-5 py-3.5 hover:bg-surface-hover/20 transition-colors text-left">
-              <div className="h-8 w-8 rounded-xl bg-secondary/60 grid place-items-center shrink-0">
-                <Landmark className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-[14px] font-semibold text-foreground">Manual</span>
-                <span className="ml-2 text-[11px] text-muted-foreground/50">{manualAccounts.length}</span>
-              </div>
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
-            </button>
-            {open && (
-              <div className="border-t border-border/15 divide-y divide-border/10 bg-secondary/5">
-                {manualAccounts.map(acct => {
-                  const isMortgage = acct.type === "mortgage" || acct.type === "home_loan";
-                  const isLoanType = isMortgage || ["auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
-                  const bal = Math.abs(Number(acct.current_balance ?? 0));
-                  const instBrand = getBankBrand(acct.institution_name || acct.name || "M");
-                  const emi = isMortgage && acct.original_loan_amount && acct.interest_rate && acct.loan_term_years
-                    ? (() => { const r = acct.interest_rate!/100/12; const n = acct.loan_term_years!*12; return r===0 ? acct.original_loan_amount!/n : acct.original_loan_amount! * r * Math.pow(1+r,n) / (Math.pow(1+r,n)-1); })()
-                    : acct.monthly_payment ?? null;
-                  const equity = isMortgage && acct.property_value ? (Number(acct.property_value) - bal) : null;
-                  return (
-                    <div key={acct.id} className="w-full flex items-center gap-3 px-5 md:px-6 py-3 group">
-                      <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
-                        style={{ backgroundColor: instBrand.bg }}>
-                        <span className="text-[11px] font-extrabold tracking-tight" style={{ color: instBrand.color }}>{instBrand.abbr}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
-                        <div className="text-[11.5px] text-muted-foreground/70 truncate">
-                          {acct.institution_name || (isMortgage ? "Mortgage" : isLoanType ? "Loan" : "Manual")}
-                          {acct.interest_rate ? ` · ${acct.interest_rate}%` : ""}
-                          {emi ? ` · EMI ${fmtUSD(emi)}` : ""}
-                        </div>
-                        {equity !== null && (
-                          <div className={cn("text-[11px] font-medium", equity >= 0 ? "text-positive" : "text-negative")}>
-                            {equity >= 0 ? "Equity" : "Underwater"}: {fmtUSD(Math.abs(equity))}
-                            {acct.property_value ? ` · Home: ${fmtUSD(Number(acct.property_value))}` : ""}
-                          </div>
-                        )}
-                      </div>
-                      <span className={cn("text-[14px] font-semibold tabular shrink-0", isLoanType ? "text-negative" : "text-foreground")}>
-                        {fmtUSD(bal)}
-                      </span>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        {onEditManual && <button onClick={() => onEditManual(acct)} aria-label={`Edit ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>}
-                        {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} aria-label={`Delete ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3.5 w-3.5" /></button>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+      {/* Manual accounts, expanded */}
+      {hasManual && openBuckets["__manual__"] && (
+        <div className="surface-card overflow-hidden">
+          <div className="flex items-center gap-2 px-4 md:px-5 py-2.5 border-b border-border/15" style={{ background: MANUAL_GROUP_META.bg }}>
+            <Landmark className="h-3.5 w-3.5" style={{ color: MANUAL_GROUP_META.color }} />
+            <span className="text-[12px] font-semibold" style={{ color: MANUAL_GROUP_META.color }}>Manual</span>
           </div>
-        );
-      })()}
+          <div className="divide-y divide-border/10">
+            {manualAccounts.map(acct => {
+              const isMortgage = acct.type === "mortgage" || acct.type === "home_loan";
+              const isLoanType = isMortgage || ["auto_loan","student_loan","personal_loan","credit_card"].includes(acct.type);
+              const bal = Math.abs(Number(acct.current_balance ?? 0));
+              const instBrand = getBankBrand(acct.institution_name || acct.name || "M");
+              const emi = isMortgage && acct.original_loan_amount && acct.interest_rate && acct.loan_term_years
+                ? (() => { const r = acct.interest_rate!/100/12; const n = acct.loan_term_years!*12; return r===0 ? acct.original_loan_amount!/n : acct.original_loan_amount! * r * Math.pow(1+r,n) / (Math.pow(1+r,n)-1); })()
+                : acct.monthly_payment ?? null;
+              const equity = isMortgage && acct.property_value ? (Number(acct.property_value) - bal) : null;
+              return (
+                <div key={acct.id} className="w-full flex items-center gap-3 px-5 md:px-6 py-3 group">
+                  <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center border border-white/10 shadow-sm"
+                    style={{ backgroundColor: instBrand.bg }}>
+                    <span className="text-[11px] font-extrabold tracking-tight" style={{ color: instBrand.color }}>{instBrand.abbr}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13.5px] text-foreground font-medium truncate">{acct.name}</div>
+                    <div className="text-[11.5px] text-muted-foreground/70 truncate">
+                      {acct.institution_name || (isMortgage ? "Mortgage" : isLoanType ? "Loan" : "Manual")}
+                      {acct.interest_rate ? ` · ${acct.interest_rate}%` : ""}
+                      {emi ? ` · EMI ${fmtUSD(emi)}` : ""}
+                    </div>
+                    {equity !== null && (
+                      <div className={cn("text-[11px] font-medium", equity >= 0 ? "text-positive" : "text-negative")}>
+                        {equity >= 0 ? "Equity" : "Underwater"}: {fmtUSD(Math.abs(equity))}
+                        {acct.property_value ? ` · Home: ${fmtUSD(Number(acct.property_value))}` : ""}
+                      </div>
+                    )}
+                  </div>
+                  <span className={cn("text-[14px] font-semibold tabular shrink-0", isLoanType ? "text-negative" : "text-foreground")}>
+                    {fmtUSD(bal)}
+                  </span>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {onEditManual && <button onClick={() => onEditManual(acct)} aria-label={`Edit ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>}
+                    {onDeleteManual && <button onClick={() => onDeleteManual(acct.id)} aria-label={`Delete ${acct.name}`} className="h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-negative"><Trash2 className="h-3.5 w-3.5" /></button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Add account */}
       <button onClick={onAddAccount}
-        className="w-full flex items-center justify-center gap-2 py-3 text-[12.5px] text-muted-foreground hover:text-foreground hover:bg-surface-hover/20 transition-colors">
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-dashed border-border/50 text-[12.5px] text-muted-foreground hover:text-foreground hover:border-border transition-colors">
         <Plus className="h-3.5 w-3.5" /> Link an account
       </button>
     </div>
@@ -4003,7 +4206,11 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
   const creditLimit = isCredit && avail >= 0 ? Math.abs(bal) + avail : 0;
   const utilization = isCredit && creditLimit > 0 ? Math.abs(bal) / creditLimit : null;
   const displayName = meta.nickname || a.name || a.official_name || "Account";
-  const hysa = isHYSA(a, instName, meta.apr);
+  // Computed from this account's own interest-credit transactions — lets HYSA
+  // status and the interest figures below work even without a manually-typed
+  // APR, since most users never fill that in.
+  const { lastMonthInterest, impliedApy } = isSavings ? computeImpliedApy(a, txns) : { lastMonthInterest: 0, impliedApy: null };
+  const hysa = isHYSA(a, instName, meta.apr, impliedApy);
   const isPromo = meta.promoApr != null;
   const promoExpired = meta.promoEndDate ? new Date(meta.promoEndDate) < new Date() : false;
   const daysUntilPromoEnd = meta.promoEndDate
@@ -4129,11 +4336,33 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
           {/* APR / rate */}
           {aprRate != null && (
             <div className="mx-5 mb-4 rounded-xl bg-secondary/40 p-3 flex justify-between items-center">
-              <span className="text-[12.5px] text-muted-foreground">{debt ? "APR" : "APY"}</span>
+              <span className="text-[12.5px] text-muted-foreground">{debt ? "APR" : "APY"} (set manually)</span>
               <div className="text-right">
                 <span className="text-[13px] font-semibold text-foreground">{aprRate.toFixed(2)}%</span>
                 <span className="text-[11px] text-muted-foreground ml-2">≈ {fmtUSD(yearlyAmount, { compact: true })}/yr</span>
               </div>
+            </div>
+          )}
+
+          {/* Interest actually earned — derived from this account's own interest-
+              credit transactions, so it works even without a manually-typed APY. */}
+          {isSavings && (lastMonthInterest > 0 || impliedApy != null) && (
+            <div className="mx-5 mb-4 rounded-xl bg-secondary/40 p-3 space-y-2">
+              {lastMonthInterest > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[12.5px] text-muted-foreground">Interest earned last month</span>
+                  <span className="text-[13px] font-semibold text-positive tabular">{fmtUSD(lastMonthInterest)}</span>
+                </div>
+              )}
+              {impliedApy != null && (
+                <div className="flex justify-between items-center">
+                  <span className="text-[12.5px] text-muted-foreground">Avg. rate (from interest paid)</span>
+                  <span className="text-[13px] font-semibold text-foreground tabular">{impliedApy.toFixed(2)}%</span>
+                </div>
+              )}
+              {hysa && aprRate == null && (
+                <div className="text-[11px] text-positive">Classified as High-Yield Savings based on this rate</div>
+              )}
             </div>
           )}
 
@@ -4578,10 +4807,6 @@ export const LivePlaidDashboard = ({
   const [aiInsights, setAiInsights] = useState<AIInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [openInsight, setOpenInsight] = useState<AIInsight|null>(null);
-  // Which Saving opportunities row is expanded inline — collapsed rows stay a
-  // fixed, compact height so the list scans quickly; expanding one doesn't
-  // resize its neighbors.
-  const [expandedInsightId, setExpandedInsightId] = useState<string|null>(null);
   const [period, setPeriod]         = useState<Period>("1M");
   const [editingBudgetCat, setEditingBudgetCat] = useState<string|null>(null);
   const [openPickerTxn, setOpenPickerTxn] = useState<PTxn|null>(null);
@@ -4683,8 +4908,40 @@ export const LivePlaidDashboard = ({
     return { catById, nameById, internalIds };
   }, [smartRules, evalTxns]);
 
-  // Merged maps — manual edits always win over smart-rule output.
-  const overrides = useMemo(() => ({ ...smartResults.catById, ...catOverridesManual }), [smartResults, catOverridesManual]);
+  // Detect internal transfers once — money moving between two of the user's
+  // OWN linked accounts, regardless of what category or description it
+  // carries (a self-payment can be labeled "Salary", a card bill can be
+  // labeled "Credit Card Payment" — the category text is never the signal,
+  // the matched pair is). Used to exclude these from all spend/income
+  // analysis and to force their displayed category to "Internal Transfer"
+  // below, since a transaction is never both a real income/expense category
+  // AND an internal transfer at the same time.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const autoInternalIds = useMemo(() => detectInternalTransfers(txns), [txns]);
+  // User-marked internal transfers — from Supabase settings
+  const manualInternalIds = new Set<string>(settings.manualInternal ?? []);
+  // Whitelist: user explicitly un-flagged an auto-detected transfer
+  const manualExternalIds = new Set<string>(settings.manualExternal ?? []);
+  const internalTxnIds = useMemo(
+    () => new Set([...autoInternalIds, ...smartResults.internalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
+    [autoInternalIds, smartResults, manualInternalIds, manualExternalIds]
+  );
+  // Forces the displayed/effective category of every internally-paired
+  // transaction to "Internal Transfer" — it should never still show as
+  // "Salary", "Transfer Out", etc. once pairing has confirmed it's really
+  // money moving between the user's own accounts. Sits below smart-rule
+  // output but above manual overrides, so an explicit per-transaction
+  // category choice (or the "not actually internal" toggle, which removes
+  // the id from internalTxnIds entirely) still wins.
+  const internalForcedCat = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const id of internalTxnIds) m[id] = "Internal Transfer";
+    return m;
+  }, [internalTxnIds]);
+
+  // Merged maps — manual edits always win over smart-rule output, which in
+  // turn is overridden by a confirmed internal-transfer pairing.
+  const overrides = useMemo(() => ({ ...smartResults.catById, ...internalForcedCat, ...catOverridesManual }), [smartResults, internalForcedCat, catOverridesManual]);
   const nameOverrides = useMemo(() => ({ ...smartResults.nameById, ...nameOverridesManual }), [smartResults, nameOverridesManual]);
 
   // Resolve display name: per-txn override → merchant rule → merchant name
@@ -4925,22 +5182,9 @@ export const LivePlaidDashboard = ({
 
   const byBucket = (b:Bucket) => accounts.filter(a=>mapBucket(a.type,a.subtype)===b);
 
-  // Detect internal transfers once — used to exclude them from all analysis
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const autoInternalIds = useMemo(() => detectInternalTransfers(txns), [txns]);
-
-  // User-marked internal transfers — from Supabase settings
-  const manualInternalIds = new Set<string>(settings.manualInternal ?? []);
-  // Whitelist: user explicitly un-flagged an auto-detected transfer
-  const manualExternalIds = new Set<string>(settings.manualExternal ?? []);
-
   const toggleManualInternal = (id: string) => {
     S.toggleManualInternal(id);
   };
-  const internalTxnIds = useMemo(
-    () => new Set([...autoInternalIds, ...smartResults.internalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
-    [autoInternalIds, smartResults, manualInternalIds, manualExternalIds]
-  );
 
   // nwData must be computed after internalTxnIds so internal transfers are excluded from the chart
   const nwData   = buildNWByPeriod(netWorth, txns, period, internalTxnIds);
@@ -5483,46 +5727,27 @@ export const LivePlaidDashboard = ({
                     {visibleInsights.map(insight=>{
                       const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
                       const sevDot = insight.severity==="high" ? "bg-negative" : insight.severity==="medium" ? "bg-warning" : "bg-info";
-                      const expanded = expandedInsightId === insight.id;
-                      const monthlyEquivalent = insight.impactValue > 0 ? insight.impactValue / 12 : 0;
                       return (
-                        <div key={insight.id}>
-                          <button onClick={()=>setExpandedInsightId(expanded ? null : insight.id)}
-                            className="group w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-surface-hover/30 transition-colors">
-                            <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center text-foreground/80 shrink-0 relative">
+                        <div key={insight.id} className="group/insightrow flex items-start gap-1 px-2.5 py-2.5 hover:bg-surface-hover/30 transition-colors">
+                          <button onClick={()=>setOpenInsight(insight)}
+                            className="flex-1 min-w-0 flex items-start gap-2.5 text-left">
+                            <div className="h-7 w-7 rounded-lg bg-secondary/60 grid place-items-center text-foreground/80 shrink-0 relative mt-0.5">
                               <CatIcon className="h-3.5 w-3.5" />
                               <span className={cn("absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full", sevDot)} />
                             </div>
-                            <span className="flex-1 min-w-0 text-[13px] text-foreground font-medium truncate">{insight.title}</span>
-                            <span className="text-[12px] tabular text-positive font-semibold shrink-0">{insight.impact}</span>
-                            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/50 shrink-0 transition-transform", expanded && "rotate-180")} />
-                          </button>
-                          {expanded && (
-                            <div className="px-4 pb-3.5 -mt-0.5 space-y-2.5">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{insight.category}</span>
-                                {monthlyEquivalent > 0 && (
-                                  <span className="text-[11px] text-muted-foreground">· {fmtUSD(monthlyEquivalent)}/mo</span>
-                                )}
-                              </div>
-                              {([["What's happening", insight.what],["Why it matters", insight.why],["Suggested action", insight.action]] as [string,string][]).map(([label,body])=>(
-                                <div key={label}>
-                                  <div className="text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground/70 mb-0.5">{label}</div>
-                                  <p className="text-[12.5px] text-foreground/90 leading-snug">{body}</p>
-                                </div>
-                              ))}
-                              <div className="flex items-center gap-2 pt-1">
-                                <button onClick={()=>{ dismissInsight(insight.id); setExpandedInsightId(null); }}
-                                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border-strong text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
-                                  <X className="h-3 w-3" /> Dismiss
-                                </button>
-                                <button onClick={()=>setOpenInsight(insight)}
-                                  className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors ml-auto">
-                                  Full details <ArrowRight className="h-3 w-3" />
-                                </button>
-                              </div>
+                            <div className="flex-1 min-w-0 flex flex-col gap-0.5 pt-0.5">
+                              <span className="text-[13px] text-foreground font-medium leading-snug line-clamp-2 break-words">{insight.title}</span>
+                              <span className="text-[11.5px] tabular text-positive font-semibold truncate">{insight.impact}</span>
                             </div>
-                          )}
+                          </button>
+                          <button onClick={()=>dismissInsight(insight.id)} title="Dismiss" aria-label="Dismiss insight"
+                            className="shrink-0 h-6 w-6 grid place-items-center rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-border/30 opacity-100 md:opacity-0 md:group-hover/insightrow:opacity-100 focus:opacity-100 transition-all mt-1">
+                            <X className="h-3 w-3" />
+                          </button>
+                          <button onClick={()=>setOpenInsight(insight)} title="View details" aria-label="View insight details"
+                            className="shrink-0 h-6 w-6 grid place-items-center rounded-md text-muted-foreground/50 hover:text-foreground transition-colors mt-1">
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       );
                     })}
@@ -6349,7 +6574,7 @@ export const LivePlaidDashboard = ({
                         )}
                       </div>
                       {isPredicted && !confirmed && (
-                        <div className="text-[11.5px] text-muted-foreground">Predicted from last time — change above if you'd rather use a different account.</div>
+                        <div className="text-[11.5px] text-muted-foreground">Predicted from last time. Change above if you'd rather use a different account.</div>
                       )}
                       {confirmed && (
                         <div className="flex items-center gap-1.5 text-[12px] text-positive">
@@ -6363,7 +6588,7 @@ export const LivePlaidDashboard = ({
             })}
           </div>
           <div className="px-4 py-2.5 border-t border-border/15 text-[11.5px] text-muted-foreground">
-            These are suggestions — transfers must be made manually in your bank or app.
+            These are suggestions, transfers must be made manually in your bank or app.
           </div>
         </div>
         );
@@ -6867,7 +7092,7 @@ export const LivePlaidDashboard = ({
       suggestions.push({
         id, kind: "upcoming",
         title: `${r.merchant}: ~${fmtUSD(r.avgAmount)} expected ${whenText}`,
-        detail: `At risk: your spending balance (${fmtUSD(spendingBalance)}) won't cover this plus other bills due by then. Short by ${fmtUSD(Math.abs(projectedBalance))} — move money in before ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`,
+        detail: `At risk: your spending balance (${fmtUSD(spendingBalance)}) won't cover this plus other bills due by then. Short by ${fmtUSD(Math.abs(projectedBalance))}, move money in before ${r.predictedDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}.`,
         amount: r.avgAmount,
       });
     }

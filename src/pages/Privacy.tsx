@@ -15,9 +15,9 @@ const Privacy = () => (
 
     <main className="max-w-[760px] mx-auto px-4 md:px-8 py-10 md:py-14">
       <div className="mb-8 rounded-xl border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.08)] px-4 py-3 text-[13px] text-foreground">
-        <strong>Draft — pending legal review.</strong> This is placeholder language, not a finished legal
-        document. Have an attorney review and finalize this page — especially the data-handling
-        commitments — before relying on it as a binding privacy notice.
+        <strong>Draft, pending legal review.</strong> This is placeholder language, not a finished legal
+        document. Have an attorney review and finalize this page, especially the data-handling
+        commitments, before relying on it as a binding privacy notice.
       </div>
 
       <h1 className="font-display text-3xl md:text-4xl mb-2">Privacy Policy</h1>
@@ -27,14 +27,14 @@ const Privacy = () => (
         <section>
           <h2 className="text-[15px] font-semibold mb-2">1. What we collect</h2>
           <p>Account info you give us directly (email, display name, and profile photo if you sign in
-          with Google). Financial data from institutions you connect through Plaid — account names,
-          balances, and transactions — on a read-only basis. Any manual accounts, budgets, categories,
+          with Google). Financial data from institutions you connect through Plaid, account names,
+          balances, and transactions, on a read-only basis. Any manual accounts, budgets, categories,
           or gift card details you add yourself. Basic usage analytics to keep the app working reliably.</p>
         </section>
 
         <section>
           <h2 className="text-[15px] font-semibold mb-2">2. What we don't do</h2>
-          <p>SentryFi cannot initiate transfers, payments, or any changes to your linked accounts —
+          <p>SentryFi cannot initiate transfers, payments, or any changes to your linked accounts.
           Plaid access is read-only. We don't sell your financial data to third parties.</p>
         </section>
 
@@ -67,13 +67,13 @@ const Privacy = () => (
         <section>
           <h2 className="text-[15px] font-semibold mb-2">7. Security</h2>
           <p>Data is encrypted in transit. Your bank credentials are never entered into or stored by
-          SentryFi — Plaid's secure flow handles authentication with your institution directly.</p>
+          SentryFi. Plaid's secure flow handles authentication with your institution directly.</p>
         </section>
 
         <section>
           <h2 className="text-[15px] font-semibold mb-2">8. Your choices</h2>
           <p>You can disconnect a linked bank, delete manual accounts or gift cards, adjust notification
-          preferences, or delete your account entirely — all from within the app.</p>
+          preferences, or delete your account entirely, all from within the app.</p>
         </section>
 
         <section>

@@ -72,7 +72,7 @@ interface PTxn {
 
 export const OBLIGATION_BUCKETS = [
   { type: "fixed" as const, label: "Fixed", sublabel: "Same every month",         icon: Lock, colorClass: "text-blue-400",  bg: "bg-blue-500/10" },
-  { type: "flex" as const,  label: "Flex",  sublabel: "Variable — max threshold", icon: Zap,  colorClass: "text-amber-400", bg: "bg-amber-500/10" },
+  { type: "flex" as const,  label: "Flex",  sublabel: "Variable, max threshold", icon: Zap,  colorClass: "text-amber-400", bg: "bg-amber-500/10" },
 ] as const;
 
 // ─── Category classification ─────────────────────────────────────────────────
@@ -304,7 +304,7 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): DetectedOb
         merchant,
         category: cat,
         confidence: "medium",
-        reason: `Recurs around the ${dayLabel} of the month, 3 months in a row — amount varies (${fmtUSD(avg*0.8)}–${fmtUSD(avg*1.2)})`,
+        reason: `Recurs around the ${dayLabel} of the month, 3 months in a row, amount varies (${fmtUSD(avg*0.8)}-${fmtUSD(avg*1.2)})`,
         txns: txnPattern,
         accountId,
       });
@@ -497,7 +497,7 @@ export function ObligationEditModal({ initial, defaultType = "fixed", accounts, 
               ))}
             </select>
             {!fundingAcct && (
-              <p className="text-[10.5px] text-amber-400/90 mt-1">Tag where this gets paid from — a must-pay bill should never be a mystery.</p>
+              <p className="text-[10.5px] text-amber-400/90 mt-1">Tag where this gets paid from. A must-pay bill should never be a mystery.</p>
             )}
           </div>
           <div className="flex gap-2 pt-1">
@@ -583,7 +583,7 @@ export function CoverModal({ exceeded, month, userId, onRaiseLimit, onClose }: C
             className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left">
             <div className="h-8 w-8 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0"><Wallet className="h-3.5 w-3.5 text-orange-400" /></div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">It's a one-time thing — absorb it</p>
+              <p className="text-sm font-medium">It's a one-time thing, absorb it</p>
               <p className="text-xs text-muted-foreground">Log as an exception, leave the budgeted amount as is</p>
             </div>
             <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />

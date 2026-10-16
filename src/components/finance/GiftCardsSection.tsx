@@ -707,10 +707,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                           </div>
                         </td>
                         <td className="px-3 py-3 text-[12.5px] text-muted-foreground tabular whitespace-nowrap">
-                          {card.card_number_last4 ? `•••• ${card.card_number_last4}` : "—"}
+                          {card.card_number_last4 ? `•••• ${card.card_number_last4}` : "-"}
                         </td>
                         <td className="px-3 py-3 text-[12.5px] text-muted-foreground whitespace-nowrap">
-                          {card.expiry_date ? new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "—"}
+                          {card.expiry_date ? new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "-"}
                         </td>
                         <td className="px-3 py-3">
                           <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap", statusClasses)}>
