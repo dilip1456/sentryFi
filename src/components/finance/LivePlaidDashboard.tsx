@@ -546,29 +546,44 @@ const buildMonthlyFlow = (
   });
 };
 
+// Transfer-flavored category or name text. Used as a *necessary* precondition
+// before two transactions are even considered as a possible internal-transfer
+// pair below. Without this, any two unrelated transactions that merely share
+// the same dollar amount within a few days (e.g. an external $200 Zelle
+// deposit from someone else, and an unrelated $200 bill on another of the
+// user's accounts) get coincidentally paired and hidden as "Internal
+// Transfer" instead of counted as income/spending.
+const TRANSFER_CATEGORY_RE = /transfer|credit card payment|loan payment|zelle|venmo|cash app|cashapp/i;
+
 /**
  * Detect internal transfers between the user's own accounts.
  * Returns a Set of transaction IDs that are internal transfers.
- * Criteria: Plaid category contains "transfer" OR name matches transfer patterns,
- * AND a matching opposite-amount transaction exists in another own account within 3 days.
- * Credit card payments (transfer from checking → credit) are also internal.
+ * Criteria: BOTH legs look transfer-flavored (category or name) — this alone
+ * is not proof of an internal transfer (an external Zelle/ACH deposit also
+ * looks transfer-flavored), so it's required together with: a matching
+ * opposite-amount transaction in a DIFFERENT one of the user's own accounts
+ * within 3 days, AND that match is unique (no other same-amount
+ * transfer-looking candidate in the window — an ambiguous coincidence is
+ * left unmatched rather than guessed). Only a transaction whose counterpart
+ * is confirmed on one of the user's OWN other accounts is ever marked
+ * internal; a transfer-flavored deposit/withdrawal with no such counterpart
+ * (e.g. money coming in from someone else) is real income/spending, not
+ * internal, and is intentionally left alone here.
  */
 const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
   const ids = new Set<string>();
-  // Any transaction can be a candidate — the reliable signal that money moved
-  // between two of the user's OWN accounts isn't the wording of its category
-  // or description (a self-payment can be labeled "Salary", an ACH can carry
-  // no "transfer" wording at all), it's that another transaction of the exact
-  // opposite amount posted to a DIFFERENT one of the user's own accounts
-  // within a few days. Only transactions with a confirmed pair get marked —
-  // no fallback — since a lone transaction with no matching counterpart on
-  // another of the user's accounts could still be a real, unrelated expense
-  // or deposit. Grouped by exact amount first so this stays fast even across
-  // a large transaction history (only same-amount transactions are ever
-  // compared against each other) instead of an all-pairs scan.
+  const isTransferCandidate = (t: PTxn) => {
+    const cat = t.category?.[0] ?? "";
+    const label = t.merchant_name ?? t.name ?? "";
+    return TRANSFER_CATEGORY_RE.test(cat) || TRANSFER_CATEGORY_RE.test(label);
+  };
+  // Grouped by exact amount (transfer-flavored candidates only) so this
+  // stays fast even across a large transaction history, instead of an
+  // all-pairs scan.
   const byAmount = new Map<string, PTxn[]>();
   for (const t of txns) {
     if (t.pending) continue;
+    if (!isTransferCandidate(t)) continue;
     const amt = Math.abs(Number(t.amount));
     if (amt === 0) continue;
     const key = amt.toFixed(2);
@@ -582,15 +597,18 @@ const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
       if (ids.has(t.id)) continue;
       const amt = Number(t.amount);
       const tDate = new Date(t.date + "T00:00:00");
-      const match = group.find(o =>
+      const candidates = group.filter(o =>
         o.id !== t.id && !ids.has(o.id) &&
         o.account_id !== t.account_id &&
         Math.sign(Number(o.amount)) !== Math.sign(amt) &&
         Math.abs(new Date(o.date + "T00:00:00").getTime() - tDate.getTime()) <= 3 * 86400000
       );
-      if (match) {
+      // Only pair off an unambiguous match — if more than one same-amount
+      // transfer-looking candidate falls in the window, don't guess which
+      // (if any) is the real counterpart.
+      if (candidates.length === 1) {
         ids.add(t.id);
-        ids.add(match.id);
+        ids.add(candidates[0].id);
       }
     }
   }

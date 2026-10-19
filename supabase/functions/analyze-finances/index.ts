@@ -139,10 +139,14 @@ function buildSummary(
 ) {
   const now = new Date();
   // Filter out internal transfers for all analysis. A transaction only counts as an
-  // internal transfer if Plaid's own category says so, or if there's a matching
-  // opposite-signed transaction in a different account within 3 days — mirrors the
-  // frontend's detectInternalTransfers() so backend and frontend totals agree. A naive
-  // name/keyword match alone (e.g. "payment") would wrongly exclude real income/expenses.
+  // internal transfer if it's transfer-flavored by category/name AND it has a
+  // confirmed, unique opposite-signed counterpart in a DIFFERENT account within
+  // 3 days — mirrors the frontend's detectInternalTransfers() so backend and
+  // frontend totals agree. There is no category-only fallback: a transfer-flavored
+  // transaction with no matching counterpart on another of the user's own accounts
+  // (e.g. an incoming Zelle/ACH from someone else) is real income/spending, not
+  // internal, and must not be dropped from analysis just because Plaid's category
+  // for it happens to say "transfer".
   const TRANSFER_NAME = /\btransfer\b|zelle|venmo|cashapp|pay yourself|from checking|to savings|to checking|from savings|online payment|autopay|bill pay/i;
   const isTransferCandidate = (t: Txn) =>
     (t.category?.[0] ?? '').toLowerCase().includes('transfer') ||
@@ -157,7 +161,7 @@ function buildSummary(
       if (claimed.has(idx)) continue;
       const tAmt = Number(t.amount);
       const tDate = new Date(t.date + 'T00:00:00');
-      const match = candidates.find(({ t: o, idx: oIdx }) => {
+      const matches = candidates.filter(({ t: o, idx: oIdx }) => {
         if (oIdx === idx || claimed.has(oIdx)) return false;
         if (o.account_id === t.account_id) return false;
         const oAmt = Number(o.amount);
@@ -166,12 +170,13 @@ function buildSummary(
         const oDate = new Date(o.date + 'T00:00:00');
         return Math.abs(tDate.getTime() - oDate.getTime()) <= 3 * 86400000;
       });
-      if (match) {
-        internalIdx.add(idx); internalIdx.add(match.idx);
-        claimed.add(idx); claimed.add(match.idx);
-      } else if ((t.category?.[0] ?? '').toLowerCase().includes('transfer')) {
-        internalIdx.add(idx);
-        claimed.add(idx);
+      // Only pair off an unambiguous match — if more than one same-amount
+      // transfer-looking candidate falls in the window, don't guess which
+      // (if any) is the real counterpart, and never mark internal on
+      // category text alone.
+      if (matches.length === 1) {
+        internalIdx.add(idx); internalIdx.add(matches[0].idx);
+        claimed.add(idx); claimed.add(matches[0].idx);
       }
     }
   }
