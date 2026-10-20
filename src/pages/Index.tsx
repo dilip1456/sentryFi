@@ -320,7 +320,15 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
         {/* Mobile header */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
+        {/* viewport-fit=cover (index.html) lets the app draw under the status
+            bar / display cutout in the Capacitor WebView, so the header pads
+            itself by the top safe-area inset (0 in a normal browser tab). */}
+        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0"
+          style={{
+            paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}>
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
@@ -363,7 +371,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               {headerMenuOpen && createPortal(
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
+                  <div style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
@@ -609,6 +617,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           style={{
             gridTemplateColumns: `repeat(${mobilePrimary.length + 1}, 1fr)`,
             paddingBottom: "env(safe-area-inset-bottom)",
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
           }}
         >
           {mobilePrimary.map(t => {
@@ -637,7 +647,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {moreOpen && (
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div className="fixed bottom-16 right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
+                <div style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }} className="fixed right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
