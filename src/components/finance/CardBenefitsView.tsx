@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
   Sparkles, CheckCircle, RotateCcw, Loader2, RefreshCw, CreditCard,
@@ -7,39 +7,10 @@ import {
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { toast } from "sonner";
-
-interface Benefit {
-  key: string;
-  title: string;
-  description: string;
-  value: string;
-  period: string;
-  action_type: string | null;
-  action_label: string | null;
-  cashback_category: string | null;
-  cashback_rate: number | null;
-  priority: number;
-  used_at?: string | null;
-}
-
-interface CardData {
-  account_id: string;
-  name: string;
-  official_name: string;
-  benefits: Benefit[];
-}
-
-interface SpendCategory {
-  category: string;
-  monthly_avg: number;
-  current_card: string | null;
-  current_card_name: string | null;
-  current_rate: number | null;
-  best_card: string | null;
-  best_card_name: string | null;
-  best_rate: number | null;
-  annual_gain: number;
-}
+import {
+  type RawBenefit, type CardBenefits, dedupeBenefits, summarizeBenefits, isActionable,
+  buildSpendSuggestions, reconcileFetched, cleanText,
+} from "@/lib/card-benefits";
 
 interface Props {
   accounts: { account_id: string; name: string; official_name?: string | null; type: string }[];
@@ -47,6 +18,32 @@ interface Props {
   user: { id: string } | null;
   txns?: { account_id: string; amount: number; date: string; category: string[] | null }[];
 }
+
+// Cards whose lookup came back empty (store cards, unknown products) are
+// remembered for a week so every visit doesn't re-run the slow AI lookup —
+// that re-fetch on every load was the main cause of the ~30s spinner.
+const EMPTY_LOOKUP_TTL_MS = 7 * 86400000;
+const lookupCacheKey = (userId: string) => `sentryfi_benefits_lookup:${userId}`;
+const readLookupCache = (userId: string): Record<string, number> => {
+  try { return JSON.parse(localStorage.getItem(lookupCacheKey(userId)) ?? "{}") ?? {}; } catch { return {}; }
+};
+const writeLookupCache = (userId: string, ids: string[]) => {
+  try {
+    const cache = readLookupCache(userId);
+    const now = Date.now();
+    for (const id of ids) cache[id] = now;
+    localStorage.setItem(lookupCacheKey(userId), JSON.stringify(cache));
+  } catch { /* storage full / disabled — just refetch next time */ }
+};
+
+const rowToRaw = (b: Record<string, unknown>): RawBenefit => ({
+  key: String(b.benefit_key),
+  title: b.title as string | null, description: b.description as string | null,
+  value: b.value as string | null, period: b.period as string | null,
+  action_type: b.action_type as string | null, action_label: b.action_label as string | null,
+  cashback_category: b.cashback_category as string | null, cashback_rate: b.cashback_rate as number | null,
+  priority: (b.priority as number | null) ?? 5, used_at: (b.used_at as string | null) ?? null,
+});
 
 const ACTION_ICON: Record<string, string> = {
   register: "🔑",
@@ -67,202 +64,152 @@ const ACTION_COLOR: Record<string, string> = {
 };
 
 export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props) => {
-  const [loading, setLoading] = useState(false);
-  const [cards, setCards] = useState<CardData[]>([]);
-  const [spendOpt, setSpendOpt] = useState<SpendCategory[]>([]);
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  // Raw rows per account as stored in card_benefits; everything rendered is
+  // derived from this via dedupe so there is one source for lists and counts.
+  const [rawByCard, setRawByCard] = useState<Record<string, RawBenefit[]>>({});
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [expandedCards, setExpandedCards] = useState<Set<string> | null>(null);
   const [activeTab, setActiveTab] = useState<"actions" | "optimize" | "all">("actions");
+  const inFlight = useRef(false);
 
-  const creditCards = accounts.filter(a => a.type === "credit");
+  const creditCards = useMemo(() => accounts.filter(a => a.type === "credit"), [accounts]);
+  const creditKey = creditCards.map(c => c.account_id).join(",");
 
-  const loadBenefits = async (refresh = false) => {
-    if (!user || !creditCards.length) return;
-    setLoading(true);
+  const cards: CardBenefits[] = useMemo(() => creditCards.map(c => ({
+    account_id: c.account_id,
+    name: cleanText(c.name) || "Credit card",
+    official_name: cleanText(c.official_name) || cleanText(c.name) || "Credit card",
+    benefits: dedupeBenefits(rawByCard[c.account_id] ?? []),
+  })), [creditCards, rawByCard]);
+
+  const summary = useMemo(() => summarizeBenefits(cards), [cards]);
+  const spendOpt = useMemo(() => buildSpendSuggestions(cards, txns, accounts), [cards, txns, accounts]);
+
+  /** AI lookup for the given cards; merges results into card_benefits without duplicating existing perks. */
+  const fetchFromAI = useCallback(async (targets: typeof creditCards, existing: Record<string, RawBenefit[]>) => {
+    if (!user || !targets.length) return;
+    setFetching(true);
     try {
-      // Load from DB
-      const { data: existing } = await supabase
+      const { data, error } = await supabase.functions.invoke("fetch-card-benefits", {
+        body: { cards: targets.map(c => ({ account_id: c.account_id, name: c.name, official_name: c.official_name ?? c.name })) },
+      });
+      if (error || data?.error) {
+        toast.error("Could not fetch benefits", { description: cleanText(data?.error) || cleanText(error?.message) || "Please try again." });
+        return;
+      }
+      const fetched: Record<string, RawBenefit[]> = data?.benefits ?? {};
+      const failed = new Set<string>(Array.isArray(data?.failed) ? data.failed : []);
+      const fetchedAt = new Date().toISOString();
+      const upserts: Record<string, unknown>[] = [];
+      const deletions: { accountId: string; keys: string[] }[] = [];
+      const next: Record<string, RawBenefit[]> = {};
+
+      for (const c of targets) {
+        if (failed.has(c.account_id)) continue;
+        const incoming = Array.isArray(fetched[c.account_id]) ? fetched[c.account_id] : [];
+        const prior = existing[c.account_id] ?? [];
+        const { rows, redundantKeys } = reconcileFetched(prior, incoming);
+        if (redundantKeys.length) deletions.push({ accountId: c.account_id, keys: redundantKeys });
+        for (const b of rows) {
+          upserts.push({
+            user_id: user.id, account_id: c.account_id, benefit_key: b.key,
+            title: cleanText(b.title), description: cleanText(b.description),
+            value: cleanText(b.value) || null, period: cleanText(b.period) || null,
+            action_type: cleanText(b.action_type) || null, action_label: cleanText(b.action_label) || null,
+            cashback_category: cleanText(b.cashback_category) || null,
+            cashback_rate: b.cashback_rate ?? null, priority: b.priority ?? 5, fetched_at: fetchedAt,
+          });
+        }
+        const keep = prior.filter(p => !redundantKeys.includes(p.key) && !rows.some(r => r.key === p.key));
+        next[c.account_id] = [...keep, ...rows.map(r => ({ ...r, used_at: prior.find(p => p.key === r.key)?.used_at ?? null }))];
+      }
+
+      // One batched write instead of one awaited round-trip per perk.
+      const writes: PromiseLike<unknown>[] = [];
+      if (upserts.length) {
+        writes.push(supabase.from("card_benefits").upsert(upserts, { onConflict: "user_id,account_id,benefit_key" })
+          .then(({ error: e }) => { if (e) console.warn("[card_benefits] upsert failed:", e.message); }));
+      }
+      for (const d of deletions) {
+        writes.push(supabase.from("card_benefits").delete()
+          .eq("user_id", user.id).eq("account_id", d.accountId).in("benefit_key", d.keys)
+          .then(({ error: e }) => { if (e) console.warn("[card_benefits] dedupe delete failed:", e.message); }));
+      }
+      await Promise.all(writes);
+
+      writeLookupCache(user.id, targets.filter(c => !failed.has(c.account_id)).map(c => c.account_id));
+      setRawByCard(prev => ({ ...prev, ...next }));
+      if (failed.size) toast.error(`Couldn't look up ${failed.size} card${failed.size !== 1 ? "s" : ""}`, { description: "Try Refresh again in a bit." });
+    } catch (e) {
+      toast.error("Could not fetch benefits", { description: e instanceof Error ? e.message : "Please try again." });
+    } finally {
+      setFetching(false);
+    }
+  }, [supabase, user]);
+
+  const loadBenefits = useCallback(async (refresh = false) => {
+    if (!user || !creditCards.length || inFlight.current) { if (!creditCards.length) setInitialLoaded(true); return; }
+    inFlight.current = true;
+    setLoadError(null);
+    try {
+      // 1. Stored perks first — rendered immediately (progressive load).
+      const { data: existing, error } = await supabase
         .from("card_benefits")
         .select("*")
         .eq("user_id", user.id)
         .order("priority", { ascending: true });
+      if (error) throw new Error(error.message);
+      const byCard: Record<string, RawBenefit[]> = {};
+      for (const b of existing ?? []) (byCard[b.account_id] ??= []).push(rowToRaw(b));
+      setRawByCard(byCard);
+      setInitialLoaded(true);
 
-      const byCard: Record<string, Benefit[]> = {};
-      for (const b of existing ?? []) {
-        if (!byCard[b.account_id]) byCard[b.account_id] = [];
-        byCard[b.account_id].push({
-          key: b.benefit_key, title: b.title, description: b.description,
-          value: b.value, period: b.period,
-          action_type: b.action_type, action_label: b.action_label,
-          cashback_category: b.cashback_category, cashback_rate: b.cashback_rate,
-          priority: b.priority ?? 5,
-          used_at: b.used_at,
-        });
-      }
-
-      const needsFetch = refresh || creditCards.some(c => !byCard[c.account_id]?.length);
-
-      if (needsFetch) {
-        const { data, error } = await supabase.functions.invoke("fetch-card-benefits", {
-          body: { cards: creditCards.map(c => ({ account_id: c.account_id, name: c.name, official_name: c.official_name ?? c.name })) },
-        });
-
-        if (error || data?.error) {
-          toast.error("Could not fetch benefits", { description: data?.error ?? error?.message });
-        } else {
-          const fetched: Record<string, any[]> = data.benefits ?? {};
-          for (const [accountId, benefits] of Object.entries(fetched)) {
-            if (!Array.isArray(benefits)) continue;
-            for (const b of benefits) {
-              await supabase.from("card_benefits").upsert({
-                user_id: user.id,
-                account_id: accountId,
-                benefit_key: b.key,
-                title: b.title,
-                description: b.description,
-                value: b.value,
-                period: b.period,
-                action_type: b.action_type ?? null,
-                action_label: b.action_label ?? null,
-                cashback_category: b.cashback_category ?? null,
-                cashback_rate: b.cashback_rate ?? null,
-                priority: b.priority ?? 5,
-                fetched_at: new Date().toISOString(),
-              }, { onConflict: "user_id,account_id,benefit_key" });
-            }
-            // Reload
-            const { data: refreshed } = await supabase.from("card_benefits").select("*")
-              .eq("user_id", user.id).eq("account_id", accountId).order("priority");
-            byCard[accountId] = (refreshed ?? []).map((b: any) => ({
-              key: b.benefit_key, title: b.title, description: b.description,
-              value: b.value, period: b.period,
-              action_type: b.action_type, action_label: b.action_label,
-              cashback_category: b.cashback_category, cashback_rate: b.cashback_rate,
-              priority: b.priority ?? 5, used_at: b.used_at,
-            }));
-          }
-        }
-      }
-
-      const result = creditCards.map(c => ({
-        account_id: c.account_id,
-        name: c.name,
-        official_name: c.official_name ?? c.name,
-        benefits: (byCard[c.account_id] ?? []).sort((a, b) => (a.priority ?? 5) - (b.priority ?? 5)),
-      }));
-      setCards(result);
-      setExpandedCards(new Set(result.filter(c => c.benefits.length > 0).map(c => c.account_id)));
-
-      // Build spend optimizer
-      buildSpendOptimizer(result, txns);
+      // 2. AI lookup only for cards that have nothing stored and weren't
+      //    looked up recently (or every card on an explicit Refresh).
+      const cache = readLookupCache(user.id);
+      const targets = refresh ? creditCards : creditCards.filter(c =>
+        !byCard[c.account_id]?.length && !(cache[c.account_id] && Date.now() - cache[c.account_id] < EMPTY_LOOKUP_TTL_MS));
+      await fetchFromAI(targets, byCard);
     } catch (e) {
-      toast.error("Error loading benefits", { description: String(e) });
+      setLoadError(e instanceof Error ? e.message : String(e));
+      setInitialLoaded(true);
+    } finally {
+      inFlight.current = false;
     }
-    setLoading(false);
-  };
+  }, [user, creditCards, supabase, fetchFromAI]);
 
-  const buildSpendOptimizer = (cards: CardData[], txns: Props["txns"]) => {
-    if (!txns?.length) return;
+  // Re-run when the set of credit cards changes (accounts often arrive after
+  // the first render; the old effect only depended on user id and never retried).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadBenefits(); }, [user?.id, creditKey]);
 
-    // Get 90-day spending by category
-    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-    const recentTxns = txns.filter(t => t.amount > 0 && t.date >= cutoff);
-    const byCategory: Record<string, { total: number; account_id: string | null }> = {};
+  const keysFor = (accountId: string, key: string) =>
+    cards.find(c => c.account_id === accountId)?.benefits.find(b => b.key === key)?.keys ?? [key];
 
-    for (const t of recentTxns) {
-      const cat = t.category?.[0] ?? "Other";
-      if (!byCategory[cat]) byCategory[cat] = { total: 0, account_id: t.account_id };
-      byCategory[cat].total += Number(t.amount);
-      // Track most-used account for this category
-      if (byCategory[cat].account_id !== t.account_id) {
-        byCategory[cat].account_id = null; // mixed
-      }
-    }
-
-    // Build cashback rate map: category → [{ account_id, rate, card_name }]
-    // Deduplicate: keep only highest rate per account_id per category
-    const rateMapRaw: Record<string, Map<string, { account_id: string; rate: number; card_name: string }>> = {};
-    for (const card of cards) {
-      for (const b of card.benefits) {
-        if (!b.cashback_rate || !b.cashback_category) continue;
-        if (!rateMapRaw[b.cashback_category]) rateMapRaw[b.cashback_category] = new Map();
-        const existing = rateMapRaw[b.cashback_category].get(card.account_id);
-        if (!existing || b.cashback_rate > existing.rate) {
-          rateMapRaw[b.cashback_category].set(card.account_id, {
-            account_id: card.account_id,
-            rate: b.cashback_rate,
-            card_name: card.official_name || card.name,
-          });
-        }
-      }
-    }
-    const rateMap: Record<string, { account_id: string; rate: number; card_name: string }[]> = {};
-    for (const [cat, map] of Object.entries(rateMapRaw)) {
-      rateMap[cat] = [...map.values()];
-    }
-
-    const suggestions: SpendCategory[] = [];
-
-    for (const [category, { total, account_id: currentAccountId }] of Object.entries(byCategory)) {
-      const monthly = total / 3;
-      if (monthly < 20) continue; // skip tiny categories
-
-      const options = rateMap[category] ?? rateMap["Other"] ?? [];
-      if (options.length === 0) continue;
-
-      const best = options.reduce((a, b) => a.rate > b.rate ? a : b);
-      const current = currentAccountId ? options.find(o => o.account_id === currentAccountId) : null;
-      const currentRate = current?.rate ?? null;
-
-      // Only show if there's a better option
-      if (currentRate !== null && best.rate <= currentRate) continue;
-
-      const annualGain = monthly * 12 * ((best.rate - (currentRate ?? 1)) / 100);
-      if (annualGain < 10) continue; // not worth showing tiny gains
-
-      suggestions.push({
-        category,
-        monthly_avg: monthly,
-        current_card: currentAccountId ?? null,
-        current_card_name: current?.card_name ?? null,
-        current_rate: currentRate,
-        best_card: best.account_id,
-        best_card_name: best.card_name,
-        best_rate: best.rate,
-        annual_gain: annualGain,
-      });
-    }
-
-    // Final dedup by category (shouldn't be needed now but just in case)
-    const seen = new Set<string>();
-    const deduped = suggestions.filter(s => { if (seen.has(s.category)) return false; seen.add(s.category); return true; });
-    setSpendOpt(deduped.sort((a, b) => b.annual_gain - a.annual_gain));
-  };
-
-  useEffect(() => { loadBenefits(); }, [user?.id]);
-
-  const markUsed = async (accountId: string, key: string) => {
-    await supabase.from("card_benefits")
-      .update({ used_at: new Date().toISOString() })
-      .eq("user_id", user!.id).eq("account_id", accountId).eq("benefit_key", key);
-    setCards(prev => prev.map(c => c.account_id !== accountId ? c : {
-      ...c, benefits: c.benefits.map(b => b.key !== key ? b : { ...b, used_at: new Date().toISOString() }),
+  const setUsed = async (accountId: string, key: string, usedAt: string | null) => {
+    if (!user) return;
+    const keys = keysFor(accountId, key);
+    setRawByCard(prev => ({
+      ...prev,
+      [accountId]: (prev[accountId] ?? []).map(b => keys.includes(b.key) ? { ...b, used_at: usedAt } : b),
     }));
-    toast.success("Marked as done");
+    const { error } = await supabase.from("card_benefits")
+      .update({ used_at: usedAt })
+      .eq("user_id", user.id).eq("account_id", accountId).in("benefit_key", keys);
+    if (error) toast.error("Couldn't save", { description: error.message });
+    else if (usedAt) toast.success("Marked as done");
   };
+  const markUsed = (accountId: string, key: string) => setUsed(accountId, key, new Date().toISOString());
+  const restore = (accountId: string, key: string) => setUsed(accountId, key, null);
 
-  const restore = async (accountId: string, key: string) => {
-    await supabase.from("card_benefits")
-      .update({ used_at: null })
-      .eq("user_id", user!.id).eq("account_id", accountId).eq("benefit_key", key);
-    setCards(prev => prev.map(c => c.account_id !== accountId ? c : {
-      ...c, benefits: c.benefits.map(b => b.key !== key ? b : { ...b, used_at: null }),
-    }));
-  };
+  const loading = fetching || !initialLoaded;
 
   // All actionable benefits across all cards, sorted by priority
   const allActions = cards.flatMap(c =>
     c.benefits
-      .filter(b => !b.used_at && b.action_type && b.action_type !== "none")
+      .filter(b => !b.used_at && isActionable(b))
       .map(b => ({ ...b, card_name: c.official_name || c.name, account_id: c.account_id }))
   ).sort((a, b) => (a.priority ?? 5) - (b.priority ?? 5));
 
@@ -270,8 +217,16 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
     c.benefits.filter(b => !!b.used_at).map(b => ({ ...b, card_name: c.official_name || c.name, account_id: c.account_id }))
   );
 
+  const isExpanded = (id: string) => expandedCards ? expandedCards.has(id) : (summary.perCard[id]?.total ?? 0) > 0;
+  const toggleExpanded = (id: string) => setExpandedCards(prev => {
+    const n = new Set(prev ?? cards.filter(c => c.benefits.length > 0).map(c => c.account_id));
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const cardsWithoutPerks = cards.filter(c => c.benefits.length === 0);
+
   const tabs = [
-    { k: "actions" as const, label: `Take action${allActions.length > 0 ? ` (${allActions.length})` : ""}` },
+    { k: "actions" as const, label: `Take action${summary.pendingActions > 0 ? ` (${summary.pendingActions})` : ""}` },
     { k: "optimize" as const, label: `Spend smarter${spendOpt.length > 0 ? ` (${spendOpt.length})` : ""}` },
     { k: "all" as const, label: "All perks" },
   ];
@@ -299,10 +254,25 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
         ))}
       </div>
 
-      {loading && !cards.length ? (
+      {fetching && summary.totalPerks > 0 && (
+        <div className="flex items-center gap-2 px-1 text-[12px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Looking up perks for your other cards…
+        </div>
+      )}
+
+      {loadError ? (
+        <div className="surface-card p-10 text-center">
+          <AlertCircle className="h-8 w-8 text-negative/60 mx-auto mb-2" />
+          <div className="text-[13px] font-medium text-foreground">Couldn't load your card benefits</div>
+          <div className="text-[11.5px] text-muted-foreground mt-1">{loadError}</div>
+          <button onClick={() => loadBenefits()} className="mt-3 h-8 px-4 rounded-full bg-foreground text-background text-[12px] font-medium">
+            Try again
+          </button>
+        </div>
+      ) : loading && summary.totalPerks === 0 && creditCards.length > 0 ? (
         <div className="surface-card p-12 flex flex-col items-center gap-3 text-center">
           <Loader2 className="h-8 w-8 text-[hsl(var(--primary))] animate-spin" />
-          <div className="text-[13px] text-muted-foreground">Analyzing your cards…</div>
+          <div className="text-[13px] text-muted-foreground">{initialLoaded ? "Analyzing your cards…" : "Loading your card benefits…"}</div>
         </div>
       ) : (
 
@@ -333,14 +303,14 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2 flex-wrap">
                         <span className="text-[14px] font-semibold text-foreground flex-1">{b.title}</span>
-                        {b.value && b.value !== "$0/year" && (
+                        {b.value && (
                           <span className={cn("text-[10.5px] font-bold px-2 py-0.5 rounded-full border shrink-0", color)}>
                             {b.value}
                           </span>
                         )}
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">{b.card_name}</div>
-                      <div className="text-[12.5px] text-foreground/80 mt-1.5 leading-relaxed">{b.description}</div>
+                      {b.description && <div className="text-[12.5px] text-foreground/80 mt-1.5 leading-relaxed">{b.description}</div>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -361,7 +331,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
             {doneActions.length > 0 && (
               <div className="surface-card overflow-hidden">
                 <div className="px-4 py-2.5 flex items-center justify-between">
-                  <span className="text-[12px] text-muted-foreground">{doneActions.length} completed</span>
+                  <span className="text-[12px] text-muted-foreground">{summary.completed} completed</span>
                 </div>
                 <div className="divide-y divide-border/10">
                   {doneActions.map(b => (
@@ -388,8 +358,8 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
             {spendOpt.length === 0 ? (
               <div className="surface-card p-10 text-center">
                 <TrendingUp className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-                <div className="text-[13px] font-medium text-foreground">Refresh to analyze your spending</div>
-                <div className="text-[11.5px] text-muted-foreground mt-1">Compares your cashback rates against actual spending</div>
+                <div className="text-[13px] font-medium text-foreground">{txns.length ? "You're already using your best cards" : "No recent spending to analyze"}</div>
+                <div className="text-[11.5px] text-muted-foreground mt-1">Compares your cards' reward rates against the last 90 days of spending</div>
                 <button onClick={() => loadBenefits(true)} disabled={loading}
                   className="mt-3 h-8 px-4 rounded-full bg-foreground text-background text-[12px] font-medium">
                   Analyze now
@@ -398,7 +368,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
             ) : (
               <>
                 <div className="px-1 text-[12px] text-muted-foreground">
-                  Based on your last 90 days of spending
+                  Based on your last 90 days of spending · miles/points valued at ~1¢
                 </div>
                 {spendOpt.map(s => {
                   const gain = s.annual_gain;
@@ -423,10 +393,10 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                         <div className="flex-1 rounded-xl bg-muted/30 p-2.5">
                           <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Currently using</div>
                           <div className="text-[12px] font-semibold text-foreground truncate">
-                            {s.current_card_name ?? "Unknown card"}
+                            {s.current_card_name}
                           </div>
                           <div className="text-[12px] text-muted-foreground">
-                            {s.current_rate != null ? `${s.current_rate}% back` : "Unknown rate"}
+                            {s.current_rate_label}
                           </div>
                         </div>
 
@@ -436,7 +406,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                         <div className="flex-1 rounded-xl bg-positive/8 border border-positive/20 p-2.5">
                           <div className="text-[10px] text-positive uppercase tracking-wide mb-1 font-semibold">Switch to</div>
                           <div className="text-[12px] font-semibold text-foreground truncate">{s.best_card_name}</div>
-                          <div className="text-[12px] text-positive font-semibold">{s.best_rate}% back</div>
+                          <div className="text-[12px] text-positive font-semibold">{s.best_rate_label}</div>
                         </div>
                       </div>
                     </div>
@@ -447,7 +417,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
           </div>
 
         /* ── ALL PERKS tab ── */
-        ) : cards.filter(c => c.benefits.length > 0).length === 0 ? (
+        ) : summary.totalPerks === 0 ? (
           <div className="surface-card p-10 text-center">
             <CreditCard className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
             <div className="text-[13px] font-medium text-foreground">No perks found yet</div>
@@ -463,29 +433,27 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
           </div>
         ) : (
           <div className="space-y-3">
+            <div className="px-1 text-[12px] text-muted-foreground">
+              {summary.totalPerks} perks · {summary.completed} completed
+            </div>
             {cards.filter(c => c.benefits.length > 0).map(card => {
-              const isExpanded = expandedCards.has(card.account_id);
-              const active = card.benefits.filter(b => !b.used_at);
-              const used = card.benefits.filter(b => b.used_at);
+              const expanded = isExpanded(card.account_id);
+              const counts = summary.perCard[card.account_id];
               return (
                 <div key={card.account_id} className="surface-card overflow-hidden">
-                  <button onClick={() => setExpandedCards(prev => {
-                    const n = new Set(prev);
-                    n.has(card.account_id) ? n.delete(card.account_id) : n.add(card.account_id);
-                    return n;
-                  })} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-muted/20">
+                  <button onClick={() => toggleExpanded(card.account_id)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-muted/20">
                     <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-[13.5px] font-semibold text-foreground truncate">
                         {card.official_name || card.name}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        {active.length} perks · {used.length} completed
+                        {counts.total} perks · {counts.completed} completed
                       </div>
                     </div>
-                    <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", isExpanded && "rotate-180")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", expanded && "rotate-180")} />
                   </button>
-                  {isExpanded && (
+                  {expanded && (
                     <div className="border-t border-border/20 divide-y divide-border/10">
                       {card.benefits.map(b => (
                         <div key={b.key} className={cn("flex items-start gap-3 px-5 py-3.5", b.used_at && "opacity-50")}>
@@ -495,18 +463,18 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                               <span className={cn("text-[13px] font-medium", b.used_at ? "text-muted-foreground line-through" : "text-foreground")}>
                                 {b.title}
                               </span>
-                              {b.value && b.value !== "$0/year" && (
+                              {b.value && (
                                 <span className="text-[10px] text-muted-foreground">· {b.value}</span>
                               )}
                             </div>
-                            <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed">{b.description}</div>
+                            {b.description && <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed">{b.description}</div>}
                           </div>
                           {b.used_at ? (
                             <button onClick={() => restore(card.account_id, b.key)}
                               className="h-6 px-2 rounded-full border border-border/40 text-[10px] text-muted-foreground shrink-0">
                               Undo
                             </button>
-                          ) : b.action_type && b.action_type !== "none" ? (
+                          ) : isActionable(b) ? (
                             <button onClick={() => markUsed(card.account_id, b.key)}
                               className="h-6 px-2 rounded-full bg-foreground text-background text-[10px] font-medium shrink-0">
                               Done
@@ -519,6 +487,11 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
                 </div>
               );
             })}
+            {cardsWithoutPerks.length > 0 && !fetching && (
+              <div className="surface-card px-5 py-3.5 text-[11.5px] text-muted-foreground">
+                No notable perks found for {cardsWithoutPerks.map(c => c.official_name || c.name).join(", ")}. Store and basic cash-back cards often have none; tap Refresh to look them up again.
+              </div>
+            )}
           </div>
         )
       )}
