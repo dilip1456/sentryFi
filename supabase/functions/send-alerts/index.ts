@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,13 +84,21 @@ const TRANSFER_PATTERNS = [
   /square cash/i, /google pay/i, /apple pay send/i,
 ];
 
-// Classify what a negative-amount transaction (credit) actually is
+function creditKind(type: TxnType): "cc_payment" | "transfer" | "refund" | "deposit" {
+  if (type === "credit_card_payment") return "cc_payment";
+  if (type === "refund") return "refund";
+  if (type === "transfer_internal" || type === "savings_contribution" || type === "transfer_in" || type === "transfer_out") return "transfer";
+  return "deposit";
+}
+
+// Fallback: classify what a negative-amount transaction (credit) actually is
 function classifyCredit(t: { name: string | null; merchant_name: string | null; category: string[] | null }): "cc_payment" | "transfer" | "refund" | "deposit" {
   const name = (t.merchant_name ?? t.name ?? "").toLowerCase();
   const cats = (t.category ?? []).map((c: string) => c.toLowerCase());
 
   // Plaid category hints
-  if (cats.some(c => c.includes("credit card") || c.includes("loan payment") || c.includes("transfer"))) return "cc_payment";
+  if (cats.some(c => c.includes("credit card") || c.includes("loan payment"))) return "cc_payment";
+  if (cats.some(c => c.includes("transfer"))) return "transfer";
 
   // Name pattern matching
   if (CC_PAYMENT_PATTERNS.some(rx => rx.test(name))) return "cc_payment";
@@ -122,16 +131,73 @@ Deno.serve(async (req) => {
       const pushTokens = (pushTokenRows ?? []).map((r: any) => r.token);
 
       const { data: accounts } = await admin.from("plaid_accounts")
-        .select("account_id,name,current_balance,available_balance,type,subtype")
+        .select("account_id,item_id,name,mask,current_balance,available_balance,type,subtype")
         .eq("user_id", userId);
 
       // ── 1. Budget threshold ──────────────────────────────────────────
-      const { data: settingsRow } = await admin.from("user_settings").select("budgets").eq("user_id", userId).maybeSingle();
+      // Uses the SAME classifier as the app (../_shared/classify): the user's
+      // per-transaction types and categories, their merchant rules, linked-
+      // account transfer pairs, card payments and savings moves are all
+      // applied, and only spend categories count toward a budget. (The old
+      // version summed raw Plaid category[0] for every positive amount, so
+      // card payments, savings sweeps and transfers tripped budget alerts.)
+      const { data: settingsRow } = await admin.from("user_settings")
+        .select("budgets,cat_overrides,cat_rules,manual_internal,manual_external,account_roles")
+        .eq("user_id", userId).maybeSingle();
       const budgets: Record<string, number> = settingsRow?.budgets ?? {};
-      const { data: monthTxns } = await admin.from("plaid_transactions")
-        .select("amount,category").eq("user_id", userId).gte("date", monthStart).gt("amount", 0);
+      const catOverrides: Record<string, string> = settingsRow?.cat_overrides ?? {};
+      const catRules: { pattern: string; category: string; matchType?: string; enabled?: boolean; source?: string }[] = settingsRow?.cat_rules ?? [];
+      const manualInternal = new Set<string>(settingsRow?.manual_internal ?? []);
+      const manualExternal = new Set<string>(settingsRow?.manual_external ?? []);
+      const roles: Record<string, { role: string }> = settingsRow?.account_roles ?? {};
+      const ruleCategory = (t: ClassifierTxn): string | null => {
+        const m = (t.merchant_name ?? t.name ?? "").toLowerCase();
+        if (!m) return null;
+        const ordered = [...catRules.filter(r => r.source === "user"), ...catRules.filter(r => r.source !== "user")];
+        const hit = ordered.find(r => {
+          if (r.enabled === false) return false;
+          const p = (r.pattern ?? "").toLowerCase();
+          if (p.length < 2) return false;
+          return r.matchType === "exact" ? m === p : r.matchType === "starts_with" ? m.startsWith(p) : m.includes(p);
+        });
+        return hit?.category ?? null;
+      };
+      // Look back a few extra days so transfer legs that straddle the 1st still pair.
+      const classifyFrom = new Date(Math.min(Date.parse(monthStart), now - 2 * 86400000) - 6 * 86400000).toISOString().slice(0, 10);
+      const { data: recentAll } = await admin.from("plaid_transactions")
+        .select("*").eq("user_id", userId).gte("date", classifyFrom);
+      const { data: typeRows, error: typeErr } = await admin.from("txn_overrides").select("transaction_id,txn_type").eq("user_id", userId);
+      if (typeErr) console.warn("txn_overrides unavailable (migration not applied?)", typeErr.message);
+      const typeByPlaidId: Record<string, TxnType> = {};
+      for (const r of typeRows ?? []) typeByPlaidId[r.transaction_id] = r.txn_type;
+      const ctxTxns = (recentAll ?? []) as ClassifierTxn[];
+      const typeOverrides: Record<string, TxnType> = {};
+      for (const t of ctxTxns) {
+        const ov = t.transaction_id ? typeByPlaidId[t.transaction_id] : undefined;
+        if (ov) typeOverrides[t.id] = ov;
+        else if (manualInternal.has(t.id) && !manualExternal.has(t.id)) typeOverrides[t.id] = "transfer_internal";
+      }
+      type AcctRow = { account_id: string; item_id?: string | null; name?: string | null; mask?: string | null; type: string | null; subtype: string | null };
+      const roleOf = (a: AcctRow) => roles[a.account_id]?.role ??
+        (a.type === "credit" || a.type === "loan" ? "debt" : a.type === "investment" ? "investment" : a.subtype === "checking" ? "spending" : "unassigned");
+      const classes: Map<string, Classification> = classifyAll(ctxTxns, {
+        accounts: ((accounts ?? []) as AcctRow[]).map(a => ({ ...a, role: roleOf(a) as ClassifierAccount["role"] })),
+        typeOverrides,
+        categoryOverrides: catOverrides,
+        ruleCategory,
+        notInternalIds: manualExternal,
+        plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+      });
+      const categoryOf = (t: ClassifierTxn) =>
+        catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name) ?? "Other";
       const catTotals: Record<string, number> = {};
-      for (const t of monthTxns ?? []) { const cat = t.category?.[0] ?? "Other"; catTotals[cat] = (catTotals[cat] ?? 0) + Number(t.amount); }
+      for (const t of ctxTxns) {
+        if (t.date < monthStart) continue;
+        const c = classes.get(t.id);
+        if (!c || !isBudgetableType(c.type)) continue;
+        const cat = categoryOf(t);
+        catTotals[cat] = (catTotals[cat] ?? 0) + Number(t.amount); // refunds net out
+      }
       if (categoryEnabled(pref, "alert_budget_threshold")) {
         for (const [cat, budget] of Object.entries(budgets)) {
           const spent = catTotals[cat] ?? 0;
@@ -210,7 +276,10 @@ Deno.serve(async (req) => {
         const amt = Math.abs(Number(t.amount));
         if (amt < 1) continue;
         const merchant = t.merchant_name ?? t.name ?? "Unknown";
-        const kind = classifyCredit(t);
+        // Shared classifier first (pairs, card payments, overrides); the old
+        // name/category heuristic is only a fallback for rows outside the window.
+        const cls = classes.get((ctxTxns.find(x => x.transaction_id === t.transaction_id)?.id) ?? "");
+        const kind = cls ? creditKind(cls.type) : classifyCredit(t);
 
         if (kind === "cc_payment") {
           if (!categoryEnabled(pref, "alert_cc_payment")) continue;

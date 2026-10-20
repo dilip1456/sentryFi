@@ -1,46 +1,17 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import { syncItemTransactions } from '../_shared/plaid-sync.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
 
-// Plaid's modern /transactions/sync responses often leave the legacy `category`
-// field empty and populate `personal_finance_category` instead. Map that into
-// the app's own category labels so transactions don't all fall back to "Other".
-const PFC_PRIMARY_MAP: Record<string, string> = {
-  INCOME: "Salary",
-  TRANSFER_IN: "Transfer In",
-  TRANSFER_OUT: "Transfer Out",
-  LOAN_PAYMENTS: "Bills & Utilities",
-  BANK_FEES: "Bills & Utilities",
-  ENTERTAINMENT: "Entertainment",
-  FOOD_AND_DRINK: "Food & Drink",
-  GROCERIES: "Groceries",
-  GROCERY_AND_SPECIALTY_FOOD_STORES: "Groceries",
-  GENERAL_MERCHANDISE: "Shopping",
-  HOME_IMPROVEMENT: "Home",
-  MEDICAL: "Healthcare",
-  PERSONAL_CARE: "Personal Care",
-  GENERAL_SERVICES: "Bills & Utilities",
-  GOVERNMENT_AND_NON_PROFIT: "Charitable Giving",
-  TRANSPORTATION: "Transportation",
-  GAS_STATIONS: "Transportation",
-  AUTOMOTIVE: "Transportation",
-  TRAVEL: "Travel",
-  RENT_AND_UTILITIES: "Bills & Utilities",
-  SUBSCRIPTION: "Subscriptions",
-  FINANCIAL: "Bills & Utilities",
+// Category mapping (detailed personal_finance_category) and the cursor-safe
+// sync loop live in ../_shared so both Plaid functions behave identically.
+const SYNC_CFG = {
+  plaidBase: PLAID_BASE,
+  clientId: Deno.env.get('PLAID_CLIENT_ID'),
+  secret: Deno.env.get('PLAID_SECRET'),
 };
-
-function resolveCategory(t: any): string[] | null {
-  if (Array.isArray(t.category) && t.category.length > 0) return t.category;
-  const primary = t.personal_finance_category?.primary;
-  if (primary) {
-    const mapped = PFC_PRIMARY_MAP[primary] ?? "Other";
-    return [mapped];
-  }
-  return null;
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -69,13 +40,25 @@ Deno.serve(async (req) => {
       .eq('status', 'active');
     if (error) return json({ error: error.message }, 500);
 
+    // { full_resync: true } re-walks history from the beginning (no cursor) —
+    // used once after the pfc_* columns migration to backfill them, or to
+    // recover rows a previous failed sync skipped.
+    let fullResync = false;
+    try { fullResync = !!(await req.json())?.full_resync; } catch { /* no body */ }
+
     let total = 0;
+    const failures: { item: string; error: string }[] = [];
     for (const item of items ?? []) {
       await syncAccounts(admin, item.id, user.id, item.access_token);
-      total += await syncOne(admin, item.id, user.id, item.access_token, item.cursor);
+      const r = await syncItemTransactions(admin, SYNC_CFG, {
+        itemRowId: item.id, userId: user.id, accessToken: item.access_token,
+        cursor: fullResync ? null : item.cursor,
+      });
+      total += r.count;
+      if (!r.ok) failures.push({ item: item.id, error: r.error ?? 'sync failed' });
       await syncLiabilities(admin, user.id, item.access_token);
     }
-    return json({ ok: true, items: items?.length ?? 0, synced: total });
+    return json({ ok: failures.length === 0, items: items?.length ?? 0, synced: total, failures });
   } catch (e) {
     console.error(e);
     return json({ error: String(e) }, 500);
@@ -114,56 +97,6 @@ async function syncAccounts(admin: any, itemRowId: string, userId: string, acces
   } catch (e) {
     console.warn('syncAccounts failed:', e);
   }
-}
-
-async function syncOne(admin: any, itemRowId: string, userId: string, accessToken: string, cursor: string | null) {
-  let hasMore = true;
-  let nextCursor = cursor;
-  let count = 0;
-  while (hasMore) {
-    const res = await fetch(`${PLAID_BASE}/transactions/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: Deno.env.get('PLAID_CLIENT_ID'),
-        secret: Deno.env.get('PLAID_SECRET'),
-        access_token: accessToken,
-        cursor: nextCursor ?? undefined,
-        options: { include_personal_finance_category: true },
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { console.error('sync err', data); break; }
-
-    const added = (data.added ?? []).concat(data.modified ?? []);
-    if (added.length) {
-      const rows = added.map((t: any) => ({
-        user_id: userId,
-        item_id: itemRowId,
-        account_id: t.account_id,
-        transaction_id: t.transaction_id,
-        amount: t.amount,
-        iso_currency_code: t.iso_currency_code,
-        date: t.date,
-        authorized_date: t.authorized_date,
-        name: t.name,
-        merchant_name: t.merchant_name,
-        category: resolveCategory(t),
-        pending: t.pending,
-        payment_channel: t.payment_channel,
-      }));
-      await admin.from('plaid_transactions').upsert(rows, { onConflict: 'transaction_id' });
-      count += rows.length;
-    }
-    if (data.removed?.length) {
-      const ids = data.removed.map((r: any) => r.transaction_id);
-      await admin.from('plaid_transactions').delete().in('transaction_id', ids);
-    }
-    nextCursor = data.next_cursor;
-    hasMore = data.has_more;
-  }
-  await admin.from('plaid_items').update({ cursor: nextCursor }).eq('id', itemRowId);
-  return count;
 }
 
 async function syncLiabilities(admin: any, userId: string, accessToken: string) {
