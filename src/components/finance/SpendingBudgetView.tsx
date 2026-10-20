@@ -484,6 +484,18 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(colWidths)); } catch { /* ignore */ }
   }, [colWidths]);
+  // Height of the (sticky, phones only) list toolbar, so the mobile date
+  // headings can stick directly underneath it.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarH, setToolbarH] = useState(0);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setToolbarH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // ── Fit the desktop table to its container (see COL_DROP_ORDER). ────────
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [tableWrapWidth, setTableWrapWidth] = useState(0);
@@ -1372,15 +1384,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
       {/* ═══ 1. Header; same title/date treatment as Home, plus the period
           controls (granularity + month switcher) in one clean row ═══ */}
-      <header className="content-max px-4 md:px-8 pt-5 md:pt-6 pb-4">
+      <header className="content-max px-4 md:px-8 pt-3 md:pt-6 pb-4">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          {/* Phones show the title in the app's top bar (Index.tsx); repeating
+              it here pushed the content down for no information. */}
+          <div className="hidden md:block">
             <h1 className="font-display text-2xl text-foreground">Spending</h1>
             <p className="text-[13px] text-muted-foreground mt-0.5">{todayLong}</p>
           </div>
           {headerActions && <div className="hidden md:flex items-center gap-2">{headerActions}</div>}
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="md:mt-4 flex flex-wrap items-center gap-2">
           <div className="flex bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
             {(["day","week","month","year","all"] as const).map(g => (
               <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
@@ -1849,10 +1863,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* Transaction feed. Fixed-height card with its own internal scroll
               (header stays put, list scrolls beneath it) instead of growing
               the whole page. */}
-          <div className="surface-card overflow-hidden min-w-0 flex flex-col max-h-[75dvh] md:max-h-none md:h-[640px]">
-            <div className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 backdrop-blur-sm space-y-2">
+          <div className="surface-card min-w-0 flex flex-col md:overflow-hidden md:h-[640px]">
+            {/* Phones: one scroll (the page). The toolbar sticks to the top of
+                the scroll area and the date headings stick right below it,
+                instead of a 480px box scrolling inside a scrolling page. */}
+            <div ref={toolbarRef} className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 max-md:bg-card backdrop-blur-sm space-y-2 max-md:sticky max-md:top-0 max-md:z-20 max-md:rounded-t-[var(--radius)]">
               {selectedIds.size > 0 ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 [&_button]:max-md:h-10">
                   <span className="text-[12.5px] font-semibold text-foreground shrink-0">{selectedIds.size} selected</span>
                   <button ref={bulkMenu.btnRef} onClick={bulkMenu.toggle}
                     className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-[12px] font-medium text-foreground hover:bg-muted/60 transition-colors shrink-0">
@@ -1898,9 +1915,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   exact same popovers the desktop buttons open. */}
               <div className="md:hidden flex items-center gap-1.5">
                 <button onClick={()=>setMobileSearchOpen(v=>!v)} aria-label="Search" aria-expanded={mobileSearchOpen}
-                  className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
+                  className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
                     mobileSearchOpen || searchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                  <Search className="h-3.5 w-3.5"/>
+                  <Search className="h-4 w-4"/>
                 </button>
                 {mobileSearchOpen && (
                   <input autoFocus value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
@@ -1909,15 +1926,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     className="flex-1 min-w-0 h-8 px-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
                 )}
                 <div className={cn("flex items-center gap-1.5 ml-auto", mobileSearchOpen && "hidden")}>
-                  <button ref={sortMenu.btnRef} onClick={sortMenu.toggle}
-                    className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
+                  <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort"
+                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
                       hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <ArrowUpDown className="h-3.5 w-3.5"/>
+                    <ArrowUpDown className="h-4 w-4"/>
                   </button>
-                  <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle}
-                    className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
+                  <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter"
+                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
                       hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <Filter className="h-3.5 w-3.5"/>
+                    <Filter className="h-4 w-4"/>
                   </button>
                 </div>
               </div>
@@ -2222,7 +2239,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 low-priority columns that don't fit), so it normally never
                 scrolls sideways; overflow-x-auto is only a safety net so a
                 column can never be silently clipped. */}
-            <div ref={tableWrapRef} className="overflow-y-auto overflow-x-auto scrollbar-none flex-1">
+            <div ref={tableWrapRef} className="md:overflow-y-auto md:overflow-x-auto scrollbar-none flex-1">
               {visibleTxns.length === 0 ? (
                 <div className="py-14 px-6 text-center space-y-3">
                   {(hasActiveFilters || catSel) ? (
@@ -2342,8 +2359,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       return (
                       <div key={g.key}>
                         {g.key !== MOBILE_FLAT_KEY && (
-                        <div className="bg-muted/30 px-4 py-1.5 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
-                          onClick={()=>toggleGroupCollapsed(g.key)}>
+                        <div className="sticky z-10 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
+                          style={{ top: toolbarH }} onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                             <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
@@ -2354,7 +2371,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
                           {g.items.map(t => (
-                            <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} showDate={g.key === MOBILE_FLAT_KEY} selectionMode={selectedIds.size > 0} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                               nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
@@ -3035,87 +3052,103 @@ const TxnRow = ({
 };
 
 // ── Transaction row (mobile card list) ──────────────────────────────────────
-// Below md there's no table at all; resizable columns don't translate to a
-// phone-width screen, so instead each transaction renders as a two-line card:
-// name + amount on top, then whichever attribute columns are toggled on
-// (category/date/status/account) as a compact meta line underneath.
+// Below md there's no table; each transaction is one full-width tap target
+// (≥64px tall): avatar, vendor + chips, amount on the first line; type chip,
+// category and account on the second. Tap opens the detail sheet; long-press
+// (or tap while something is already selected) toggles selection, so there
+// are no tiny per-row checkboxes or category pickers to mis-tap. The date is
+// omitted while the feed is grouped under date headings (it would repeat the
+// heading) and shown when the feed is a flat, non-date-sorted list.
+const LONG_PRESS_MS = 450;
 const MobileTxnRow = ({
   t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
-  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
-  selected, onToggleSelect, flag, txnType, edited, onChangeType,
+  selected, onToggleSelect, flag, txnType, edited, onChangeType, showDate = false, selectionMode = false,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
   nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
-  categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
-  customCategories:{name:string;type:"income"|"expense"}[];
-  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
+  categoryIcon?:(cat:string)=>React.ElementType; expenseCategories?:string[]; incomeCategories?:string[]; ignoredCategories?:string[];
+  customCategories?:{name:string;type:"income"|"expense"}[];
+  onSelectCategory?:(t:PTxn,cat:string)=>void; onAddCategory?:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
   selected: boolean; onToggleSelect: (id:string)=>void; flag?: TxnFlag;
   txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
+  showDate?: boolean; selectionMode?: boolean;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
   const col = catColor(cat);
-  const CatIcon = categoryIcon(cat);
   const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
   const acc = accounts.find(a => a.account_id === t.account_id);
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
-  const catMenu = useFloatingMenu(256);
-  const metaParts: React.ReactNode[] = [];
-  // Statement text is already summarized by the clean vendor name above, so
-  // the meta line stays short: date + account (full text lives in the detail
-  // sheet). Pending is always shown since it affects the totals.
-  if (visibleCols.has("date")) metaParts.push(<span key="date">{fmtShortDate(t.date)}</span>);
-  if (visibleCols.has("account") && acc?.name) metaParts.push(<span key="acc" className="truncate max-w-[120px]" title={acc.name}>{acc.name}</span>);
+  const pressTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => { if (pressTimer.current) window.clearTimeout(pressTimer.current); pressTimer.current = null; };
+  const onPointerDown = (e: React.PointerEvent) => {
+    longPressed.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    cancelPress();
+    pressTimer.current = window.setTimeout(() => {
+      longPressed.current = true;
+      onToggleSelect(t.id);
+      try { navigator.vibrate?.(10); } catch { /* unsupported */ }
+    }, LONG_PRESS_MS);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const s = pressStart.current;
+    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) cancelPress(); // it's a scroll, not a press
+  };
+  const activate = () => {
+    if (longPressed.current) { longPressed.current = false; return; }
+    if (selectionMode) onToggleSelect(t.id);
+    else onOpenDetail(t, { recurringFrequency: recurringFreq ?? null });
+  };
+  const accLabel = acc ? `${acc.name ?? acc.official_name ?? "Account"}${acc.mask ? ` ••${acc.mask}` : ""}` : null;
   return (
-    <div className={cn("w-full min-h-[60px] px-4 py-2.5 flex items-center gap-3 active:bg-muted/30 transition-colors", selected && "bg-[hsl(var(--primary)/0.06)]")}>
-      <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
-        className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))] shrink-0"/>
-      <button onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white" style={{background:col}}>
-        {(nm[0]??"?").toUpperCase()}
-      </button>
-      <div className="min-w-0 flex-1" onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })}>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13.5px] font-medium text-foreground truncate" title={t.name ?? nm}>{nm}</span>
-          {t.pending && <PendingChip/>}
-          {flag && <FlagChip flag={flag} compact/>}
+    <div role="button" tabIndex={0} data-txn-row aria-pressed={selectionMode ? selected : undefined}
+      aria-label={`${nm}, ${fmtTxnAmount(t.amount)}${t.pending ? ", pending" : ""}`}
+      onClick={activate}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } }}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={cancelPress} onPointerLeave={cancelPress} onPointerCancel={cancelPress}
+      onContextMenu={e => e.preventDefault()}
+      className={cn("w-full min-h-[64px] px-4 py-3 flex items-center gap-3 text-left select-none active:bg-muted/30 transition-colors outline-none focus-visible:bg-muted/30",
+        selected && "bg-[hsl(var(--primary)/0.08)]", t.pending && !selected && "bg-warning/[0.03]")}>
+      <div className="relative h-10 w-10 rounded-full shrink-0 grid place-items-center text-[14px] font-bold text-white" style={{background:col}} aria-hidden>
+        {selected ? <Check className="h-5 w-5"/> : (nm[0]??"?").toUpperCase()}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[14px] font-medium text-foreground truncate min-w-0" title={t.name ?? nm}>{nm}</span>
+          {t.pending && <span className="shrink-0"><PendingChip/></span>}
+          {flag && <span className="shrink-0"><FlagChip flag={flag} compact/></span>}
           {recurringFreq && !flag && !t.pending && (
-            <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[9.5px] text-muted-foreground/60">
-              <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
+            <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
+              <RefreshCw className="h-3 w-3" /> {recurringFreq}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground mt-0.5 truncate">
-          <span onClick={e=>e.stopPropagation()} className="shrink-0"><TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType} compact/></span>
-          <span className="truncate">{formatCat(cat)}</span>
-          {metaParts.length > 0 && metaParts.map((p, i) => (
-            <span key={i} className="flex items-center gap-1.5 shrink-0">
-              <span className="text-border">·</span>
-              {p}
-            </span>
-          ))}
+        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-1 min-w-0">
+          {/* The global touch rule gives every button a 40px min-height;
+              the type chip is a secondary control inside a 64px row, so it's
+              capped at 28px to keep rows compact. */}
+          <span onClick={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()} className="shrink-0 [&_button]:!min-h-[28px]">
+            <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType} compact/>
+          </span>
+          {/* Category keeps priority; the account name gives way first. */}
+          <span className="truncate min-w-[3rem] shrink" style={{ color: vivid(col) }}>{formatCat(cat)}</span>
+          {visibleCols.has("account") && accLabel && (
+            <>
+              <span aria-hidden className="shrink-0 text-muted-foreground/50">·</span>
+              <span className="truncate min-w-0 shrink-[4]" title={accLabel}>{accLabel}</span>
+            </>
+          )}
         </div>
       </div>
-      {visibleCols.has("amount") && (
-        <span className={cn("text-[14px] font-bold tabular shrink-0", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</span>
-      )}
-      {visibleCols.has("category") && (
-        <div onClick={e=>e.stopPropagation()} className="shrink-0">
-          <button ref={catMenu.btnRef} onClick={catMenu.toggle}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-muted/40 transition-colors">
-            <span className="h-4 w-4 rounded grid place-items-center shrink-0" style={{backgroundColor:`${col}22`, color:col}}>
-              <CatIcon className="h-2.5 w-2.5"/>
-            </span>
-            <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
-          </button>
-          {catMenu.open && (
-            <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
-              expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
-              customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
-              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-              onClose={catMenu.close}/>
-          )}
-        </div>
-      )}
+      <div className="shrink-0 text-right">
+        {visibleCols.has("amount") && (
+          <div className={cn("text-[15px] font-bold tabular", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</div>
+        )}
+        {showDate && <div className="text-[11.5px] text-muted-foreground tabular mt-0.5">{fmtShortDate(t.date)}</div>}
+      </div>
     </div>
   );
 };

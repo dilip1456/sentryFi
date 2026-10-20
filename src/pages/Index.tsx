@@ -332,7 +332,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi"))}
+              {/* Always the current page's name; demo mode is already signalled by the banner below. */}
+              {view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi")}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
