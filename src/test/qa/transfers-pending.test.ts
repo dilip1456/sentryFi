@@ -39,12 +39,13 @@ describe("QA detectInternalTransfers", () => {
     ]);
     expect(ids.size).toBe(2);
   });
-  // KNOWN BUG: the uniqueness check is one-sided. "out" sees two candidates
-  // and is skipped, but then "in1" sees only "out" and pairs with it anyway,
-  // so the result depends on row order — contrary to the doc comment.
-  it.fails("KNOWN BUG leaves ambiguous matches unpaired (two candidates in the window)", () => {
-    const ids = detect([leg("out", "chk", 300, "2026-10-09"), leg("in1", "sav", -300, "2026-10-09"), leg("in2", "brk", -300, "2026-10-10")]);
-    expect(ids.has("out")).toBe(false);
+  // Was a KNOWN BUG (one-sided uniqueness check made the result depend on
+  // row order). An ambiguous match must stay unpaired in every order.
+  it("leaves ambiguous matches unpaired (two candidates in the window), regardless of row order", () => {
+    const rows = [leg("out", "chk", 300, "2026-10-09"), leg("in1", "sav", -300, "2026-10-09"), leg("in2", "brk", -300, "2026-10-10")];
+    for (const order of [rows, [...rows].reverse(), [rows[1], rows[0], rows[2]], [rows[2], rows[0], rows[1]]]) {
+      expect(detect(order).size).toBe(0);
+    }
   });
   it("skips pending transactions and zero amounts", () => {
     expect(detect([{ ...leg("a", "chk", 500, "2026-10-09"), pending: true }, leg("b", "sav", -500, "2026-10-09")]).size).toBe(0);
@@ -60,8 +61,10 @@ describe("QA detectInternalTransfers", () => {
       leg("p1", "chk", 300, "2026-10-10", "Payment Thank You", ["Payment", "Credit Card"]),
       leg("p2", "card", -300, "2026-10-11", "Payment Received", ["Payment", "Credit Card"]),
     ]);
-    // Category text "Payment|Credit Card" doesn't match the transfer regex
-    // (it tests category[0] = "Payment"), nor do these names.
-    expect(ids.size).toBe(0);
+    // Intended since the shared classifier (src/lib/classify): both legs of a
+    // card payment are one internal movement. Pairing keeps the checking leg
+    // out of spend (the card's purchases are already counted) and the card
+    // leg out of refunds/income. (Previously these did NOT pair.)
+    expect([...ids].sort()).toEqual(["p1", "p2"]);
   });
 });
