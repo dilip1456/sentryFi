@@ -25,8 +25,7 @@ import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
-import { fmtUSD } from "@/lib/format";
-import { fmtUSDCompact } from "@/lib/format-compact";
+import { fmtUSD, fmtUSDCompact, fmtTxnAmount } from "@/lib/format";
 import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
 import {
@@ -35,6 +34,7 @@ import {
   INCOME_CATEGORIES as SHARED_INCOME_CATEGORIES, IGNORED_CATEGORIES as SHARED_IGNORED_CATEGORIES,
   type Classification, type ClassifierTxn, type TxnType, type AccountRole as AccountRoleName,
 } from "@/lib/classify/index.ts";
+import { recurringFrequencyFor } from "@/lib/recurring";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
@@ -48,6 +48,7 @@ import {
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
   SlidersHorizontal, Wand2, Sliders,
 } from "lucide-react";
+import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -2085,9 +2086,11 @@ const TxnDetailModal = ({
   onFindSimilar,
   tags, onAddTag, onRemoveTag, note, onSaveNote,
   isRecurringOverride, onSetRecurringOverride, onClearRecurringOverride,
-  splits, onSaveSplits,
+  splits, onSaveSplits, recurringFrequency,
   classification, hasTypeOverride, onSetTxnType, possibleDuplicate,
 }: {
+  /** Cadence shown by the list that opened this modal (undefined = compute here). */
+  recurringFrequency?: string | null;
   classification?: Classification;
   hasTypeOverride?: boolean;
   onSetTxnType?: (type: TxnType | null) => void;
@@ -2133,13 +2136,14 @@ const TxnDetailModal = ({
   const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant) : [];
 
   // Detect recurring
-  const recurringLabel = (() => {
-    if (samemerchantTxns.length < 2) return null;
-    const dates = [txn, ...samemerchantTxns].map(t => t.date).sort().reverse();
-    const intervals = dates.slice(0,-1).map((d,i) => Math.round((new Date(d+"T00:00:00").getTime() - new Date(dates[i+1]+"T00:00:00").getTime()) / 86400000));
-    const avg = intervals.reduce((s,v)=>s+v,0)/intervals.length;
-    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : avg >= 340 && avg <= 390 ? "Yearly" : null;
-  })();
+  // Detect recurring. When opened from the Spending list the caller passes
+  // the exact cadence that list shows; otherwise the same shared rules
+  // (src/lib/recurring.ts) are applied here, so the two never disagree
+  // (e.g. a grocery store is never labelled "Quarterly").
+  const recurringLabel = recurringFrequency !== undefined
+    ? recurringFrequency
+    : (samemerchantTxns.length < 2 ? null
+      : recurringFrequencyFor([txn, ...samemerchantTxns].map(t => t.date), rawCat ?? "Other", currentDisplayName));
 
   const [tab, setTab] = useState<"info"|"edit"|"obligations">("info");
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -2410,7 +2414,11 @@ const TxnDetailModal = ({
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl">
+      {/* Phones: a bottom sheet (full width, anchored to the bottom edge,
+          padded by the bottom safe-area inset) instead of a centered card. */}
+      <DialogContent className={cn("max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl",
+        "max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:translate-x-0 max-md:translate-y-0 max-md:max-w-none max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]",
+        "max-md:data-[state=open]:slide-in-from-left-0 max-md:data-[state=open]:slide-in-from-bottom-full max-md:data-[state=closed]:slide-out-to-left-0 max-md:data-[state=closed]:slide-out-to-bottom-full max-md:data-[state=open]:zoom-in-100 max-md:data-[state=closed]:zoom-out-100")}>
         <DialogTitle className="sr-only">Transaction details</DialogTitle>
         <DialogDescription className="sr-only">Transaction info, edit, and rules.</DialogDescription>
 
@@ -2428,8 +2436,8 @@ const TxnDetailModal = ({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
-                {isIncome ? "+" : "−"}{fmtUSD(amt, {cents: true})}
+              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-positive" : "text-foreground")}>
+                {fmtTxnAmount(txn.amount, {cents: true})}
               </p>
               {recurringLabel && <p className="text-[10px] text-muted-foreground/70">{recurringLabel}</p>}
             </div>
@@ -4384,13 +4392,15 @@ interface Props {
   manualAccounts?: import("@/hooks/useManualAccounts").ManualAccount[];
   onEditManual?: (acct: import("@/hooks/useManualAccounts").ManualAccount) => void;
   onDeleteManual?: (id: string) => void;
+  /** Right-side header controls (sync/bell/profile) rendered in full-bleed views' own header. */
+  headerActions?: React.ReactNode;
 }
 
 export const LivePlaidDashboard = ({
   onAddAccount, hasItems, demo=false, guestDemo=false, view="overall", onViewChange,
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
-  manualAccounts = [], onEditManual, onDeleteManual,
+  manualAccounts = [], onEditManual, onDeleteManual, headerActions,
 }: Props) => {
   const { user, profile } = useAuth();
 
@@ -4623,6 +4633,9 @@ export const LivePlaidDashboard = ({
   // nameOverrides, nameRules, setNameOverride, bulkSetNameOverride, saveNameRule — all from useUserSettings above
 
   const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
+  // Recurring cadence the Spending list displayed for detailTxn (undefined
+  // when the modal was opened from anywhere else).
+  const [detailTxnRecurring, setDetailTxnRecurring] = useState<string | null | undefined>(undefined);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
@@ -5127,7 +5140,10 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (loading) {
+    if (view === "spending" || view === "budget") return <SpendingSkeleton />;
+    return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  }
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
   // Segmented switch between the merged Spending and Budget views.
@@ -6652,7 +6668,7 @@ export const LivePlaidDashboard = ({
           isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
           formatCat={formatCat}
           catColor={catColor}
-          onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+          onOpenDetail={(t, info) => { setDetailTxn(t); setDetailTxnOpenCat(false); setDetailTxnRecurring(info?.recurringFrequency); }}
           internalTxnIds={internalTxnIds}
           initialSearch={txnSearch}
           categoryIcon={categoryIcon}
@@ -6679,6 +6695,10 @@ export const LivePlaidDashboard = ({
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
           onOpenRules={() => setShowRulesManager(true)}
           onOpenImport={() => setShowImportModal(true)}
+          headerActions={headerActions}
+          isCategoryEdited={t => overrides[t.id] != null}
+          classOf={classOf}
+          onSetTxnType={(demo || guestDemo) ? undefined : setTxnType}
         />
         <ImportStatementModal
           open={showImportModal}
@@ -6713,7 +6733,7 @@ export const LivePlaidDashboard = ({
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}

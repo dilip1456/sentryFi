@@ -67,12 +67,10 @@ test.describe("demo smoke", () => {
 
 test.describe("timezone: Asia/Kolkata (UTC+5:30)", () => {
   test.use({ timezoneId: "Asia/Kolkata" });
-  // KNOWN BUG: SpendingBudgetView's month buckets use toISOString() on local
-  // midnight, so east of UTC "this month" starts on the last day of the
-  // previous month; with the pinned clock the demo's Sep 30 Exxon charge
-  // ($56.20) lands in Spending's October but not Home's.
-  test("Home 'Spent this month' equals Spending 'Total spent' east of UTC", async ({ page }) => {
-    test.fail(true, "KNOWN BUG: month buckets shifted by toISOString() east of UTC");
+  // Was a KNOWN BUG (month buckets sliced toISOString(), so east of UTC the
+  // demo's Sep 30 Exxon charge leaked into Spending's October). #8 uses the
+  // local calendar for buckets.
+  test("Home 'Spent this month' equals Spending's month total east of UTC", async ({ page }) => {
     await openDemo(page);
     const home = await homeSpent(page);
     await goTo(page, "Spending");
