@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 import { getCallerUser } from "../_shared/auth.ts";
 import { plaidErrorSummary } from "../_shared/plaid-errors.ts";
+import { newItemLinkProducts } from "../_shared/plaid-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,9 +65,12 @@ Deno.serve(async (req) => {
       }
       params.access_token = item.access_token;
       params.products = ["liabilities"];
+      // No transactions.days_requested here: Transactions is already
+      // initialised on this Item, so Plaid ignores it (history depth is fixed
+      // at the original Link). Raising it needs a new Item: docs/PLAID_HISTORY.md.
     } else {
-      params.products = ["transactions"];
-      params.optional_products = ["investments", "liabilities"];
+      // New Item: 730 days of history (Plaid default is 90).
+      Object.assign(params, newItemLinkProducts());
     }
 
     const res = await fetch(`${plaidBase}/link/token/create`, {

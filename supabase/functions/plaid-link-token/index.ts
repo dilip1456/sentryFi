@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { plaidErrorSummary } from '../_shared/plaid-errors.ts';
+import { newItemLinkProducts } from '../_shared/plaid-link.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
@@ -30,8 +31,8 @@ Deno.serve(async (req) => {
         language: 'en',
         country_codes: ['US'],
         user: { client_user_id: user.id },
-        products: ['transactions'],
-        optional_products: ['investments', 'liabilities'],
+        // products + optional_products + transactions.days_requested: 730
+        ...newItemLinkProducts(),
       }),
     });
     const data = await res.json();

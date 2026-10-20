@@ -13,6 +13,7 @@
 //    TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION).
 // The cursor is now saved only after every page was written successfully.
 import { pfcToAppCategory } from "./classify/pfc.ts";
+import { TRANSACTIONS_DAYS_REQUESTED } from "./plaid-link.ts";
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- supabase-js client, untyped in Deno
@@ -116,7 +117,10 @@ export async function syncItemTransactions(
           body: JSON.stringify({
             client_id: cfg.clientId, secret: cfg.secret, access_token: opts.accessToken,
             cursor: cursor ?? undefined, count: 500,
-            options: { include_personal_finance_category: true },
+            // days_requested only applies if Transactions wasn't initialised at
+            // Link (ours are; see plaid-link.ts). Kept so an Item created
+            // without Transactions still gets 730 days on its first sync.
+            options: { include_personal_finance_category: true, days_requested: TRANSACTIONS_DAYS_REQUESTED },
           }),
         });
         const data = await res.json();

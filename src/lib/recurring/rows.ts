@@ -109,7 +109,24 @@ export interface RecurringStreamRow {
   reason: string;
   obligation_id?: string | null;
   detector_version: number;
+  // How the bill is paid (20261020210100). Set by src/lib/infer, not by
+  // series detection, so toStreamRow leaves them out.
+  autopay?: StreamAutopay;
+  autopay_source?: StreamAutopaySource | null;
+  autopay_confidence?: number | null;
+  pay_method?: PayMethod | null;
+  pay_from_account_id?: string | null;
+  pay_day?: number | null;
+  autopay_inference_id?: string | null;
 }
+
+export type StreamAutopay = "auto" | "manual" | "unknown";
+/** detected = suggestion only (never in totals); confirmed = user tapped Confirm; user = set by hand. */
+export type StreamAutopaySource = "detected" | "confirmed" | "user";
+export type PayMethod = "bank" | "card" | "manual";
+export const STREAM_AUTOPAY_FIELDS = [
+  "autopay", "autopay_source", "autopay_confidence", "pay_method", "pay_from_account_id", "pay_day", "autopay_inference_id",
+] as const;
 
 export interface StreamOccurrenceRow {
   stream_id: string;
@@ -181,6 +198,8 @@ export function mergeStreamRow(detected: RecurringStreamRow, stored?: Partial<Re
     must_pay: stored.must_pay_user_set ? !!stored.must_pay : detected.must_pay,
     must_pay_user_set: !!stored.must_pay_user_set,
     obligation_id: stored.obligation_id ?? detected.obligation_id ?? null,
+    // Autopay fields belong to the inference flow: keep whatever is stored.
+    ...Object.fromEntries(STREAM_AUTOPAY_FIELDS.filter(f => stored[f] !== undefined).map(f => [f, stored[f]])),
   };
 }
 
