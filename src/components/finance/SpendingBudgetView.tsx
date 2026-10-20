@@ -136,7 +136,7 @@ const OBLIGATION_LIKE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student 
 
 // ── Recurring-charge detection (Burn runway / Upcoming charges below) is for
 // genuine bills only; the category exclusions and cadence windows live in
-// src/lib/recurring.ts so the transaction detail modal uses the exact same
+// src/lib/recurring/spending-cadence.ts so the transaction detail modal uses the exact same
 // rules and never disagrees with the list. ─────────────────────────────────
 
 // ── The Categories panel's three tabs; mirrors the app's own
