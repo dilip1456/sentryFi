@@ -270,7 +270,7 @@ describe("P2P with other people is a transfer, not spending or income", () => {
     ["Venmo to J Doe", 75, "transfer_out"],
     ["VENMO PAYMENT 1029384756", 120, "transfer_out"],
     ["Zelle payment to JANE DOE Conf# 1a2b", 60, "transfer_out"],
-    ["CASH APP*JOHN SMITH", 40, "transfer_out"],
+    ["CASH APP TRANSFER TO JOHN SMITH", 40, "transfer_out"],
     ["Square Cash", 25, "transfer_out"],
     ["PAYPAL INST XFER", 30, "transfer_out"],
     ["Apple Cash Sent Money", 15, "transfer_out"],
@@ -286,9 +286,11 @@ describe("P2P with other people is a transfer, not spending or income", () => {
 
   it("legacy Plaid 'Transfer|Third Party|Venmo' category and Plaid PFC agree", () => {
     expect(classifyOne(tx({ amount: 75, name: "Venmo", category: ["Transfer", "Third Party", "Venmo"] }), spendCtx).type).toBe("transfer_out");
-    // Plaid sometimes files P2P as a merchant purchase; P2P still wins over that
-    const pfcSpend = tx({ amount: 45, name: "VENMO *JANE", pfc_primary: "GENERAL_SERVICES", pfc_detailed: "GENERAL_SERVICES_OTHER_GENERAL_SERVICES", pfc_confidence: "HIGH" });
+    // Plaid unsure (below HIGH) that it's a purchase and no merchant: P2P wins
+    const pfcSpend = tx({ amount: 45, name: "VENMO *JANE", pfc_primary: "GENERAL_SERVICES", pfc_detailed: "GENERAL_SERVICES_OTHER_GENERAL_SERVICES", pfc_confidence: "MEDIUM" });
     expect(classifyOne(pfcSpend, spendCtx)).toMatchObject({ type: "transfer_out", subtype: "p2p", source: "pfc" });
+    // Plaid confident it's a purchase: Plaid wins
+    expect(classifyOne({ ...pfcSpend, pfc_confidence: "HIGH" }, spendCtx).type).toBe("spend");
     const pfcIn = tx({ amount: -60, name: "Zelle from Alex", pfc_primary: "TRANSFER_IN", pfc_detailed: "TRANSFER_IN_ACCOUNT_TRANSFER", pfc_confidence: "VERY_HIGH" });
     expect(classifyOne(pfcIn, spendCtx)).toMatchObject({ type: "transfer_in", subtype: "p2p" });
   });
@@ -335,5 +337,47 @@ describe("P2P with other people is a transfer, not spending or income", () => {
     const s = summarizeFlow(txns, t => cls.get(t.id), () => "x", { start: "2026-10-01", end: "2026-10-31" });
     expect(s.spending).toBe(100);
     expect(s.income).toBe(3000);
+  });
+});
+
+describe("P2P precision: merchant purchases through P2P apps stay spending", () => {
+  const c = ctx();
+  const ent = { pfc_primary: "ENTERTAINMENT", pfc_detailed: "ENTERTAINMENT_TV_AND_MOVIES", pfc_confidence: "VERY_HIGH" };
+  const food = { pfc_primary: "FOOD_AND_DRINK", pfc_detailed: "FOOD_AND_DRINK_COFFEE", pfc_confidence: "HIGH" };
+  const gm = { pfc_primary: "GENERAL_MERCHANDISE", pfc_detailed: "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE", pfc_confidence: "MEDIUM" };
+
+  it.each([
+    ["bank-funded PayPal purchase (merchant + VERY_HIGH PFC)", tx({ amount: 15.49, name: "PAYPAL INST XFER 2389 NETFLIX.COM", merchant_name: "Netflix", ...ent })],
+    ["bank-funded PayPal purchase, merchant domain only, no PFC", tx({ amount: 15.49, name: "PAYPAL INST XFER 2389 NETFLIX.COM" })],
+    ["Cash Card purchase with PFC", tx({ amount: 6.45, name: "CASH APP*STARBUCKS", ...food })],
+    ["Cash Card purchase, no PFC", tx({ amount: 6.45, name: "CASH APP*STARBUCKS" })],
+    ["PayPal checkout at Money Lion", tx({ amount: 1, name: "PAYPAL *MONEY LION" })],
+    ["PayPal checkout at SendGrid", tx({ amount: 19.95, name: "PAYPAL *SEND GRID" })],
+    ["PayPal checkout with medium-confidence PFC", tx({ amount: 30, name: "PAYPAL *SEND GRID", ...gm })],
+    ["Venmo descriptor, real merchant", tx({ amount: 12, name: "VENMO *BLUE BOTTLE", merchant_name: "Blue Bottle Coffee" })],
+  ])("%s → spend", (_label, t) => {
+    const r = classifyOne(t, c);
+    expect(r.type).toBe("spend");
+    expect(r.subtype).not.toBe("p2p");
+  });
+
+  it.each([
+    ["Venmo to a person, transfer PFC, no merchant", tx({ amount: 75, name: "VENMO PAYMENT 1029384756", pfc_primary: "TRANSFER_OUT", pfc_detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER", pfc_confidence: "VERY_HIGH" }), "transfer_out"],
+    ["Venmo with merchant_name 'Venmo'", tx({ amount: 120, name: "VENMO PAYMENT 1029384756", merchant_name: "Venmo" }), "transfer_out"],
+    ["Zelle from a person, transfer PFC", tx({ amount: -60, name: "ZELLE FROM ALEX P", merchant_name: "Zelle", pfc_primary: "TRANSFER_IN", pfc_detailed: "TRANSFER_IN_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), "transfer_in"],
+    ["PayPal transfer to a person, no merchant", tx({ amount: 50, name: "PAYPAL TRANSFER TO JANE DOE" }), "transfer_out"],
+    ["PayPal instant transfer with transfer PFC", tx({ amount: 80, name: "PAYPAL INST XFER", pfc_primary: "TRANSFER_OUT", pfc_detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), "transfer_out"],
+    ["Cash App cash-out with transfer PFC", tx({ amount: -100, name: "CASH APP*CASH OUT", pfc_primary: "TRANSFER_IN", pfc_detailed: "TRANSFER_IN_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), "transfer_in"],
+  ] as const)("%s → %s", (_label, t, want) => {
+    expect(classifyOne(t, c)).toMatchObject({ type: want, subtype: "p2p" });
+  });
+
+  it("payments to your own name and between linked accounts stay internal", () => {
+    expect(classifyOne(tx({ amount: 500, name: "Zelle payment to DILIP NAIK", pfc_primary: "TRANSFER_OUT", pfc_detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), c).type).toBe("transfer_internal");
+    const out = tx({ id: "vo", account_id: "chk", amount: 250, name: "VENMO CASHOUT TO SAVINGS" });
+    const inn = tx({ id: "vi", account_id: "sav", amount: -250, name: "VENMO TRANSFER FROM CHK" });
+    const m = classifyAll([out, inn], ctx({ accounts: accounts.map(a => a.account_id === "sav" ? { ...a, subtype: "checking" } : a) }));
+    expect(m.get("vo")!.type).toBe("transfer_internal");
+    expect(m.get("vi")!.type).toBe("transfer_internal");
   });
 });

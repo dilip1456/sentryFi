@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
       }),
     });
     const exData = await exRes.json();
-    if (!exRes.ok) return json({ error: exData.error_message || 'exchange failed', detail: exData }, 400);
+    if (!exRes.ok) return json({ error: exData.error_message || 'exchange failed', detail: plaidErrorSummary(exData, exRes.status) }, 400);
 
     const access_token = exData.access_token as string;
     const item_id = exData.item_id as string;
