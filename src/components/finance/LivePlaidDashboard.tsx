@@ -2414,7 +2414,11 @@ const TxnDetailModal = ({
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl">
+      {/* Phones: a bottom sheet (full width, anchored to the bottom edge,
+          padded by the bottom safe-area inset) instead of a centered card. */}
+      <DialogContent className={cn("max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl",
+        "max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:translate-x-0 max-md:translate-y-0 max-md:max-w-none max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]",
+        "max-md:data-[state=open]:slide-in-from-left-0 max-md:data-[state=open]:slide-in-from-bottom-full max-md:data-[state=closed]:slide-out-to-left-0 max-md:data-[state=closed]:slide-out-to-bottom-full max-md:data-[state=open]:zoom-in-100 max-md:data-[state=closed]:zoom-out-100")}>
         <DialogTitle className="sr-only">Transaction details</DialogTitle>
         <DialogDescription className="sr-only">Transaction info, edit, and rules.</DialogDescription>
 
