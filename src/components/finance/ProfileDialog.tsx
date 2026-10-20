@@ -4,7 +4,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
-import { Loader2, Landmark, Trash2, Camera, User, X } from "lucide-react";
+import { Loader2, Landmark, Trash2, Camera, User, X, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
@@ -46,6 +46,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [items, setItems] = useState<PlaidItemRow[] | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState<PlaidItemRow | null>(null);
+  const [confirmFullResync, setConfirmFullResync] = useState(false);
+  const [fullResyncing, setFullResyncing] = useState(false);
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -153,6 +155,29 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
       toast.error("Couldn't disconnect", { description: (e as Error).message });
     } finally {
       setDisconnectingId(null);
+    }
+  };
+
+  // Re-walks every linked bank's history from the start (no sync cursor), so
+  // older transactions pick up fields added since they were first synced
+  // (e.g. Plaid's detailed category) and rows a failed sync skipped come back.
+  // Nothing is deleted; existing transactions are updated in place.
+  const fullResync = async () => {
+    setFullResyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("plaid-sync-transactions", {
+        body: { full_resync: true },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Full resync failed");
+      const synced = data?.synced ?? 0;
+      toast.success(`Full resync complete: ${synced} transaction${synced !== 1 ? "s" : ""} refreshed`);
+      setConfirmFullResync(false);
+      // Same as disconnect: reload so every screen shows the refreshed data.
+      window.location.reload();
+    } catch (e) {
+      toast.error("Full resync failed", { description: (e as Error).message });
+    } finally {
+      setFullResyncing(false);
     }
   };
 
@@ -310,6 +335,31 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                 confirmLabel="Disconnect"
                 busy={disconnectingId !== null}
                 onConfirm={() => { if (confirmDisconnect) return disconnectBank(confirmDisconnect); }} />
+
+              {items !== null && items.length > 0 && (
+                <div className="mt-5">
+                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Full resync</div>
+                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
+                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                      Re-download all transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories and notes are kept.
+                    </div>
+                    <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing}
+                      aria-label="Full resync of all banks"
+                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
+                      <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
+                    </button>
+                  </div>
+                </div>
+              )}
+              <ConfirmDialog
+                open={confirmFullResync}
+                onOpenChange={o => { if (!o && !fullResyncing) setConfirmFullResync(false); }}
+                title="Run a full resync?"
+                description="SentryFi will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
+                confirmLabel="Full resync"
+                destructive={false}
+                busy={fullResyncing}
+                onConfirm={fullResync} />
             </div>
           )}
         </div>
