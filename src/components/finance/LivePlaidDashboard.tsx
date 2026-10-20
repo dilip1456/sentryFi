@@ -41,7 +41,7 @@ import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
   ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
-  ArrowDownLeft, ArrowUpRight, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
+  ArrowDownLeft, ArrowUpRight, ArrowUp, ArrowDown, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
   Pencil, Search, Trash2, ExternalLink, Tag, Calendar, Unlink,
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
@@ -3831,7 +3831,9 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
       {/* Category grid: each card is color-coded by account type (checking,
           savings, credit, loans, investments) so the categorization reads at
           a glance instead of one flat gray list. Tap a card to expand it. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
+      {/* auto-fit collapses unused tracks, so 5 buckets fill the row instead
+          of leaving an empty 6th slot. */}
+      <div className="grid grid-cols-2 sm:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
         {bucketData.map(({ bucket, list, total, debt, manualCount }) => {
           const open = !!openBuckets[bucket];
           const meta = ACCOUNT_GROUP_META[bucket];
@@ -5192,9 +5194,14 @@ export const LivePlaidDashboard = ({
                   {fmtUSD(animatedNW)}
                 </h2>
                 {nwChange!==0 && (
-                  <span className={cn("chip !py-0.5 !px-1.5 !text-[12px] animate-pop-in", nwChange>=0?"chip-positive":"chip-negative")}>
-                    <ArrowUpRight className={cn("h-2.5 w-2.5",nwChange<0&&"rotate-180")} />
+                  // A tiny rotated ArrowUpRight read as "×"; use a clear up/down
+                  // arrow and say which period the change covers.
+                  <span className={cn("chip !py-0.5 !px-1.5 !text-[12px] animate-pop-in inline-flex items-center gap-0.5 whitespace-nowrap", nwChange>=0?"chip-positive":"chip-negative")}
+                    title={`${nwChange>=0?"Up":"Down"} ${fmtUSD(Math.abs(nwChange))} over ${period === "ALL" ? "all time" : `the last ${period}`}`}>
+                    {nwChange>=0 ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />}
+                    <span className="sr-only">{nwChange>=0?"Up":"Down"}</span>
                     {fmtUSDCompact(Math.abs(nwChange))}
+                    <span className="opacity-70 font-normal">· {period === "ALL" ? "all time" : period}</span>
                   </span>
                 )}
               </div>
@@ -5223,14 +5230,15 @@ export const LivePlaidDashboard = ({
           {/* Right — compact chart (hidden on small screens) */}
           <div className="hidden sm:block w-[45%] shrink-0 -mr-1 -my-1">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={nwData} margin={{top:4,right:4,bottom:4,left:4}}>
+              <AreaChart data={nwData} margin={{top:4,right:8,bottom:4,left:8}}>
                 <defs>
                   <linearGradient id="nw-live" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:8}} interval={nwTickEvery-1} />
+                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:8}} interval={nwTickEvery-1}
+                  padding={{left:14,right:14}} minTickGap={4} />
                 <YAxis hide domain={["dataMin - 1000","dataMax + 1000"]} />
                 <Tooltip contentStyle={{background:"hsl(var(--card))",border:"1px solid var(--gold-border)",borderRadius:8,fontSize:11,padding:"6px 10px",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}
                   labelStyle={{color:"hsl(var(--muted-foreground))",fontSize:9}}
@@ -5471,7 +5479,7 @@ export const LivePlaidDashboard = ({
                               <span className="text-[14px] text-foreground font-medium truncate">{item.title}</span>
                               <span className={cn("text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",m.chip)}>{m.label}</span>
                             </div>
-                            <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 truncate">{item.detail}</p>
+                            <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 line-clamp-2 break-words" title={typeof item.detail === "string" ? item.detail : undefined}>{item.detail}</p>
                           </div>
                           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
                         </button>
@@ -5533,7 +5541,7 @@ export const LivePlaidDashboard = ({
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col gap-0.5 pt-0.5">
                               <span className="text-[13px] text-foreground font-medium leading-snug line-clamp-2 break-words">{insight.title}</span>
-                              <span className="text-[11.5px] tabular text-positive font-semibold truncate">{insight.impact}</span>
+                              <span className="text-[11.5px] tabular text-positive font-semibold line-clamp-2 break-words" title={insight.impact}>{insight.impact}</span>
                             </div>
                           </button>
                           <button onClick={()=>dismissInsight(insight.id)} title="Dismiss" aria-label="Dismiss insight"
@@ -5554,19 +5562,21 @@ export const LivePlaidDashboard = ({
 
             const panelUpcomingCharges = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden h-full">
-                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                {/* select-none: dragging the grip used to leave the header text
+                    (e.g. the "$9.35" total) with a blue selection highlight. */}
+                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2 select-none">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-display text-[14px] text-primary">Upcoming Charges</h3>
-                    <div className="flex items-center gap-2">
-                      <div className="text-[12px] text-muted-foreground">
+                    <div className="flex items-center gap-x-2 flex-wrap">
+                      <div className="text-[12px] text-muted-foreground whitespace-nowrap">
                         Next 15 days · {recurringCharges.length} recurring
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
                       {suppressRecurringMerchants.size > 0 && (
-                        <button onClick={restoreAllRecurring} className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors">
+                        <button onClick={restoreAllRecurring} title="Show hidden charges again" className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors whitespace-nowrap">
                           {suppressRecurringMerchants.size} hidden · restore
                         </button>
                       )}
@@ -5639,7 +5649,7 @@ export const LivePlaidDashboard = ({
                           <div className="relative shrink-0">
                             <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
                               className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
-                                recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100")}>
+                                recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}>
                               <X className="h-3.5 w-3.5" />
                             </button>
                             {recurringMenuFor===r.merchantKey && (()=>{
@@ -5692,7 +5702,9 @@ export const LivePlaidDashboard = ({
             return (
               <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
                 <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 items-stretch">
+                  {/* One column per panel (3) on wide screens — the old xl:grid-cols-4
+                      left an empty 4th column; at lg the odd last panel spans both. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2.5 items-stretch lg:[&>*:last-child:nth-child(odd)]:col-span-2 xl:[&>*:last-child:nth-child(odd)]:col-span-1">
                     {panelOrder.map(id => (
                       <SortableCard key={id} id={id}>
                         {(handleProps) => renderPanel(id, handleProps)}

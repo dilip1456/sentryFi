@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { cleanBankText, isStatementSummaryText } from "@/lib/merchant-name";
 import { fmtShortDate } from "@/lib/format-date";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { toast } from "sonner";
 import {
   useObligations, ObligationEditModal, CoverModal, OBLIGATION_BUCKETS,
   type Obligation,
@@ -1325,20 +1327,17 @@ export function BudgetPage({
               {summaryLine}
             </p>
           </div>
-          {confirmingReset ? (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[11px] text-muted-foreground">Clear budgets, recurring & savings goals?</span>
-              <button onClick={()=>{ resetBudgetTracking(); setConfirmingReset(false); }}
-                className="h-7 px-2.5 rounded-lg bg-negative text-white text-[11px] font-semibold">Confirm</button>
-              <button onClick={()=>setConfirmingReset(false)}
-                className="h-7 px-2.5 rounded-lg text-muted-foreground hover:text-foreground text-[11px] font-medium">Cancel</button>
-            </div>
-          ) : (
-            <button onClick={()=>setConfirmingReset(true)}
-              className="shrink-0 text-[11px] text-muted-foreground/70 hover:text-negative transition-colors">
-              Reset budget data
-            </button>
-          )}
+          <button onClick={()=>setConfirmingReset(true)}
+            className="shrink-0 text-[11px] text-muted-foreground/70 hover:text-negative transition-colors whitespace-nowrap">
+            Reset budget data
+          </button>
+          <ConfirmDialog
+            open={confirmingReset}
+            onOpenChange={setConfirmingReset}
+            title="Reset budget data?"
+            description="This clears your category budgets, recurring items and savings goals on this page. Your transactions and linked accounts aren't affected."
+            confirmLabel="Reset"
+            onConfirm={() => { resetBudgetTracking(); setConfirmingReset(false); toast.success("Budget data reset"); }} />
         </div>
 
         {/* Two bars, one picture: income on top, and directly below it — at

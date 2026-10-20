@@ -149,11 +149,11 @@ export const CategorySuggestions = ({ txns, onAccept, onDismiss, dismissedIds }:
                 <div className="text-[12.5px] text-muted-foreground mt-1">{s.reason}</div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                <button onClick={() => accept(s)}
+                <button onClick={() => accept(s)} title="Accept suggestion" aria-label="Accept suggestion"
                   className="h-8 w-8 rounded-full bg-positive/10 grid place-items-center hover:bg-positive/20 transition-colors">
                   <CheckCircle className="h-4 w-4 text-positive" />
                 </button>
-                <button onClick={() => reject(s)}
+                <button onClick={() => reject(s)} title="Dismiss suggestion" aria-label="Dismiss suggestion"
                   className="h-8 w-8 rounded-full bg-border/40 grid place-items-center hover:bg-border/60 transition-colors">
                   <XCircle className="h-4 w-4 text-muted-foreground" />
                 </button>
