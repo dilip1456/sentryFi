@@ -288,7 +288,7 @@ function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
                 isSel ? "bg-gold" : isLast ? "bg-[hsl(var(--primary)/0.55)]" : "bg-[hsl(var(--primary)/0.25)] group-hover:bg-[hsl(var(--primary)/0.45)]")}
                 style={{height:`${pct}%`}}/>
             </div>
-            <span className={cn("text-[9px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
+            <span className={cn("text-[11px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
           </button>
         );
       })}
@@ -1496,21 +1496,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 /* 14-day scrubber; same bar format as the other granularities
                    so the header never changes height when switching tabs. */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
                   <PeriodBars buckets={dayBuckets} totals={overallDaily} selIdx={selDayIdx}
                     onSelect={(i) => setDayOffset(i-(DAY_COUNT-1))} maxWidth={560}/>
                 </div>
               ) : granularity==="week" ? (
                 /* 12-week scrubber, same bar format as months */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
                   <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
                     onSelect={(i) => setWeekOffset(i-(WEEK_COUNT-1))} maxWidth={640}/>
                 </div>
               ) : granularity==="year" ? (
                 /* 6-year scrubber; each bar is one calendar year */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
                   <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
                     onSelect={(i) => setYearOffset(i-(YEAR_COUNT-1))} maxWidth={400}/>
                 </div>
@@ -1518,7 +1518,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 /* 12-month scrubber; capped width so bars stay a sensible size on wide screens.
                    Year label above clarifies which calendar year(s) the months belong to. */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
                   <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
                     onSelect={(i) => setMonthOffset(i-lastIdx)} maxWidth={560}/>
                 </div>
@@ -1529,7 +1529,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 for the selected range, so the panel's height and shape never
                 change across day/week/month/year (no month-only budget block). */}
             <div className="w-full lg:w-[240px] shrink-0 lg:border-l lg:border-border/50 lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/50">
-              <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 {activeRange.label}
               </div>
               <div className="space-y-2">
@@ -1562,7 +1562,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {runwayIdx===0 && scrubDay !== null && rolling30[scrubDay] && (
                 <div className="text-right mr-1">
                   <div className="text-[13px] font-bold text-foreground tabular">{fmtUSD(rolling30[scrubDay].cum)}</div>
-                  <div className="text-[10.5px] text-muted-foreground">{new Date(rolling30[scrubDay].date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                  <div className="text-[11px] text-muted-foreground">{new Date(rolling30[scrubDay].date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                 </div>
               )}
               <button onClick={()=>setRunwayIdx(0)} aria-label="Show this month's cumulative spend" className={cn("h-1.5 w-1.5 rounded-full transition-all", runwayIdx===0?"bg-[hsl(var(--primary))] w-4":"bg-border")}/>
@@ -1609,7 +1609,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const hovered = hoveredDot===key;
                     const content = (
                       <>
-                        <div className="text-[10px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                        <div className="text-[11px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                         {d.txns.map((t,ti) => (
                           <div key={ti} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
                             <span className="truncate">{t.merchant}</span>
@@ -1630,13 +1630,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {/* Date axis; day 1 through the last day of the selected month */}
                 <div className="relative h-4 mt-1">
                   {past30Ticks.map(d => (
-                    <span key={d} className="absolute -translate-x-1/2 text-[9.5px] text-muted-foreground/60 tabular"
+                    <span key={d} className="absolute -translate-x-1/2 text-[11px] text-muted-foreground/60 tabular"
                       style={{left:`${xForPast(d-1)}%`}}>
                       {d}
                     </span>
                   ))}
                 </div>
-                <div className="flex items-center gap-4 mt-1 text-[10.5px] text-muted-foreground flex-wrap">
+                <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>Cumulative spend</span>
                   {past30BudgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
                   <span className="ml-auto">Swipe or tap dot to see next 15 days →</span>
@@ -1669,13 +1669,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const hovered = hoveredDot===key;
                     const content = (
                       <>
-                        <div className="text-[10px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · {f.frequency}{f.insufficient?" · insufficient funds":""}</div>
+                        <div className="text-[11px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · {f.frequency}{f.insufficient?" · insufficient funds":""}</div>
                         <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", f.insufficient?"text-negative":"text-foreground")}>
                           <span className="truncate">{f.merchant}</span>
                           <span className="tabular shrink-0">{fmtUSD(f.avgAmount)}</span>
                         </div>
                         {f.balanceAfter !== null && (
-                          <div className={cn("text-[10.5px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
+                          <div className={cn("text-[11px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
                         )}
                       </>
                     );
@@ -1689,7 +1689,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground flex-wrap">
+                <div className="flex items-center gap-4 mt-2 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Anticipated spend</span>
                   <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-negative inline-block"/>Low balance risk</span>
                   <span className="ml-auto">← Swipe back for last 30 days</span>
@@ -1713,9 +1713,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                               {new Date(r.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · in {Math.max(days,0)}d
                             </div>
                             {r.insufficient ? (
-                              <div className="text-[10px] font-bold text-negative mt-1">Insufficient funds</div>
+                              <div className="text-[11px] font-bold text-negative mt-1">Insufficient funds</div>
                             ) : r.balanceAfter !== null && (
-                              <div className="text-[10px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
+                              <div className="text-[11px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
                             )}
                           </div>
                         );
@@ -1786,14 +1786,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 <div className="flex items-center gap-0.5 rounded-full bg-muted/50 p-0.5 shrink-0">
                   {CAT_TABS.map(tab => (
                     <button key={tab.key} onClick={()=>setCatTab(tab.key)} title={tab.title}
-                      className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors",
+                      className={cn("px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors",
                         catTab === tab.key ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]" : "text-muted-foreground hover:text-foreground")}>
                       {tab.label}
                     </button>
                   ))}
                 </div>
                 <button onClick={()=>setBudgetDialogOpen(true)}
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity shrink-0">
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity shrink-0">
                   <Wallet className="h-2.5 w-2.5"/> Budget
                 </button>
               </div>
@@ -1811,9 +1811,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         borderLeft: `3px solid ${col}`,
                       }}
                       className="bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
-                      <span className="text-[10.5px] font-semibold text-foreground truncate block">{formatCat(c.cat)}</span>
+                      <span className="text-[11px] font-semibold text-foreground truncate block">{formatCat(c.cat)}</span>
                       <span className="text-[12px] font-bold text-foreground tabular">{fmtUSD(c.spend)}</span>
-                      <div className="text-[9px] text-muted-foreground mt-0.5">{c.count} txn{c.count!==1?"s":""} · excluded from spend</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{c.count} txn{c.count!==1?"s":""} · excluded from spend</div>
                     </div>
                   );
                 }) : (catTab === "income" ? incomeCatRows : expenseCatRows).map((c,i) => {
@@ -1852,7 +1852,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       }}
                       className="group/catlistrow bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10.5px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
+                        <span className="text-[11px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
                         <button onClick={(e)=>{ e.stopPropagation(); setDetailsCat(c.cat); }}
                           aria-label={`View ${formatCat(c.cat)} details`}
                           // Always visible below the md breakpoint; a
@@ -1864,7 +1864,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           <Pencil className="h-2.5 w-2.5"/>
                         </button>
                         {c.mom !== null && (
-                          <span className={cn("text-[9px] font-semibold shrink-0", momColor)}>{c.mom>0?"+":""}{c.mom}%</span>
+                          <span className={cn("text-[11px] font-semibold shrink-0", momColor)}>{c.mom>0?"+":""}{c.mom}%</span>
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 min-w-0">
@@ -1877,15 +1877,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         {!isObligation && !isIncome && b == null && (
                           <button onClick={(e)=>{ e.stopPropagation(); setBudgetDialogOpen(true); }}
                             style={{ color: col }}
-                            className="shrink-0 text-[9px] font-semibold hover:underline">
+                            className="shrink-0 text-[11px] font-semibold hover:underline">
                             + budget
                           </button>
                         )}
                       </div>
                       {isObligation ? (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
                       ) : !isIncome && b != null && (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
                           {fmtUSD(c.spend)} spent{over && <span className="text-negative font-semibold"> · {fmtUSD(c.spend-b)} over</span>}
                         </div>
                       )}
@@ -2172,7 +2172,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
                       <select value={catSel ?? ""} onChange={e=>setCatSel(e.target.value || null)}
                         className="w-full h-8 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none">
                         <option value="">All categories</option>
@@ -2182,7 +2182,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
                     {tagsInPeriod.length > 0 && (
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Tags</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Tags</div>
                         <div className="flex flex-wrap gap-1">
                           {tagsInPeriod.map(tag => (
                             <button key={tag} onClick={()=>toggleTagFilter(tag)}
@@ -2196,11 +2196,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     )}
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Date</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Date</div>
                       <div className="flex gap-1 mb-1.5">
                         {([["none","Period"],["range","Range"],["lastN","Last N days"],["year","Year"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setDateMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               dateMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -2233,11 +2233,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Money in / out</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Money in / out</div>
                       <div className="flex gap-1">
                         {([["all","All"],["in","Incoming"],["out","Outgoing"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setTypeFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               typeFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -2246,11 +2246,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Amount</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Amount</div>
                       <div className="flex gap-1 mb-1.5">
                         {([["range","Range"],["fixed","Exact"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setAmountMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               amountMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -2258,7 +2258,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       </div>
                       {amountMode==="range" ? (
                         <div className="flex items-center gap-1 h-8 px-2 rounded-lg bg-muted/40 border border-border/60">
-                          <span className="text-[10.5px] text-muted-foreground">$</span>
+                          <span className="text-[11px] text-muted-foreground">$</span>
                           <input type="number" inputMode="decimal" min={0} placeholder="Min" value={minAmount} onChange={e=>setMinAmount(e.target.value)}
                             className="w-full bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground/60"/>
                           <span className="text-muted-foreground/40">–</span>
@@ -2275,11 +2275,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Ignored</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Ignored</div>
                       <div className="flex gap-1">
                         {([["no","No"],["yes","Yes"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>toggleIgnoredFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               ignoredFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -2393,12 +2393,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                               <div className="flex items-center gap-2 min-w-0">
                                 <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                                 <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
-                                <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
+                                <span className="shrink-0 text-[11px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
                                   {g.items.length} {g.items.length===1?"txn":"txns"}
                                 </span>
                               </div>
                               <div className="text-right shrink-0">
-                                <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
+                                <div className="text-[11px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
                                 <div className={cn("text-[13px] font-bold tabular leading-tight mt-0.5", txnAmountClass(g.total))}>{fmtTxnAmount(g.total)}</div>
                               </div>
                             </div>
@@ -2512,7 +2512,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
           <div className="spending-v2 fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
-            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
             {COLUMN_DEFS.map(c => {
               const checked = visibleCols.has(c.key);
               return (
@@ -2548,7 +2548,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
           <div className="spending-v2 fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
-            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
             {GROUP_OPTIONS.map(g => (
               <button key={g.key} onClick={()=>{ setGroupBy(g.key); groupMenu.close(); }}
                 className={cn("w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px]",
@@ -2735,7 +2735,7 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/15">
           {/* Left: categories with usage but no budget yet */}
           <div className="flex flex-col min-h-0 max-h-[55vh]">
-            <div className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            <div className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
               Not budgeted yet · {needsBudget.length}
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-none divide-y divide-border/10">
@@ -2776,7 +2776,7 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
 
           {/* Right: categories that already have a budget */}
           <div className="flex flex-col min-h-0 max-h-[55vh]">
-            <div className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            <div className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
               Budgeted · {defined.length}
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-none divide-y divide-border/10">
@@ -2987,7 +2987,7 @@ export function CategoryPickerPopover({
     if (shown.length === 0 && shownCustom.length === 0) return null;
     return (
       <div className="py-1.5">
-        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
+        <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
         {shown.map(cat => <Row key={cat} cat={cat} />)}
         {shownCustom.map(cat => <Row key={cat} cat={cat} removable />)}
       </div>
@@ -3093,7 +3093,7 @@ const TxnRow = ({
               <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType}/>
               {flag && <FlagChip flag={flag}/>}
               {recurringFreq && (
-                <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+                <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
                   <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
                 </span>
               )}
@@ -3136,7 +3136,7 @@ const TxnRow = ({
         <td className="px-4 py-2.5 truncate">
           {t.pending
             ? <PendingChip/>
-            : <span className="text-[10.5px] font-medium text-muted-foreground">Posted</span>}
+            : <span className="text-[11px] font-medium text-muted-foreground">Posted</span>}
         </td>
       )}
       {visibleCols.has("account") && (
@@ -3294,7 +3294,7 @@ function TypeControl({ t, txnType, edited, onChangeType, compact = false }: {
       <button ref={menu.btnRef} type="button" onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setLeft(Math.max(8, Math.min(r.left, window.innerWidth - 264))); menu.toggle(); }}
         title={`Type: ${def.label}${edited ? " (edited by you)" : ""}. Click to change.`}
         aria-label={`Change type, currently ${def.label}`}
-        className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap transition-colors hover:ring-1 hover:ring-[hsl(var(--primary)/0.5)]", typeTone(txnType))}>
+        className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap transition-colors hover:ring-1 hover:ring-[hsl(var(--primary)/0.5)]", typeTone(txnType))}>
         {def.short}
         {edited && <span className="inline-flex items-center gap-0.5 text-[hsl(var(--primary))] no-underline"><Pencil className="h-2 w-2"/>{!compact && "Edited"}</span>}
         <ChevronDown className="h-2.5 w-2.5 opacity-60"/>
@@ -3305,7 +3305,7 @@ function TypeControl({ t, txnType, edited, onChangeType, compact = false }: {
           <div role="menu" className="spending-v2 fixed z-[999] w-64 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5 overflow-y-auto"
             style={{ top: menu.pos.top, bottom: menu.pos.bottom, left, maxHeight: menu.pos.maxHeight }}
             onClick={e => e.stopPropagation()}>
-            <div className="px-2 pt-1 pb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Treat this transaction as</div>
+            <div className="px-2 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Treat this transaction as</div>
             {TXN_TYPES.map(o => (
               <button key={o.key} role="menuitemradio" aria-checked={o.key === def.key}
                 onClick={() => { if (o.key !== def.key) onChangeType(t, o.key); menu.close(); }}

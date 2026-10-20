@@ -389,7 +389,7 @@ export function SpendingOverview(p: SpendingOverviewProps) {
                     <Sparkline values={m.trend} color={col} />
                     <div className="text-right shrink-0 w-[72px]">
                       <div className="text-[13px] font-semibold text-foreground tabular">{fmtUSD(m.total)}</div>
-                      <div className="text-[10.5px] text-muted-foreground">{m.count} {m.count === 1 ? "charge" : "charges"}</div>
+                      <div className="text-[11px] text-muted-foreground">{m.count} {m.count === 1 ? "charge" : "charges"}</div>
                     </div>
                   </li>
                 );
@@ -410,7 +410,7 @@ export function FlagChip({ flag, compact = false }: { flag: TxnFlag; compact?: b
   const Icon = dup ? Copy : ArrowLeftRight;
   return (
     <span title={dup ? "Same amount & merchant within 3 days. Possible duplicate charge." : "Looks like a transfer between your own accounts. It's counted as spending until you recategorize it."}
-      className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0 whitespace-nowrap",
+      className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold shrink-0 whitespace-nowrap",
         dup ? "bg-[hsl(var(--negative)/0.12)] text-negative" : "bg-[hsl(210_60%_60%/0.14)] text-[hsl(210_70%_70%)]")}>
       <Icon className="h-2.5 w-2.5" />{compact ? (dup ? "Dup?" : "Transfer?") : (dup ? "Possible duplicate" : "Transfer?")}
     </span>
@@ -420,7 +420,7 @@ export function FlagChip({ flag, compact = false }: { flag: TxnFlag; compact?: b
 export function PendingChip() {
   return (
     <span title="Pending: not posted yet. Included in totals; the amount may still change."
-      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-warning/10 text-warning whitespace-nowrap">
+      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold bg-warning/10 text-warning whitespace-nowrap">
       <Clock className="h-2.5 w-2.5" />Pending
     </span>
   );
@@ -455,7 +455,7 @@ function MoneyMovement({ movement, monthName, onShowIgnored }: { movement: Overv
                 <div className={cn("text-[13px] font-semibold tabular", r.key === "transfer-in" && v.total > 0 ? "text-positive" : "text-foreground")}>
                   {v.count === 0 ? "None" : `${r.key === "transfer-in" ? "+" : ""}${fmtUSD(v.total)}`}
                 </div>
-                {v.count > 0 && <div className="text-[10.5px] text-muted-foreground">{v.count} {v.count === 1 ? "txn" : "txns"}</div>}
+                {v.count > 0 && <div className="text-[11px] text-muted-foreground">{v.count} {v.count === 1 ? "txn" : "txns"}</div>}
               </div>
             </li>
           );
