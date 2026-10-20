@@ -16,7 +16,7 @@ import {
   type TxnClassification,
   type TxnType,
   TXN_TYPES,
-} from "@/lib/recurring";
+} from "@/lib/recurring/index";
 
 const TODAY = "2026-10-20"; // Tuesday
 

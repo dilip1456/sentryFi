@@ -24,7 +24,7 @@ import {
   type ClassifierAccount,
   type ClassifierTxn,
   type Schedule,
-} from "@/lib/recurring";
+} from "@/lib/recurring/index";
 import { loanDetailRows, plaidErrorSummary, upsertLoanDetails } from "../../supabase/functions/_shared/plaid-liabilities.ts";
 
 const ROOT = path.resolve(__dirname, "../..");
