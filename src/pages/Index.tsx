@@ -469,6 +469,21 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
+          {/* Spending / Budget — full-bleed. These views skip the padded
+              container below, so they need their own loading + no-accounts
+              states; previously both rendered a blank screen while the
+              linked-account check was pending or when nothing was linked. */}
+          {(view === "spending" || view === "budget") && !effectiveDemo && hasItems === null && (
+            <div className="min-h-[50vh] grid place-items-center" role="status" aria-label="Loading">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {(view === "spending" || view === "budget") && showEmpty && (
+            <div className="content-max px-4 md:px-8 pt-6 pb-10">
+              <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
+            </div>
+          )}
+
           {/* Spending — full-bleed */}
           {view === "spending" && (
             <>
@@ -547,7 +562,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
                 covers it and the space is better spent on content. */}
             <div className="hidden md:flex items-center justify-between">
-              {view !== "spending" && view !== "budget" ? (
+              {(
                 <div>
                   <h1 className="font-display text-2xl text-foreground">
                     {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
@@ -556,7 +571,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                   </p>
                 </div>
-              ) : <div />}
+              )}
 
               {/* Top button bar */}
               {topButtons}
@@ -587,7 +602,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               />
             )}
 
-            {effectiveDemo && view !== "giftcards" && view !== "admin" && view !== "spending" && view !== "budget" && (
+            {effectiveDemo && view !== "giftcards" && view !== "admin" && (
               <LivePlaidDashboard
                 demo
                 guestDemo={guestDemo}

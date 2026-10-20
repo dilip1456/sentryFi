@@ -2224,8 +2224,32 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 column can never be silently clipped. */}
             <div ref={tableWrapRef} className="overflow-y-auto overflow-x-auto scrollbar-none flex-1">
               {visibleTxns.length === 0 ? (
-                <div className="py-14 text-center text-[13px] text-muted-foreground">
-                  No transactions match{hasActiveFilters ? " these filters" : ""}.
+                <div className="py-14 px-6 text-center space-y-3">
+                  {(hasActiveFilters || catSel) ? (
+                    <>
+                      <div className="text-[14px] font-semibold text-foreground">No transactions match these filters</div>
+                      <div className="text-[12.5px] text-muted-foreground">Try removing a filter or search term.</div>
+                      <button onClick={()=>{ clearFilters(); setCatSel(null); }}
+                        className="h-9 px-4 rounded-lg border border-border/60 bg-muted/40 text-[13px] font-medium text-foreground hover:bg-muted/60 transition-colors">
+                        Clear filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[14px] font-semibold text-foreground">
+                        No {catTab === "income" ? "income" : catTab === "ignored" ? "ignored transactions" : "spending"} {granularity === "all" ? "on record" : `in ${activeRange.label.toLowerCase() === "this month" ? "this month" : activeRange.label}`}
+                      </div>
+                      <div className="text-[12.5px] text-muted-foreground">
+                        {granularity === "all" ? "Transactions appear here once your accounts sync." : "Pick another period, or view everything."}
+                      </div>
+                      {granularity !== "all" && (
+                        <button onClick={()=>setGranularity("all")}
+                          className="h-9 px-4 rounded-lg border border-border/60 bg-muted/40 text-[13px] font-medium text-foreground hover:bg-muted/60 transition-colors">
+                          View all time
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               ) : (
                 <>
