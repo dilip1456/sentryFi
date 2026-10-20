@@ -146,8 +146,17 @@ describe("bill autopay (§2.1)", () => {
     expect(r.signals).toContain("account_switch");
   });
 
-  it("one account exception is allowed when N≥5, with the −0.5 penalty", () => {
+  it("one OLD account exception is allowed when N≥5 and isn't penalised (rule 2)", () => {
     const pays = ["2026-05-12", "2026-06-12", "2026-07-13", "2026-08-12", "2026-09-14", "2026-10-13"].map((d, i) => ({ date: d, account: i === 1 ? "chk2" : "chk" }));
+    const r = run(series("Phone", pays))!;
+    expect(r.signals).toContain("same_account");
+    expect(r.signals).not.toContain("account_switch");
+    expect(r.autopay).toBe("auto");
+    expect(r.payFromAccountId).toBe("chk");
+  });
+
+  it("a switch among the last 3 cycles costs −0.5 (rule 7)", () => {
+    const pays = ["2026-05-12", "2026-06-12", "2026-07-13", "2026-08-12", "2026-09-14", "2026-10-13"].map((d, i) => ({ date: d, account: i === 4 ? "chk2" : "chk" }));
     const r = run(series("Phone", pays))!;
     expect(r.signals).toContain("account_switch");
     expect(r.autopay).not.toBe("auto"); // 0.85 − 0.5 drops below Medium

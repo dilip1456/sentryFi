@@ -9,7 +9,9 @@
  *  - Suggestions nobody answers expire after 60 days; a suggestion whose
  *    evidence disappeared expires on the next run.
  *  - The overview surfaces at most 3 new findings per week; the rest wait in
- *    the Findings list.
+ *    the Findings list. "Surfaced" is remembered in payload.surfacedAt (no
+ *    column needed), so answering 3 doesn't bring up 3 more that week, and a
+ *    finding that comes back after "Not right" / expiry can surface again.
  */
 import {
   INFER_DETECTOR_VERSION,
@@ -28,7 +30,7 @@ const iso = (d: Date) => d.toISOString(); // timestamptz columns, not calendar d
 const plusDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY_MS);
 
 /** Payload fields whose change makes a rejected/expired finding worth asking again. */
-const MATERIAL_KEYS = ["fromAccountId", "payFromAccountId", "accountId", "cadence", "mode", "payMethod", "lastMissed"] as const;
+const MATERIAL_KEYS = ["fromAccountId", "payFromAccountId", "accountId", "cadence", "mode", "payMethod", "lastMissed", "manualTransactionId"] as const;
 const AMOUNT_KEYS = ["amount", "monthlyAmount", "expectedAmount"] as const;
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -118,8 +120,11 @@ export function reconcileFindings(detected: Finding[], stored: InferenceRow[], o
         if (expired && !changed) {
           out.push({ ...prev, status: "expired", last_detected_at: fresh.last_detected_at });
         } else {
-          // refresh the evidence; a material change restarts the 60-day clock
-          out.push({ ...prev, ...pickDetection(fresh), expires_at: changed ? fresh.expires_at : prev.expires_at });
+          // refresh the evidence (keeping when it was surfaced); a material change restarts the 60-day clock
+          const next = pickDetection(fresh);
+          const shownAt = surfacedAt(prev);
+          if (shownAt) next.payload = { ...next.payload, [SURFACED_KEY]: shownAt };
+          out.push({ ...prev, ...next, expires_at: changed ? fresh.expires_at : prev.expires_at });
         }
         break;
       }
@@ -185,13 +190,40 @@ export function openFindings(rows: InferenceRow[]): InferenceRow[] {
   return rows.filter(r => r.status === "suggested").sort((a, b) => b.confidence - a.confidence || (a.created_at ?? "").localeCompare(b.created_at ?? ""));
 }
 
+/** payload key recording when the overview first showed a finding (ISO timestamp). */
+export const SURFACED_KEY = "surfacedAt";
+
+export function surfacedAt(row: Pick<InferenceRow, "payload">): string | null {
+  const v = row.payload?.[SURFACED_KEY];
+  return typeof v === "string" && !Number.isNaN(new Date(v).getTime()) ? v : null;
+}
+
 /**
- * The overview's "We found N new things" entry point: at most 3 findings first
- * suggested in the last 7 days; older and extra ones wait in the list.
+ * The overview's "We found N new things" entry point (§5: at most 3 NEW
+ * findings per week).
+ *
+ * Every finding first surfaced in the last 7 days uses one of the week's 3
+ * slots, answered or not. Open findings surfaced this week stay on show; free
+ * slots go to open findings never surfaced yet (highest confidence first).
+ * `toSave` are the newly surfaced rows (payload.surfacedAt = now) for the
+ * caller to persist. A finding that resurfaces after "Not right" or expiry
+ * comes back without surfacedAt (reconcileFindings), so it can surface again.
  */
-export function overviewFindings(rows: InferenceRow[], now: Date): InferenceRow[] {
+export function surfaceFindings(rows: InferenceRow[], now: Date): { shown: InferenceRow[]; toSave: InferenceRow[] } {
   const weekAgo = now.getTime() - 7 * DAY_MS;
-  return openFindings(rows)
-    .filter(r => !r.created_at || new Date(r.created_at).getTime() >= weekAgo)
-    .slice(0, MAX_NEW_PER_WEEK);
+  const thisWeek = (r: InferenceRow) => {
+    const at = surfacedAt(r);
+    return !!at && new Date(at).getTime() >= weekAgo && new Date(at).getTime() <= now.getTime();
+  };
+  const used = rows.filter(thisWeek).length;
+  const open = openFindings(rows);
+  const still = open.filter(thisWeek);
+  const fresh = open.filter(r => !surfacedAt(r)).slice(0, Math.max(0, MAX_NEW_PER_WEEK - used));
+  const toSave = fresh.map(r => ({ ...r, payload: { ...(r.payload ?? {}), [SURFACED_KEY]: iso(now) } }));
+  return { shown: [...still, ...toSave].slice(0, MAX_NEW_PER_WEEK), toSave };
+}
+
+/** The findings the overview shows right now (see surfaceFindings). */
+export function overviewFindings(rows: InferenceRow[], now: Date): InferenceRow[] {
+  return surfaceFindings(rows, now).shown;
 }

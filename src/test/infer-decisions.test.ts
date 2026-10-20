@@ -9,6 +9,8 @@ import {
   openFindings,
   overviewFindings,
   reconcileFindings,
+  surfaceFindings,
+  SURFACED_KEY,
   streamAutopayPatch,
   streamCountsAsAutopay,
   toInferenceRow,
@@ -165,12 +167,17 @@ describe("decide (Confirm / Not right / Undo)", () => {
 });
 
 describe("overview rate limit (§5: 3 new per week)", () => {
-  it("shows at most 3 suggestions from the last 7 days, highest confidence first; the list has all", () => {
+  it("surfaces at most 3, highest confidence first; the list has all", () => {
     const rows = [0.7, 0.95, 0.8, 0.9, 0.99].map((c, i) => stored(finding(`s${i}`, {}, c), { confidence: c, created_at: days(-1) }));
-    rows.push(stored(finding("old", {}, 0.99), { confidence: 0.99, created_at: days(-9) }));
     rows.push(stored(finding("done", {}, 0.99), { confidence: 0.99, status: "confirmed", created_at: days(-1) }));
-    expect(overviewFindings(rows, NOW).map(r => r.subject_ref)).toEqual(["s4", "s1", "s3"]);
-    expect(openFindings(rows)).toHaveLength(6);
+    const { shown, toSave } = surfaceFindings(rows, NOW);
+    expect(shown.map(r => r.subject_ref)).toEqual(["s4", "s1", "s3"]);
+    expect(toSave.map(r => r.payload[SURFACED_KEY])).toEqual([NOW.toISOString(), NOW.toISOString(), NOW.toISOString()]);
+    expect(openFindings(rows)).toHaveLength(5);
+  });
+  it("an older finding never surfaced yet can still use a free slot", () => {
+    const rows = [stored(finding("old", {}, 0.9), { created_at: days(-30) })];
+    expect(overviewFindings(rows, NOW).map(r => r.subject_ref)).toEqual(["old"]);
   });
 });
 
@@ -178,12 +185,14 @@ describe("apply: bill_autopay → recurring_streams", () => {
   const row = stored(finding("s1", { payDay: 14 }));
   it("a suggestion is written as 'detected' (shown, never counted)", () => {
     const p = streamAutopayPatch(row)!;
-    expect(p).toMatchObject({ autopay: "auto", autopay_source: "detected", pay_method: "bank", pay_from_account_id: "chk", pay_day: 14, autopay_inference_id: row.id });
+    // autopay stays 'unknown' until Confirm, so no reader can count it by mistake
+    expect(p).toMatchObject({ autopay: "unknown", autopay_source: "detected", pay_method: null, pay_from_account_id: "chk", pay_day: 14, autopay_inference_id: row.id });
     expect(streamCountsAsAutopay(p)).toBe(false);
   });
   it("Confirm writes 'confirmed', which counts", () => {
     const p = streamAutopayPatch({ ...row, status: "confirmed" })!;
     expect(p.autopay_source).toBe("confirmed");
+    expect(p).toMatchObject({ autopay: "auto", pay_method: "bank" });
     expect(streamCountsAsAutopay(p)).toBe(true);
   });
   it("never touches a hand-set value, never downgrades confirmed to detected", () => {

@@ -16,7 +16,7 @@ import type { RecurringSeries } from "../recurring/detect";
 import type { PayMethod, StreamAutopay } from "../recurring/rows";
 import { P2P_RE } from "../classify/patterns";
 import { addDays, addMonths, diffDays, isBusinessDay, parseDate, type ISODate } from "../recurring/dates";
-import { clamp01, confidenceTier, INFER_DETECTOR_VERSION, round3, type ConfidenceTier, type EvidenceItem, type Finding } from "./types";
+import { clamp01, confidenceTier, HIGH_CONFIDENCE, INFER_DETECTOR_VERSION, round3, type ConfidenceTier, type EvidenceItem, type Finding } from "./types";
 
 // ── Signals ──────────────────────────────────────────────────────────────────
 
@@ -197,8 +197,12 @@ export function detectBillAutopay(series: RecurringSeries, txnsById: Map<string,
     conf += Math.min(boost, 0.2);
     if (monthly && domSpread > 5) { conf -= 0.3; signals.push("day_drift"); }
     if (manualWords > 0) { conf -= 0.3; signals.push("billpay_descriptor"); }
-    if (mismatches > 0) { conf -= 0.5; signals.push("account_switch"); }
+    // Rule 7: only a switch among the RECENT cycles costs -0.5; the one older
+    // exception rule 2 allows at N >= 5 is not penalised.
+    if (recentSwitch) { conf -= 0.5; signals.push("account_switch"); }
     if (paydayAligned && autopayWords === 0) { conf -= 0.3; signals.push("payday_aligned"); }
+    // Rule 5: N = 2 is Medium (ask to confirm) however strong the boosters are.
+    if (n < 3) conf = Math.min(conf, HIGH_CONFIDENCE - 0.01);
     conf = round3(clamp01(Math.min(conf, 0.98)));
     const tier = confidenceTier(conf);
     if (tier !== "low") return { ...base, autopay: "auto", payMethod: card ? "card" : "bank", payFromAccountId: payFrom || null, confidence: conf, tier };
@@ -442,10 +446,13 @@ export function detectCardAutopay(card: CardInput, payments: CardPayment[], opts
     const sameAmount = amounts.every(a => Math.abs(a - amounts[0]) <= 1);
     const belowStatement = withSt.every(c => c.match === "other" && c.payments[0].amount < (c.statement?.statement_balance ?? Infinity));
     let mode: CardAutopayMode = "unknown";
-    let verified = 0; // cycles whose mode is backed by evidence
+    // Cycles whose mode is backed by a statement. A same-amount run with no
+    // statements yet still reads as "fixed", but stays Medium (§2.2) until
+    // statement history shows it's below the balance.
+    let verified = 0;
     if (allFull) { mode = "full"; verified = withSt.length; }
     else if (allMin) { mode = "minimum"; verified = withSt.length; }
-    else if (sameAmount && belowStatement) { mode = "fixed"; verified = run.length; }
+    else if (sameAmount && belowStatement) { mode = "fixed"; verified = withSt.length; }
     if (mode !== "unknown") signals.push(`mode_${mode}`);
 
     let conf = run.length >= 3 && verified >= 3 ? 0.88 : 0.7; // Medium until 3 verified cycles
@@ -526,6 +533,16 @@ export function detectCardAutopay(card: CardInput, payments: CardPayment[], opts
 
 // ── §2.4 Missed autopay ──────────────────────────────────────────────────────
 
+export type ManualPayReason = "billpay_descriptor" | "different_account" | "different_day";
+
+export interface ManualPayment {
+  transactionId: string;
+  date: ISODate;
+  amount: number;
+  accountId: string | null;
+  reasons: ManualPayReason[];
+}
+
 export interface AutopayMissedResult {
   seriesKey: string;
   displayName: string;
@@ -533,30 +550,68 @@ export interface AutopayMissedResult {
   missedDates: ISODate[];
   /** Two misses in a row: the autopay state should drop back to "unknown". */
   downgrade: boolean;
+  /** The latest payment looks hand-made (§2.4): suggest Manual, pending confirm. */
+  manualPayment: ManualPayment | null;
+  /** What confirming this finding changes the bill to (see apply.ts). */
+  downgradeTo: "unknown" | "manual" | null;
   expectedAmount: number;
   payFromAccountId: string | null;
 }
 
+/** Day-of-month difference beyond which an on-time-ish payment isn't the autopay's (§2.4). */
+export const MANUAL_DAY_DIFF = 5;
+
 /**
- * For a CONFIRMED autopay bill: did the latest expected debits run? A miss is
- * no matching payment by due + 3 business days.
+ * For a CONFIRMED autopay bill (§2.4):
+ *  - a miss is no matching payment by due + 3 business days; two in a row
+ *    downgrade to Unknown;
+ *  - if the latest payment was made by hand (bill-pay wording, a different
+ *    account than the confirmed one, or a day of month more than 5 off the
+ *    autopay day), suggest Manual, pending confirm.
+ * `confirmed.since` (the confirm date) keeps payments from before the
+ * confirmation from counting; `txnsById` supplies descriptors and accounts.
  */
-export function detectAutopayMissed(series: RecurringSeries, confirmed: { payFromAccountId: string | null }, today: ISODate): AutopayMissedResult | null {
+export function detectAutopayMissed(
+  series: RecurringSeries,
+  confirmed: { payFromAccountId: string | null; payDay?: number | null; since?: ISODate | null },
+  today: ISODate,
+  txnsById?: Map<string, ClassifierTxn>,
+): AutopayMissedResult | null {
   const past = series.occurrences
-    .filter(o => addBusinessDays(o.expectedDate, 3) < today)
+    .filter(o => addBusinessDays(o.expectedDate, 3) < today || (o.status === "paid" && !!o.actualDate && o.actualDate <= today))
     .sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
   const missed: ISODate[] = [];
   for (let i = past.length - 1; i >= 0; i--) {
     const o = past[i];
     if (o.status === "paid" || o.status === "skipped") break;
-    missed.unshift(o.expectedDate);
+    if (addBusinessDays(o.expectedDate, 3) < today) missed.unshift(o.expectedDate);
   }
-  if (missed.length === 0) return null;
+
+  let manualPayment: ManualPayment | null = null;
+  const latest = past[past.length - 1];
+  if (missed.length === 0 && latest?.status === "paid" && latest.transactionId && latest.actualDate && !latest.userSet &&
+      (!confirmed.since || latest.actualDate >= confirmed.since)) {
+    const t = txnsById?.get(latest.transactionId);
+    const accountId = t?.account_id ?? null;
+    const reasons: ManualPayReason[] = [];
+    if (t && MANUAL_PAY_DESCRIPTOR_RE.test(descriptorOf(t))) reasons.push("billpay_descriptor");
+    if (accountId && confirmed.payFromAccountId && accountId !== confirmed.payFromAccountId) reasons.push("different_account");
+    if (confirmed.payDay != null && isMonthlyish(series.cadence) && domDistance(parseDate(latest.actualDate).d, confirmed.payDay) > MANUAL_DAY_DIFF) {
+      reasons.push("different_day");
+    }
+    if (reasons.length) {
+      manualPayment = { transactionId: latest.transactionId, date: latest.actualDate, amount: latest.actualAmount ?? latest.expectedAmount, accountId, reasons };
+    }
+  }
+  if (missed.length === 0 && !manualPayment) return null;
+  const downgrade = missed.length >= 2;
   return {
     seriesKey: series.seriesKey,
     displayName: series.displayName,
     missedDates: missed,
-    downgrade: missed.length >= 2,
+    downgrade,
+    manualPayment,
+    downgradeTo: downgrade ? "unknown" : manualPayment ? "manual" : null,
     expectedAmount: series.nextExpectedAmount ?? series.amount.median,
     payFromAccountId: confirmed.payFromAccountId,
   };
@@ -625,22 +680,28 @@ export function cardAutopayFindings(r: CardAutopayResult): Finding[] {
 }
 
 export function autopayMissedFinding(r: AutopayMissedResult): Finding {
+  const m = r.manualPayment;
   return {
     kind: "autopay_missed",
     subjectType: "stream",
-    // one finding per series; a newer miss (`lastMissed`) asks again even after "Not right"
+    // one finding per series; a newer miss (`lastMissed`) or a newer hand-made
+    // payment (`manualTransactionId`) asks again even after "Not right"
     subjectRef: r.seriesKey,
     payload: {
       displayName: r.displayName,
       missedDates: r.missedDates,
-      lastMissed: r.missedDates[r.missedDates.length - 1],
+      lastMissed: r.missedDates.length ? r.missedDates[r.missedDates.length - 1] : null,
       downgrade: r.downgrade,
+      downgradeTo: r.downgradeTo,
+      manualTransactionId: m?.transactionId ?? null,
+      manualReasons: m?.reasons ?? [],
+      manualAccountId: m?.accountId ?? null,
       expectedAmount: r.expectedAmount,
       payFromAccountId: r.payFromAccountId,
     },
-    confidence: r.downgrade ? 0.9 : 0.75,
-    evidence: [],
+    // a hand-made payment is a Medium "pending confirm" (§2.4)
+    confidence: r.downgrade ? 0.9 : r.missedDates.length ? 0.75 : 0.7,
+    evidence: m ? [{ transactionId: m.transactionId, date: m.date, amount: m.amount, accountId: m.accountId }] : [],
     detectorVersion: INFER_DETECTOR_VERSION,
   };
 }
-

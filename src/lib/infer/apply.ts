@@ -2,9 +2,12 @@
  * What a finding's status means for the stored facts.
  *
  * - bill_autopay → recurring_streams autopay columns. A suggestion is written
- *   with autopay_source 'detected' (shown as "Detected", never counted);
- *   Confirm writes 'confirmed'. "Not right" clears it. Fields with source
- *   'user' (set by hand) are never touched.
+ *   with autopay_source 'detected' and autopay still 'unknown' (shown as
+ *   "Detected", never counted, and no reader can mistake it for autopay);
+ *   only Confirm writes autopay = 'auto' with source 'confirmed'. "Not right"
+ *   clears it. Fields with source 'user' (set by hand) are never touched.
+ * - autopay_missed (§2.4) → on Confirm, a bill paid by hand becomes Manual,
+ *   and two misses in a row drop it back to Unknown.
  * - card_autopay → prefill user_settings.cardAutopayFrom[card] on Confirm,
  *   only when the user hasn't set it.
  */
@@ -34,8 +37,9 @@ const int = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v >
  * must not change (wrong kind, or the user set autopay by hand).
  */
 export function streamAutopayPatch(row: InferenceRow, current?: Pick<RecurringStreamRow, "autopay_source" | "autopay_inference_id"> | null): StreamAutopayPatch | null {
-  if (row.kind !== "bill_autopay") return null;
   if (current?.autopay_source === "user") return null;
+  if (row.kind === "autopay_missed") return missedPatch(row);
+  if (row.kind !== "bill_autopay") return null;
   const p = row.payload ?? {};
   const facts = (source: StreamAutopaySource): StreamAutopayPatch => ({
     autopay: p.autopay === "manual" ? "manual" : "auto",
@@ -50,14 +54,37 @@ export function streamAutopayPatch(row: InferenceRow, current?: Pick<RecurringSt
     case "confirmed":
       return facts("confirmed");
     case "suggested":
-      // never downgrade a confirmed fact to a suggestion
-      return current?.autopay_source === "confirmed" ? null : facts("detected");
+      // never downgrade a confirmed fact to a suggestion; a suggestion keeps
+      // autopay 'unknown' so it can't be counted by mistake
+      return current?.autopay_source === "confirmed"
+        ? null
+        : { ...facts("detected"), autopay: "unknown", pay_method: null };
     case "rejected":
     case "expired":
       // only undo what this inference wrote
       if (current?.autopay_source === "confirmed" && current.autopay_inference_id && current.autopay_inference_id !== row.id) return null;
       return current?.autopay_source ? CLEARED : null;
   }
+}
+
+/** §2.4: only a CONFIRMED autopay_missed finding changes the stream. */
+function missedPatch(row: InferenceRow): StreamAutopayPatch | null {
+  if (row.status !== "confirmed") return null;
+  const p = row.payload ?? {};
+  const to = p.downgradeTo ?? (p.downgrade === true ? "unknown" : null);
+  if (to === "unknown") return { ...CLEARED };
+  if (to === "manual") {
+    return {
+      autopay: "manual",
+      autopay_source: "confirmed",
+      autopay_confidence: round3(row.confidence),
+      pay_method: "manual",
+      pay_from_account_id: str(p.manualAccountId),
+      pay_day: null,
+      autopay_inference_id: row.id ?? null,
+    };
+  }
+  return null;
 }
 
 /** Counted as autopay in totals ("N of M on autopay")? Only confirmed or user-set. */
