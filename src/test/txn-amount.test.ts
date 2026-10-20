@@ -16,10 +16,10 @@ describe("fmtTxnAmount", () => {
     expect(fmtTxnAmount(86, { cents: true })).toBe("$86.00");
     expect(fmtTxnAmount(-86, { cents: true })).toBe("+$86.00");
   });
-  it("treats zero and invalid input as $0", () => {
+  it("shows zero as $0 and invalid input as a dash", () => {
     expect(fmtTxnAmount(0)).toBe("$0");
     expect(fmtTxnAmount(-0)).toBe("$0");
-    expect(fmtTxnAmount("abc")).toBe("$0");
+    expect(fmtTxnAmount("abc")).toBe("—");
   });
 });
 

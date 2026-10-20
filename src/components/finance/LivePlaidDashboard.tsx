@@ -25,8 +25,7 @@ import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
-import { fmtUSD, fmtTxnAmount } from "@/lib/format";
-import { fmtUSDCompact } from "@/lib/format-compact";
+import { fmtUSD, fmtUSDCompact, fmtTxnAmount } from "@/lib/format";
 import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
 import {
