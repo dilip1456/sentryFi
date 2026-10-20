@@ -45,3 +45,24 @@ export const fmtPct = (n: number, digits = 1): string => {
   const str = Math.abs(n).toFixed(digits).replace(/\.?0+$/, "");
   return (n > 0 ? "+" : n < 0 ? "−" : "") + str + "%";
 };
+
+/**
+ * Transaction amounts (Plaid sign convention: a POSITIVE amount is money
+ * leaving the account, a NEGATIVE amount is money coming in).
+ *
+ * Shown consistently everywhere transactions are listed: money out is plain
+ * ("$86.42"), money in carries an explicit plus and the positive color
+ * ("+$5,240"). Never print the raw sign, which renders a paycheck as "−$5,240".
+ */
+export const isMoneyIn = (amount: number | string): boolean => Number(amount) < 0;
+
+export const fmtTxnAmount = (amount: number | string, opts?: { cents?: boolean }): string => {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n === 0) return fmtUSD(0, opts?.cents ? { cents: true } : undefined);
+  const base = fmtUSD(Math.abs(n), opts?.cents ? { cents: true } : undefined);
+  return n < 0 ? `+${base}` : base;
+};
+
+/** Tailwind text-color class for a transaction amount. */
+export const txnAmountClass = (amount: number | string): string =>
+  isMoneyIn(amount) ? "text-positive" : "text-foreground";
