@@ -1146,7 +1146,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // desktop Group-by control; the redesigned mobile layout is built around
   // a chronological, date-headed feed regardless of what grouping mode
   // desktop/tablet happens to have selected.
+  // Date headings only make sense while the feed is in date order; sorted
+  // by amount/name/etc. the date buckets would be scattered fragments in
+  // sort order, so the feed renders as one flat, header-less list instead.
+  const MOBILE_FLAT_KEY = "__flat__";
   const mobileGroups = useMemo(() => {
+    if (sortBy !== "date") {
+      return [{ key: MOBILE_FLAT_KEY, items: visibleTxns, total: visibleTxns.reduce((s, t) => s + Number(t.amount), 0) }];
+    }
     const buckets = new Map<string, { items: PTxn[]; firstIdx: number }>();
     visibleTxns.forEach((t, idx) => {
       const key = granularity === "all" ? t.date.slice(0, 4) : granularity === "year" ? t.date.slice(0, 7) : t.date;
@@ -1157,7 +1164,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return [...buckets.entries()]
       .sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       .map(([key, { items }]) => ({ key, items, total: items.reduce((s, t) => s + Number(t.amount), 0) }));
-  }, [visibleTxns, granularity]);
+  }, [visibleTxns, granularity, sortBy]);
 
   const mobileGroupHeading = useCallback((key: string): string => {
     if (granularity === "all") return key;
@@ -1189,6 +1196,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (!groupedTxns) return;
     setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
   }, [groupedTxns]);
+  // Rows actually on screen in the desktop table; "select all" must never
+  // pick up rows hidden inside a collapsed group.
+  const renderedTableTxns = useMemo(() => groupedTxns
+    ? groupedTxns.filter(g => !collapsedGroups.has(g.key)).flatMap(g => g.items)
+    : visibleTxns, [groupedTxns, collapsedGroups, visibleTxns]);
 
   // 1 "Description" column + however many optional attribute columns are visible.
   const colSpan = 2 + tableCols.size; // checkbox column + always-on name column + optional columns
@@ -2230,9 +2242,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <tr className="border-b border-border/20">
                         <th className="px-2 py-2">
                           <input type="checkbox" aria-label="Select all visible transactions"
-                            checked={visibleTxns.length>0 && visibleTxns.every(t=>selectedIds.has(t.id))}
+                            checked={renderedTableTxns.length>0 && renderedTableTxns.every(t=>selectedIds.has(t.id))}
                             onChange={e=>{
-                              if (e.target.checked) setSelectedIds(new Set(visibleTxns.map(t=>t.id)));
+                              if (e.target.checked) setSelectedIds(new Set(renderedTableTxns.map(t=>t.id)));
                               else clearSelection();
                             }}
                             className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
@@ -2299,9 +2311,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       date section independently collapsible. */}
                   <div className="md:hidden">
                     {mobileGroups.map(g => {
-                      const isCollapsed = collapsedGroups.has(g.key);
+                      const isCollapsed = g.key !== MOBILE_FLAT_KEY && collapsedGroups.has(g.key);
                       return (
                       <div key={g.key}>
+                        {g.key !== MOBILE_FLAT_KEY && (
                         <div className="bg-muted/30 px-4 py-1.5 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
                           onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
@@ -2310,6 +2323,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           </div>
                           <span className={cn("text-[11px] tabular shrink-0", g.total < 0 ? "text-positive" : "text-muted-foreground")}>{fmtTxnAmount(g.total)}</span>
                         </div>
+                        )}
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
                           {g.items.map(t => (
