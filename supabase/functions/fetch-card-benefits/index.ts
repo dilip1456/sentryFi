@@ -1,4 +1,5 @@
 import { getCallerUser } from "../_shared/auth.ts";
+import { describeUpstreamError, summarizeFailedResponse } from "../_shared/http-errors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,7 +82,7 @@ async function fetchForCard(cardName: string) {
         messages: [{ role: "user", content: promptFor(cardName) }],
       }),
     });
-    if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`Groq error (${describeUpstreamError(await summarizeFailedResponse(res))})`);
     const data = await res.json();
     const text: string = data.choices?.[0]?.message?.content ?? "";
     const match = text.match(/\{[\s\S]*\}/);
