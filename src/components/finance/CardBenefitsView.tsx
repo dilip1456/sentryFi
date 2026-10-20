@@ -150,7 +150,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
   }, [supabase, user]);
 
   const loadBenefits = useCallback(async (refresh = false) => {
-    if (!user || !creditCards.length || inFlight.current) { if (!creditCards.length) setInitialLoaded(true); return; }
+    if (!user || !creditCards.length || inFlight.current) { if (!user || !creditCards.length) setInitialLoaded(true); return; }
     inFlight.current = true;
     setLoadError(null);
     try {
