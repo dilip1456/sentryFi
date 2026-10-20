@@ -42,8 +42,34 @@ jobs:
       - name: Install deps
         run: npm ci --ignore-scripts
 
+      # The web bundle needs the Supabase URL + publishable key at BUILD time
+      # (Vite inlines import.meta.env.VITE_*). They used to come from a committed
+      # .env, which was removed on 2026-10-16; without them the APK's JS throws
+      # "supabaseUrl is required" on startup and the app opens to a blank screen.
+      # These are public client values (they ship in every web bundle), so they
+      # live in repo Actions *variables*; secrets of the same name also work.
       - name: Build web bundle
-        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_APP_URL: ${{ vars.VITE_APP_URL }}
+        run: |
+          for v in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::$v is not set (repo Settings > Secrets and variables > Actions > Variables); refusing to build an APK that opens to a blank screen"
+              exit 1
+            fi
+          done
+          npm run build
+
+      - name: Verify bundle has Supabase config inlined
+        run: |
+          if ! grep -qF "$VITE_SUPABASE_URL" dist/assets/*.js; then
+            echo "::error::dist/assets/*.js does not contain VITE_SUPABASE_URL; the APK would open to a blank screen"
+            exit 1
+          fi
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
 
       - name: Remove APK from dist (stops recursive bundling)
         run: rm -rf dist/downloads/
