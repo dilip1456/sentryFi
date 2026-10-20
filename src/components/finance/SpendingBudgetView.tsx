@@ -6,6 +6,8 @@ import { fmtUSD } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
 import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import { classifyTxn, countsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
+import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
+import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
@@ -118,41 +120,9 @@ const MIN_COL_WIDTH = 60;
 const OBLIGATION_LIKE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student Loan", "Loan", "Loan Payment"]);
 
 // ── Recurring-charge detection (Burn runway / Upcoming charges below) is for
-// genuine bills only: subscriptions, utilities, insurance, loan payments,
-// rent. A merchant that merely gets visited on a roughly-monthly cadence,
-// a grocery store, a regular coffee run, a clothing store, is still
-// variable discretionary spend, not something to project forward as an
-// upcoming charge, no matter how regularly it happens to recur. ───────────
-const RECURRING_EXCLUDED_CATEGORIES = new Set([
-  "food & drink", "food and drink", "groceries", "shopping", "travel", "entertainment", "restaurants", "dining",
-]);
-// A real subscription/membership can be filed under one of those
-// discretionary-sounding categories (Netflix/Spotify often land under
-// "Entertainment") but is still a genuine recurring bill, so pull those back
-// out of the exclusion by merchant name.
-const RECURRING_OVERRIDE_KEYWORDS = [
-  "netflix", "spotify", "hulu", "disney+", "disney plus", "paramount+", "peacock", "hbo max",
-  "amazon prime", "apple tv", "apple music", "youtube premium", "gym", "fitness", "planet fitness",
-];
-const isNonBillRecurringCandidate = (cat: string, merchantName: string): boolean => {
-  const c = cat.toLowerCase();
-  const n = merchantName.toLowerCase();
-  if (!RECURRING_EXCLUDED_CATEGORIES.has(c)) return false;
-  return !RECURRING_OVERRIDE_KEYWORDS.some(k => n.includes(k));
-};
-
-// Classifies the actual cadence a merchant repeats on, from the average gap
-// (in days) between its occurrences, instead of just saying "recurring" with
-// no indication of how often. A gap that doesn't fall cleanly into one of
-// these windows isn't a real recurring cadence, just an irregular habit.
-const classifyRecurrenceFrequency = (avgGapDays: number): string | null => {
-  if (avgGapDays >= 5 && avgGapDays <= 9) return "Weekly";
-  if (avgGapDays >= 12 && avgGapDays <= 17) return "Biweekly";
-  if (avgGapDays >= 25 && avgGapDays <= 36) return "Monthly";
-  if (avgGapDays >= 80 && avgGapDays <= 100) return "Quarterly";
-  if (avgGapDays >= 340 && avgGapDays <= 390) return "Yearly";
-  return null;
-};
+// genuine bills only; the category exclusions and cadence windows live in
+// src/lib/recurring.ts so the transaction detail modal uses the exact same
+// rules and never disagrees with the list. ─────────────────────────────────
 
 // ── The Categories panel's three tabs; mirrors the app's own
 // expenseCategories/incomeCategories/ignoredCategories taxonomy so a category
@@ -215,10 +185,10 @@ function monthBucketsList(count: number) {
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     const end = new Date(d.getFullYear(), d.getMonth()+1, 0);
     out.push({
-      key: d.toISOString().slice(0,7),
+      key: localISOMonth(d),
       label: d.toLocaleDateString("en-US",{month:"short"}),
-      start: d.toISOString().slice(0,10),
-      end: end.toISOString().slice(0,10),
+      start: localISODate(d),
+      end: localISODate(end),
       year: d.getFullYear(), monthIdx: d.getMonth(),
     });
   }
@@ -234,7 +204,7 @@ function dayBucketsList(count: number) {
   const out: { key:string; label:string; start:string; end:string; year:number }[] = [];
   for (let i = count-1; i >= 0; i--) {
     const d = new Date(now); d.setDate(now.getDate()-i);
-    const iso = d.toISOString().slice(0,10);
+    const iso = localISODate(d);
     out.push({
       key: iso,
       label: d.toLocaleDateString("en-US",{day:"numeric"}),
@@ -255,10 +225,10 @@ function weekBucketsList(count: number) {
     const monday = new Date(thisMonday); monday.setDate(thisMonday.getDate()-i*7);
     const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
     out.push({
-      key: monday.toISOString().slice(0,10),
+      key: localISODate(monday),
       label: monday.toLocaleDateString("en-US",{month:"short",day:"numeric"}),
-      start: monday.toISOString().slice(0,10),
-      end: sunday.toISOString().slice(0,10),
+      start: localISODate(monday),
+      end: localISODate(sunday),
       year: monday.getFullYear(),
     });
   }
@@ -365,11 +335,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const activeRange = useMemo(() => {
     const base = new Date(); base.setHours(0,0,0,0);
     if (granularity==="all") {
-      return { start: "0000-01-01", end: base.toISOString().slice(0,10), isCurrent: true, label: "All time" };
+      return { start: "0000-01-01", end: localISODate(base), isCurrent: true, label: "All time" };
     }
     if (granularity==="day") {
       const d = new Date(base); d.setDate(d.getDate()+dayOffset);
-      const iso = d.toISOString().slice(0,10);
+      const iso = localISODate(d);
       return { start: iso, end: iso, isCurrent: dayOffset===0,
         label: d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"}) };
     }
@@ -378,7 +348,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const diffToMonday = dow===0 ? -6 : 1-dow;
       const monday = new Date(base); monday.setDate(base.getDate()+diffToMonday+weekOffset*7);
       const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
-      return { start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10), isCurrent: weekOffset===0,
+      return { start: localISODate(monday), end: localISODate(sunday), isCurrent: weekOffset===0,
         label: `${monday.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${sunday.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}` };
     }
     if (granularity==="year") {
@@ -776,7 +746,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const recurring = useMemo(() => {
     const byMerchant: Record<string, { dates:string[]; amounts:number[]; cat:string; label:string; accountId:string }> = {};
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-13);
-    const cutoffStr = cutoff.toISOString().slice(0,10);
+    const cutoffStr = localISODate(cutoff);
     for (const t of txns) {
       if (internalTxnIds.has(t.id)) continue;
       if (!isExpenseTxn(t)) continue;
@@ -802,7 +772,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const freq = classifyRecurrenceFrequency(avgGap);
       if (!freq) continue; // not a recognizable cadence, just an irregular habit
       const lastDate = sorted[sorted.length-1];
-      const nextDate = new Date(new Date(lastDate+"T00:00:00").getTime() + avgGap*86400000).toISOString().slice(0,10);
+      const nextDate = addDaysISO(lastDate, Math.round(avgGap));
       const avgAmount = d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length;
       out.push({ merchant: d.label, category: d.cat, avgAmount, nextDate, intervalDays: Math.round(avgGap), frequency: freq, accountId: d.accountId });
     }
@@ -811,8 +781,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [r.merchant.toLowerCase(), r.frequency])), [recurring]);
 
-  const todayStr = now.toISOString().slice(0,10);
-  const in30 = new Date(now.getTime() + 30*86400000).toISOString().slice(0,10);
+  const todayStr = todayISO(now);
+  const in30 = addDaysISO(todayStr, 30);
   const next30Recurring = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
   const committedNext30 = next30Recurring.reduce((s,r)=>s+r.avgAmount,0);
 
@@ -856,12 +826,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // charge's account is projected to run short. ─────────────────────────────
   const future15 = useMemo(() => {
     const items = upcomingCharges.filter(r => {
-      const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+      const days = daysBetweenISO(todayStr, r.nextDate);
       return days >= 0 && days <= PROJECTION_DAYS;
     });
     let cum = 0;
     return items.map(r => { cum += r.avgAmount; return { ...r, cum }; });
-  }, [upcomingCharges]);
+  }, [upcomingCharges, todayStr]);
 
   // ── Category rows for the active period, one list per Categories tab.
   // Month mode reuses the 12-month bucket data (so it keeps its
@@ -1006,7 +976,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const n = parseInt(lastNDays, 10);
       if (!isNaN(n) && n > 0) {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - n);
-        const cutoffStr = cutoff.toISOString().slice(0,10);
+        const cutoffStr = localISODate(cutoff);
         t = t.filter(x => x.date >= cutoffStr);
       }
     } else if (dateMode === "year" && filterYear) {
@@ -1330,7 +1300,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const future15Scale = Math.max(...future15.map(f=>f.cum), 1);
   const xForFuture = (days:number) => (days/PROJECTION_DAYS)*CW;
   const yForFuture = (v:number) => CH - (v/future15Scale)*CH;
-  const daysFromToday = (dateStr:string) => Math.round((new Date(dateStr+"T00:00:00").getTime()-now.getTime())/86400000);
+  const daysFromToday = (dateStr:string) => daysBetweenISO(todayStr, dateStr);
   const future15Path = future15.length
     ? [`M0,${CH.toFixed(2)}`, ...future15.map(f => `L${xForFuture(daysFromToday(f.nextDate)).toFixed(2)},${yForFuture(f.cum).toFixed(2)}`)].join(" ")
     : "";
@@ -1620,7 +1590,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming charges</div>
                     <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
                       {upcomingCharges.map(r => {
-                        const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+                        const days = daysBetweenISO(todayStr, r.nextDate);
                         return (
                           <div key={r.merchant} className={cn("shrink-0 w-[150px] rounded-xl border p-3",
                             r.insufficient ? "border-negative/40 bg-negative/5" : "border-border/40 bg-muted/20")}>
