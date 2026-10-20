@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
 import { fmtUSD, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
 import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
-import { classifyTxn, countsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
+import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
+import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
 import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
 import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
@@ -62,6 +63,10 @@ export interface SpendingBudgetViewProps {
   // True when the user has manually re-categorized/re-typed this
   // transaction (drives the small "Edited" indicator).
   isCategoryEdited?: (t:PTxn)=>boolean;
+  /** Shared-classifier result for a transaction (src/lib/classify, computed once by the dashboard). */
+  classOf?: (t:{ id: string })=>Classification|undefined;
+  /** Persist a per-transaction type override ("Counts as"); null clears it. */
+  onSetTxnType?: (t:PTxn, type:TxnType|null)=>void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -307,7 +312,7 @@ const SHOW_BURN_RUNWAY = false;
 // like the burn runway so it's a one-line flip to bring back.
 const SHOW_CATEGORY_SIDEBAR = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf,onSetTxnType}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -993,7 +998,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // like "Salary" or an ignored one like "Credit Card Payment" shouldn't show
   // up asking to be budgeted).
   const budgetNeeds = useMemo(() => expenseCatRows.filter(c => budgets[c.cat] == null && !ignoredCategories.includes(c.cat)
-    && countsAsSpend(classifyTxn(c.cat, { name: "", merchant_name: "", amount: 1 }, { internal: false, income: false }))), [expenseCatRows, budgets, ignoredCategories]);
+    && categoryCountsAsSpend(c.cat, customCategories)), [expenseCatRows, budgets, ignoredCategories, customCategories]);
   const budgetDefined = useMemo(() => Object.entries(budgets)
     .map(([cat, budget]) => ({ cat, budget, spend: catRows.find(c => c.cat === cat)?.spend ?? 0 }))
     .sort((a, b) => b.spend - a.spend),
@@ -1252,25 +1257,30 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // reported separately (Money movement card) and never budgeted.
   const flowOf = useCallback((t: PTxn): TxnClass => {
     const cat = getEffectiveCategory(t) ?? "Other";
-    if (ignoredCategories.includes(cat) && !/credit card payment/i.test(cat)) return "transfer-internal";
+    const classification = classOf?.(t);
+    if (!classification && ignoredCategories.includes(cat) && !/credit card payment/i.test(cat)) return "transfer_internal";
     // An explicit user edit beats auto-detected internal pairing.
     const internal = internalTxnIds.has(t.id) && !(isCategoryEdited?.(t) ?? false);
-    return classifyTxn(cat, t, { internal, income: isIncomeCategory(cat, Number(t.amount)) });
-  }, [getEffectiveCategory, ignoredCategories, internalTxnIds, isIncomeCategory, isCategoryEdited]);
+    return classifyTxn(t as unknown as ClassifierTxn, { category: cat, classification, internal, customCategories });
+  }, [getEffectiveCategory, ignoredCategories, internalTxnIds, isCategoryEdited, classOf, customCategories]);
+  const isTypeEdited = useCallback((t: PTxn) =>
+    classOf?.(t)?.source === "override" || (isCategoryEdited?.(t) ?? false), [classOf, isCategoryEdited]);
   // "Change type" from a row: persisted as a re-categorization so it rides
   // the existing override sync; Spending falls back to "Other" so the user
   // can pick the specific spend category next.
   const changeTxnType = useCallback((t: PTxn, type: TxnClass) => {
+    // Preferred: the shared per-transaction type override (txn_overrides).
+    if (onSetTxnType && t.transaction_id) { onSetTxnType(t, type); return; }
     const def = TXN_TYPES.find(x => x.key === type);
     if (!def) return;
     const cat = def.category ?? "Other";
-    if (type === "savings-contribution" && !customCategories.some(c => c.name === cat) && !expenseCategories.includes(cat)) onAddCategory(cat, "expense");
+    if (type === "savings_contribution" && !customCategories.some(c => c.name === cat) && !expenseCategories.includes(cat)) onAddCategory(cat, "expense");
     onSelectCategory(t, cat);
-  }, [customCategories, expenseCategories, onAddCategory, onSelectCategory]);
+  }, [customCategories, expenseCategories, onAddCategory, onSelectCategory, onSetTxnType]);
   const isSpendTxn = useCallback((t: PTxn) => countsAsSpend(flowOf(t)), [flowOf]);
   const isSpendCategory = useCallback((cat: string) =>
-    !ignoredCategories.includes(cat) && countsAsSpend(classifyTxn(cat, { name: "", merchant_name: "", amount: 1 }, { internal: false, income: false })),
-  [ignoredCategories]);
+    !ignoredCategories.includes(cat) && categoryCountsAsSpend(cat, customCategories),
+  [ignoredCategories, customCategories]);
   const spendBudgetTotal = useMemo(() => Object.entries(budgets).filter(([c]) => isSpendCategory(c)).reduce((s, [, v]) => s + v, 0), [budgets, isSpendCategory]);
   const txnLabel = useCallback((t: PTxn) => (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").trim() || "Unknown", [nameOverrides]);
   const txnFlags = useMemo(() => detectTxnFlags(txns, {
@@ -1314,15 +1324,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
     // Everything that moved money but isn't spending, grouped by flow.
     const movement: OverviewMovement = {
-      "credit-card-payment": { total: 0, count: 0 }, "savings-contribution": { total: 0, count: 0 },
-      "transfer-out": { total: 0, count: 0 }, "transfer-in": { total: 0, count: 0 }, "transfer-internal": { total: 0, count: 0 },
+      credit_card_payment: { total: 0, count: 0 }, savings_contribution: { total: 0, count: 0 },
+      transfer_out: { total: 0, count: 0 }, transfer_in: { total: 0, count: 0 }, transfer_internal: { total: 0, count: 0 },
     };
     for (const t of monthAll) {
       const f = flowOf(t);
       if (!(f in movement)) continue;
       // An internal transfer posts twice (out of one account, into the
       // other); count only the outgoing leg so the total isn't doubled.
-      if (f === "transfer-internal" && Number(t.amount) < 0) continue;
+      if (f === "transfer_internal" && Number(t.amount) < 0) continue;
       movement[f as MovementKey].total += Math.abs(Number(t.amount)); movement[f as MovementKey].count += 1;
     }
 
@@ -2411,7 +2421,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isCategoryEdited?.(t) ?? false} onChangeType={changeTxnType}/>
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                         ))}
                       </tbody>
                       );
@@ -2424,7 +2434,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isCategoryEdited?.(t) ?? false} onChangeType={changeTxnType}/>
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                         ))}
                       </tbody>
                     )}
@@ -2466,7 +2476,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isCategoryEdited?.(t) ?? false} onChangeType={changeTxnType}/>
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                           ))}
                         </div>
                         )}
@@ -3276,10 +3286,10 @@ const MobileTxnRow = ({
 // income, card payment, savings, transfer to/from someone, internal) with a
 // small "Edited" mark once they've overridden the automatic classification.
 const typeTone = (c: TxnClass): string =>
-  c.startsWith("income-") || c === "savings-contribution" || c === "transfer-in" ? "text-positive bg-[hsl(var(--positive)/0.12)]"
-  : c === "credit-card-payment" ? "text-[hsl(215_40%_72%)] bg-[hsl(215_40%_60%/0.14)]"
-  : c === "transfer-out" ? "text-[hsl(30_60%_68%)] bg-[hsl(30_60%_60%/0.12)]"
-  : c === "transfer-internal" ? "text-muted-foreground/80 bg-muted/40"
+  c.startsWith("income_") || c === "savings_contribution" || c === "transfer_in" ? "text-positive bg-[hsl(var(--positive)/0.12)]"
+  : c === "credit_card_payment" ? "text-[hsl(215_40%_72%)] bg-[hsl(215_40%_60%/0.14)]"
+  : c === "transfer_out" ? "text-[hsl(30_60%_68%)] bg-[hsl(30_60%_60%/0.12)]"
+  : c === "transfer_internal" ? "text-muted-foreground/80 bg-muted/40"
   : "text-muted-foreground bg-muted/60";
 function TypeControl({ t, txnType, edited, onChangeType, compact = false }: {
   t: PTxn; txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void; compact?: boolean;

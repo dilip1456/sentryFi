@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyTxn, countsAsSpend, detectTxnFlags, normalizeMerchant, projectMonthEnd, dailyTotals, cumulative, withAlpha, fmtShortDate } from "@/lib/spending-insights";
+import { classifyTxn, countsAsSpend, categoryCountsAsSpend, detectTxnFlags, normalizeMerchant, projectMonthEnd, dailyTotals, cumulative, withAlpha, fmtShortDate } from "@/lib/spending-insights";
 
 const tx = (id: string, date: string, amount: number, name: string, account_id = "a1", pending = false) =>
   ({ id, account_id, amount, date, name, merchant_name: name, pending });
@@ -53,22 +53,38 @@ describe("spending-insights", () => {
   });
 });
 
-describe("classifyTxn", () => {
-  const t = (name: string, amount = 100) => ({ name, merchant_name: null, amount });
-  const exp = { internal: false, income: false };
-  it("separates card payments, internal transfers, savings and P2P from spend", () => {
-    expect(classifyTxn("Credit Card Payment", t("CHASE AUTOPAY"), exp)).toBe("credit-card-payment");
-    expect(classifyTxn("Transfer Out", t("ROBINHOOD DES:FUNDS"), exp)).toBe("savings-contribution");
-    expect(classifyTxn("Transfer Out", t("VENMO PAYMENT"), exp)).toBe("transfer-out");
-    expect(classifyTxn("Transfer In", t("ZELLE FROM ALEX", -60), { internal: false, income: true })).toBe("transfer-in");
-    expect(classifyTxn("Groceries", t("Whole Foods"), { internal: true, income: false })).toBe("transfer-internal");
-    expect(classifyTxn("Internal Transfer", t("ONLINE TRANSFER"), exp)).toBe("transfer-internal");
-    expect(classifyTxn("Salary", t("Employer", -5000), { internal: false, income: true })).toBe("income-salary");
+describe("classifyTxn (delegates to the shared classifier)", () => {
+  const t = (name: string, amount = 100) => ({ id: name, account_id: "chk", date: "2026-10-10", name, merchant_name: null, amount });
+  const c = (category: string, name: string, amount = 100, extra: Partial<Parameters<typeof classifyTxn>[1]> = {}) =>
+    classifyTxn(t(name, amount), { category, ...extra });
+  it("separates card payments, internal transfers and savings from spend", () => {
+    expect(c("Credit Card Payment", "CHASE AUTOPAY")).toBe("credit_card_payment");
+    expect(c("Transfer Out", "ROBINHOOD DES:FUNDS")).toBe("savings_contribution");
+    expect(c("Groceries", "Whole Foods", 100, { internal: true })).toBe("transfer_internal");
+    expect(c("Internal Transfer", "ONLINE TRANSFER")).toBe("transfer_internal");
+    expect(c("Salary", "Employer", -5000)).toBe("income_salary");
   });
-  it("keeps explicitly categorized spend as spend-like even if the text looks like a transfer", () => {
-    expect(classifyTxn("Shopping", t("FIDELITY INVESTMENTS"), exp)).toBe("spend");
-    expect(classifyTxn("Bills & Utilities", t("Con Ed"), exp)).toBe("obligation-bill");
-    expect(countsAsSpend(classifyTxn("Mortgage", t("Rocket"), exp))).toBe(true);
-    expect(countsAsSpend(classifyTxn("Transfer Out", t("VENMO"), exp))).toBe(false);
+  it("follows the shared definitions for people and brokerages", () => {
+    // P2P counts as spending / income (PR #7 unified definitions)
+    expect(c("Transfer Out", "VENMO PAYMENT")).toBe("spend");
+    expect(c("Transfer In", "ZELLE FROM ALEX", -60)).toBe("income_other");
+    // brokerage funding beats a merchant category
+    expect(c("Shopping", "FIDELITY INVESTMENTS")).toBe("savings_contribution");
+    // an unmatched, non-P2P transfer is left for review
+    expect(c("Transfer Out", "ONLINE TRANSFER TO 1234")).toBe("transfer_out");
+  });
+  it("keeps explicitly categorized obligations as spending", () => {
+    expect(c("Bills & Utilities", "Con Ed")).toBe("obligation_bill");
+    expect(countsAsSpend(c("Mortgage", "Rocket"))).toBe(true);
+    expect(countsAsSpend(c("Credit Card Payment", "CHASE AUTOPAY"))).toBe(false);
+  });
+  it("prefers a precomputed classification (overrides, pairs) when given", () => {
+    expect(c("Groceries", "Whole Foods", 100, { classification: { type: "transfer_internal", source: "override", reason: "" } })).toBe("transfer_internal");
+  });
+  it("tells budgetable categories apart", () => {
+    expect(categoryCountsAsSpend("Groceries")).toBe(true);
+    expect(categoryCountsAsSpend("Some custom thing")).toBe(true);
+    expect(categoryCountsAsSpend("Credit Card Payment")).toBe(false);
+    expect(categoryCountsAsSpend("Internal Transfer")).toBe(false);
   });
 });

@@ -22,7 +22,8 @@ import { fmtShortDate, vivid, withAlpha, type TxnFlag } from "@/lib/spending-ins
 export interface OverviewCategory { cat: string; spend: number; prevSpend: number; budget: number | null; fixed: boolean }
 export interface OverviewMerchant { name: string; cat: string; total: number; count: number; trend: number[] }
 export interface OverviewFlagged { id: string; label: string; amount: number; date: string; flag: TxnFlag; account?: string }
-export type MovementKey = "credit-card-payment" | "savings-contribution" | "transfer-out" | "transfer-in" | "transfer-internal";
+// Shared classifier type names (src/lib/classify): everything that moves money but is neither spending nor income.
+export type MovementKey = "credit_card_payment" | "savings_contribution" | "transfer_out" | "transfer_in" | "transfer_internal";
 export type OverviewMovement = Record<MovementKey, { total: number; count: number }>;
 export interface OverviewDay { day: number; amount: number; cum: number | null; prevCum: number | null; projected: number | null }
 
@@ -427,14 +428,17 @@ export function PendingChip() {
 }
 
 const MOVEMENT_ROWS: { key: MovementKey; label: string; note: string; icon: React.ElementType; tone: string }[] = [
-  { key: "credit-card-payment", label: "Credit card payments", note: "Pays off purchases already counted above", icon: CreditCard, tone: "hsl(215 30% 68%)" },
-  { key: "savings-contribution", label: "Savings & investing", note: "Brokerage, savings and retirement contributions", icon: PiggyBank, tone: "hsl(158 48% 52%)" },
-  { key: "transfer-out", label: "Sent to people", note: "Venmo, Zelle, Cash App and similar", icon: Send, tone: "hsl(30 60% 66%)" },
-  { key: "transfer-in", label: "Received from people", note: "Incoming person-to-person transfers", icon: HandCoins, tone: "hsl(158 40% 60%)" },
+  { key: "credit_card_payment", label: "Credit card payments", note: "Pays off purchases already counted above", icon: CreditCard, tone: "hsl(215 30% 68%)" },
+  { key: "savings_contribution", label: "Savings & investing", note: "Brokerage, savings and retirement contributions", icon: PiggyBank, tone: "hsl(158 48% 52%)" },
+  // Money sent to / received from people (Venmo, Zelle…) now counts as
+  // spending / income under the shared definitions; these rows are the
+  // unmatched transfers the classifier leaves for review.
+  { key: "transfer_out", label: "Transfers out to review", note: "Unmatched transfers; not counted until reviewed", icon: Send, tone: "hsl(30 60% 66%)" },
+  { key: "transfer_in", label: "Transfers in to review", note: "Unmatched; not counted as income", icon: HandCoins, tone: "hsl(158 40% 60%)" },
 ];
 
 function MoneyMovement({ movement, monthName, onShowIgnored }: { movement: OverviewMovement; monthName: string; onShowIgnored: () => void }) {
-  const internal = movement["transfer-internal"];
+  const internal = movement["transfer_internal"];
   return (
     <section className="surface-card p-4 md:p-5 bento-rise flex-1" style={{ animationDelay: "200ms" }} aria-label="Money movement">
       <CardTitle title="Money movement" sub={`${monthName} · not spending, not budgeted`} />
@@ -452,8 +456,8 @@ function MoneyMovement({ movement, monthName, onShowIgnored }: { movement: Overv
                 <div className="text-[11px] text-muted-foreground truncate">{r.note}</div>
               </div>
               <div className="text-right shrink-0">
-                <div className={cn("text-[13px] font-semibold tabular", r.key === "transfer-in" && v.total > 0 ? "text-positive" : "text-foreground")}>
-                  {v.count === 0 ? "None" : `${r.key === "transfer-in" ? "+" : ""}${fmtUSD(v.total)}`}
+                <div className={cn("text-[13px] font-semibold tabular", r.key === "transfer_in" && v.total > 0 ? "text-positive" : "text-foreground")}>
+                  {v.count === 0 ? "None" : `${r.key === "transfer_in" ? "+" : ""}${fmtUSD(v.total)}`}
                 </div>
                 {v.count > 0 && <div className="text-[11px] text-muted-foreground">{v.count} {v.count === 1 ? "txn" : "txns"}</div>}
               </div>

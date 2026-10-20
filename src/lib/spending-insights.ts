@@ -1,3 +1,9 @@
+import {
+  classifyOne, typeForCategory, isSpendingType, isIncomeType,
+  CREDIT_CARD_PAYMENT_CATEGORY, SAVINGS_CATEGORY, INTERNAL_TRANSFER_CATEGORY,
+  type Classification, type ClassifierTxn, type TxnType,
+} from "./classify/index.ts";
+
 /**
  * Pure helpers behind the Spending page's overview (hero, pace, daily chart,
  * review flags). Kept free of React so they're unit-testable and reusable by
@@ -132,78 +138,74 @@ export const vivid = (color: string, dS = 16, dL = 14): string => {
 };
 
 // ── Transaction classification ──────────────────────────────────────────────
-// Type names mirror the shared classifier being built in src/lib/classify/;
-// classifyTxn() is the single seam to swap for it later. Product rule: only
-// spend-like classes count as spending (and are budgetable); card payments,
-// savings contributions, transfers to/from people and internal transfers
-// are reported separately and never budgeted.
-export type TxnClass =
-  | "spend" | "refund"
-  | "income-salary" | "income-interest" | "income-other"
-  | "transfer-internal" | "transfer-in" | "transfer-out"
-  | "credit-card-payment" | "savings-contribution"
-  | "obligation-loan" | "obligation-tax" | "obligation-bill";
+// Delegates to the shared classifier in src/lib/classify/ (PR #7), so the
+// Spending page uses exactly the same definitions as Home, Budget and Money
+// Map. classifyTxn() stays the single seam the UI calls.
+//   spending = spend, refund, obligation_*   (bucketOf → "spending")
+//   income   = income_*                      (bucketOf → "income")
+//   reported separately = credit_card_payment, savings_contribution,
+//   transfer_internal ("ignored") and unmatched transfer_in/out ("neutral").
+export type TxnClass = TxnType;
 
 /** Classes that count toward spending totals (refunds net them down). */
-export const countsAsSpend = (c: TxnClass): boolean =>
-  c === "spend" || c === "refund" || c.startsWith("obligation-");
-export const isIncomeClass = (c: TxnClass): boolean => c.startsWith("income-");
+export const countsAsSpend = (c: TxnClass): boolean => isSpendingType(c);
+export const isIncomeClass = (c: TxnClass): boolean => isIncomeType(c);
 
-const SAVINGS_CAT_RE = /savings|investment|brokerage|retirement|401k|\bira\b/i;
-const TRANSFERISH_CATS = new Set(["transfer out", "transfer in", "transfer", "other", "uncategorized", ""]);
-const SAVINGS_HINTS = ["robinhood", "fidelity", "vanguard", "schwab", "e*trade", "etrade", "wealthfront", "betterment", "acorns", "coinbase", "brokerage", "to sav", "savings"];
-const P2P_HINTS = ["zelle", "venmo", "cash app", "cashapp", "paypal", "apple cash"];
-const CARD_PAYMENT_HINTS = ["payment thank you", "autopay", "credit crd", "credit card pmt", "card payment"];
-
-/** Minimal interim classifier; replace with the shared one from src/lib/classify/. */
+/**
+ * How a transaction counts. Prefer the classification the dashboard already
+ * computed for every transaction (classifyAll: pairs, overrides, rules,
+ * Plaid PFC); without one, run the shared single-transaction classifier with
+ * the effective category as the stored category.
+ */
 export function classifyTxn(
-  cat: string,
-  t: Pick<InsightTxn, "name" | "merchant_name" | "amount">,
-  opts: { internal: boolean; income: boolean },
+  t: ClassifierTxn,
+  opts: {
+    category: string;
+    classification?: Classification | null;
+    /** Already known to be an internal transfer (legacy pairing). */
+    internal?: boolean;
+    customCategories?: { name: string; type: "income" | "expense" }[];
+  },
 ): TxnClass {
-  const c = cat.toLowerCase();
-  if (opts.internal || c === "internal transfer") return "transfer-internal";
-  if (c === "credit card payment") return "credit-card-payment";
-  const text = `${t.name ?? ""} ${t.merchant_name ?? ""}`.toLowerCase();
-  const transferish = TRANSFERISH_CATS.has(c);
-  if (opts.income) {
-    if (c === "transfer in" || (transferish && P2P_HINTS.some(h => text.includes(h)))) return "transfer-in";
-    if (/salary|payroll|paycheck/.test(c)) return "income-salary";
-    if (/interest|dividend/.test(c)) return "income-interest";
-    return "income-other";
-  }
-  if (/refund|reimburse/.test(c)) return "refund";
-  if (SAVINGS_CAT_RE.test(cat)) return "savings-contribution";
-  if (transferish) {
-    if (CARD_PAYMENT_HINTS.some(h => text.includes(h))) return "credit-card-payment";
-    if (SAVINGS_HINTS.some(h => text.includes(h))) return "savings-contribution";
-    if (c.startsWith("transfer") || P2P_HINTS.some(h => text.includes(h))) return "transfer-out";
-  }
-  if (/\btax/.test(c)) return "obligation-tax";
-  if (/mortgage|loan|rent/.test(c)) return "obligation-loan";
-  if (/bills|utilities|insurance|bill payment/.test(c)) return "obligation-bill";
-  return "spend";
+  if (opts.classification) return opts.classification.type;
+  if (opts.internal) return "transfer_internal";
+  return classifyOne(t, {
+    customCategories: opts.customCategories,
+    plaidCategory: () => opts.category,
+  }).type;
+}
+
+/** Whether money out in this category counts as spending (budgetable view). */
+export function categoryCountsAsSpend(cat: string, customCategories?: { name: string; type: "income" | "expense" }[]): boolean {
+  const type = typeForCategory(cat, 1, customCategories);
+  return type === null || isSpendingType(type);
 }
 
 // ── "Change type" menu options ──────────────────────────────────────────────
-// Each choice is persisted as a re-categorization (category that
-// classifyTxn maps back to the class), so it rides the existing override
-// sync with no new storage.
+// Choosing one stores a per-transaction type override (txn_overrides, via
+// the dashboard's "Counts as" machinery) when available; otherwise it falls
+// back to the re-categorization in `category`, which typeForCategory maps
+// back to the same type.
 export const TXN_TYPES: { key: TxnClass; label: string; short: string; hint: string; category: string | null }[] = [
   { key: "spend", label: "Spending", short: "Spend", hint: "Counts toward spending & budgets", category: null },
-  { key: "obligation-bill", label: "Bill", short: "Bill", hint: "Utilities, phone, insurance; counted as spending", category: "Bills & Utilities" },
-  { key: "obligation-loan", label: "Loan / rent / mortgage", short: "Loan", hint: "Fixed obligation; counted as spending", category: "Loan Payment" },
+  { key: "obligation_bill", label: "Bill", short: "Bill", hint: "Rent, utilities, phone, insurance; counted as spending", category: "Bills & Utilities" },
+  { key: "obligation_loan", label: "Loan / mortgage", short: "Loan", hint: "Fixed obligation; counted as spending", category: "Loan Payment" },
   { key: "refund", label: "Refund", short: "Refund", hint: "Nets down spending", category: "Refund / Reimbursement" },
-  { key: "income-other", label: "Income", short: "Income", hint: "Money earned", category: "Other Income" },
-  { key: "credit-card-payment", label: "Credit card payment", short: "Card pmt", hint: "Paying a card; not spending", category: "Credit Card Payment" },
-  { key: "savings-contribution", label: "Savings & investing", short: "Savings", hint: "Savings/brokerage contribution; not spending", category: "Savings & Investing" },
-  { key: "transfer-out", label: "Transfer out (to someone)", short: "Sent", hint: "Money sent to another person", category: "Transfer Out" },
-  { key: "transfer-in", label: "Transfer in (from someone)", short: "Received", hint: "Money received from another person", category: "Transfer In" },
-  { key: "transfer-internal", label: "Internal transfer", short: "Internal", hint: "Between your own accounts; ignored", category: "Internal Transfer" },
+  { key: "income_other", label: "Income", short: "Income", hint: "Money earned or received", category: "Other Income" },
+  { key: "credit_card_payment", label: "Credit card payment", short: "Card pmt", hint: "Paying a card; not spending", category: CREDIT_CARD_PAYMENT_CATEGORY },
+  { key: "savings_contribution", label: "Savings & investing", short: "Savings", hint: "Savings/brokerage contribution; not spending", category: SAVINGS_CATEGORY },
+  { key: "transfer_out", label: "Transfer out (to review)", short: "Xfer out", hint: "Unmatched transfer; not counted until reviewed", category: "Transfer Out" },
+  { key: "transfer_in", label: "Transfer in (to review)", short: "Xfer in", hint: "Unmatched transfer; not counted as income", category: "Transfer In" },
+  { key: "transfer_internal", label: "Internal transfer", short: "Internal", hint: "Between your own accounts; ignored", category: INTERNAL_TRANSFER_CATEGORY },
 ];
 
 /** Menu entry for a class (income/obligation subtypes fold into the nearest option). */
-export const txnTypeOption = (c: TxnClass) =>
-  TXN_TYPES.find(x => x.key === c)
-  ?? (isIncomeClass(c) ? TXN_TYPES.find(x => x.key === "income-other") : c === "obligation-tax" ? { ...TXN_TYPES[1], key: c, label: "Tax", short: "Tax" } : undefined)
-  ?? TXN_TYPES[0];
+export const txnTypeOption = (c: TxnClass) => {
+  const exact = TXN_TYPES.find(x => x.key === c);
+  if (exact) return exact;
+  if (c === "income_salary") return { ...TXN_TYPES[4], key: c, label: "Salary", short: "Salary" };
+  if (c === "income_interest") return { ...TXN_TYPES[4], key: c, label: "Interest / dividends", short: "Interest" };
+  if (c === "obligation_tax") return { ...TXN_TYPES[1], key: c, label: "Tax", short: "Tax" };
+  return TXN_TYPES[0];
+};
+

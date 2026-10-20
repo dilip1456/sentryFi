@@ -6698,6 +6698,8 @@ export const LivePlaidDashboard = ({
           onOpenImport={() => setShowImportModal(true)}
           headerActions={headerActions}
           isCategoryEdited={t => overrides[t.id] != null}
+          classOf={classOf}
+          onSetTxnType={(demo || guestDemo) ? undefined : setTxnType}
         />
         <ImportStatementModal
           open={showImportModal}
