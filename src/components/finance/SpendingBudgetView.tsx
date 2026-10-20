@@ -24,7 +24,10 @@ export interface SpendingBudgetViewProps {
   nameOverrides:Record<string,string>; setBudget:(c:string,n:number)=>void;
   removeBudget?:(c:string)=>void;
   getEffectiveCategory:(t:PTxn)=>string; formatCat:(s:string)=>string;
-  catColor:(s:string)=>string; onOpenDetail:(t:PTxn)=>void; internalTxnIds:Set<string>;
+  catColor:(s:string)=>string;
+  // Opens the transaction detail modal; `recurringFrequency` is the cadence
+  // this list shows for the row, so the modal can display the same label.
+  onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; internalTxnIds:Set<string>;
   initialSearch?:string;
   // Classifies a transaction as income/expense by its assigned category
   // (falling back to the amount's sign only for unclassified categories) so
@@ -2918,7 +2921,7 @@ const TxnRow = ({
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Map<string,string>;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
   onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
@@ -2933,7 +2936,7 @@ const TxnRow = ({
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
   const catMenu = useFloatingMenu(256);
   return (
-    <tr onClick={() => onOpenDetail(t)} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
+    <tr onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
       <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}>
         <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
           className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
@@ -3019,7 +3022,7 @@ const MobileTxnRow = ({
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Map<string,string>;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
   onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
@@ -3043,10 +3046,10 @@ const MobileTxnRow = ({
     <div className={cn("w-full min-h-[60px] px-4 py-2.5 flex items-center gap-3 active:bg-muted/30 transition-colors", selected && "bg-[hsl(var(--primary)/0.06)]")}>
       <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
         className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))] shrink-0"/>
-      <button onClick={() => onOpenDetail(t)} className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white" style={{background:col}}>
+      <button onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white" style={{background:col}}>
         {(nm[0]??"?").toUpperCase()}
       </button>
-      <div className="min-w-0 flex-1" onClick={() => onOpenDetail(t)}>
+      <div className="min-w-0 flex-1" onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })}>
         <div className="flex items-center gap-1.5">
           <span className="text-[13.5px] font-medium text-foreground truncate" title={t.name ?? nm}>{nm}</span>
           {t.pending && <PendingChip/>}

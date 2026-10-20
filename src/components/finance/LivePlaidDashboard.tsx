@@ -35,6 +35,7 @@ import {
   INCOME_CATEGORIES as SHARED_INCOME_CATEGORIES, IGNORED_CATEGORIES as SHARED_IGNORED_CATEGORIES,
   type Classification, type ClassifierTxn, type TxnType, type AccountRole as AccountRoleName,
 } from "@/lib/classify/index.ts";
+import { recurringFrequencyFor } from "@/lib/recurring";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
@@ -2085,9 +2086,11 @@ const TxnDetailModal = ({
   onFindSimilar,
   tags, onAddTag, onRemoveTag, note, onSaveNote,
   isRecurringOverride, onSetRecurringOverride, onClearRecurringOverride,
-  splits, onSaveSplits,
+  splits, onSaveSplits, recurringFrequency,
   classification, hasTypeOverride, onSetTxnType, possibleDuplicate,
 }: {
+  /** Cadence shown by the list that opened this modal (undefined = compute here). */
+  recurringFrequency?: string | null;
   classification?: Classification;
   hasTypeOverride?: boolean;
   onSetTxnType?: (type: TxnType | null) => void;
@@ -2133,13 +2136,14 @@ const TxnDetailModal = ({
   const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant) : [];
 
   // Detect recurring
-  const recurringLabel = (() => {
-    if (samemerchantTxns.length < 2) return null;
-    const dates = [txn, ...samemerchantTxns].map(t => t.date).sort().reverse();
-    const intervals = dates.slice(0,-1).map((d,i) => Math.round((new Date(d+"T00:00:00").getTime() - new Date(dates[i+1]+"T00:00:00").getTime()) / 86400000));
-    const avg = intervals.reduce((s,v)=>s+v,0)/intervals.length;
-    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : avg >= 340 && avg <= 390 ? "Yearly" : null;
-  })();
+  // Detect recurring. When opened from the Spending list the caller passes
+  // the exact cadence that list shows; otherwise the same shared rules
+  // (src/lib/recurring.ts) are applied here, so the two never disagree
+  // (e.g. a grocery store is never labelled "Quarterly").
+  const recurringLabel = recurringFrequency !== undefined
+    ? recurringFrequency
+    : (samemerchantTxns.length < 2 ? null
+      : recurringFrequencyFor([txn, ...samemerchantTxns].map(t => t.date), rawCat ?? "Other", currentDisplayName));
 
   const [tab, setTab] = useState<"info"|"edit"|"obligations">("info");
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -4625,6 +4629,9 @@ export const LivePlaidDashboard = ({
   // nameOverrides, nameRules, setNameOverride, bulkSetNameOverride, saveNameRule — all from useUserSettings above
 
   const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
+  // Recurring cadence the Spending list displayed for detailTxn (undefined
+  // when the modal was opened from anywhere else).
+  const [detailTxnRecurring, setDetailTxnRecurring] = useState<string | null | undefined>(undefined);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
@@ -6654,7 +6661,7 @@ export const LivePlaidDashboard = ({
           isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
           formatCat={formatCat}
           catColor={catColor}
-          onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+          onOpenDetail={(t, info) => { setDetailTxn(t); setDetailTxnOpenCat(false); setDetailTxnRecurring(info?.recurringFrequency); }}
           internalTxnIds={internalTxnIds}
           initialSearch={txnSearch}
           categoryIcon={categoryIcon}
@@ -6717,7 +6724,7 @@ export const LivePlaidDashboard = ({
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
