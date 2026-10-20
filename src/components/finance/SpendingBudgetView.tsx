@@ -572,10 +572,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Whether a transaction counts toward spend; income never does, and
   // neither does a *confirmed* internal transfer (internalTxnIds, detected
   // by pairing a matching opposite-amount transaction on a different one of
-  // the user's own accounts). A "Transfer Out"/"Credit Card Payment"-labeled
-  // transaction that ISN'T part of a confirmed pair is money that genuinely
-  // left to an external party; real spend, not a transfer-category
-  // exclusion, so category text alone is never checked here.
+  // the user's own accounts). Ignored categories (card payments, savings,
+  // "Transfer Out"/"Transfer In" for P2P and unmatched transfers) are
+  // filtered by the callers via ignoredCategories; the shared classifier
+  // decides which category a transaction lands in.
   const isExpenseTxn = useCallback((t: PTxn) => {
     const cat = getEffectiveCategory(t) ?? "Other";
     return !isIncomeCategory(cat, Number(t.amount));
@@ -654,8 +654,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (!isIncomeCategory(cat, Number(t.amount))) continue;
       // A confirmed internal transfer is already excluded above (and its
       // category forced to "Internal Transfer" upstream, which never matches
-      // isIncomeCategory anyway); a "Transfer In" that reaches this point is
-      // real money someone else sent, so it's normal income like any other.
+      // isIncomeCategory anyway). Money someone else sent ("Transfer In",
+      // P2P) is ignored above, not income; the user can re-type it.
       const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi === -1) continue;
       if (!out[cat]) out[cat] = new Array(monthBuckets.length).fill(0);

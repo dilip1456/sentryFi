@@ -42,11 +42,12 @@ describe("QA buildMonthlyFlow (Home cash-flow chart)", () => {
   });
   // Was a KNOWN BUG (the chart was a third definition of spend). With the
   // shared classifier the chart, Home and Spending agree on octoberMix:
-  // 100 + 200 − 50 + 40 (pending) + 1500 (mortgage) + 75 (unpaired Venmo) = 1865;
+  // 100 + 200 − 50 + 40 (pending) + 1500 (mortgage) = 1790; the $75 Venmo to a
+  // person is a transfer (transfer_out), not spending;
   // not the ±500 internal pair, the $300 card payment or salary. Sep keeps its 80.
   it("chart spend equals Home 'spent this month' for the same month", () => {
     const f = monthlyFlow(octoberMix, {}, noRule);
-    expect(f[5]).toMatchObject({ m: "Oct", income: 3000, spend: 1865 });
+    expect(f[5]).toMatchObject({ m: "Oct", income: 3000, spend: 1790 });
     expect(f[4]).toMatchObject({ m: "Sep", spend: 80 });
   });
 });

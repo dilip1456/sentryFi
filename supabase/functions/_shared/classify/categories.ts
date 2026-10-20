@@ -11,14 +11,19 @@ export const SAVINGS_CATEGORY = "Savings & Investments";
 export const UNREVIEWED_TRANSFER_CATEGORY = "Unreviewed Transfer";
 
 /** Categories excluded from spend AND income (shown under "Ignored"). */
+export const TRANSFER_OUT_CATEGORY = "Transfer Out";
+export const TRANSFER_IN_CATEGORY = "Transfer In";
 export const IGNORED_CATEGORIES = [
   CREDIT_CARD_PAYMENT_CATEGORY, INTERNAL_TRANSFER_CATEGORY, SAVINGS_CATEGORY, UNREVIEWED_TRANSFER_CATEGORY,
+  // Money sent to / received from other people (Venmo, Zelle, …) and other
+  // unmatched transfers: neither spending nor income.
+  TRANSFER_OUT_CATEGORY, TRANSFER_IN_CATEGORY,
 ];
 
 export const INCOME_CATEGORIES = [
   "Income", "Dividends", "Interest Earned",
   "Salary", "Freelance Income", "Interest & Dividends",
-  "Transfer In", "Other Income", "Tax Refund",
+  "Other Income", "Tax Refund",
 ];
 
 /** Category → type for an OUTFLOW (positive amount). Inflows into spend categories become refunds. */
@@ -108,7 +113,8 @@ export function displayCategoryForType(type: TxnType, subtype?: string): string 
     case "transfer_internal": return INTERNAL_TRANSFER_CATEGORY;
     case "credit_card_payment": return CREDIT_CARD_PAYMENT_CATEGORY;
     case "savings_contribution": return SAVINGS_CATEGORY;
-    case "transfer_in": case "transfer_out": return UNREVIEWED_TRANSFER_CATEGORY;
+    case "transfer_out": return subtype === "p2p" ? TRANSFER_OUT_CATEGORY : UNREVIEWED_TRANSFER_CATEGORY;
+    case "transfer_in": return subtype === "p2p" ? TRANSFER_IN_CATEGORY : UNREVIEWED_TRANSFER_CATEGORY;
     case "income_salary": return "Salary";
     case "income_interest": return subtype === "dividend" ? "Dividends" : "Interest Earned";
     case "income_other": return "Other Income";
@@ -128,8 +134,8 @@ export const TXN_TYPE_LABEL: Record<TxnType, string> = {
   income_interest: "Interest / dividends",
   income_other: "Other income",
   transfer_internal: "Internal transfer (ignored)",
-  transfer_in: "Transfer in (unreviewed)",
-  transfer_out: "Transfer out (unreviewed)",
+  transfer_in: "Transfer in (from someone / unreviewed; not income)",
+  transfer_out: "Transfer out (to someone / unreviewed; not spending)",
   credit_card_payment: "Card payment (ignored)",
   savings_contribution: "Savings / investing",
   obligation_loan: "Loan payment",

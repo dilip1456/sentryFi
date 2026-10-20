@@ -4,13 +4,14 @@
  *
  * Fixture (octoberMix, see fixtures.ts), "today" = 2026-10-20 America/New_York:
  *   Groceries 100, Shopping 200, Shopping refund −50, pending Food & Drink 40,
- *   Mortgage 1500, unpaired Venmo (Transfer Out) 75, Credit Card Payment 300,
+ *   Mortgage 1500, Venmo to a person (Transfer Out) 75, Credit Card Payment 300,
  *   internal checking→savings pair ±500, Salary −3000, plus Sep 30 Groceries 80.
  *
  * Shared definition (src/lib/classify): Home "Spent this month" = Spending
- * "Total spent" = $1,865
- *   = Groceries 100 + Shopping 200 − refund 50 + pending 40 + Mortgage 1500 + Venmo 75
- *   excluded: Salary (income), the ±500 internal pair, Sep 30's 80, and the
+ * "Total spent" = $1,790
+ *   = Groceries 100 + Shopping 200 − refund 50 + pending 40 + Mortgage 1500
+ *   excluded: Salary (income), the ±500 internal pair, Sep 30's 80, the $75
+ *   Venmo (P2P to another person is transfer_out, not spending), and the
  *   $300 credit-card payment (the card's purchases are already counted).
  * (Before the shared classifier, Home showed $590 = 100+200−50+40+300.)
  */
@@ -77,7 +78,7 @@ describe("QA Home cash-flow strip (rendered)", () => {
   // counting). Removing the $300 payment row must not change Home's total.
   it("Home does not count a credit-card payment as spend", async () => {
     const withPayment = await homeSpent();
-    expect(withPayment).toBe(1865);
+    expect(withPayment).toBe(1790);
     const i = octoberMix.findIndex(t => t.id === "ccpay");
     const [cc] = octoberMix.splice(i, 1);
     try { expect(await homeSpent()).toBe(withPayment); } finally { octoberMix.splice(i, 0, cc); }
@@ -86,7 +87,7 @@ describe("QA Home cash-flow strip (rendered)", () => {
 
 describe("QA Spending page totals (rendered)", () => {
   it("Spent (month hero) excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
-    expect(await spendingTotal()).toBe(1865);
+    expect(await spendingTotal()).toBe(1790);
   });
   it("Earned matches Home income", async () => {
     renderDashboard("spending");
@@ -106,7 +107,7 @@ describe("QA Home vs Spending parity", () => {
   it("Home 'Spent this month' === Spending 'Total spent' for the current month", async () => {
     const home = await homeSpent();
     expect(home).toBe(await spendingTotal());
-    expect(home).toBe(1865);
+    expect(home).toBe(1790);
   });
 });
 

@@ -6,7 +6,12 @@ export const INTEREST_RE = /\binterest\s+(earned|paid|payment|credit|deposit)\b|
 export const DIVIDEND_RE = /\bdividend|\bdiv\s+(paid|credit)\b/i;
 export const TAX_RE = /\birs\b|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
 export const TAX_REFUND_RE = /tax\s+ref(und)?|\btreas\s+310\b|irs\s+treas\s+310/i;
-export const P2P_RE = /\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\b|apple\s+cash|\bp2p\b/i;
+/**
+ * Person-to-person payment apps. PayPal only counts when the descriptor says
+ * it's a transfer ("PAYPAL INST XFER", "PayPal transfer to …"): a plain
+ * "PAYPAL *NETFLIX" is checkout at a merchant, i.e. ordinary spending.
+ */
+export const P2P_RE = /\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\b(?=.*\b(inst(ant)?\s+xfer|xfer|transfer|p2p|send|sent|received|money)\b)|apple\s+cash|\bp2p\b/i;
 export const BROKERAGE_RE =
   /\b(robinhood|fidelity|vanguard|schwab|e\s?\*?\s?trade|webull|m1\s+finance|acorns|betterment|wealthfront|stash|public\.com|interactive\s+brokers|merrill\s+edge|td\s+ameritrade|ally\s+invest|sofi\s+invest|coinbase|firstrade|tastytrade)\b/i;
 export const SAVINGS_SWEEP_RE =
@@ -20,7 +25,7 @@ export const TRANSFER_TEXT_RE =
   /transfer|xfer|\btrnsfr\b|zelle|venmo|cash\s?app|paypal|\bwire\b|\bach\b|deposit|withdrawal|sweep|\bpayment\b|\bpymt\b|\bpmt\b|autopay|epay|bill\s?pay|thank\s+you|from\s+(chk|checking|sav|savings)|to\s+(chk|checking|sav|savings)|funds/i;
 
 /** ACH payroll markers (not the word "salary", which people put in P2P memos). */
-const EMPLOYER_ACH_RE = /payroll|\bdes:\s*pay|\bindn:|dir(ect)?\s?dep|\bppd\b.*\bpay\b/i;
+export const EMPLOYER_ACH_RE = /payroll|\bdes:\s*pay|\bindn:|dir(ect)?\s?dep|\bppd\b.*\bpay\b/i;
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 

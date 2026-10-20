@@ -194,8 +194,8 @@ export const TXN_TYPES: { key: TxnClass; label: string; short: string; hint: str
   { key: "income_other", label: "Income", short: "Income", hint: "Money earned or received", category: "Other Income" },
   { key: "credit_card_payment", label: "Credit card payment", short: "Card pmt", hint: "Paying a card; not spending", category: CREDIT_CARD_PAYMENT_CATEGORY },
   { key: "savings_contribution", label: "Savings & investing", short: "Savings", hint: "Savings/brokerage contribution; not spending", category: SAVINGS_CATEGORY },
-  { key: "transfer_out", label: "Transfer out (to review)", short: "Xfer out", hint: "Unmatched transfer; not counted until reviewed", category: "Transfer Out" },
-  { key: "transfer_in", label: "Transfer in (to review)", short: "Xfer in", hint: "Unmatched transfer; not counted as income", category: "Transfer In" },
+  { key: "transfer_out", label: "Transfer out", short: "Xfer out", hint: "Sent to a person (Venmo, Zelle…) or an unmatched transfer; not spending", category: "Transfer Out" },
+  { key: "transfer_in", label: "Transfer in", short: "Xfer in", hint: "Received from a person (Venmo, Zelle…) or an unmatched transfer; not income", category: "Transfer In" },
   { key: "transfer_internal", label: "Internal transfer", short: "Internal", hint: "Between your own accounts; ignored", category: INTERNAL_TRANSFER_CATEGORY },
 ];
 

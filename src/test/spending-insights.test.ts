@@ -65,9 +65,9 @@ describe("classifyTxn (delegates to the shared classifier)", () => {
     expect(c("Salary", "Employer", -5000)).toBe("income_salary");
   });
   it("follows the shared definitions for people and brokerages", () => {
-    // P2P counts as spending / income (PR #7 unified definitions)
-    expect(c("Transfer Out", "VENMO PAYMENT")).toBe("spend");
-    expect(c("Transfer In", "ZELLE FROM ALEX", -60)).toBe("income_other");
+    // P2P with other people is a transfer: neither spending nor income
+    expect(c("Transfer Out", "VENMO PAYMENT")).toBe("transfer_out");
+    expect(c("Transfer In", "ZELLE FROM ALEX", -60)).toBe("transfer_in");
     // brokerage funding beats a merchant category
     expect(c("Shopping", "FIDELITY INVESTMENTS")).toBe("savings_contribution");
     // an unmatched, non-P2P transfer is left for review

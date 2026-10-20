@@ -58,7 +58,7 @@ describe("QA getEffectiveCategory priority", () => {
 
 describe("QA isIncomeCategory (classification by category, not sign)", () => {
   it("income categories are income regardless of sign", () => {
-    for (const c of ["Salary", "Freelance Income", "Interest & Dividends", "Transfer In", "Income", "dividends"]) {
+    for (const c of ["Salary", "Freelance Income", "Interest & Dividends", "Income", "dividends"]) {
       expect(isIncome(c, [], 100)).toBe(true);
       expect(isIncome(c, [], -100)).toBe(true);
     }
@@ -69,6 +69,8 @@ describe("QA isIncomeCategory (classification by category, not sign)", () => {
   });
   it("transfers out / card payments / internal transfers are never income", () => {
     expect(isIncome("Transfer Out", [], -500)).toBe(false);
+    // money from another person (Zelle/Venmo) or an unmatched deposit is a transfer, not income
+    expect(isIncome("Transfer In", [], -500)).toBe(false);
     expect(isIncome("Credit Card Payment", [], -300)).toBe(false);
     expect(isIncome("Internal Transfer", [], -500)).toBe(false);
   });

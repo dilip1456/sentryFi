@@ -184,7 +184,7 @@ export function SpendingOverview(p: SpendingOverviewProps) {
               <Clock className="h-3 w-3 text-warning" /> Includes {fmtUSD(p.pendingSpent)} pending ({p.pendingCount})
             </span>
           ) : <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> All posted</span>}
-          <span className="inline-flex items-center gap-1" title="Credit-card payments, savings & investing contributions, money sent to or received from people, and transfers between your own accounts are shown under Money movement, not counted as spending.">
+          <span className="inline-flex items-center gap-1" title="Credit-card payments, savings & investing contributions, money sent to or received from people (Venmo, Zelle, Cash App, PayPal), and transfers between your own accounts are shown under Money movement. They're not counted as spending or income. Change a transaction's type to count it.">
             <Info className="h-3 w-3" /> Real spending only: no card payments, savings or transfers
           </span>
         </div>
@@ -435,11 +435,11 @@ export function PendingChip() {
 const MOVEMENT_ROWS: { key: MovementKey; label: string; note: string; icon: React.ElementType; tone: string }[] = [
   { key: "credit_card_payment", label: "Credit card payments", note: "Pays off purchases already counted above", icon: CreditCard, tone: "hsl(215 30% 68%)" },
   { key: "savings_contribution", label: "Savings & investing", note: "Brokerage, savings and retirement contributions", icon: PiggyBank, tone: "hsl(158 48% 52%)" },
-  // Money sent to / received from people (Venmo, Zelle…) now counts as
-  // spending / income under the shared definitions; these rows are the
-  // unmatched transfers the classifier leaves for review.
-  { key: "transfer_out", label: "Transfers out to review", note: "Unmatched transfers; not counted until reviewed", icon: Send, tone: "hsl(30 60% 66%)" },
-  { key: "transfer_in", label: "Transfers in to review", note: "Unmatched; not counted as income", icon: HandCoins, tone: "hsl(158 40% 60%)" },
+  // Money sent to / received from people (Venmo, Zelle…) is transfer_out /
+  // transfer_in under the shared definitions, together with unmatched
+  // transfers: neither spending nor income unless the user re-types them.
+  { key: "transfer_out", label: "Sent to people & transfers out", note: "Venmo, Zelle, Cash App… and unmatched transfers; not spending", icon: Send, tone: "hsl(30 60% 66%)" },
+  { key: "transfer_in", label: "Received from people & transfers in", note: "Venmo, Zelle, Cash App… and unmatched transfers; not income", icon: HandCoins, tone: "hsl(158 40% 60%)" },
 ];
 
 function MoneyMovement({ movement, monthName, onShowIgnored }: { movement: OverviewMovement; monthName: string; onShowIgnored: () => void }) {
