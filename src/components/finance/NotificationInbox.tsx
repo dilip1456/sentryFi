@@ -1,9 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
   Bell, X, CheckCheck, CreditCard, TrendingDown, TrendingUp,
-  AlertTriangle, Wallet, Lightbulb, DollarSign, RotateCcw, ChevronRight,
+  AlertTriangle, Wallet, Lightbulb, DollarSign, RotateCcw, ChevronRight, ArrowLeftRight,
 } from "lucide-react";
+import { toast } from "sonner";
+import { fmtShortDate, fmtTimeAgo } from "@/lib/format-date";
+import { prepareInbox, isUnread as inboxUnread, dueLabel, allIds, type InboxAlert } from "@/lib/notifications";
+
+/** Fired after alerts are marked read so the bell badge refreshes at once. */
+export const ALERTS_READ_EVENT = "sentryfi:alerts-read";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -13,6 +19,7 @@ interface Alert {
   alert_type: string;
   title: string;
   body: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- free-form per alert type
   payload: Record<string, any>;
   read_at: string | null;
   created_at: string;
@@ -34,6 +41,8 @@ const ALERT_ICON: Record<string, React.ElementType> = {
   deposit:          TrendingUp,
   refund:           RotateCcw,
   insight:          Lightbulb,
+  cc_payment_posted: CheckCheck,
+  transfer:         ArrowLeftRight,
 };
 
 const ALERT_COLOR: Record<string, string> = {
@@ -44,64 +53,85 @@ const ALERT_COLOR: Record<string, string> = {
   deposit:          "text-positive bg-positive/10",
   refund:           "text-positive bg-positive/10",
   insight:          "text-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.1)]",
+  cc_payment_posted: "text-positive bg-positive/10",
+  transfer:         "text-muted-foreground bg-muted",
 };
 
-function timeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
+const timeAgo = (dateStr: string) => fmtTimeAgo(dateStr);
+// Payment-due titles were stored with the countdown baked in ("due in 3d"),
+// which goes stale; show the live countdown instead.
+const displayTitle = (a: Alert) => {
+  if (a.alert_type !== "payment_due") return a.title;
+  const label = dueLabel(a);
+  return label ? `💳 Payment ${label.charAt(0).toLowerCase()}${label.slice(1)}` : a.title;
+};
 
 export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTransaction }: Props) => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [selected, setSelected] = useState<Alert | null>(null);
+  const [selected, setSelected] = useState<InboxAlert<Alert> | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!open) return;
-    loadAlerts();
-  }, [open, userId]);
-
-  const loadAlerts = async () => {
+  const loadAlerts = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("alert_log")
       .select("id, alert_type, title, body, payload, read_at, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
+    if (error) console.error("[NotificationInbox]", error.message);
     setAlerts((data ?? []) as Alert[]);
     setLoading(false);
+  }, [supabase, userId]);
+
+  useEffect(() => {
+    if (!open) return;
+    loadAlerts();
+  }, [open, loadAlerts]);
+
+  // Identical alerts collapse into one row; past-due reminders sink and
+  // stop counting as unread.
+  const inbox = useMemo(() => prepareInbox(alerts), [alerts]);
+
+  const notifyRead = () => window.dispatchEvent(new Event(ALERTS_READ_EVENT));
+
+  const setReadLocally = (ids: Set<string> | null, at: string | null) =>
+    setAlerts(prev => prev.map(a => (ids === null || ids.has(a.id)) && (at === null || !a.read_at) ? { ...a, read_at: at } : a));
+
+  const markRead = async (item: InboxAlert<Alert>) => {
+    const ids = allIds(item).filter(id => !alerts.find(a => a.id === id)?.read_at);
+    if (!ids.length) return;
+    const at = new Date().toISOString();
+    setReadLocally(new Set(ids), at);
+    const { error } = await supabase.from("alert_log").update({ read_at: at }).eq("user_id", userId).in("id", ids);
+    if (error) { setReadLocally(new Set(ids), null); console.error("[markRead]", error.message); return; }
+    notifyRead();
   };
 
-  const markRead = async (alert: Alert) => {
-    if (alert.read_at) return;
-    await supabase.from("alert_log")
-      .update({ read_at: new Date().toISOString() })
-      .eq("id", alert.id);
-    setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, read_at: new Date().toISOString() } : a));
-  };
-
+  // Marks EVERY unread alert for the user read — not just the ones loaded
+  // into this list — so the bell badge actually clears.
   const markAllRead = async () => {
-    const unreadIds = alerts.filter(a => !a.read_at).map(a => a.id);
-    if (!unreadIds.length) return;
-    await supabase.from("alert_log")
-      .update({ read_at: new Date().toISOString() })
-      .in("id", unreadIds);
-    setAlerts(prev => prev.map(a => ({ ...a, read_at: a.read_at ?? new Date().toISOString() })));
+    const before = alerts;
+    const at = new Date().toISOString();
+    setReadLocally(null, at);
+    const { error } = await supabase.from("alert_log").update({ read_at: at }).eq("user_id", userId).is("read_at", null);
+    if (error) {
+      setAlerts(before);
+      toast.error("Couldn't mark notifications as read. Try again.");
+      return;
+    }
+    notifyRead();
   };
 
-  const openAlert = async (alert: Alert) => {
+  const openAlert = async (alert: InboxAlert<Alert>) => {
     setSelected(alert);
     await markRead(alert);
   };
 
   const closeDetail = () => setSelected(null);
 
-  const unreadCount = alerts.filter(a => !a.read_at).length;
+  const unreadCount = inbox.filter(inboxUnread).length;
+  const anyUnreadRows = alerts.some(a => !a.read_at);
 
   return (
     <>
@@ -120,10 +150,10 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                 {unreadCount} new
               </span>
             )}
-            {unreadCount > 0 && (
+            {anyUnreadRows && (
               <button onClick={markAllRead}
                 className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                <CheckCheck className="h-3.5 w-3.5" /> All read
+                <CheckCheck className="h-3.5 w-3.5" /> Mark all read
               </button>
             )}
           </div>
@@ -132,7 +162,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="p-10 text-center text-[12px] text-muted-foreground">Loading…</div>
-            ) : alerts.length === 0 ? (
+            ) : inbox.length === 0 ? (
               <div className="p-10 text-center">
                 <Bell className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
                 <div className="text-[13px] font-medium text-foreground">No notifications yet</div>
@@ -140,15 +170,16 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                   Alerts for budgets, payments, deposits and insights will appear here
                 </div>
               </div>
-            ) : alerts.map(alert => {
+            ) : inbox.map(alert => {
               const Icon = ALERT_ICON[alert.alert_type] ?? Bell;
               const color = ALERT_COLOR[alert.alert_type] ?? "text-muted-foreground bg-muted";
-              const isUnread = !alert.read_at;
+              const isUnread = inboxUnread(alert);
               return (
                 <button key={alert.id} onClick={() => openAlert(alert)}
                   className={cn(
                     "w-full flex items-start gap-3 px-5 py-4 text-left border-b border-border/10 hover:bg-surface-hover/30 transition-colors",
-                    isUnread && "bg-[hsl(var(--primary)/0.03)]"
+                    isUnread && "bg-[hsl(var(--primary)/0.03)]",
+                    alert.stale && "opacity-60"
                   )}>
                   <div className={cn("h-8 w-8 rounded-lg grid place-items-center shrink-0 mt-0.5", color)}>
                     <Icon className="h-3.5 w-3.5" />
@@ -156,12 +187,16 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-2">
                       <span className={cn("text-[13px] flex-1 leading-snug", isUnread ? "font-semibold text-foreground" : "font-medium text-foreground/80")}>
-                        {alert.title}
+                        {displayTitle(alert)}
                       </span>
                       {isUnread && <span className="h-2 w-2 rounded-full bg-[hsl(var(--primary))] shrink-0 mt-1.5" />}
                     </div>
                     <div className="text-[11.5px] text-muted-foreground mt-0.5 line-clamp-2">{alert.body}</div>
-                    <div className="text-[10px] text-muted-foreground/50 mt-1">{timeAgo(alert.created_at)}</div>
+                    <div className="text-[10px] text-muted-foreground/50 mt-1">
+                      {timeAgo(alert.created_at)}
+                      {alert.duplicates.length > 0 && <> · {alert.duplicates.length + 1} times</>}
+                      {alert.stale && <> · past due date</>}
+                    </div>
                   </div>
                   <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 mt-1" />
                 </button>
@@ -190,7 +225,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     <div className={cn("h-11 w-11 rounded-xl grid place-items-center mb-3", color)}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    <div className="font-display text-[16px] text-foreground leading-snug">{selected.title}</div>
+                    <div className="font-display text-[16px] text-foreground leading-snug">{displayTitle(selected)}</div>
                     <div className="text-[12.5px] text-muted-foreground mt-1">{selected.body}</div>
                     <div className="text-[10px] text-muted-foreground/40 mt-2">{timeAgo(selected.created_at)}</div>
                   </div>
@@ -220,11 +255,9 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     {/* Payment due */}
                     {selected.alert_type === "payment_due" && (
                       <>
-                        {p.days_until === 0
-                          ? <Row label="Due" value="Today" highlight="negative" />
-                          : <Row label="Due in" value={`${p.days_until} days`} highlight="warning" />}
-                        <Row label="Minimum payment" value={fmtUSD(p.min_payment ?? 0)} />
-                        <Row label="Due date" value={p.due_date} />
+                        <Row label="Status" value={dueLabel(selected) ?? "-"} highlight={selected.stale ? undefined : "warning"} />
+                        <Row label="Minimum payment" value={p.min_payment != null ? fmtUSD(Number(p.min_payment), { cents: true }) : "-"} />
+                        <Row label="Due date" value={fmtShortDate(p.due_date)} />
                       </>
                     )}
 
@@ -232,9 +265,9 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     {["large_txn", "deposit", "refund"].includes(selected.alert_type) && (
                       <>
                         <Row label="Merchant" value={p.merchant} />
-                        <Row label="Amount" value={fmtUSD(p.amount ?? 0)}
+                        <Row label="Amount" value={fmtUSD(Number(p.amount ?? 0), { cents: true })}
                           highlight={selected.alert_type === "large_txn" ? "warning" : "positive"} />
-                        <Row label="Date" value={p.date} />
+                        <Row label="Date" value={fmtShortDate(p.date)} />
                         {p.category && <Row label="Category" value={p.category} />}
                         {onOpenTransaction && p.transaction_id && (
                           <button onClick={() => { closeDetail(); onOpenTransaction(p.transaction_id); }}
@@ -246,7 +279,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     )}
 
                     {/* Insight */}
-                    {selected.alert_type === "insight" && Array.isArray(p.insights) && p.insights.map((ins: any, i: number) => (
+                    {selected.alert_type === "insight" && Array.isArray(p.insights) && (p.insights as { title?: string; what?: string; action?: string; impact?: string }[]).map((ins, i: number) => (
                       <div key={i} className="rounded-xl bg-[hsl(var(--primary)/0.06)] border border-[hsl(var(--primary)/0.15)] p-3.5 space-y-1.5">
                         <div className="text-[12.5px] font-semibold text-foreground">{ins.title}</div>
                         {ins.what && <div className="text-[11.5px] text-muted-foreground leading-relaxed">{ins.what}</div>}
@@ -271,7 +304,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
   );
 };
 
-const Row = ({ label, value, highlight }: { label: string; value: any; highlight?: "positive" | "negative" | "warning" }) => (
+const Row = ({ label, value, highlight }: { label: string; value: React.ReactNode; highlight?: "positive" | "negative" | "warning" }) => (
   <div className="flex items-center justify-between gap-3">
     <span className="text-[11.5px] text-muted-foreground">{label}</span>
     <span className={cn("text-[12.5px] font-semibold tabular",
