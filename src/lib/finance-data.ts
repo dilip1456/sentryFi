@@ -408,6 +408,17 @@ const today = new Date();
 const d = (daysAgo: number) => new Date(today.getTime() - daysAgo * 86400000).toISOString().slice(0, 10);
 export const demoTransactions = [
   { id: "dt1",  account_id: "da4", amount: 86.42,  date: d(1),  name: "Whole Foods Market", merchant_name: "Whole Foods", category: ["Groceries"], pending: false, payment_channel: "in store" },
+  // Spending-page review/money-movement examples: a pending charge, a same-day
+  // double charge, a brokerage deposit miscategorized as Shopping, savings,
+  // P2P, a card payment and an internal transfer (the last two are ignored).
+  { id: "dtp1", account_id: "da5", amount: 18.75,  date: d(0),  name: "SWEETGREEN NYC 0412", merchant_name: "Sweetgreen", category: ["Food & Drink"], pending: true, payment_channel: "in store" },
+  { id: "dtp2", account_id: "da5", amount: 34.50,  date: d(2),  name: "STARBUCKS STORE 08812", merchant_name: "Starbucks", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
+  { id: "dtp3", account_id: "da1", amount: 500.00, date: d(6),  name: "ROBINHOOD DES:FUNDS ID:8K2PQ INDN:DEMO USER WEB", merchant_name: "Robinhood", category: ["Transfer Out"], pending: false, payment_channel: "online" },
+  { id: "dtp4", account_id: "da1", amount: 250.00, date: d(9),  name: "FIDELITY INVESTMENTS MONEYLINE PPD", merchant_name: "Fidelity", category: ["Shopping"], pending: false, payment_channel: "online" },
+  { id: "dtp5", account_id: "da1", amount: 120.00, date: d(4),  name: "VENMO PAYMENT 1029384756", merchant_name: "Venmo", category: ["Transfer Out"], pending: false, payment_channel: "online" },
+  { id: "dtp6", account_id: "da1", amount: -60.00, date: d(8),  name: "ZELLE FROM ALEX P", merchant_name: "Zelle", category: ["Transfer In"], pending: false, payment_channel: "online" },
+  { id: "dtp7", account_id: "da1", amount: 1240.00, date: d(5), name: "CHASE CREDIT CRD AUTOPAY", merchant_name: "Chase Card Payment", category: ["Credit Card Payment"], pending: false, payment_channel: "online" },
+  { id: "dtp8", account_id: "da1", amount: 1000.00, date: d(3), name: "ONLINE TRANSFER TO SAV ...1102", merchant_name: "Transfer to Savings", category: ["Internal Transfer"], pending: false, payment_channel: "online" },
   { id: "dt2",  account_id: "da4", amount: 52.18,  date: d(1),  name: "Uber Eats", merchant_name: "Uber Eats", category: ["Food & Drink"], pending: false, payment_channel: "online" },
   { id: "dt3",  account_id: "da1", amount: -5240.00, date: d(2), name: "Direct Deposit - Employer", merchant_name: null, category: ["Salary"], pending: false, payment_channel: "other" },
   { id: "dt4",  account_id: "da5", amount: 34.50,  date: d(2),  name: "Starbucks", merchant_name: "Starbucks", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
