@@ -1,46 +1,17 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
+import { syncItemTransactions } from '../_shared/plaid-sync.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
 
-// Same mapping used in plaid-sync-transactions -- kept in sync so the very
-// first transactions pulled right after linking a bank get real categories
-// too, not just subsequent daily syncs.
-const PFC_PRIMARY_MAP: Record<string, string> = {
-  INCOME: "Salary",
-  TRANSFER_IN: "Transfer In",
-  TRANSFER_OUT: "Transfer Out",
-  LOAN_PAYMENTS: "Bills & Utilities",
-  BANK_FEES: "Bills & Utilities",
-  ENTERTAINMENT: "Entertainment",
-  FOOD_AND_DRINK: "Food & Drink",
-  GROCERIES: "Groceries",
-  GROCERY_AND_SPECIALTY_FOOD_STORES: "Groceries",
-  GENERAL_MERCHANDISE: "Shopping",
-  HOME_IMPROVEMENT: "Home",
-  MEDICAL: "Healthcare",
-  PERSONAL_CARE: "Personal Care",
-  GENERAL_SERVICES: "Bills & Utilities",
-  GOVERNMENT_AND_NON_PROFIT: "Charitable Giving",
-  TRANSPORTATION: "Transportation",
-  GAS_STATIONS: "Transportation",
-  AUTOMOTIVE: "Transportation",
-  TRAVEL: "Travel",
-  RENT_AND_UTILITIES: "Bills & Utilities",
-  SUBSCRIPTION: "Subscriptions",
-  FINANCIAL: "Bills & Utilities",
+// Category mapping (detailed personal_finance_category) and the cursor-safe
+// sync loop live in ../_shared so both Plaid functions behave identically.
+const SYNC_CFG = {
+  plaidBase: PLAID_BASE,
+  clientId: Deno.env.get('PLAID_CLIENT_ID'),
+  secret: Deno.env.get('PLAID_SECRET'),
 };
-
-function resolveCategory(t: any): string[] | null {
-  if (Array.isArray(t.category) && t.category.length > 0) return t.category;
-  const primary = t.personal_finance_category?.primary;
-  if (primary) {
-    const mapped = PFC_PRIMARY_MAP[primary] ?? "Other";
-    return [mapped];
-  }
-  return null;
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -128,7 +99,7 @@ Deno.serve(async (req) => {
     }
 
     // Kick off initial transactions sync
-    await syncTransactions(admin, itemRow.id, user.id, access_token, null);
+    await syncItemTransactions(admin, SYNC_CFG, { itemRowId: itemRow.id, userId: user.id, accessToken: access_token, cursor: null });
 
     // Fetch credit card details (statement balance, due date, APR, etc.)
     await syncLiabilities(admin, user.id, access_token);
@@ -139,53 +110,6 @@ Deno.serve(async (req) => {
     return json({ error: String(e) }, 500);
   }
 });
-
-async function syncTransactions(admin: any, itemRowId: string, userId: string, accessToken: string, cursor: string | null) {
-  let hasMore = true;
-  let nextCursor = cursor;
-  while (hasMore) {
-    const res = await fetch(`${PLAID_BASE}/transactions/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: Deno.env.get('PLAID_CLIENT_ID'),
-        secret: Deno.env.get('PLAID_SECRET'),
-        access_token: accessToken,
-        cursor: nextCursor ?? undefined,
-        options: { include_personal_finance_category: true },
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { console.error('sync err', data); break; }
-
-    const added = (data.added ?? []).concat(data.modified ?? []);
-    if (added.length) {
-      const rows = added.map((t: any) => ({
-        user_id: userId,
-        item_id: itemRowId,
-        account_id: t.account_id,
-        transaction_id: t.transaction_id,
-        amount: t.amount,
-        iso_currency_code: t.iso_currency_code,
-        date: t.date,
-        authorized_date: t.authorized_date,
-        name: t.name,
-        merchant_name: t.merchant_name,
-        category: resolveCategory(t),
-        pending: t.pending,
-        payment_channel: t.payment_channel,
-      }));
-      await admin.from('plaid_transactions').upsert(rows, { onConflict: 'transaction_id' });
-    }
-    if (data.removed?.length) {
-      const ids = data.removed.map((r: any) => r.transaction_id);
-      await admin.from('plaid_transactions').delete().in('transaction_id', ids);
-    }
-    nextCursor = data.next_cursor;
-    hasMore = data.has_more;
-  }
-  await admin.from('plaid_items').update({ cursor: nextCursor }).eq('id', itemRowId);
-}
 
 async function syncLiabilities(admin: any, userId: string, accessToken: string) {
   try {

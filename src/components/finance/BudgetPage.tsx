@@ -71,6 +71,9 @@ interface BudgetPageProps {
   formatCat: (s: string) => string;
   catColor: (s: string) => string;
   isIncomeCategory: (cat: string, amount: number) => boolean;
+  /** Shared classifier (src/lib/classify) — when present it decides the
+   *  income/savings/expense buckets so Budget matches Home and Spending. */
+  classOf?: (t: PTxn) => { type: string } | undefined;
   manualIncome: ManualIncomeItem[];
   addManualIncome: (item: { id: string; label: string; amount: number; accountId?: string }) => void;
   removeManualIncome: (id: string) => void;
@@ -134,6 +137,9 @@ interface BudgetPageProps {
 const SAVINGS_KW = ["transfer","savings","invest","brokerage","fidelity","vanguard","schwab","robinhood","betterment","wealthfront","ally","marcus","sofi","acorns","stash","contribution","deposit to"];
 const matchKw = (m: string, kws: string[]) => { const s = m.toLowerCase(); return kws.some(k => s.includes(k)); };
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+// "N of last 12 months" must count MONTHS, not deposits (two paychecks a
+// month used to read "22 of last 12 months").
+const distinctMonths = (dates: string[]) => new Set(dates.map(x => x.slice(0, 7))).size;
 const isTransferLikeCategory = (cat: string) => /transfer|credit card payment|loan payment/i.test(cat);
 // Evidence check shared by every detector below: same merchant repeating
 // isn't enough on its own — a "recurring" pattern where the amount swings
@@ -537,7 +543,7 @@ function LinkToCategoryControl({ goal, categories, formatCat, onLink }: {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export function BudgetPage({
-  txns, accounts, internalTxnIds, getEffectiveCategory, formatCat, catColor, isIncomeCategory,
+  txns, accounts, internalTxnIds, getEffectiveCategory, formatCat, catColor, isIncomeCategory, classOf,
   manualIncome, addManualIncome, removeManualIncome,
   savingsGoals, addSavingsGoal, removeSavingsGoal, updateSavingsGoal,
   recurringOverrides, recurringGroups, addRecurringGroup, removeRecurringGroup, updateRecurringGroup, addTxnToRecurringGroup, removeTxnFromRecurringGroup,
@@ -612,6 +618,9 @@ export function BudgetPage({
     // money aside" — an incoming transfer/deposit is handled by the
     // Income bucket instead.
     if (Number(t.amount) <= 0) return false;
+    // The shared classifier judges savings by the DESTINATION account of a
+    // matched transfer (the old check below looked at the source account).
+    if (classOf) { const c = classOf(t); if (c) return c.type === "savings_contribution"; }
     const merchant = t.merchant_name ?? t.name ?? "";
     const cat = getEffectiveCategory(t) ?? "Other";
     const acc = accounts.find(a => a.account_id === t.account_id);
@@ -623,14 +632,15 @@ export function BudgetPage({
     const strongKwMatch = matchKw(merchant, SAVINGS_KW.filter(k => k !== "transfer"));
     const weakTransferMatch = matchKw(merchant, ["transfer"]) && isTransferLikeCategory(cat);
     return strongKwMatch || weakTransferMatch || toSavingsAccount;
-  }, [internalTxnIds, isObligationTxn, getEffectiveCategory, accounts]);
+  }, [internalTxnIds, isObligationTxn, getEffectiveCategory, accounts, classOf]);
 
   const isIncomeTxn = useCallback((t: PTxn) => {
     if (internalTxnIds.has(t.id)) return false;
     if (isObligationTxn(t)) return false;
     if (isSavingsTxn(t)) return false;
+    if (classOf) { const c = classOf(t); if (c) return c.type.startsWith("income_"); }
     return isIncomeCategory(getEffectiveCategory(t) ?? "Other", Number(t.amount));
-  }, [internalTxnIds, isObligationTxn, isSavingsTxn, isIncomeCategory, getEffectiveCategory]);
+  }, [internalTxnIds, isObligationTxn, isSavingsTxn, isIncomeCategory, getEffectiveCategory, classOf]);
 
   // Expenses = non-obligation, non-income spend. Recurring bills used to be
   // excluded here and given their own top-level section — but a Netflix
@@ -642,11 +652,23 @@ export function BudgetPage({
     if (internalTxnIds.has(t.id)) return false;
     if (isObligationTxn(t)) return false;
     if (isSavingsTxn(t)) return false;
+    if (classOf) {
+      const c = classOf(t);
+      if (c) return c.type === "spend" || c.type === "refund" || c.type.startsWith("obligation_");
+    }
     const cat = getEffectiveCategory(t) ?? "Other";
     return !isIncomeCategory(cat, Number(t.amount)) && !isTransferLikeCategory(cat);
-  }, [internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory]);
+  }, [internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory, classOf]);
 
-  const monthTxns = useMemo(() => txns.filter(t => t.date.startsWith(thisMonth) && !t.pending), [txns, thisMonth]);
+  // Pending rows count, same as Home and Spending (they're real spend that
+  // just hasn't posted yet).
+  const monthTxns = useMemo(() => txns.filter(t => t.date.startsWith(thisMonth)), [txns, thisMonth]);
+  // Income actually received this month (shared definition) — shown next to
+  // the planned income from tracked sources so the two aren't confused.
+  const receivedThisMonth = useMemo(
+    () => monthTxns.filter(isIncomeTxn).reduce((s, t) => s - Number(t.amount), 0),
+    [monthTxns, isIncomeTxn],
+  );
 
   // Records why a detected candidate was wrong, then dismisses it the same
   // way a plain dismiss would (same blacklist, so it's never suggested
@@ -675,7 +697,8 @@ export function BudgetPage({
   const recurringIncome = useMemo(() => {
     const merchantTotals: Record<string, { display: string; dates: string[]; amounts: number[]; ids: string[]; accountIds: string[] }> = {};
     for (let i = 0; i <= 11; i++) {
-      const d = new Date(); d.setMonth(d.getMonth()-i);
+      // Day 1 of each month: stepping "today" back on the 31st skips months (Oct 31 − 1 mo = "Sep 31" = Oct 1).
+      const now = new Date(); const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
       const key = monthKey(d);
       for (const t of txns.filter(x => x.date.startsWith(key) && isIncomeTxn(x))) {
         const raw = t.merchant_name ?? t.name ?? "Deposit";
@@ -701,7 +724,7 @@ export function BudgetPage({
         return {
           merchant: d.display, avgAmount, count: d.dates.length, txnIds: d.ids, accountId,
           txns: d.dates.map((date,i) => ({ date, amount: d.amounts[i] })),
-          reason: `${fmtUSD(avgAmount)} avg, ${d.dates.length} of last 12 months`,
+          reason: `${fmtUSD(avgAmount)} avg, ${distinctMonths(d.dates)} of last 12 months`,
         };
       })
       .sort((a,b) => b.avgAmount-a.avgAmount);
@@ -1015,7 +1038,8 @@ export function BudgetPage({
   const detectedTransfers = useMemo(() => {
     const merchantTotals: Record<string, { display: string; dates: string[]; amounts: number[]; accountId?: string }> = {};
     for (let i = 0; i < 12; i++) {
-      const d = new Date(); d.setMonth(d.getMonth()-i);
+      // Day 1 of each month: stepping "today" back on the 31st skips months (Oct 31 − 1 mo = "Sep 31" = Oct 1).
+      const now = new Date(); const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
       const key = monthKey(d);
       for (const t of txns.filter(x => x.date.startsWith(key) && isSavingsTxn(x))) {
         const raw = t.merchant_name ?? t.name ?? "Transfer";
@@ -1232,7 +1256,7 @@ export function BudgetPage({
 
     for (const d of detectedTransfers) out.push({
       id: `tr_${d.merchant}`, section: "savings", name: d.merchant,
-      detail: d.accountId ? `${d.count} of last 12 months · from ${accountLabel(accounts, d.accountId)}` : `${d.count} of last 12 months`,
+      detail: d.accountId ? `${distinctMonths(d.txns.map(x => x.date))} of last 12 months · from ${accountLabel(accounts, d.accountId)}` : `${distinctMonths(d.txns.map(x => x.date))} of last 12 months`,
       amount: d.avgAmount, txns: d.txns,
       onAccept: (name, amt, section) => addDetected({ merchant: d.merchant, accountId: d.accountId }, section, name, amt),
       onFlag: (reason) => flagIncorrect(d.merchant, undefined, reason),
@@ -1278,9 +1302,11 @@ export function BudgetPage({
             left over as the remaining sliver. */}
         <div className="mt-4">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[11.5px] font-medium text-foreground">Income</span>
-            <span className="text-[13px] font-bold tabular text-foreground">{fmtUSD(totalMonthlyIncome)}</span>
+            <span className="text-[11.5px] font-medium text-foreground">Planned income</span>
+            <span className="text-[13px] font-bold tabular text-foreground"
+              title="Monthly total of the income sources you've tracked below — not what has landed so far.">{fmtUSD(totalMonthlyIncome)}<span className="text-[11px] font-normal text-muted-foreground">/mo</span></span>
           </div>
+          <div className="text-[11px] text-muted-foreground tabular mb-1">Received so far this month: {fmtUSD(receivedThisMonth)}</div>
           <div className="h-7 rounded-lg bg-positive/70" />
 
           <div className="flex items-center justify-between mb-1 mt-3">
