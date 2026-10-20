@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { TXN_TYPES, type TxnType } from "@/lib/classify/index.ts";
 
 // txn_overrides isn't in the generated Supabase types yet (see
-// supabase/migrations/20261020121000_txn_overrides.sql), so talk to it
+// supabase/migrations/20261020140100_txn_overrides.sql), so talk to it
 // through a narrow, explicitly-typed view of the query builder.
 type Row = { transaction_id: string; txn_type: string };
 type Result<T> = Promise<{ data: T | null; error: { message: string; code?: string } | null }>;

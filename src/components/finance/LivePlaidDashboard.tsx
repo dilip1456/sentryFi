@@ -65,7 +65,7 @@ type PTxn = {
   amount: number; date: string; authorized_date: string | null;
   name: string | null; merchant_name: string | null; category: string[] | null;
   pending: boolean | null; payment_channel: string | null;
-  // Present once supabase/migrations/20261020120000_plaid_transactions_pfc_detail.sql is applied.
+  // Present once supabase/migrations/20261020140000_plaid_transactions_pfc_detail.sql is applied.
   pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null;
 };
 // PostgREST caps any unbounded select at ~1000 rows by default — once total
