@@ -47,6 +47,11 @@ export interface ClassifierTxn {
   pfc_detailed?: string | null;
   pfc_confidence?: string | null;
   pending?: boolean | null;
+  /** Plaid payment_channel: online | in store | other. Autopay signal (src/lib/infer). */
+  payment_channel?: string | null;
+  /** Plaid authorized_date. Merchant-initiated ACH pulls usually have none. */
+  authorized_date?: string | null;
+  merchant_entity_id?: string | null;
 }
 
 export interface ClassifierAccount {
