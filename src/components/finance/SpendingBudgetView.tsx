@@ -11,7 +11,7 @@ import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
-  Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter,
+  Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter, MoreHorizontal,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -473,6 +473,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...visibleCols])); } catch { /* ignore */ }
   }, [visibleCols]);
   const colsMenu = useFloatingMenu(192);
+  const moreMenu = useFloatingMenu(224);
   const toggleCol = (k: ColKey) => setVisibleCols(prev => {
     const n = new Set(prev);
     if (n.has(k)) { if (n.size > 1) n.delete(k); } // always leave at least one attribute column visible
@@ -2032,22 +2033,36 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-3 w-3"/> Sort
                 </button>
-                <button ref={colsMenu.btnRef} onClick={colsMenu.toggle} title="Columns"
+                {/* Secondary tools (Columns / Rules / Import) live behind one
+                    "More" button instead of three unlabeled icon buttons. The
+                    Columns picker anchors to this same button. */}
+                <button ref={colsMenu.btnRef} onClick={moreMenu.toggle} aria-label="More list options" aria-haspopup="menu" aria-expanded={moreMenu.open} title="More"
                   className={cn("h-7 w-7 grid place-items-center rounded-lg border transition-colors shrink-0",
-                    colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Settings className="h-3.5 w-3.5"/>
+                    moreMenu.open || colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <MoreHorizontal className="h-3.5 w-3.5"/>
                 </button>
-                {onOpenRules && (
-                  <button onClick={onOpenRules} title="View and run transaction rules"
-                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
-                    <Wand2 className="h-3.5 w-3.5"/>
-                  </button>
-                )}
-                {onOpenImport && (
-                  <button onClick={onOpenImport} title="Import a bank statement PDF"
-                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
-                    <Upload className="h-3.5 w-3.5"/>
-                  </button>
+                {moreMenu.open && moreMenu.pos && createPortal(
+                  <>
+                    <div className="fixed inset-0 z-[998]" onClick={moreMenu.close}/>
+                    <div role="menu" className="spending-v2 fixed z-[999] w-56 rounded-xl border border-border/60 bg-card shadow-2xl p-1"
+                      style={{ top: moreMenu.pos.top, bottom: moreMenu.pos.bottom, right: moreMenu.pos.right }}>
+                      {([
+                        { label: "Columns…", hint: "Show, hide or reset columns", Icon: Settings, run: () => colsMenu.toggle() },
+                        ...(onOpenRules ? [{ label: "Rules", hint: "View and run transaction rules", Icon: Wand2, run: onOpenRules }] : []),
+                        ...(onOpenImport ? [{ label: "Import statement", hint: "Import a bank statement PDF", Icon: Upload, run: onOpenImport }] : []),
+                      ]).map(({ label, hint, Icon, run }) => (
+                        <button key={label} role="menuitem" onClick={() => { moreMenu.close(); run(); }}
+                          className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-muted/60">
+                          <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0"/>
+                          <span className="min-w-0">
+                            <span className="block text-[12.5px] font-medium text-foreground">{label}</span>
+                            <span className="block text-[11px] text-muted-foreground">{hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>,
+                  document.body
                 )}
               </div>
 
@@ -2140,9 +2155,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
               {filtersMenu.open && filtersMenu.pos && createPortal(
                 <>
-                  <div className="fixed inset-0 z-[998]" onClick={filtersMenu.close}/>
-                  <div className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
+                  <div className="fixed inset-0 z-[998] max-md:bg-black/40 max-md:animate-in max-md:fade-in-0" onClick={filtersMenu.close}/>
+                  {/* Desktop: popover under the button. Phones: a bottom sheet
+                      (full width, thumb-reachable, clear of the home indicator). */}
+                  <div role="dialog" aria-label="Filters"
+                    className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3
+                      max-md:!top-auto max-md:!bottom-0 max-md:!left-0 max-md:!right-0 max-md:w-full max-md:max-w-none max-md:!max-h-[85dvh] max-md:rounded-b-none max-md:rounded-t-2xl max-md:px-4 max-md:pt-2 max-md:pb-0
+                      max-md:animate-in max-md:slide-in-from-bottom-full max-md:duration-200"
                     style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
+                    <div className="md:hidden flex flex-col items-center gap-2 pb-1">
+                      <span className="h-1 w-10 rounded-full bg-border" aria-hidden/>
+                      <div className="w-full flex items-center justify-between">
+                        <span className="text-[15px] font-semibold text-foreground">Filters</span>
+                        {hasActiveFilters && <button onClick={clearFilters} className="h-9 px-2 text-[13px] font-medium text-[hsl(var(--primary))]">Clear all</button>}
+                      </div>
+                    </div>
 
                     <div>
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
@@ -2258,6 +2285,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           </button>
                         ))}
                       </div>
+                    </div>
+                    <div className="md:hidden sticky bottom-0 -mx-4 px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-card border-t border-border/20">
+                      <button onClick={filtersMenu.close}
+                        className="w-full h-11 rounded-xl bg-[hsl(var(--primary))] text-primary-foreground text-[14px] font-semibold">
+                        Show {visibleTxns.length.toLocaleString()} {visibleTxns.length === 1 ? "transaction" : "transactions"}
+                      </button>
                     </div>
                   </div>
                 </>,
