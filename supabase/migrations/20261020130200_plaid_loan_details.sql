@@ -33,3 +33,7 @@ create policy "Users can manage own loan details"
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+drop trigger if exists trg_plaid_loan_details_updated on public.plaid_loan_details;
+create trigger trg_plaid_loan_details_updated before update on public.plaid_loan_details
+  for each row execute function public.update_updated_at_column();

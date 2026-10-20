@@ -120,3 +120,13 @@ create index if not exists stream_occurrences_user_status_idx
   on public.stream_occurrences(user_id, status);
 create index if not exists stream_occurrences_txn_idx
   on public.stream_occurrences(transaction_id) where transaction_id is not null;
+
+-- Keep updated_at current (same pattern as plaid_items / txn_overrides; the
+-- function is defined in 20260601172002_*.sql).
+drop trigger if exists trg_recurring_streams_updated on public.recurring_streams;
+create trigger trg_recurring_streams_updated before update on public.recurring_streams
+  for each row execute function public.update_updated_at_column();
+
+drop trigger if exists trg_stream_occurrences_updated on public.stream_occurrences;
+create trigger trg_stream_occurrences_updated before update on public.stream_occurrences
+  for each row execute function public.update_updated_at_column();

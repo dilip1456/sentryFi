@@ -8,10 +8,38 @@
  * must-pay flag and the obligation link, and `occurrenceOverridesFromRows`
  * feeds user-set occurrence statuses back into detection.
  */
-import type { OccurrenceOverride, RecurringSeries } from "./detect";
+import type { OccurrenceOverride, RecurringSeries, SeriesKind } from "./detect";
 import type { ISODate } from "./dates";
 
 export const DETECTOR_VERSION = 1;
+
+/**
+ * `obligations.kind`: the series kinds that can back an obligation, i.e.
+ * money the user has to send out. The DB check on obligations.kind is exactly
+ * this list (20261020130100_obligations_cadence.sql). Inflow kinds (salary,
+ * income, interest) are not obligations and map to null.
+ */
+export const OBLIGATION_KINDS = ["loan", "tax", "bill", "subscription", "card_payment", "savings", "transfer"] as const;
+export type ObligationKind = (typeof OBLIGATION_KINDS)[number];
+
+export function obligationKindFor(kind: SeriesKind): ObligationKind | null {
+  return (OBLIGATION_KINDS as readonly string[]).includes(kind) ? (kind as ObligationKind) : null;
+}
+
+/** Fields to write on `obligations` when a stream backs it (null for income streams). */
+export function toObligationLink(s: RecurringSeries, streamId: string) {
+  const kind = obligationKindFor(s.kind);
+  if (!kind || s.direction !== "outflow") return null;
+  const sc = s.schedule;
+  return {
+    stream_id: streamId,
+    kind,
+    cadence: s.cadence,
+    due_day: sc.kind === "day-of-month" ? sc.anchorDay : sc.kind === "semimonthly" ? sc.anchorDays[0] : null,
+    next_due_date: s.nextExpectedDate,
+    must_pay: s.mustPay,
+  };
+}
 
 export type StreamStatus = "suggested" | "confirmed" | "dismissed";
 
