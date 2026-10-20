@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
     });
     const accData = await accRes.json();
     if (!accRes.ok) {
-      console.error('accounts/get error', accData);
+      console.error('accounts/get error', plaidErrorSummary(accData));
     } else if (accData.accounts) {
       const rows = accData.accounts.map((a: any) => ({
         user_id: user.id,

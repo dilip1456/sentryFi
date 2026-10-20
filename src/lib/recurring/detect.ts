@@ -180,6 +180,9 @@ function kindFor(type: TxnType, subtype: string | null, text: string): SeriesKin
   switch (type) {
     case "income_salary": return "salary";
     case "income_interest": return "interest";
+    // Money received from a person (Zelle/Venmo) is transfer_in/p2p: not
+    // income in the totals, but a repeating series (a roommate's rent share)
+    // still shows as money coming in.
     case "income_other":
     case "transfer_in": return "income";
     case "obligation_loan": return "loan";
@@ -190,7 +193,8 @@ function kindFor(type: TxnType, subtype: string | null, text: string): SeriesKin
     case "transfer_out": return billSubtype(text) === "rent" ? "bill" : "transfer";
     default:
       if (billSubtype(text)) return "bill";
-      // Money sent to a person (Zelle/Venmo) is "spend/p2p" in the shared taxonomy.
+      // Money sent to a person (Zelle/Venmo) is transfer_out/p2p in the shared
+      // taxonomy (handled above); a user who re-typed one as spend keeps it a transfer.
       return subtype === "p2p" ? "transfer" : "subscription";
   }
 }

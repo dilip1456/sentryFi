@@ -7,6 +7,7 @@ import { useCountUp } from "@/hooks/useCountUp";
 import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
 import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
+import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
 import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
 import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
@@ -159,50 +160,6 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   { key: "status", label: "Status" },
 ];
 
-// ── Small floating-menu helper; portals its panel to <body> and positions it
-// from the trigger button's real screen coordinates, so it's never clipped or
-// stacked behind a sibling's overflow-hidden/sticky element (the bug that had
-// the Columns menu rendering underneath the table's sticky header). ─────────
-//
-// The panel is anchored to whichever element was actually clicked
-// (event.currentTarget), falling back to btnRef. Several menus have two
-// trigger buttons (a mobile one and a desktop one) sharing one ref; React
-// leaves the ref on the last-rendered (desktop, display:none on phones)
-// button, whose rect is all zeros, so anchoring to the ref alone pushed the
-// mobile Filter/Sort panels entirely off the left edge of the screen.
-// `panelWidth` lets the horizontal position be clamped so the panel always
-// stays fully on-screen.
-function useFloatingMenu(panelWidth = 0) {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null);
-  const toggle = (e?: React.MouseEvent<HTMLElement>) => {
-    const anchor = (e?.currentTarget as HTMLElement | undefined) ?? btnRef.current;
-    if (!open && anchor) {
-      const r = anchor.getBoundingClientRect();
-      const margin = 8;
-      const spaceBelow = window.innerHeight - r.bottom - margin;
-      const spaceAbove = r.top - margin;
-      const maxRight = Math.max(margin, window.innerWidth - Math.min(panelWidth, window.innerWidth - 2*margin) - margin);
-      const right = Math.min(Math.max(margin, window.innerWidth - r.right), maxRight);
-      // Anchor below the trigger by default, but flip to anchoring above it
-      // when there isn't enough room below and there's meaningfully more
-      // room above; otherwise a button near the bottom of a long scrollable
-      // table (e.g. a per-row category picker) opens a panel that renders
-      // partly or fully below the viewport, unreachable and unreadable.
-      // maxHeight is capped to whichever side it opens toward so the panel
-      // itself never has to spill past the edge of the screen either.
-      if (spaceBelow < 220 && spaceAbove > spaceBelow) {
-        setPos({ bottom: window.innerHeight - r.top + 6, right, maxHeight: Math.max(160, Math.min(spaceAbove - 6, 420)) });
-      } else {
-        setPos({ top: r.bottom + 6, right, maxHeight: Math.max(160, Math.min(spaceBelow - 6, 420)) });
-      }
-    }
-    setOpen(o => !o);
-  };
-  const close = () => setOpen(false);
-  return { btnRef, open, pos, toggle, close };
-}
 
 function monthBucketsList(count: number) {
   const now = new Date();
@@ -615,10 +572,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Whether a transaction counts toward spend; income never does, and
   // neither does a *confirmed* internal transfer (internalTxnIds, detected
   // by pairing a matching opposite-amount transaction on a different one of
-  // the user's own accounts). A "Transfer Out"/"Credit Card Payment"-labeled
-  // transaction that ISN'T part of a confirmed pair is money that genuinely
-  // left to an external party; real spend, not a transfer-category
-  // exclusion, so category text alone is never checked here.
+  // the user's own accounts). Ignored categories (card payments, savings,
+  // "Transfer Out"/"Transfer In" for P2P and unmatched transfers) are
+  // filtered by the callers via ignoredCategories; the shared classifier
+  // decides which category a transaction lands in.
   const isExpenseTxn = useCallback((t: PTxn) => {
     const cat = getEffectiveCategory(t) ?? "Other";
     return !isIncomeCategory(cat, Number(t.amount));
@@ -697,8 +654,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (!isIncomeCategory(cat, Number(t.amount))) continue;
       // A confirmed internal transfer is already excluded above (and its
       // category forced to "Internal Transfer" upstream, which never matches
-      // isIncomeCategory anyway); a "Transfer In" that reaches this point is
-      // real money someone else sent, so it's normal income like any other.
+      // isIncomeCategory anyway). Money someone else sent ("Transfer In",
+      // P2P) is ignored above, not income; the user can re-type it.
       const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi === -1) continue;
       if (!out[cat]) out[cat] = new Array(monthBuckets.length).fill(0);
@@ -2310,7 +2267,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {sortMenu.open && sortMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={sortMenu.close}/>
-                  <div className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
+                  <div role="menu" aria-label="Sort transactions" className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
                     style={{top:sortMenu.pos.top, bottom:sortMenu.pos.bottom, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
                     {(["date","amount"] as const).map(key => (
                       <button key={key} onClick={()=>{ handleSort(key); }}

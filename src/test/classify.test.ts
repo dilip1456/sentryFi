@@ -62,7 +62,7 @@ describe("internal transfer matcher", () => {
     const purchase = tx({ id: "p", account_id: "card", amount: 200, merchant_name: "Best Buy", name: "BEST BUY 123", pfc_primary: "GENERAL_MERCHANDISE", pfc_detailed: "GENERAL_MERCHANDISE_ELECTRONICS" });
     expect(matchInternalTransfers([zelleIn, purchase], accounts).size).toBe(0);
     const m = classifyAll([zelleIn, purchase], ctx());
-    expect(m.get("z")!.type).toBe("income_other");
+    expect(m.get("z")!.type).toBe("transfer_in"); // P2P from another person: not income
     expect(m.get("p")!.type).toBe("spend");
   });
 
@@ -186,7 +186,7 @@ describe("card payments, PFC detailed and patterns", () => {
     expect(classifyOne(tx({ amount: -21.44, name: "Interest Earned" }), ctx()).type).toBe("income_interest");
     expect(classifyOne(tx({ amount: 1500, name: "IRS USATAXPYMT" }), ctx()).type).toBe("obligation_tax");
     const sent = classifyOne(tx({ amount: 60, name: "Zelle payment to JANE DOE" }), ctx());
-    expect(sent.type).toBe("spend");
+    expect(sent.type).toBe("transfer_out");
     expect(sent.subtype).toBe("p2p");
   });
 
@@ -261,5 +261,79 @@ describe("date helpers", () => {
     expect(r).toMatchObject({ start: "2026-09-01", end: "2026-09-20", label: "Sep 1–20" });
     expect(samePeriodLastMonth(new Date(2026, 2, 31)).end).toBe("2026-02-28");
     expect(monthRange(new Date(2026, 0, 5), -1)).toEqual({ start: "2025-12-01", end: "2025-12-31" });
+  });
+});
+
+describe("P2P with other people is a transfer, not spending or income", () => {
+  const spendCtx = ctx();
+  it.each([
+    ["Venmo to J Doe", 75, "transfer_out"],
+    ["VENMO PAYMENT 1029384756", 120, "transfer_out"],
+    ["Zelle payment to JANE DOE Conf# 1a2b", 60, "transfer_out"],
+    ["CASH APP*JOHN SMITH", 40, "transfer_out"],
+    ["Square Cash", 25, "transfer_out"],
+    ["PAYPAL INST XFER", 30, "transfer_out"],
+    ["Apple Cash Sent Money", 15, "transfer_out"],
+    ["ZELLE FROM ALEX P", -60, "transfer_in"],
+    ["Venmo cashout", -200, "transfer_in"],
+    ["PayPal transfer from Mom", -100, "transfer_in"],
+  ] as const)("%s (%d) → %s", (name, amount, want) => {
+    const c = classifyOne(tx({ amount, name }), spendCtx);
+    expect(c.type).toBe(want);
+    expect(c.subtype).toBe("p2p");
+    expect(bucketOf(c.type)).toBe("neutral");
+  });
+
+  it("legacy Plaid 'Transfer|Third Party|Venmo' category and Plaid PFC agree", () => {
+    expect(classifyOne(tx({ amount: 75, name: "Venmo", category: ["Transfer", "Third Party", "Venmo"] }), spendCtx).type).toBe("transfer_out");
+    // Plaid sometimes files P2P as a merchant purchase; P2P still wins over that
+    const pfcSpend = tx({ amount: 45, name: "VENMO *JANE", pfc_primary: "GENERAL_SERVICES", pfc_detailed: "GENERAL_SERVICES_OTHER_GENERAL_SERVICES", pfc_confidence: "HIGH" });
+    expect(classifyOne(pfcSpend, spendCtx)).toMatchObject({ type: "transfer_out", subtype: "p2p", source: "pfc" });
+    const pfcIn = tx({ amount: -60, name: "Zelle from Alex", pfc_primary: "TRANSFER_IN", pfc_detailed: "TRANSFER_IN_ACCOUNT_TRANSFER", pfc_confidence: "VERY_HIGH" });
+    expect(classifyOne(pfcIn, spendCtx)).toMatchObject({ type: "transfer_in", subtype: "p2p" });
+  });
+
+  it("PayPal checkout at a merchant is still spending", () => {
+    expect(classifyOne(tx({ amount: 15.49, name: "PAYPAL *NETFLIX", merchant_name: "Netflix" }), spendCtx).type).toBe("spend");
+    expect(classifyOne(tx({ amount: 32, name: "PAYPAL *ETSY INC", category: ["Shops"] }), spendCtx).type).toBe("spend");
+  });
+
+  it("a P2P memo saying 'salary' from another person is not payroll", () => {
+    expect(classifyOne(tx({ amount: -500, name: "Zelle from JOHN SMITH salary share" }), spendCtx).type).toBe("transfer_in");
+  });
+
+  it("P2P to or from the user's own name stays internal", () => {
+    expect(classifyOne(tx({ amount: 3074.13, name: "Zelle payment to DILIP NAIK" }), spendCtx).type).toBe("transfer_internal");
+    expect(classifyOne(tx({ amount: -250, name: "Zelle payment from DILIP NAIK" }), spendCtx).type).toBe("transfer_internal");
+  });
+
+  it("a Zelle between two of the user's linked accounts is transfer_internal", () => {
+    const out = tx({ id: "zo", account_id: "chk", amount: 400, name: "Zelle payment to ADVANTAGE SAVINGS" });
+    const inn = tx({ id: "zi", account_id: "sav", amount: -400, name: "Zelle payment from ADV PLUS BANKING" });
+    const m = classifyAll([out, inn], ctx({ accounts: accounts.map(a => a.account_id === "sav" ? { ...a, subtype: "checking" } : a) }));
+    expect(m.get("zo")!.type).toBe("transfer_internal");
+    expect(m.get("zi")!.type).toBe("transfer_internal");
+  });
+
+  it("user overrides still win", () => {
+    const v = tx({ id: "v1", amount: 80, name: "Venmo to J Doe" });
+    expect(classifyOne(v, ctx({ typeOverrides: { v1: "spend" } })).type).toBe("spend");
+    expect(classifyOne(v, ctx({ categoryOverrides: { v1: "Food & Drink" } })).type).toBe("spend");
+    expect(classifyOne(v, ctx({ ruleCategory: () => "Entertainment" })).type).toBe("spend");
+    const z = tx({ id: "z1", amount: -60, name: "Zelle from Alex" });
+    expect(classifyOne(z, ctx({ typeOverrides: { z1: "income_other" } })).type).toBe("income_other");
+  });
+
+  it("totals: P2P counts in neither spending nor income", () => {
+    const txns = [
+      tx({ id: "g", amount: 100, merchant_name: "Whole Foods", category: ["Groceries"], date: "2026-10-05" }),
+      tx({ id: "v", amount: 75, name: "Venmo to J Doe", date: "2026-10-06" }),
+      tx({ id: "z", amount: -60, name: "Zelle from Alex", date: "2026-10-07" }),
+      tx({ id: "p", amount: -3000, name: "ACME PAYROLL DES:PAYROLL", date: "2026-10-08" }),
+    ];
+    const cls = classifyAll(txns, ctx());
+    const s = summarizeFlow(txns, t => cls.get(t.id), () => "x", { start: "2026-10-01", end: "2026-10-31" });
+    expect(s.spending).toBe(100);
+    expect(s.income).toBe(3000);
   });
 });

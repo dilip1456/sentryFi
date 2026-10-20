@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
     });
     const exData = await exRes.json();
     if (!exRes.ok) {
-      console.error("[plaid-grant-consent] exchange failed", exData?.error_code, exData?.error_message);
+      console.error("[plaid-grant-consent] exchange failed", plaidErrorSummary(exData, exRes.status));
       return json({ error: "Could not confirm the bank connection. Please try again." }, 400);
     }
     // The public_token comes from the client: make sure it belongs to the

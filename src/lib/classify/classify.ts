@@ -11,7 +11,7 @@ import { mapPfc, pfcTrusted } from "./pfc.ts";
 import { matchInternalTransfers, type PairLink } from "./pairs.ts";
 import {
   BROKERAGE_RE, CARD_ISSUER_PAYMENT_RE, CARD_RECEIVED_PAYMENT_RE, DIVIDEND_RE, INTEREST_RE, LOAN_RE,
-  P2P_RE, PAYROLL_RE, SAVINGS_SWEEP_RE, TAX_RE, TAX_REFUND_RE, descriptor, namesSelf,
+  EMPLOYER_ACH_RE, P2P_RE, PAYROLL_RE, SAVINGS_SWEEP_RE, TAX_RE, TAX_REFUND_RE, descriptor, namesSelf,
 } from "./patterns.ts";
 
 const SAVINGS_ROLES = new Set(["buffer", "reserve", "savings_goal", "investment"]);
@@ -114,25 +114,32 @@ export function classifyOne(
     if (m) {
       let type: TxnType = m.type;
       if ((type === "spend" || type.startsWith("obligation_")) && amt < 0) type = "refund";
-      if (type === "transfer_out" && P2P_RE.test(text)) type = "spend";
-      if (type === "transfer_in" && P2P_RE.test(text)) type = "income_other";
+      // P2P (Venmo, Zelle, Cash App, PayPal transfers) with other people is a
+      // transfer, not spending or income; only the user can say otherwise.
+      if (P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text) && (type === "spend" || type === "income_other")) type = amt > 0 ? "transfer_out" : "transfer_in";
       if (type === "savings_contribution" && amt < 0) type = "transfer_internal";
-      return { type, subtype: m.subtype ?? (P2P_RE.test(text) ? "p2p" : undefined), source: "pfc", reason: `Plaid: ${t.pfc_detailed.toLowerCase().replace(/_/g, " ")}` };
+      const p2p = P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text) && (type === "transfer_out" || type === "transfer_in");
+      return { type, subtype: p2p ? "p2p" : m.subtype, source: "pfc", reason: `Plaid: ${t.pfc_detailed.toLowerCase().replace(/_/g, " ")}` };
     }
   }
 
   // 6. Pattern library.
+  // P2P with other people: money sent/received, not spending or income.
+  // (P2P with the user themself was caught above as transfer_internal.)
+  if (P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text)) {
+    return amt > 0
+      ? { type: "transfer_out", subtype: "p2p", source: "pattern", reason: "Money sent to someone (not counted as spending)" }
+      : { type: "transfer_in", subtype: "p2p", source: "pattern", reason: "Money received from someone (not counted as income)" };
+  }
   if (amt < 0) {
     if (TAX_REFUND_RE.test(text)) return { type: "income_other", subtype: "tax_refund", source: "pattern", reason: "Tax refund" };
     if (PAYROLL_RE.test(text)) return { type: "income_salary", source: "pattern", reason: "Payroll deposit" };
     if (DIVIDEND_RE.test(text)) return { type: "income_interest", subtype: "dividend", source: "pattern", reason: "Dividend" };
     if (INTEREST_RE.test(text)) return { type: "income_interest", subtype: "interest", source: "pattern", reason: "Interest earned" };
-    if (P2P_RE.test(text)) return { type: "income_other", subtype: "p2p", source: "pattern", reason: "Money received from someone" };
   } else if (amt > 0) {
     if (TAX_RE.test(text)) return { type: "obligation_tax", subtype: "tax", source: "pattern", reason: "Tax payment" };
     if (!notInternal && SAVINGS_SWEEP_RE.test(text)) return { type: "savings_contribution", subtype: "savings", source: "pattern", reason: "Moved to savings" };
     if (LOAN_RE.test(text)) return { type: "obligation_loan", source: "pattern", reason: "Loan payment" };
-    if (P2P_RE.test(text)) return { type: "spend", subtype: "p2p", source: "pattern", reason: "Money sent to someone" };
   }
 
   // 7. Recurring-stream context.

@@ -42,7 +42,7 @@ export const octoberMix: Txn[] = [
   txn({ id: "refund", amount: -50,   date: "2026-10-07", merchant_name: "Target",   category: ["Shopping"] }),                        // Shopping refund (nets)
   txn({ id: "pay",    amount: -3000, date: "2026-10-01", account_id: "acc_chk", name: "Payroll ACME", category: ["Salary"] }),        // Salary (income)
   txn({ id: "mort",   amount: 1500,  date: "2026-10-02", account_id: "acc_chk", merchant_name: "Rocket Mortgage", category: ["Service", "Financial", "Mortgages"] }), // Mortgage
-  txn({ id: "venmo",  amount: 75,    date: "2026-10-08", account_id: "acc_chk", name: "Venmo to J Doe", category: ["Transfer", "Third Party", "Venmo"] }), // Transfer Out, unpaired = real outflow
+  txn({ id: "venmo",  amount: 75,    date: "2026-10-08", account_id: "acc_chk", name: "Venmo to J Doe", category: ["Transfer", "Third Party", "Venmo"] }), // Transfer Out: P2P to another person = transfer_out, not spending
   txn({ id: "xferA",  amount: 500,   date: "2026-10-09", account_id: "acc_chk", name: "Transfer to Savings", category: ["Transfer"] }),  // internal pair leg
   txn({ id: "xferB",  amount: -500,  date: "2026-10-09", account_id: "acc_sav", name: "Transfer from Checking", category: ["Transfer"] }), // internal pair leg
   txn({ id: "pend",   amount: 40,    date: "2026-10-19", merchant_name: "Chipotle", category: ["Food & Drink"], pending: true }),  // pending purchase

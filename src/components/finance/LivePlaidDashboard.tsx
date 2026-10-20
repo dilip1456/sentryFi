@@ -265,7 +265,7 @@ const EXPENSE_CATEGORIES = [
   // Finance
   "Financial Services", "Bank Fees", "Business",
   // Giving & transfers
-  "Charitable Giving", "Transfer Out", "Internal Transfer",
+  "Charitable Giving", "Transfer Out", "Transfer In", "Internal Transfer",
   // Money movement the shared classifier files under "Ignored" (never spend).
   "Savings & Investments", "Unreviewed Transfer",
   // Obligations and other types the classifier can assign.
@@ -279,10 +279,12 @@ const EXPENSE_CATEGORIES = [
 
 // Full classification taxonomy — kept broad so auto-categorized transactions
 // (mapped from raw Plaid categories via CATEGORY_MAP below, e.g. "Salary",
-// "Transfer In") still classify correctly as income. "Income"/"Dividends"/
+// "Salary") still classify correctly as income. "Income"/"Dividends"/
 // "Interest Earned" are newer, simpler names added alongside the originals
 // rather than replacing them, so nothing already categorized as "Salary" or
-// "Transfer In" silently stops counting as income.
+// "Salary" silently stops counting as income. "Transfer In" is NOT income:
+// money from other people (Zelle, Venmo, …) or an unmatched transfer is a
+// transfer (shared classifier: transfer_in), listed under Ignored.
 // NOTE: "Refund / Reimbursement" deliberately lives in EXPENSE_CATEGORIES,
 // not here — a refund/return is money coming back from something you
 // already spent on, not newly earned income. Keeping it on the expense
@@ -4755,11 +4757,15 @@ export const LivePlaidDashboard = ({
       const bucket = bucketOf(c.type);
       let forced: string | null = null;
       if (bucket === "ignored" || bucket === "neutral") {
-        if (!isIgnoredCat || current.toLowerCase() !== (displayCategoryForType(c.type) ?? "").toLowerCase()) forced = displayCategoryForType(c.type);
+        // P2P with other people shows as "Transfer Out"/"Transfer In"; other
+        // unmatched transfers as "Unreviewed Transfer" (both ignored).
+        const display = displayCategoryForType(c.type, c.subtype);
+        if (!isIgnoredCat || current.toLowerCase() !== (display ?? "").toLowerCase()) forced = display;
       } else if (bucket === "income") {
         if (!isIncomeCat || isIgnoredCat) forced = displayCategoryForType(c.type, c.subtype);
       } else if (isIncomeCat || isIgnoredCat) {
-        forced = c.subtype === "p2p" ? "Transfer Out" : (displayCategoryForType(c.type) ?? "Other");
+        // e.g. the user typed a Venmo as "spend": don't leave it in an ignored category
+        forced = displayCategoryForType(c.type) ?? "Other";
       }
       if (forced && forced !== current) m[t.id] = forced;
     }

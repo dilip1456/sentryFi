@@ -184,7 +184,7 @@ export function SpendingOverview(p: SpendingOverviewProps) {
               <Clock className="h-3 w-3 text-warning" /> Includes {fmtUSD(p.pendingSpent)} pending ({p.pendingCount})
             </span>
           ) : <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> All posted</span>}
-          <span className="inline-flex items-center gap-1" title="Credit-card payments, savings & investing contributions, money sent to or received from people, and transfers between your own accounts are shown under Money movement, not counted as spending.">
+          <span className="inline-flex items-center gap-1" title="Credit-card payments, savings & investing contributions, money sent to or received from people (Venmo, Zelle, Cash App, PayPal), and transfers between your own accounts are shown under Money movement. They're not counted as spending or income. Change a transaction's type to count it.">
             <Info className="h-3 w-3" /> Real spending only: no card payments, savings or transfers
           </span>
         </div>
@@ -243,7 +243,12 @@ export function SpendingOverview(p: SpendingOverviewProps) {
       </section>
 
       {/* ── Categories ───────────────────────────────────────────────── */}
-      <div className="lg:col-span-7 flex flex-col gap-4 min-w-0">
+      {/* Side by side only from xl: at lg (1024px, ~770px of content next to
+          the sidebar) a 7/5 split left ~420px for the donut + category list
+          and ~300px for merchants, truncating every name. Below xl the
+          categories card spans the full row and merchants + money movement
+          sit side by side underneath it. */}
+      <div className="lg:col-span-12 xl:col-span-7 flex flex-col gap-4 min-w-0">
       <section className="surface-card p-4 md:p-5 bento-rise flex-1" style={{ animationDelay: "120ms" }} aria-label="Spending by category">
         <CardTitle title="Where it went" sub={`Tap a category to filter transactions · % change is vs ${p.prevMonthShort}`}
           right={
@@ -365,8 +370,8 @@ export function SpendingOverview(p: SpendingOverviewProps) {
       </div>
 
       {/* ── Right column: merchants + money movement ─────────────────── */}
-      <div className="lg:col-span-5 flex flex-col gap-4 min-w-0">
-        <section className="surface-card p-4 md:p-5 bento-rise" style={{ animationDelay: "180ms" }} aria-label="Top merchants">
+      <div className="lg:col-span-12 xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4 content-start min-w-0">
+        <section className="surface-card p-4 md:p-5 bento-rise min-w-0" style={{ animationDelay: "180ms" }} aria-label="Top merchants">
           <CardTitle title="Top merchants" sub="This month · line shows the last 6 months" />
           {p.merchants.length === 0 ? (
             <div className="py-8 text-center text-[13px] text-muted-foreground">Nothing yet.</div>
@@ -430,11 +435,11 @@ export function PendingChip() {
 const MOVEMENT_ROWS: { key: MovementKey; label: string; note: string; icon: React.ElementType; tone: string }[] = [
   { key: "credit_card_payment", label: "Credit card payments", note: "Pays off purchases already counted above", icon: CreditCard, tone: "hsl(215 30% 68%)" },
   { key: "savings_contribution", label: "Savings & investing", note: "Brokerage, savings and retirement contributions", icon: PiggyBank, tone: "hsl(158 48% 52%)" },
-  // Money sent to / received from people (Venmo, Zelle…) now counts as
-  // spending / income under the shared definitions; these rows are the
-  // unmatched transfers the classifier leaves for review.
-  { key: "transfer_out", label: "Transfers out to review", note: "Unmatched transfers; not counted until reviewed", icon: Send, tone: "hsl(30 60% 66%)" },
-  { key: "transfer_in", label: "Transfers in to review", note: "Unmatched; not counted as income", icon: HandCoins, tone: "hsl(158 40% 60%)" },
+  // Money sent to / received from people (Venmo, Zelle…) is transfer_out /
+  // transfer_in under the shared definitions, together with unmatched
+  // transfers: neither spending nor income unless the user re-types them.
+  { key: "transfer_out", label: "Sent to people & transfers out", note: "Venmo, Zelle, Cash App… and unmatched transfers; not spending", icon: Send, tone: "hsl(30 60% 66%)" },
+  { key: "transfer_in", label: "Received from people & transfers in", note: "Venmo, Zelle, Cash App… and unmatched transfers; not income", icon: HandCoins, tone: "hsl(158 40% 60%)" },
 ];
 
 function MoneyMovement({ movement, monthName, onShowIgnored }: { movement: OverviewMovement; monthName: string; onShowIgnored: () => void }) {
