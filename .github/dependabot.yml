@@ -1,0 +1,25 @@
+# Security audit M7 / L9. Dependabot *alerts* and *security updates* must also
+# be switched on in the repo settings (owner action); this file schedules the
+# version-update PRs.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      capacitor:
+        patterns: ["@capacitor/*"]
+      radix:
+        patterns: ["@radix-ui/*"]
+      dev-tooling:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+
+  # Keeps the SHA-pinned actions in .github/workflows up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+

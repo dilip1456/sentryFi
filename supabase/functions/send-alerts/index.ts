@@ -1,11 +1,20 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 import { cleanBankText, merchantKey } from "../_shared/merchant-name.ts";
 import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
+import { isTrustedServerCaller } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Values in the alert email come from bank data (merchant names, account
+// names) and AI output, so escape them before putting them into HTML (audit L3).
+function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 const RESEND_KEY = Deno.env.get("RESEND_API_KEY");
 const FCM_SA = Deno.env.get("FCM_SERVICE_ACCOUNT");
@@ -123,6 +132,10 @@ function classifyCredit(t: { name: string | null; merchant_name: string | null; 
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Security audit M1: this function uses service_role and loops over every
+  // user, so only pg_cron (x-cron-secret) or a service_role caller may run it.
+  // The public anon key and normal user sessions are rejected.
+  if (!(await isTrustedServerCaller(req))) return json({ error: "Forbidden" }, 403);
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const today = new Date().toISOString().slice(0, 10);
@@ -379,7 +392,7 @@ Deno.serve(async (req) => {
         const subject = notifications.length === 1 ? notifications[0].title : `${notifications.length} alerts - Sentry Finance`;
         const html = `<!DOCTYPE html><html><body style="background:#111827;font-family:system-ui;padding:24px">
 <h2 style="color:#F9F6EF;margin-bottom:16px">Sentry Finance</h2>
-${notifications.map(n => `<div style="background:#1E2A40;border-radius:8px;padding:12px;margin-bottom:8px"><b style="color:#F9F6EF">${n.title}</b><br><span style="color:#8FA3BA;font-size:13px">${n.body}</span></div>`).join("")}
+${notifications.map(n => `<div style="background:#1E2A40;border-radius:8px;padding:12px;margin-bottom:8px"><b style="color:#F9F6EF">${escapeHtml(n.title)}</b><br><span style="color:#8FA3BA;font-size:13px">${escapeHtml(n.body)}</span></div>`).join("")}
 <p style="color:#4B5C70;font-size:11px;margin-top:16px"><a href="https://sentryfiapp.vercel.app" style="color:#D4920E">Open Sentry Finance</a></p>
 </body></html>`;
         if (RESEND_KEY) {
@@ -391,7 +404,7 @@ ${notifications.map(n => `<div style="background:#1E2A40;border-radius:8px;paddi
     }
 
     return json({ ok: true, processed: prefs.length, sent: totalSent, ts: new Date().toISOString() });
-  } catch (e) { console.error(e); return json({ error: String(e) }, 500); }
+  } catch (e) { console.error(e); return json({ error: "send-alerts failed" }, 500); }
 });
 
 function json(body: unknown, status = 200) {

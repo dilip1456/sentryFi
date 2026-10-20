@@ -29,17 +29,15 @@ android {
     }
     signingConfigs {
         release {
+            // Release builds are signed only with the real release key from the
+            // environment (CI: GitHub Actions secrets). There is deliberately no
+            // fallback to the debug key: a debug-signed "release" APK can be
+            // replaced by anyone (security audit M4). See the check below.
             if (System.getenv("KEYSTORE_PATH")) {
                 storeFile file(System.getenv("KEYSTORE_PATH"))
                 storePassword System.getenv("KEYSTORE_STORE_PASSWORD")
                 keyAlias System.getenv("KEYSTORE_ALIAS")
                 keyPassword System.getenv("KEYSTORE_KEY_PASSWORD")
-            } else {
-                // Fallback to debug key for local builds
-                storeFile debug.storeFile
-                storePassword debug.storePassword
-                keyAlias debug.keyAlias
-                keyPassword debug.keyPassword
             }
         }
     }
@@ -57,6 +55,26 @@ android {
         variant.outputs.all { output ->
             outputFileName = "SentryFi-${variant.name}.apk"
         }
+    }
+}
+
+// Fail any release build (assembleRelease, bundleRelease, installRelease, ...)
+// that has no release keystore configured, instead of silently producing an
+// unsigned or debug-signed APK. Debug builds are unaffected.
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { t ->
+        t.project == project && t.name ==~ /(?i)^(assemble|bundle|package|install|sign).*Release.*$/
+    }
+    if (!wantsRelease) return
+    def missing = ["KEYSTORE_PATH", "KEYSTORE_STORE_PASSWORD", "KEYSTORE_ALIAS", "KEYSTORE_KEY_PASSWORD"]
+        .findAll { !System.getenv(it) }
+    if (missing) {
+        throw new GradleException("Release signing is not configured (missing env: ${missing.join(', ')}). " +
+            "Release builds must be signed with the release keystore; there is no debug-key fallback. " +
+            "Use assembleDebug for local builds.")
+    }
+    if (!file(System.getenv("KEYSTORE_PATH")).exists()) {
+        throw new GradleException("KEYSTORE_PATH points to a file that does not exist: ${System.getenv('KEYSTORE_PATH')}")
     }
 }
 

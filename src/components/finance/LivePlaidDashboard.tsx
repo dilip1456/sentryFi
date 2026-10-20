@@ -4796,14 +4796,9 @@ export const LivePlaidDashboard = ({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
   const txnListRef = useRef<HTMLDivElement>(null);
-  // Fire daily alerts check silently (once per day per device)
-  useEffect(() => {
-    if (!user || demo || guestDemo) return;
-    const key = `sentryfi_alerts_checked_${new Date().toISOString().slice(0,10)}`;
-    if (localStorage.getItem(key)) return;
-    localStorage.setItem(key, "1");
-    supabase.functions.invoke("send-alerts").catch(() => {}); // fire and forget
-  }, [user, demo, guestDemo]);
+  // Alerts are sent by the send-alerts edge function on a pg_cron schedule
+  // (every 20 min). It is server-only now (service_role or cron secret), so
+  // the client no longer triggers it.
   const handlePanelDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
