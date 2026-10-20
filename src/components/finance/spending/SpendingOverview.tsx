@@ -243,7 +243,12 @@ export function SpendingOverview(p: SpendingOverviewProps) {
       </section>
 
       {/* ── Categories ───────────────────────────────────────────────── */}
-      <div className="lg:col-span-7 flex flex-col gap-4 min-w-0">
+      {/* Side by side only from xl: at lg (1024px, ~770px of content next to
+          the sidebar) a 7/5 split left ~420px for the donut + category list
+          and ~300px for merchants, truncating every name. Below xl the
+          categories card spans the full row and merchants + money movement
+          sit side by side underneath it. */}
+      <div className="lg:col-span-12 xl:col-span-7 flex flex-col gap-4 min-w-0">
       <section className="surface-card p-4 md:p-5 bento-rise flex-1" style={{ animationDelay: "120ms" }} aria-label="Spending by category">
         <CardTitle title="Where it went" sub={`Tap a category to filter transactions · % change is vs ${p.prevMonthShort}`}
           right={
@@ -365,8 +370,8 @@ export function SpendingOverview(p: SpendingOverviewProps) {
       </div>
 
       {/* ── Right column: merchants + money movement ─────────────────── */}
-      <div className="lg:col-span-5 flex flex-col gap-4 min-w-0">
-        <section className="surface-card p-4 md:p-5 bento-rise" style={{ animationDelay: "180ms" }} aria-label="Top merchants">
+      <div className="lg:col-span-12 xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4 content-start min-w-0">
+        <section className="surface-card p-4 md:p-5 bento-rise min-w-0" style={{ animationDelay: "180ms" }} aria-label="Top merchants">
           <CardTitle title="Top merchants" sub="This month · line shows the last 6 months" />
           {p.merchants.length === 0 ? (
             <div className="py-8 text-center text-[13px] text-muted-foreground">Nothing yet.</div>
