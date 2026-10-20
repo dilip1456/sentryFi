@@ -68,8 +68,16 @@ describe("QA estimateRemainingBalance (manual loans)", () => {
     expect(estimateRemainingBalance(300000, 6, 30, "2025-10-01")!.balance).toBeCloseTo(296315.9, -1);
     vi.useRealTimers();
   });
-  // KNOWN GAP: a 0% loan returns null, so 0%-APR auto loans get no estimate.
-  it.fails("KNOWN GAP 0% APR loans should still amortize linearly", () => {
-    expect(estimateRemainingBalance(12000, 0, 1, "2026-10-01")).not.toBeNull();
+  // Was a KNOWN GAP (0% returned null). $12,000 over 12 months at 0% is
+  // $1,000/month: 0 payments elapsed in Oct 2026, 6 by Apr 2027, paid off by 2028.
+  it("0% APR loans amortize linearly", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T12:00:00-04:00"));
+    expect(estimateRemainingBalance(12000, 0, 1, "2026-10-01")).toMatchObject({ balance: 12000, monthsRemaining: 12 });
+    vi.setSystemTime(new Date("2027-04-15T12:00:00-04:00"));
+    expect(estimateRemainingBalance(12000, 0, 1, "2026-10-01")).toMatchObject({ balance: 6000, monthsRemaining: 6 });
+    vi.setSystemTime(new Date("2028-01-01T12:00:00-05:00"));
+    expect(estimateRemainingBalance(12000, 0, 1, "2026-10-01")).toMatchObject({ balance: 0, monthsRemaining: 0 });
+    vi.useRealTimers();
   });
 });

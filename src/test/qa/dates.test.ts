@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 vi.mock("@/integrations/supabase/client", async () => (await import("./mocks")).inertSupabase());
-import { dash, spendView, budgetPage, need } from "./internals";
+import { dash, spendView, need } from "./internals";
 import { txn } from "./fixtures";
 
 type P = { granularity: "day" | "week" | "month" | "year"; offset: number };
@@ -13,7 +13,6 @@ const label = need<(p: P) => string>(dash, "getPeriodLabel");
 const filter = need<(t: ReturnType<typeof txn>[], p: P) => ReturnType<typeof txn>[]>(dash, "filterByPeriod");
 const months = need<(n: number) => { key: string; start: string; end: string; label: string }[]>(spendView, "monthBucketsList");
 const weeks = need<(n: number) => { start: string; end: string }[]>(spendView, "weekBucketsList");
-const monthKey = need<(d: Date) => string>(budgetPage, "monthKey");
 const at = (iso: string) => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(iso)); };
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 afterEach(() => { vi.useRealTimers(); });
@@ -78,11 +77,7 @@ describe("QA timezone sensitivity", () => {
       expect(months(1)[0]).toMatchObject({ start: "2026-10-01", end: "2026-10-31" });
     });
   });
-  // KNOWN BUG: BudgetPage steps months with setMonth(getMonth()-i) on "today";
-  // on the 31st this skips a month (Oct 31 − 1 month = "Sep 31" = Oct 1).
-  it.fails("KNOWN BUG Budget's 12-month lookback visits 12 distinct months on the 31st", () => {
-    at("2026-10-31T12:00:00-04:00");
-    const keys = Array.from({ length: 12 }, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return monthKey(d); });
-    expect(new Set(keys).size).toBe(12);
-  });
+  // Budget's 12-month lookback on the 31st is now tested against the real
+  // BudgetPage render in budget-lookback.test.tsx (this file used to
+  // re-implement the old loop, which tested nothing in the app).
 });
