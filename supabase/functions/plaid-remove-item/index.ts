@@ -78,6 +78,14 @@ Deno.serve(async (req) => {
     await admin.from("plaid_transactions").delete().eq("item_id", item.id);
     if (accountIds.length > 0) {
       await admin.from("plaid_credit_details").delete().eq("user_id", user.id).in("account_id", accountIds);
+      // Per-account liability tables. A missing table (migration not applied
+      // yet) just returns an error from PostgREST; it never throws, so it
+      // can't block the removal. Re-linking for 730 days of history goes
+      // through this function (docs/PLAID_HISTORY.md).
+      for (const table of ["plaid_loan_details", "credit_statements"]) {
+        const { error } = await admin.from(table).delete().eq("user_id", user.id).in("account_id", accountIds);
+        if (error) console.warn(`[plaid-remove-item] ${table} cleanup skipped:`, error.code ?? "", error.message ?? "");
+      }
     }
     await admin.from("plaid_accounts").delete().eq("item_id", item.id);
     await admin.from("plaid_items").delete().eq("id", item.id);

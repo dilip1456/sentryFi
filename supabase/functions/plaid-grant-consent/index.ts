@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 
-import { plaidErrorSummary, upsertLoanDetails } from "../_shared/plaid-liabilities.ts";
+import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from "../_shared/plaid-liabilities.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,6 +90,7 @@ Deno.serve(async (req) => {
         console.warn("[plaid-grant-consent] liabilities/get error", plaidErrorSummary(credData));
       } else {
         await upsertLoanDetails(admin, user.id, credData.liabilities); // never throws
+        await upsertCreditStatements(admin, user.id, credData.liabilities); // never throws; statement history for autopay mode
         const creditCards: PlaidCreditLiability[] = credData.liabilities?.credit ?? [];
         if (creditCards.length) {
           const rows = creditCards.map((c) => ({

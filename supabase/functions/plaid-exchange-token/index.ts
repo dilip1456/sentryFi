@@ -1,7 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { syncItemTransactions } from '../_shared/plaid-sync.ts';
-import { plaidErrorSummary, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
+import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
@@ -128,6 +128,8 @@ async function syncLiabilities(admin: any, userId: string, accessToken: string) 
     if (!res.ok) { console.warn('liabilities/get error (product may be unsupported for this institution):', plaidErrorSummary(data)); return; }
 
     await upsertLoanDetails(admin, userId, data.liabilities); // never throws
+
+    await upsertCreditStatements(admin, userId, data.liabilities); // never throws; statement history for autopay mode
 
     const creditCards = data.liabilities?.credit ?? [];
     if (!creditCards.length) return;
