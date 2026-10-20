@@ -5,4 +5,4 @@ export * from "./schedule";
 export * from "./detect";
 export * from "./rows";
 export { merchantKey, displayName } from "./patterns";
-export { createStubClassifier } from "./stub-classifier";
+export { createSharedClassifier, type SharedClassifierExtras } from "./shared-classifier";

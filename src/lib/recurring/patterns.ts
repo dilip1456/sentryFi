@@ -1,8 +1,8 @@
 /**
- * Descriptor patterns used by recurring detection (merchant keys, yearly hints,
- * loan/tax subtypes) and by the interim stub classifier. When the shared
- * pattern library from `src/lib/classify/` lands, the classifier-side patterns
- * should be dropped from here in favour of it.
+ * Recurring-specific descriptor helpers: merchant keys, display names, and
+ * subtype refinement (tax / loan / bill) plus yearly hints. Transaction TYPE
+ * decisions belong to the shared classifier in `src/lib/classify/`; these only
+ * refine a type the classifier already chose.
  */
 
 const STOPWORDS = new Set([
@@ -44,13 +44,6 @@ export function displayName(raw: string | null | undefined): string {
   }
   return name || "Unknown";
 }
-
-export const PAYROLL_RE = /\b(payroll|dir\s*dep|direct\s*dep(osit)?|salary|adp|gusto|paychex|paycom|trinet|workday|intuit\s*payroll)\b/i;
-export const INTEREST_RE = /\b(interest\s*(paid|earned|payment)|int\s*earned|dividend|div\s*paid)\b/i;
-export const P2P_RE = /\b(zelle|venmo|cash\s*app|paypal|apple\s*cash)\b/i;
-export const TRANSFER_RE = /\b(transfer|xfer|trnsfr|to\s+sav(ings)?|from\s+sav(ings)?|to\s+chk|from\s+chk|online\s+banking\s+transfer)\b/i;
-export const CARD_PAYMENT_RE =
-  /\b(payment\s+thank\s+you|autopay\s+payment|chase\s+credit\s+cr?d|amex\s+epayment|american\s+express\s+ach|citi\s+(card\s+)?autopay|capital\s+one\s+(online\s+)?(pmt|payment)|discover\s+e-?payment|credit\s+card\s+payment)\b/i;
 
 export type TaxSubtype = "irs_estimated" | "irs_federal" | "state" | "property";
 export function taxSubtype(text: string): TaxSubtype | null {

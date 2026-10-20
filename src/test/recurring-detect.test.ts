@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   amountModel,
-  createStubClassifier,
+  createSharedClassifier,
+  withOverrides,
   detectRecurringSeries,
   mergeStreamRow,
   occurrenceOverridesFromRows,
@@ -375,9 +376,10 @@ describe("user overrides win over the classifier", () => {
   });
 });
 
-describe("stub classifier", () => {
-  it("uses the agreed taxonomy names", () => {
-    const c = createStubClassifier();
+describe("shared classifier adapter (src/lib/classify)", () => {
+  const c = createSharedClassifier();
+
+  it("maps the shared taxonomy onto the recurring interface's names", () => {
     const t1 = pay("2026-10-15", 3000, "ACME PAYROLL");
     const t2 = pay("2026-10-15", 1.23, "INTEREST PAID", { account_id: "hysa" });
     const t3 = tx("2026-10-15", 500, "IRS USATAXPYMT");
@@ -386,9 +388,35 @@ describe("stub classifier", () => {
     const out = c.classifyAll([t1, t2, t3, t4, t5], { accounts: ACCOUNTS });
     expect(out.get(t1.transaction_id)?.txnType).toBe("income-salary");
     expect(out.get(t2.transaction_id)?.txnType).toBe("income-interest");
-    expect(out.get(t3.transaction_id)).toMatchObject({ txnType: "obligation-tax", subtype: "irs_federal" });
+    expect(out.get(t3.transaction_id)?.txnType).toBe("obligation-tax");
     expect(out.get(t4.transaction_id)?.txnType).toBe("spend");
-    expect(out.get(t5.transaction_id)).toMatchObject({ txnType: "obligation-loan", subtype: "student" });
+    expect(out.get(t5.transaction_id)?.txnType).toBe("obligation-loan");
+    for (const v of out.values()) expect(v.txnType).not.toMatch(/_/);
+  });
+
+  it("resolves a pair to the other leg's account", () => {
+    const out1 = tx("2026-10-01", 750, "TRANSFER TO SAVINGS ...3333");
+    const in1 = pay("2026-10-01", 750, "TRANSFER FROM CHECKING", { account_id: "hysa" });
+    const out = c.classifyAll([out1, in1], { accounts: ACCOUNTS });
+    expect(out.get(out1.transaction_id)).toMatchObject({ txnType: "savings-contribution", source: "pair", counterpartAccountId: "hysa" });
+    expect(out.get(in1.transaction_id)).toMatchObject({ txnType: "transfer-internal", counterpartAccountId: "chk" });
+  });
+
+  it("accepts txn_overrides rows in the database spelling and they win", () => {
+    const t = tx("2026-10-15", 25, "STARBUCKS");
+    const out = withOverrides(c, [{ transaction_id: t.transaction_id, txn_type: "obligation_bill" }]).classifyAll([t], { accounts: ACCOUNTS });
+    expect(out.get(t.transaction_id)).toMatchObject({ txnType: "obligation-bill", source: "user", confidence: 1 });
+  });
+
+  it("forwards extra shared context (self names make 'Zelle to me' internal)", () => {
+    const txns = ["2026-06-01", "2026-07-01", "2026-08-03", "2026-09-01", "2026-10-01"].map(d => tx(d, 300, "ZELLE TO DILIP KUMAR"));
+    expect(detect(txns)).toHaveLength(1);
+    expect(detect(txns, { classifier: createSharedClassifier({ selfNames: ["Dilip Kumar"] }) })).toHaveLength(0);
+  });
+
+  it("never treats money arriving on a linked loan or card account as income", () => {
+    const txns = ["2026-06-01", "2026-07-01", "2026-08-03", "2026-09-01", "2026-10-01"].map(d => pay(d, 2150, "PAYMENT RECEIVED", { account_id: "mtg" }));
+    expect(detect(txns)).toHaveLength(0);
   });
 });
 
@@ -408,6 +436,7 @@ describe("persistence rows", () => {
     const row = toStreamRow(s, "user-1");
     expect(row).toMatchObject({ user_id: "user-1", cadence: "monthly", day_anchor: 1, shift_policy: "after", must_pay: true, status: "suggested" });
     expect(row.next_expected_date).toBe("2026-11-02");
+    expect(row.txn_type).toBe(s.txnType.replace(/-/g, "_")); // database spelling, like txn_overrides
 
     const merged = mergeStreamRow(row, { id: "s1", status: "confirmed", must_pay: false, must_pay_user_set: true, obligation_id: "o1" });
     expect(merged).toMatchObject({ id: "s1", status: "confirmed", must_pay: false, must_pay_user_set: true, obligation_id: "o1" });

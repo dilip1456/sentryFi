@@ -19,7 +19,7 @@ import {
   type TxnTypeOverride,
 } from "./classifier";
 import { addDays, diffDays, nearestIrsEstimatedDue, parseDate, todayLocal, DEFAULT_TIME_ZONE, type ISODate, type ShiftPolicy } from "./dates";
-import { billSubtype, displayName, merchantKey, taxSubtype, YEARLY_HINT_RE } from "./patterns";
+import { billSubtype, displayName, loanSubtype, merchantKey, taxSubtype, YEARLY_HINT_RE } from "./patterns";
 import {
   fitSchedule,
   matchTolerance,
@@ -30,7 +30,7 @@ import {
   type Schedule,
   type ScheduledDate,
 } from "./schedule";
-import { createStubClassifier } from "./stub-classifier";
+import { createSharedClassifier } from "./shared-classifier";
 
 export type SeriesDirection = "inflow" | "outflow";
 export type SeriesKind =
@@ -108,7 +108,7 @@ export interface DetectOptions {
   /** Local calendar date to treat as today; defaults to now in `timeZone`. */
   today?: ISODate;
   timeZone?: string;
-  /** Shared classifier; defaults to the interim stub. */
+  /** Classifier; defaults to the shared classifier (src/lib/classify) via `createSharedClassifier()`. */
   classifier?: TransactionClassifier;
   /** Per-transaction user type overrides. These win over the classifier. */
   overrides?: TxnTypeOverride[];
@@ -140,9 +140,18 @@ interface Member {
 }
 
 /** Is this classified transaction eligible for recurring detection? */
-export function isRecurringEligible(t: ClassifierTxn, c: TxnClassification, opts: Pick<DetectOptions, "includeCardPayments"> = {}): boolean {
+export function isRecurringEligible(
+  t: ClassifierTxn,
+  c: TxnClassification,
+  opts: Pick<DetectOptions, "includeCardPayments"> = {},
+  account?: ClassifierAccount,
+): boolean {
   if (t.pending) return false;
   if (!t.amount) return false;
+  // Money arriving on the user's own card or loan account is the receiving
+  // leg of a payment (or a refund), never income — even when unmatched.
+  const acctType = (account?.type ?? "").toLowerCase();
+  if (t.amount < 0 && (acctType === "credit" || acctType === "loan") && c.source !== "user") return false;
   // All linked accounts are the user's own: money moving between them is not a bill or income.
   if (c.txnType === "transfer-internal") return false;
   if (c.txnType === "refund") return false;
@@ -176,8 +185,26 @@ function kindFor(type: TxnType, subtype: string | null, text: string): SeriesKin
     case "savings-contribution": return "savings";
     case "credit-card-payment": return "card-payment";
     case "transfer-out": return billSubtype(text) === "rent" ? "bill" : "transfer";
-    default: return billSubtype(text) ? "bill" : "subscription";
+    default:
+      if (billSubtype(text)) return "bill";
+      // Money sent to a person (Zelle/Venmo) is "spend/p2p" in the shared taxonomy.
+      return subtype === "p2p" ? "transfer" : "subscription";
   }
+}
+
+const LOAN_SUBTYPES = new Set(["mortgage", "student", "auto", "personal"]);
+const TAX_SUBTYPES = new Set(["irs_estimated", "irs_federal", "state", "property"]);
+
+/**
+ * The shared classifier's subtypes are coarse for obligations ("tax",
+ * "loan"); refine them from the descriptor so the IRS calendar, loan
+ * servicer matching and must-pay labels work.
+ */
+export function refineSubtype(type: TxnType, subtype: string | null, text: string): string | null {
+  if (type === "obligation-tax") return (subtype && TAX_SUBTYPES.has(subtype) ? subtype : null) ?? taxSubtype(text) ?? subtype;
+  if (type === "obligation-loan") return (subtype && LOAN_SUBTYPES.has(subtype) ? subtype : null) ?? loanSubtype(text) ?? subtype;
+  if (type === "obligation-bill" || type === "spend") return billSubtype(text) ?? subtype;
+  return subtype;
 }
 
 /** Split a merchant group into amount clusters (±15% of the running cluster median). */
@@ -301,13 +328,14 @@ export function detectRecurringSeries(
   const today = opts.today ?? todayLocal(opts.timeZone ?? DEFAULT_TIME_ZONE);
   const since = addDays(today, -(opts.lookbackDays ?? 760));
   const pool = txns.filter(t => !t.pending && t.date >= since && t.date <= today);
-  const classifier = withOverrides(opts.classifier ?? createStubClassifier(), opts.overrides);
+  const classifier = withOverrides(opts.classifier ?? createSharedClassifier(), opts.overrides);
   const classes = classifier.classifyAll(pool, { accounts });
+  const accountById = new Map(accounts.map(a => [a.account_id, a] as const));
 
   const groups = new Map<string, Member[]>();
   for (const t of pool) {
     const c = classes.get(t.transaction_id);
-    if (!c || !isRecurringEligible(t, c, opts)) continue;
+    if (!c || !isRecurringEligible(t, c, opts, accountById.get(t.account_id))) continue;
     const direction: SeriesDirection = t.amount > 0 ? "outflow" : "inflow";
     const key = `${direction}|${merchantKey(t.name, t.merchant_name)}`;
     (groups.get(key) ?? groups.set(key, []).get(key)!).push({ t, c, key, direction });
@@ -322,9 +350,9 @@ export function detectRecurringSeries(
 
     const tryFit = (members: Member[], k: string): boolean => {
       const type = majority(members.map(m => m.c.txnType));
-      const subtype = members.map(m => m.c.subtype).find(Boolean) ?? null;
-      const dates = members.map(m => m.t.date);
       const text = `${members[0].t.name ?? ""} ${members[0].t.merchant_name ?? ""}`;
+      const subtype = refineSubtype(type, members.map(m => m.c.subtype).find(Boolean) ?? null, text);
+      const dates = members.map(m => m.t.date);
       const defaultShift: ShiftPolicy = members[0].direction === "inflow" ? "before" : "after";
       const fit = fitSchedule(dates, { allowIrs: type === "obligation-tax", defaultShift });
       if (fit) {
@@ -334,7 +362,7 @@ export function detectRecurringSeries(
       // One-off evidence that still implies a schedule.
       const lastM = members[members.length - 1];
       if (diffDays(today, lastM.t.date) > 400) return false;
-      const taxSub = type === "obligation-tax" ? subtype ?? taxSubtype(text) : null;
+      const taxSub = type === "obligation-tax" ? subtype : null;
       if (taxSub === "irs_estimated" && nearestIrsEstimatedDue(lastM.t.date).distance <= 10) {
         found.push({ members: [lastM], key: k, schedule: { cadence: "quarterly", kind: "irs-estimated", shift: "after" }, score: 0.5, single: true });
         return true;
@@ -365,11 +393,11 @@ export function detectRecurringSeries(
       const members = f.members;
       const type = majority(members.map(m => m.c.txnType));
       const subtypes = members.map(m => m.c.subtype).filter(Boolean) as string[];
-      const subtype = subtypes.length ? majority(subtypes) : null;
       const text = `${members[0].t.name ?? ""} ${members[0].t.merchant_name ?? ""}`;
-      const kind = kindFor(type, subtype ?? null, text);
-      const finalSubtype =
-        subtype ?? (kind === "tax" ? taxSubtype(text) : kind === "bill" ? billSubtype(text) : null) ?? (f.schedule.kind === "irs-estimated" ? "irs_estimated" : null);
+      const rawSubtype = subtypes.length ? majority(subtypes) : null;
+      const kind = kindFor(type, rawSubtype, text);
+      const refined = refineSubtype(type, rawSubtype, text);
+      const finalSubtype = f.schedule.kind === "irs-estimated" ? "irs_estimated" : refined;
       const model = amountModel(members.map(m => m.t.amount));
       const { occurrences, active, next } = buildOccurrences(
         f.schedule,
