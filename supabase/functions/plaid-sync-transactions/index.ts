@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { syncItemTransactions } from '../_shared/plaid-sync.ts';
+import { plaidErrorSummary, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
@@ -114,9 +115,12 @@ async function syncLiabilities(admin: any, userId: string, accessToken: string) 
     if (!res.ok) {
       // ADDITIONAL_CONSENT_REQUIRED means this item was linked before liabilities was
       // requested in Link — needs re-auth via update mode to grant that consent.
-      if (data.error_code !== 'ADDITIONAL_CONSENT_REQUIRED') console.warn('liabilities/get error:', data);
+      // Log only error_code / error_type / request_id: the body can contain account data.
+      if (data.error_code !== 'ADDITIONAL_CONSENT_REQUIRED') console.warn('liabilities/get error:', plaidErrorSummary(data));
       return;
     }
+
+    await upsertLoanDetails(admin, userId, data.liabilities); // never throws
 
     const creditCards = data.liabilities?.credit ?? [];
     if (!creditCards.length) return;

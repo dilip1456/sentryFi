@@ -2141,7 +2141,7 @@ const TxnDetailModal = ({
   // Detect recurring
   // Detect recurring. When opened from the Spending list the caller passes
   // the exact cadence that list shows; otherwise the same shared rules
-  // (src/lib/recurring.ts) are applied here, so the two never disagree
+  // (src/lib/recurring/spending-cadence.ts) are applied here, so the two never disagree
   // (e.g. a grocery store is never labelled "Quarterly").
   const recurringLabel = recurringFrequency !== undefined
     ? recurringFrequency
