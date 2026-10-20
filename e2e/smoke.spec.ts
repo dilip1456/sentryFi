@@ -53,11 +53,9 @@ test.describe("demo smoke", () => {
     await expect(page.getByText("$279,300.43")).toBeVisible();
   });
 
-  // KNOWN BUG: Budget's detected-income card says "<deposits> of last 12
-  // months" — it counts deposits, not months, so a biweekly paycheck reads
-  // e.g. "22 of last 12 months".
+  // Was a KNOWN BUG (counted deposits, not months: a biweekly paycheck read
+  // "22 of last 12 months"). BudgetPage now counts distinct months.
   test("Budget detected items never claim more than 12 of the last 12 months", async ({ page }) => {
-    test.fail(true, "KNOWN BUG: BudgetPage counts deposits, not months, in 'N of last 12 months'");
     await openDemo(page);
     await goTo(page, "Budget");
     const text = await page.locator("main").innerText();

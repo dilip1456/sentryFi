@@ -121,3 +121,31 @@ export function findDuplicateIds<T extends DupTxnLike>(txns: T[]): string[] {
   }
   return Array.from(removeIds);
 }
+
+// Possible duplicates — flagged for the user to review, NEVER deleted.
+// Two posted, native (Plaid) rows on the same account, date and amount with
+// the same vendor can be two real purchases (two coffees) or one charge the
+// bank reported twice; only the user can tell, so these are surfaced with a
+// "possible duplicate" note instead of being removed like the confident
+// artifacts above.
+export function findPossibleDuplicateIds<T extends DupTxnLike>(txns: T[]): string[] {
+  const buckets = new Map<string, T[]>();
+  for (const t of txns) {
+    const amount = Number(t.amount);
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    if (isImported(t) || t.pending) continue;
+    const vendor = normalizeVendor(t);
+    if (!vendor) continue;
+    const key = `${t.account_id}|${t.date}|${amount.toFixed(2)}`;
+    const arr = buckets.get(key);
+    if (arr) arr.push(t); else buckets.set(key, [t]);
+  }
+  const flagged = new Set<string>();
+  for (const rows of buckets.values()) {
+    if (rows.length < 2) continue;
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      if (vendorsMatch(normalizeVendor(rows[i]), normalizeVendor(rows[j]))) { flagged.add(rows[i].id); flagged.add(rows[j].id); }
+    }
+  }
+  return Array.from(flagged);
+}

@@ -7,9 +7,12 @@
  *   Mortgage 1500, unpaired Venmo (Transfer Out) 75, Credit Card Payment 300,
  *   internal checking→savings pair ±500, Salary −3000, plus Sep 30 Groceries 80.
  *
- * Today's numbers: Home "Spent this month" = $590, Spending "Total spent" = $1,865.
- *   Home    = 100 + 200 − 50 + 40 + 300 (counts the card payment, drops mortgage & Venmo)
- *   Spending = 100 + 200 − 50 + 40 + 1500 + 75 (drops the card payment)
+ * Shared definition (src/lib/classify): Home "Spent this month" = Spending
+ * "Total spent" = $1,865
+ *   = Groceries 100 + Shopping 200 − refund 50 + pending 40 + Mortgage 1500 + Venmo 75
+ *   excluded: Salary (income), the ±500 internal pair, Sep 30's 80, and the
+ *   $300 credit-card payment (the card's purchases are already counted).
+ * (Before the shared classifier, Home showed $590 = 100+200−50+40+300.)
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { screen } from "@testing-library/react";
@@ -67,10 +70,14 @@ describe("QA Home cash-flow strip (rendered)", () => {
       expect(withPendingSpend - (await spendingTotal())).toBe(40);
     } finally { octoberMix.splice(i, 0, pend); }
   });
-  // KNOWN BUG: Home counts a Credit Card Payment as spending (the card's own
-  // purchases are already counted) — double counting. Spending ignores it.
-  it.fails("KNOWN BUG Home must not count a credit-card payment as spend", async () => {
-    expect(await homeSpent()).toBe(590 - 300);
+  // Was a KNOWN BUG: Home counted the Credit Card Payment as spend (double
+  // counting). Removing the $300 payment row must not change Home's total.
+  it("Home does not count a credit-card payment as spend", async () => {
+    const withPayment = await homeSpent();
+    expect(withPayment).toBe(1865);
+    const i = octoberMix.findIndex(t => t.id === "ccpay");
+    const [cc] = octoberMix.splice(i, 1);
+    try { expect(await homeSpent()).toBe(withPayment); } finally { octoberMix.splice(i, 0, cc); }
   });
 });
 
@@ -91,12 +98,12 @@ describe("QA Spending page totals (rendered)", () => {
 });
 
 describe("QA Home vs Spending parity", () => {
-  // KNOWN BUG (the headline one): Home "Spent this month" and Spending "Total
-  // spent" (month view, current month) use different exclusion rules —
-  // Home drops Mortgage/Rent/Loan + anything named like a transfer but keeps
-  // Credit Card Payment; Spending does the opposite. $590 vs $1,865 here.
-  it.fails("KNOWN BUG Home 'Spent this month' === Spending 'Total spent' for the current month", async () => {
-    expect(await homeSpent()).toBe(await spendingTotal());
+  // Was the headline KNOWN BUG ($590 vs $1,865). Both screens now use the
+  // shared classifier.
+  it("Home 'Spent this month' === Spending 'Total spent' for the current month", async () => {
+    const home = await homeSpent();
+    expect(home).toBe(await spendingTotal());
+    expect(home).toBe(1865);
   });
 });
 

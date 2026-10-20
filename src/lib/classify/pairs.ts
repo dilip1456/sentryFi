@@ -1,0 +1,118 @@
+/**
+ * Internal-transfer matcher (stage 3). Every linked account belongs to the
+ * user, so an exact opposite-amount pair on two different linked accounts a
+ * few days apart is money moving between them — provided the evidence says
+ * "transfer" and not "two unrelated purchases that happen to match".
+ */
+import type { ClassifierAccount, ClassifierTxn } from "./types.ts";
+import { BROKERAGE_RE, CARD_RECEIVED_PAYMENT_RE, TRANSFER_TEXT_RE, descriptor, namesSelf } from "./patterns.ts";
+
+export interface PairLink { pairId: string; leg: "out" | "in"; score: number }
+
+export interface PairOptions {
+  windowDays?: number;     // max calendar-day gap between legs (default 3; 5 when a brokerage is involved)
+  threshold?: number;      // min evidence score (default 0.6)
+  selfNames?: string[];
+}
+
+const DAY = 86400000;
+const dayNum = (d: string) => Math.round(new Date(d + "T00:00:00Z").getTime() / DAY);
+
+const isTransferPfc = (t: ClassifierTxn) =>
+  /^TRANSFER_(IN|OUT)_(ACCOUNT_TRANSFER|SAVINGS|INVESTMENT_AND_RETIREMENT_FUNDS)$|^LOAN_PAYMENTS_/i.test(t.pfc_detailed ?? "");
+const isTransferCategory = (t: ClassifierTxn) =>
+  /transfer|credit card|payment|savings/i.test((t.category ?? []).join(" "));
+const looksLikePurchase = (t: ClassifierTxn) => {
+  const pfc = (t.pfc_primary ?? t.pfc_detailed ?? "").toUpperCase();
+  const spendPfc = !!pfc && !/^(TRANSFER|LOAN_PAYMENTS|INCOME|BANK_FEES)/.test(pfc);
+  return spendPfc && !!t.merchant_name && !TRANSFER_TEXT_RE.test(descriptor(t));
+};
+
+/** Evidence score for an (outflow, inflow) candidate pair. */
+export function pairScore(
+  out: ClassifierTxn, inn: ClassifierTxn,
+  acct: (id: string) => ClassifierAccount | undefined,
+  selfNames: string[] = [],
+): number {
+  let s = 0;
+  // Each leg must look like money movement on its own (PFC, category, or
+  // wording) — a transfer-looking deposit alone can't drag an ordinary bill
+  // on another account into a pair.
+  const outText = descriptor(out), inText = descriptor(inn);
+  const legLooksLikeTransfer = (t: ClassifierTxn, text: string) =>
+    isTransferPfc(t) || isTransferCategory(t) || TRANSFER_TEXT_RE.test(text) || BROKERAGE_RE.test(text);
+  if (legLooksLikeTransfer(out, outText)) s += 0.3;
+  if (legLooksLikeTransfer(inn, inText)) s += 0.3;
+  const src = acct(out.account_id), dst = acct(inn.account_id);
+  // Descriptor references the other account (mask / name) or the user.
+  const refs = (text: string, a?: ClassifierAccount) =>
+    !!a && ((!!a.mask && new RegExp(`(x|\\*|\\.{2}|#|\\b)${a.mask}\\b`, "i").test(text)) || (!!a.name && a.name.length >= 4 && text.toLowerCase().includes(a.name.toLowerCase())));
+  if (refs(outText, dst) || refs(inText, src) || namesSelf(outText, selfNames) || namesSelf(inText, selfNames)) s += 0.4;
+  if ((dst?.type === "credit" || dst?.type === "loan") && src?.type === "depository") s += 0.3;
+  if (dst?.type === "credit" && CARD_RECEIVED_PAYMENT_RE.test(inText)) s += 0.2;
+  if (src?.item_id && src.item_id === dst?.item_id) s += 0.1;
+  if (looksLikePurchase(out)) s -= 0.5;
+  if (looksLikePurchase(inn)) s -= 0.5;
+  return Math.round(s * 100) / 100;
+}
+
+/**
+ * Find linked-account transfer pairs. Greedy by best score, then closest
+ * date; a leg whose best match is (nearly) tied with another candidate is
+ * left unpaired (ambiguous → review) rather than guessed. Order-independent:
+ * the result never depends on the order rows arrive in.
+ */
+export function matchInternalTransfers(
+  txns: ClassifierTxn[],
+  accounts: ClassifierAccount[] = [],
+  opts: PairOptions = {},
+): Map<string, PairLink> {
+  const baseWindow = opts.windowDays ?? 3;
+  const threshold = opts.threshold ?? 0.6;
+  const byId = new Map(accounts.map(a => [a.account_id, a]));
+  const acct = (id: string) => byId.get(id);
+  const linked = (t: ClassifierTxn) => byId.size === 0 || byId.has(t.account_id);
+
+  const buckets = new Map<string, { out: ClassifierTxn[]; inn: ClassifierTxn[] }>();
+  for (const t of txns) {
+    if (t.pending) continue;
+    const amt = Number(t.amount);
+    if (!Number.isFinite(amt) || amt === 0 || !linked(t)) continue;
+    const key = Math.abs(amt).toFixed(2);
+    const b = buckets.get(key) ?? { out: [], inn: [] };
+    (amt > 0 ? b.out : b.inn).push(t);
+    buckets.set(key, b);
+  }
+
+  type Edge = { out: ClassifierTxn; inn: ClassifierTxn; score: number; gap: number };
+  const edges: Edge[] = [];
+  for (const { out, inn } of buckets.values()) {
+    if (!out.length || !inn.length) continue;
+    for (const o of out) for (const i of inn) {
+      if (o.account_id === i.account_id) continue;
+      const gap = Math.abs(dayNum(o.date) - dayNum(i.date));
+      const brokerage = BROKERAGE_RE.test(descriptor(o)) || BROKERAGE_RE.test(descriptor(i)) ||
+        acct(o.account_id)?.type === "investment" || acct(i.account_id)?.type === "investment";
+      if (gap > (brokerage ? Math.max(baseWindow, 5) : baseWindow)) continue;
+      const score = pairScore(o, i, acct, opts.selfNames);
+      if (score >= threshold) edges.push({ out: o, inn: i, score, gap });
+    }
+  }
+  edges.sort((a, b) => b.score - a.score || a.gap - b.gap);
+
+  const used = new Set<string>();
+  const result = new Map<string, PairLink>();
+  for (let k = 0; k < edges.length; k++) {
+    const e = edges[k];
+    if (used.has(e.out.id) || used.has(e.inn.id)) continue;
+    // Ambiguity: another still-available edge sharing a leg with the same
+    // score and a date within a day of this one — too close to call.
+    const tie = edges.some((f, j) => j !== k && f.score === e.score && Math.abs(f.gap - e.gap) <= 1 &&
+      (f.out.id === e.out.id || f.inn.id === e.inn.id) && !used.has(f.out.id) && !used.has(f.inn.id));
+    if (tie) { used.add(e.out.id); used.add(e.inn.id); continue; }
+    used.add(e.out.id); used.add(e.inn.id);
+    result.set(e.out.id, { pairId: e.inn.id, leg: "out", score: e.score });
+    result.set(e.inn.id, { pairId: e.out.id, leg: "in", score: e.score });
+  }
+  return result;
+}

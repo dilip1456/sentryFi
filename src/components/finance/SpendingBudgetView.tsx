@@ -645,7 +645,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi === -1) continue;
       if (!out[cat]) out[cat] = new Array(monthBuckets.length).fill(0);
-      out[cat][bi] += Math.abs(Number(t.amount));
+      out[cat][bi] -= Number(t.amount); // signed: a payroll reversal nets income down (shared definition)
     }
     return out;
   }, [txns, internalTxnIds, monthBuckets, lastIdx, isIncomeCategory, getEffectiveCategory, ignoredCategories]);
@@ -733,7 +733,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (internalTxnIds.has(t.id)) continue;
       if (t.date < activeRange.start || t.date > activeRange.end) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
-      if (isIncomeCategory(cat, Number(t.amount))) total += Math.abs(Number(t.amount));
+      if (isIncomeCategory(cat, Number(t.amount))) total -= Number(t.amount); // signed, matches Home
     }
     return total;
   }, [txns, internalTxnIds, activeRange, getEffectiveCategory, isIncomeCategory]);
@@ -898,7 +898,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat) || !isIncomeCategory(cat, Number(t.amount))) continue;
-      map[cat] = (map[cat] ?? 0) + Math.abs(Number(t.amount));
+      map[cat] = (map[cat] ?? 0) - Number(t.amount);
     }
     return Object.entries(map)
       .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
