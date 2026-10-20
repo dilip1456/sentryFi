@@ -78,7 +78,7 @@ async function syncAccounts(admin: any, itemRowId: string, userId: string, acces
       }),
     });
     const data = await res.json();
-    if (!res.ok) { console.warn('accounts/get error:', data); return; }
+    if (!res.ok) { console.warn('accounts/get error:', plaidErrorSummary(data, res.status)); return; }
     const rows = (data.accounts ?? []).map((a: any) => ({
       user_id: userId,
       item_id: itemRowId,

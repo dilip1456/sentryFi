@@ -524,7 +524,8 @@ Deno.serve(async (req) => {
 
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) {
-      console.error('[analyze-finances] No JSON array in Groq response:', text.slice(0, 500));
+      // The AI reply is derived from the user's transactions; log only its size.
+      console.error('[analyze-finances] No JSON array in Groq response (chars):', text.length);
       return json({ error: 'Invalid AI response format' }, 500);
     }
 

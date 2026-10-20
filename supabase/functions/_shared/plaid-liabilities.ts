@@ -106,12 +106,5 @@ export async function upsertLoanDetails(admin: UpsertClient, userId: string, lia
   }
 }
 
-/**
- * The only Plaid error fields that are safe to log. A /liabilities/get body
- * can carry accounts, balances, names and addresses, so never log it whole.
- */
-export function plaidErrorSummary(body: unknown): { error_code: string | null; error_type: string | null; request_id: string | null } {
-  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
-  const str = (v: unknown) => (typeof v === 'string' ? v : null);
-  return { error_code: str(b.error_code), error_type: str(b.error_type), request_id: str(b.request_id) };
-}
+// Re-exported so existing imports keep working; the helper lives in plaid-errors.ts.
+export { plaidErrorSummary } from './plaid-errors.ts';

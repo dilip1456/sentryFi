@@ -122,7 +122,7 @@ export async function syncItemTransactions(
         const data = await res.json();
         if (!res.ok) {
           if (data?.error_code === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" && attempts < 3) throw new RestartSync();
-          throw new Error(`transactions/sync ${data?.error_code ?? res.status}: ${data?.error_message ?? ""}`);
+          throw new Error(`transactions/sync ${data?.error_code ?? res.status} (request_id ${data?.request_id ?? "n/a"})`);
         }
         const changed = dedupeByTransactionId([...(data.added ?? []), ...(data.modified ?? [])]);
         if (changed.length) {

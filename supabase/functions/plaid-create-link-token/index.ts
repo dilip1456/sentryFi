@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 import { getCallerUser } from "../_shared/auth.ts";
+import { plaidErrorSummary } from "../_shared/plaid-errors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,8 +77,8 @@ Deno.serve(async (req) => {
 
     const data = await res.json();
     if (!res.ok) {
-      console.error("Plaid link token error", data);
-      return new Response(JSON.stringify({ error: data.error_message || data }), {
+      console.error("Plaid link token error", plaidErrorSummary(data, res.status));
+      return new Response(JSON.stringify({ error: data.error_message || "Plaid error", error_code: data.error_code ?? null }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
