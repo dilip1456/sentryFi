@@ -48,3 +48,8 @@ supabase/.temp
 *.pfx
 *.b64
 RELEASE_KEYSTORE_CREDENTIALS.txt
+
+# Playwright (QA harness)
+playwright-report/
+test-results/
+blob-report/
