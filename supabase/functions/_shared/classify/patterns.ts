@@ -8,11 +8,49 @@ export const DIVIDEND_RE = /\bdividend|\bdiv\s+(paid|credit)\b/i;
 export const TAX_RE = /\birs\b|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
 export const TAX_REFUND_RE = /tax\s+ref(und)?|\btreas\s+310\b|irs\s+treas\s+310/i;
 /**
- * Person-to-person payment apps. PayPal only counts when the descriptor says
- * it's a transfer ("PAYPAL INST XFER", "PayPal transfer to …"): a plain
- * "PAYPAL *NETFLIX" is checkout at a merchant, i.e. ordinary spending.
+ * Person-to-person payment apps (descriptor evidence only; see
+ * isPersonToPerson for the full test). PayPal needs transfer wording right
+ * after it ("PAYPAL INST XFER", "PayPal transfer to …", "PayPal sent money"),
+ * so "PAYPAL *NETFLIX", "PAYPAL *MONEY LION" and "PAYPAL *SEND GRID" (a
+ * merchant name that happens to contain money/send) never match.
  */
-export const P2P_RE = /\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\b(?=.*\b(inst(ant)?\s+xfer|xfer|transfer|p2p|send|sent|received|money)\b)|apple\s+cash|\bp2p\b/i;
+export const P2P_RE = /\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\s+(inst(ant)?\s+xfer|xfer|transfer|p2p|sent|received|send\s+money|money\s+(sent|received))\b|apple\s+cash|\bp2p\b/i;
+
+/** merchant_name values that are just the P2P app, not a real merchant. */
+const P2P_APP_MERCHANT_RE = /^(venmo|zelle|cash\s?app|square\s+cash|paypal|apple\s+cash)$/i;
+/**
+ * Checkout through a P2P app: "CASH APP*STARBUCKS" (Cash Card purchase),
+ * "PAYPAL *NETFLIX", "PAYPAL INST XFER 2389 NETFLIX.COM" (bank-funded PayPal
+ * purchase naming the merchant's domain).
+ */
+const P2P_APP_PURCHASE_RE = /\b(cash\s?app|paypal)\s*\*|\bpaypal\b.*\b[a-z0-9-]+\.(com|net|org|io|co|tv|app)\b/i;
+
+/**
+ * Money sent to / received from another person through a P2P app. True only
+ * when the descriptor names a P2P app AND nothing says it's a merchant
+ * purchase:
+ *   - merchant_name is empty (or just the app's own name, e.g. "Venmo"),
+ *   - Plaid isn't confident it's a purchase: its PFC primary is
+ *     TRANSFER_IN/TRANSFER_OUT, or a non-transfer category below HIGH,
+ *   - it isn't app checkout ("CASH APP*<merchant>", "PAYPAL *<merchant>",
+ *     a merchant domain), unless Plaid files it as a transfer,
+ *   - it isn't employer payroll.
+ * Payments to the user's own name / linked accounts are caught earlier
+ * (pairs, namesSelf) as transfer_internal.
+ */
+export function isPersonToPerson(t: {
+  name: string | null; merchant_name: string | null;
+  pfc_primary?: string | null; pfc_confidence?: string | null;
+}): boolean {
+  const text = descriptor(t);
+  if (!P2P_RE.test(text) || EMPLOYER_ACH_RE.test(text)) return false;
+  const merchant = (t.merchant_name ?? "").trim();
+  if (merchant && !P2P_APP_MERCHANT_RE.test(merchant)) return false;
+  const transferPfc = /^TRANSFER_(IN|OUT)$/i.test(t.pfc_primary ?? "");
+  if (t.pfc_primary && !transferPfc && /^(HIGH|VERY_HIGH)$/i.test(t.pfc_confidence ?? "")) return false;
+  if (!transferPfc && P2P_APP_PURCHASE_RE.test(t.name ?? "")) return false;
+  return true;
+}
 export const BROKERAGE_RE =
   /\b(robinhood|fidelity|vanguard|schwab|e\s?\*?\s?trade|webull|m1\s+finance|acorns|betterment|wealthfront|stash|public\.com|interactive\s+brokers|merrill\s+edge|td\s+ameritrade|ally\s+invest|sofi\s+invest|coinbase|firstrade|tastytrade)\b/i;
 export const SAVINGS_SWEEP_RE =

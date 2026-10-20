@@ -12,7 +12,7 @@ import { mapPfc, pfcTrusted } from "./pfc.ts";
 import { matchInternalTransfers, type PairLink } from "./pairs.ts";
 import {
   BROKERAGE_RE, CARD_ISSUER_PAYMENT_RE, CARD_RECEIVED_PAYMENT_RE, DIVIDEND_RE, INTEREST_RE, LOAN_RE,
-  EMPLOYER_ACH_RE, P2P_RE, PAYROLL_RE, SAVINGS_SWEEP_RE, TAX_RE, TAX_REFUND_RE, descriptor, namesSelf,
+  PAYROLL_RE, SAVINGS_SWEEP_RE, TAX_RE, TAX_REFUND_RE, descriptor, isPersonToPerson, namesSelf,
 } from "./patterns.ts";
 
 const SAVINGS_ROLES = new Set(["buffer", "reserve", "savings_goal", "investment"]);
@@ -38,6 +38,7 @@ export function classifyOne(
 ): Classification {
   const amt = signed(t);
   const text = descriptor(t);
+  const p2p = isPersonToPerson(t);
   const accounts = ctx.accounts ?? [];
   const acct = accounts.find(a => a.account_id === t.account_id);
   const notInternal = ctx.notInternalIds?.has(t.id) ?? false;
@@ -117,17 +118,19 @@ export function classifyOne(
       if ((type === "spend" || type.startsWith("obligation_")) && amt < 0) type = "refund";
       // P2P (Venmo, Zelle, Cash App, PayPal transfers) with other people is a
       // transfer, not spending or income; only the user can say otherwise.
-      if (P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text) && (type === "spend" || type === "income_other")) type = amt > 0 ? "transfer_out" : "transfer_in";
+      // isPersonToPerson already refuses when Plaid is confident it's a
+      // purchase or there's a real merchant, so Plaid wins in those cases.
+      if (p2p && (type === "spend" || type === "income_other")) type = amt > 0 ? "transfer_out" : "transfer_in";
       if (type === "savings_contribution" && amt < 0) type = "transfer_internal";
-      const p2p = P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text) && (type === "transfer_out" || type === "transfer_in");
-      return { type, subtype: p2p ? "p2p" : m.subtype, source: "pfc", reason: `Plaid: ${t.pfc_detailed.toLowerCase().replace(/_/g, " ")}` };
+      const isP2pTransfer = p2p && (type === "transfer_out" || type === "transfer_in");
+      return { type, subtype: isP2pTransfer ? "p2p" : m.subtype, source: "pfc", reason: `Plaid: ${t.pfc_detailed.toLowerCase().replace(/_/g, " ")}` };
     }
   }
 
   // 6. Pattern library.
   // P2P with other people: money sent/received, not spending or income.
   // (P2P with the user themself was caught above as transfer_internal.)
-  if (P2P_RE.test(text) && !EMPLOYER_ACH_RE.test(text)) {
+  if (p2p) {
     return amt > 0
       ? { type: "transfer_out", subtype: "p2p", source: "pattern", reason: "Money sent to someone (not counted as spending)" }
       : { type: "transfer_in", subtype: "p2p", source: "pattern", reason: "Money received from someone (not counted as income)" };

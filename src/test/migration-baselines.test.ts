@@ -34,3 +34,13 @@ describe.each(["user_settings", "alert_log", "alert_preferences"])("baseline for
     expect(sql).not.toMatch(/GRANT[^;]*TO[^;]*\banon\b/i);
   });
 });
+
+describe("pg_cron migrations skip cleanly without pg_cron (fresh supabase db reset)", () => {
+  it.each(files.filter(f => /\bcron\.(schedule|unschedule|job)\b/.test(read(f).replace(/--.*$/gm, ""))))("%s", (f) => {
+    const sql = read(f).replace(/--.*$/gm, "");
+    const guard = sql.search(/IF NOT EXISTS \(SELECT 1 FROM pg_extension WHERE extname = 'pg_cron'\) THEN[\s\S]*?RETURN;/);
+    const firstUse = sql.search(/\bcron\.(schedule|unschedule|job)\b/);
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(guard).toBeLessThan(firstUse);
+  });
+});

@@ -1,4 +1,5 @@
 import { getCallerUser } from "../_shared/auth.ts";
+import { summarizeFailedResponse } from "../_shared/http-errors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,11 +57,11 @@ If nothing is wrong return: {"suggestions":[]}`;
       }),
     });
 
-    const rawText = await res.text();
     if (!res.ok) {
-      console.error("[ai-categorize] Groq error:", res.status, rawText.slice(0, 300));
+      console.error("[ai-categorize] Groq error:", await summarizeFailedResponse(res));
       return json({ error: "AI categorization is temporarily unavailable" }, 502);
     }
+    const rawText = await res.text();
 
     const data = JSON.parse(rawText);
     const text = data.choices?.[0]?.message?.content ?? "";
