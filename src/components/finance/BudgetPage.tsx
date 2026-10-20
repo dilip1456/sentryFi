@@ -1742,7 +1742,7 @@ export function BudgetPage({
                                         className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-muted/20 transition-colors">
                                         <div className="flex-1 min-w-0">
                                           <p className="text-[11.5px] text-foreground truncate">{t.merchant_name ?? t.name ?? "Transaction"}</p>
-                                          <p className="text-[10px] text-muted-foreground truncate">{t.date}{accountLabel(accounts, t.account_id) ? ` · ${accountLabel(accounts, t.account_id)}` : ""}</p>
+                                          <p className="text-[10px] text-muted-foreground truncate">{fmtShortDate(t.date)}{accountLabel(accounts, t.account_id) ? ` · ${accountLabel(accounts, t.account_id)}` : ""}</p>
                                         </div>
                                         <span className="text-[11.5px] font-medium tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
                                         <ChevronRight className="h-3 w-3 text-muted-foreground/30 shrink-0"/>
@@ -1820,7 +1820,7 @@ export function BudgetPage({
                         .map(t => (
                           <div key={t.id} className="flex items-center gap-2 px-2.5 py-1.5">
                             <span className="text-[11.5px] text-foreground truncate flex-1 min-w-0">{t.merchant_name ?? t.name ?? "Transaction"}</span>
-                            <span className="text-[10px] text-muted-foreground shrink-0">{t.date}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{fmtShortDate(t.date)}</span>
                             <span className="text-[11.5px] font-medium tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
                             <button onClick={()=>removeTxnFromRecurringGroup(g.id, t.id)} aria-label="Remove from this entry"
                               className="text-muted-foreground/50 hover:text-negative shrink-0"><X className="h-3 w-3"/></button>

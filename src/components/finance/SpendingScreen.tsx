@@ -23,6 +23,7 @@ import type { CategoryOverrides } from "@/hooks/useCategoryOverrides";
 import type { CategoryRule } from "@/hooks/useCategoryRules";
 import type { CustomCategory } from "@/hooks/useCustomCategories";
 import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
+import { fmtShortDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────
 type PTxn = {
@@ -236,7 +237,7 @@ const TxnRow = ({ t, i, effCat, onRecat }: {
       <div className="min-w-0">
         <div className="text-[13px] text-foreground truncate leading-tight">{t.merchant_name ?? t.name ?? "Transaction"}</div>
         <div className="text-[12px] text-muted-foreground flex items-center gap-1">
-          <span>{new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          <span>{fmtShortDate(t.date)}</span>
           {display && <>
             <span>·</span>
             <button onClick={() => onRecat(t)}

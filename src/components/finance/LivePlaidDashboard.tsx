@@ -54,6 +54,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { fmtDayDate, fmtShortDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────
 type PAccount = {
@@ -991,7 +992,7 @@ const generateActions = (
       items.push({
         id: `large-txn-${t.id}`, priority: "info",
         title: `Large charge: ${fmtUSD(Number(t.amount))}`,
-        detail: `${t.merchant_name ?? t.name ?? "Unknown merchant"} on ${new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}${big.length > 1 ? ` (+${big.length-1} more)` : ""}.`,
+        detail: `${t.merchant_name ?? t.name ?? "Unknown merchant"} on ${fmtShortDate(t.date)}${big.length > 1 ? ` (+${big.length-1} more)` : ""}.`,
         cta: "Review", icon: AlertTriangle, reviewCategory: getEffectiveCategory(t, overrides, getRuleCategory) ?? undefined,
       });
     }
@@ -1065,7 +1066,7 @@ const generateActions = (
         items.push({
           id: `month-large-${top.id}`, priority: "info",
           title: `Biggest expense this month: ${fmtUSD(Number(top.amount))}`,
-          detail: `${top.merchant_name ?? top.name ?? "Unknown"} on ${new Date(top.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}, well above your typical spend.`,
+          detail: `${top.merchant_name ?? top.name ?? "Unknown"} on ${fmtShortDate(top.date)}, well above your typical spend.`,
           cta: "Review", icon: TrendingUp, reviewCategory: getEffectiveCategory(top, overrides, getRuleCategory) ?? undefined,
         });
       }
@@ -1411,7 +1412,7 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, 
           {t.pending && <span className="text-[12px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
         </div>
         <div className="text-[12px] text-muted-foreground flex items-center gap-1 mt-0.5">
-          <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+          <span>{fmtShortDate(t.date)}</span>
           {displayCat && !isInternal && <>
             <span className="text-muted-foreground/30">·</span>
             <button onClick={e=>{e.stopPropagation();onOpenDetailCat(t);}}
@@ -2408,7 +2409,7 @@ const TxnDetailModal = ({
   };
 
   const amt = Math.abs(Number(txn.amount));
-  const dateStr = new Date(txn.date+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  const dateStr = fmtDayDate(txn.date);
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -3001,7 +3002,7 @@ const SpendingCatPopup = ({ cat, txns, accounts, nameOverrides, onClose, onOpenD
                     {nameOverrides[t.id] ?? t.merchant_name ?? t.name}
                   </div>
                   <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                    <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                    <span>{fmtShortDate(t.date)}</span>
                     {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
                   </div>
                 </div>
@@ -3224,7 +3225,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         {credit?.next_payment_due_date && (
           <Mini
             label="Due date"
-            value={new Date(credit.next_payment_due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            value={fmtShortDate(credit.next_payment_due_date)}
             tone={credit.is_overdue ? "negative" : "info"}
           />
         )}
@@ -3265,7 +3266,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         <div className="inline-flex items-center gap-1.5 chip chip-positive">
           <Sparkles className="h-3 w-3" />
           {daysUntilPromoEnd != null && daysUntilPromoEnd > 0
-            ? `0% APR · ${daysUntilPromoEnd}d remaining${meta.promoEndDate ? ` (${new Date(meta.promoEndDate).toLocaleDateString("en-US",{month:"short",day:"numeric"})})` : ""}`
+            ? `0% APR · ${daysUntilPromoEnd}d remaining${meta.promoEndDate ? ` (${fmtShortDate(meta.promoEndDate)})` : ""}`
             : "0% APR active"}
         </div>
       )}
@@ -4140,7 +4141,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                       <div className="flex-1 min-w-0">
                         <p className="text-[12.5px] text-foreground truncate">{name}</p>
                         <p className="text-[11px] text-muted-foreground">
-                          {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {fmtShortDate(t.date)}
                           {t.pending && <span className="ml-1.5 text-warning">· Pending</span>}
                         </p>
                       </div>
@@ -5828,7 +5829,7 @@ export const LivePlaidDashboard = ({
                             <Receipt className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                              <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                              <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                             </div>
                             <span className="text-[13px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
                           </div>
@@ -5957,7 +5958,7 @@ export const LivePlaidDashboard = ({
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                              <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                              <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                             </div>
                             <span className={cn("text-[13px] tabular font-medium shrink-0",isInc?"text-positive":"text-foreground")}>
                               {isInc?"+":"−"}{fmtUSD(Math.abs(Number(t.amount)),{cents:true})}
@@ -6073,7 +6074,7 @@ export const LivePlaidDashboard = ({
                           <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                            <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                            <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                           </div>
                           <span className="text-[13px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
                         </div>
@@ -6613,7 +6614,7 @@ export const LivePlaidDashboard = ({
                     <div className="flex-1 min-w-0">
                       <div className="text-[14px] font-medium text-foreground truncate">{nameOverrides[t.id] ?? t.merchant_name ?? t.name}</div>
                       <div className="text-[12px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                        <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                        <span>{fmtShortDate(t.date)}</span>
                         {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
                         {t.pending && <span className="text-warning font-medium">· Pending</span>}
                       </div>
