@@ -93,54 +93,66 @@ function lastWeekday(y: number, m: number, wd: number): ISODate {
   return addDays(last, -back);
 }
 
-/** Saturday holidays are observed Friday, Sunday holidays Monday. */
-function observed(d: ISODate): ISODate {
+/**
+ * Which holiday calendar to use.
+ *
+ * - `bank` (default): Federal Reserve / bank holidays. A Sunday holiday is
+ *   observed the following Monday; a Saturday holiday is NOT observed, and
+ *   the Fed and banks are open the Friday before (e.g. Fri 2026-07-03,
+ *   Fri 2027-12-31). Used for payroll and bill posting dates.
+ * - `irs`: "legal holidays" for IRS deadlines (IRC §7503 → §7701(a)(25)):
+ *   DC legal holidays, which include DC Emancipation Day (Apr 16). DC
+ *   observes a Saturday holiday on the Friday before and a Sunday holiday on
+ *   the Monday after. That Friday is why the 2022 April deadline moved to
+ *   Apr 18: Emancipation Day (Sat Apr 16) was observed Fri Apr 15.
+ */
+export type HolidayCalendar = "bank" | "irs";
+
+function observedFor(d: ISODate, calendar: HolidayCalendar): ISODate | null {
   const wd = weekday(d);
-  if (wd === 6) return addDays(d, -1);
-  if (wd === 0) return addDays(d, 1);
+  if (wd === 0) return addDays(d, 1); // Sunday → Monday (both calendars)
+  if (wd === 6) return calendar === "irs" ? addDays(d, -1) : null; // Saturday: DC → Friday; Fed → none
   return d;
 }
 
 const holidayCache = new Map<string, Set<ISODate>>();
 
-/**
- * Observed US federal (Federal Reserve) holidays for a year. With
- * `includeDcEmancipation` the DC Emancipation Day (Apr 16, observed) is added,
- * which the IRS honours when shifting the April deadline.
- */
-export function usFederalHolidays(y: number, includeDcEmancipation = false): Set<ISODate> {
-  const key = `${y}:${includeDcEmancipation}`;
+/** Observed holidays falling in calendar year `y` for the given calendar. */
+export function usFederalHolidays(y: number, calendar: HolidayCalendar = "bank"): Set<ISODate> {
+  const key = `${y}:${calendar}`;
   const hit = holidayCache.get(key);
   if (hit) return hit;
+  const fixedDates = (yr: number) => {
+    const list = [ymd(yr, 1, 1), ymd(yr, 6, 19), ymd(yr, 7, 4), ymd(yr, 11, 11), ymd(yr, 12, 25)];
+    if (calendar === "irs") list.push(ymd(yr, 4, 16)); // DC Emancipation Day
+    return list;
+  };
   const s = new Set<ISODate>([
-    observed(ymd(y, 1, 1)),
     nthWeekday(y, 1, 1, 3), // MLK
     nthWeekday(y, 2, 1, 3), // Presidents
     lastWeekday(y, 5, 1), // Memorial
-    observed(ymd(y, 6, 19)), // Juneteenth
-    observed(ymd(y, 7, 4)),
     nthWeekday(y, 9, 1, 1), // Labor
     nthWeekday(y, 10, 1, 2), // Columbus / Indigenous Peoples'
-    observed(ymd(y, 11, 11)),
     nthWeekday(y, 11, 4, 4), // Thanksgiving
-    observed(ymd(y, 12, 25)),
   ]);
-  // New Year's of the following year can be observed on Dec 31 of this one.
-  const nextNy = observed(ymd(y + 1, 1, 1));
-  if (nextNy.startsWith(`${y}-`)) s.add(nextNy);
-  if (includeDcEmancipation) s.add(observed(ymd(y, 4, 16)));
+  // Fixed-date holidays of this year and next (Jan 1 on a Saturday is observed Dec 31 on the IRS calendar).
+  for (const d of [...fixedDates(y), ...fixedDates(y + 1)]) {
+    const o = observedFor(d, calendar);
+    if (o && o.startsWith(`${y}-`)) s.add(o);
+  }
   holidayCache.set(key, s);
   return s;
 }
 
 export interface BusinessDayOptions {
-  includeDcEmancipation?: boolean;
+  /** Holiday calendar; defaults to `bank` (Federal Reserve). */
+  calendar?: HolidayCalendar;
 }
 
 export function isBusinessDay(d: ISODate, opts: BusinessDayOptions = {}): boolean {
   const wd = weekday(d);
   if (wd === 0 || wd === 6) return false;
-  return !usFederalHolidays(parseDate(d).y, opts.includeDcEmancipation).has(d);
+  return !usFederalHolidays(parseDate(d).y, opts.calendar ?? "bank").has(d);
 }
 
 export type ShiftPolicy = "none" | "before" | "after";
@@ -163,7 +175,7 @@ export interface IrsEstimatedDue {
   quarter: EstimatedQuarter;
   /** Statutory date before any weekend/holiday shift. */
   nominal: ISODate;
-  /** Actual due date (next business day; DC Emancipation Day counts). */
+  /** Actual due date: next day that is not a Saturday, Sunday or DC legal holiday (IRC §7503). */
   due: ISODate;
 }
 
@@ -179,7 +191,7 @@ export function irsEstimatedDueDates(taxYear: number): IrsEstimatedDue[] {
     taxYear,
     quarter,
     nominal,
-    due: shiftToBusinessDay(nominal, "after", { includeDcEmancipation: true }),
+    due: shiftToBusinessDay(nominal, "after", { calendar: "irs" }),
   }));
 }
 

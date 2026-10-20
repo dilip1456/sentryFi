@@ -86,7 +86,7 @@ function monthIndex(d: ISODate): number {
 export function scheduleDates(s: Schedule, from: ISODate, to: ISODate, shiftOverride?: ShiftPolicy): ScheduledDate[] {
   const out: ScheduledDate[] = [];
   const shift = shiftOverride ?? s.shift;
-  const push = (nominal: ISODate, period?: string, label?: string, opts?: { includeDcEmancipation?: boolean }) => {
+  const push = (nominal: ISODate, period?: string, label?: string, opts?: { calendar?: "bank" | "irs" }) => {
     const expected = shiftToBusinessDay(nominal, shift, opts);
     if (expected >= from && expected <= to) out.push({ nominal, expected, period: period ?? nominal, label });
   };
