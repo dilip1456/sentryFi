@@ -32,6 +32,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
+import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
@@ -163,6 +164,53 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     );
   };
 
+  // Header controls shared by Home-style page headers (also rendered in
+  // Spending's own full-bleed header so the two match).
+  const topButtons = (
+    <div className="flex items-center gap-2">
+      {!effectiveDemo && guestDemo && (
+        <button onClick={() => navigate("/auth")}
+          className="bg-gold h-9 px-4 rounded-lg text-[14px] mr-1">
+          Create free account
+        </button>
+      )}
+      {!effectiveDemo && hasItems === true && (
+        <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
+          title="Sync data"
+          className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-50">
+          <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+        </button>
+      )}
+      {user && (
+        <button onClick={() => setShowInbox(true)}
+          title="Notifications"
+          className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      )}
+      {user && !guestDemo && (
+        <button onClick={() => signOut().then(() => navigate("/welcome"))}
+          title="Sign out"
+          className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-negative hover:border-negative/40 transition-colors">
+          <LogOut className="h-4 w-4" />
+        </button>
+      )}
+      {user && !guestDemo && (
+        <button onClick={() => setShowProfile(true)} title="Profile & settings"
+          className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
+          {profile?.avatar_url
+            ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+            : <span className="text-[14px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-[100dvh] bg-background flex overflow-hidden">
 
@@ -273,11 +321,20 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
 
         {/* Mobile header */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0">
+        {/* viewport-fit=cover (index.html) lets the app draw under the status
+            bar / display cutout in the Capacitor WebView, so the header pads
+            itself by the top safe-area inset (0 in a normal browser tab). */}
+        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background/95 backdrop-blur shrink-0"
+          style={{
+            paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}>
           <button onClick={() => go("overall")} className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
-              {effectiveDemo ? "Demo" : (view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi"))}
+              {/* Always the current page's name; demo mode is already signalled by the banner below. */}
+              {view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi")}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
@@ -316,7 +373,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               {headerMenuOpen && createPortal(
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div className="fixed top-14 right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
+                  <div style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
@@ -414,6 +471,17 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
+          {/* Spending / Budget — full-bleed. These views skip the padded
+              container below, so they need their own loading + no-accounts
+              states; previously both rendered a blank screen while the
+              linked-account check was pending or when nothing was linked. */}
+          {(view === "spending" || view === "budget") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
+          {(view === "spending" || view === "budget") && showEmpty && (
+            <div className="content-max px-4 md:px-8 pt-6 pb-10">
+              <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
+            </div>
+          )}
+
           {/* Spending — full-bleed */}
           {view === "spending" && (
             <>
@@ -430,6 +498,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   manualAccounts={manualAccounts}
                   onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
                   onDeleteManual={removeManual}
+                  headerActions={topButtons}
                 />
               )}
               {effectiveDemo && (
@@ -443,6 +512,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   syncTrigger={0}
                   selectedCategory={selectedCategory}
                   onCategorySelect={handleCategorySelect}
+                  headerActions={topButtons}
                 />
               )}
             </>
@@ -490,7 +560,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
                 covers it and the space is better spent on content. */}
             <div className="hidden md:flex items-center justify-between">
-              {view !== "spending" && view !== "budget" ? (
+              {(
                 <div>
                   <h1 className="font-display text-2xl text-foreground">
                     {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
@@ -499,51 +569,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                   </p>
                 </div>
-              ) : <div />}
+              )}
 
               {/* Top button bar */}
-              <div className="flex items-center gap-2">
-                {!effectiveDemo && guestDemo && (
-                  <button onClick={() => navigate("/auth")}
-                    className="bg-gold h-9 px-4 rounded-lg text-[14px] mr-1">
-                    Create free account
-                  </button>
-                )}
-                {!effectiveDemo && hasItems === true && (
-                  <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                    title="Sync data"
-                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-50">
-                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-                  </button>
-                )}
-                {user && (
-                  <button onClick={() => setShowInbox(true)}
-                    title="Notifications"
-                    className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
-                    <Bell className="h-4 w-4" />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-                        {unreadCount > 9 ? "9+" : unreadCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {user && !guestDemo && (
-                  <button onClick={() => signOut().then(() => navigate("/welcome"))}
-                    title="Sign out"
-                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-negative hover:border-negative/40 transition-colors">
-                    <LogOut className="h-4 w-4" />
-                  </button>
-                )}
-                {user && !guestDemo && (
-                  <button onClick={() => setShowProfile(true)} title="Profile & settings"
-                    className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
-                    {profile?.avatar_url
-                      ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
-                      : <span className="text-[14px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
-                  </button>
-                )}
-              </div>
+              {topButtons}
             </div>
 
             {/* Loading state */}
@@ -571,7 +600,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               />
             )}
 
-            {effectiveDemo && view !== "giftcards" && view !== "admin" && view !== "spending" && view !== "budget" && (
+            {effectiveDemo && view !== "giftcards" && view !== "admin" && (
               <LivePlaidDashboard
                 demo
                 guestDemo={guestDemo}
@@ -601,6 +630,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           style={{
             gridTemplateColumns: `repeat(${mobilePrimary.length + 1}, 1fr)`,
             paddingBottom: "env(safe-area-inset-bottom)",
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
           }}
         >
           {mobilePrimary.map(t => {
@@ -629,7 +660,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {moreOpen && (
               <>
                 <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div className="fixed bottom-16 right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
+                <div style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }} className="fixed right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (

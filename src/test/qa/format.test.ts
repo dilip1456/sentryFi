@@ -57,15 +57,16 @@ describe("QA fmtUSD", () => {
     }
   });
 
-  // KNOWN BUG: values that round up across a unit boundary keep the old unit.
-  it.fails("KNOWN BUG compact: $9,999 should read $10K (currently \"$10.0K\")", () => {
+  // Were KNOWN BUGs, fixed by folding format-compact into format.ts (#8):
+  // values that round up across a unit boundary now take the next unit.
+  it("compact: $9,999 reads $10K", () => {
     expect(fmtUSD(9999, { compact: true })).toBe("$10K");
   });
-  it.fails("KNOWN BUG compact: $999,999 should read $1M/$1.0M (currently \"$1000K\")", () => {
+  it("compact: $999,999 reads $1M/$1.0M", () => {
     expect(fmtUSD(999_999, { compact: true })).toMatch(/^\$1(\.0)?M$/);
   });
-  // KNOWN BUG: NaN input (e.g. Number(null-ish balance) slips through) prints "$NaN".
-  it.fails("KNOWN BUG fmtUSD(NaN) should not render the text NaN", () => {
+  // Was a KNOWN BUG: NaN input printed "$NaN".
+  it("fmtUSD(NaN) does not render the text NaN", () => {
     expect(fmtUSD(Number.NaN)).not.toContain("NaN");
   });
 });
@@ -79,8 +80,8 @@ describe("QA fmtPct", () => {
     expect(fmtPct(10)).toBe("+10%");
     expect(fmtPct(100)).toBe("+100%");
   });
-  // KNOWN BUG: the trailing-zero regex also eats integer zeros when digits=0.
-  it.fails("KNOWN BUG fmtPct(100, 0) should be +100% (currently \"+1%\")", () => {
+  // Was a KNOWN BUG: the trailing-zero regex ate integer zeros when digits=0 ("+1%").
+  it("fmtPct(100, 0) is +100%", () => {
     expect(fmtPct(100, 0)).toBe("+100%");
   });
 });

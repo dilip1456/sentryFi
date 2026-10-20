@@ -67,11 +67,9 @@ describe("QA timezone sensitivity", () => {
     const prev = process.env.TZ; process.env.TZ = tz;
     try { fn(); } finally { process.env.TZ = prev; }
   };
-  // KNOWN BUG: monthBucketsList builds local-midnight Dates and then slices
-  // toISOString() (UTC). East of UTC that shifts every bucket back a day, so
-  // "October" becomes Sep 30 → Oct 30 and Oct 31 spend disappears from the
-  // Spending page while Home (local-date parsing) still counts it.
-  it.fails("KNOWN BUG month buckets are correct east of UTC (Asia/Kolkata)", () => {
+  // Was a KNOWN BUG (buckets sliced toISOString(), shifting a day east of
+  // UTC); #8 builds buckets from the local calendar.
+  it("month buckets are correct east of UTC (Asia/Kolkata)", () => {
     withTZ("Asia/Kolkata", () => {
       at("2026-10-20T12:00:00+05:30");
       expect(months(1)[0]).toMatchObject({ start: "2026-10-01", end: "2026-10-31" });
