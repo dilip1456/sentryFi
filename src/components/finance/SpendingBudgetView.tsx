@@ -111,6 +111,13 @@ const DEFAULT_COL_WIDTHS: Record<WidthKey, number> = {
 };
 const COL_WIDTHS_STORAGE_KEY = "sentryfi_spending_txn_col_widths";
 const MIN_COL_WIDTH = 60;
+// The Vendor column has no fixed width; it takes whatever the attribute
+// columns leave, but never less than this. When the container is too
+// narrow for every enabled column, the lowest-priority ones are hidden
+// (in this order) instead of the table overflowing and getting clipped.
+const SELECT_COL_WIDTH = 32;
+const VENDOR_MIN_WIDTH = 200;
+const COL_DROP_ORDER: ColKey[] = ["statement", "account", "status", "category", "date", "amount"];
 
 // Category names that are really a fixed obligation (mortgage, a loan, rent)
 // rather than everyday discretionary spend; the left-hand Categories panel
@@ -474,6 +481,29 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(colWidths)); } catch { /* ignore */ }
   }, [colWidths]);
+  // ── Fit the desktop table to its container (see COL_DROP_ORDER). ────────
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [tableWrapWidth, setTableWrapWidth] = useState(0);
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => setTableWrapWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tableCols = useMemo(() => {
+    const cols = new Set(visibleCols);
+    if (!tableWrapWidth) return cols;
+    const used = () => [...cols].reduce((s, k) => s + (colWidths[k] ?? DEFAULT_COL_WIDTHS[k]), 0);
+    for (const k of COL_DROP_ORDER) {
+      if (SELECT_COL_WIDTH + VENDOR_MIN_WIDTH + used() <= tableWrapWidth) break;
+      if (cols.size > 1) cols.delete(k);
+    }
+    return cols;
+  }, [visibleCols, colWidths, tableWrapWidth]);
+  const fitRef = useRef({ tableCols, tableWrapWidth, colWidths });
+  fitRef.current = { tableCols, tableWrapWidth, colWidths };
+
   const resizingCol = useRef<{ key: WidthKey; startX: number; startWidth: number } | null>(null);
   const startColResize = (key: WidthKey) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -481,7 +511,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const onMove = (ev: PointerEvent) => {
       if (!resizingCol.current) return;
       const { key: k, startX, startWidth } = resizingCol.current;
-      const next = Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX)));
+      // Never let a drag widen a column past what still leaves the Vendor
+      // column its minimum width, so resizing can't push the table into
+      // overflow (or auto-hide a neighbouring column).
+      const { tableCols: tc, tableWrapWidth: ww, colWidths: cw } = fitRef.current;
+      const others = [...tc].filter(c => c !== k).reduce((s, c) => s + cw[c], 0);
+      const cap = ww ? Math.max(MIN_COL_WIDTH, ww - SELECT_COL_WIDTH - VENDOR_MIN_WIDTH - others) : Infinity;
+      const next = Math.min(cap, Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX))));
       setColWidths(w => ({ ...w, [k]: next }));
     };
     const onUp = () => {
@@ -1155,7 +1191,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [groupedTxns]);
 
   // 1 "Description" column + however many optional attribute columns are visible.
-  const colSpan = 2 + visibleCols.size; // checkbox column + always-on name column + optional columns
+  const colSpan = 2 + tableCols.size; // checkbox column + always-on name column + optional columns
 
 
   const animatedTotal = useCountUp(totalSpent, 900);
@@ -2167,12 +2203,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               )}
 
             </div>
-            {/* overflow-x-hidden (not auto) is deliberate: the desktop table
-                below is table-layout:fixed with resizable columns whose
-                widths are proportional weights, not absolute pixels, so it
-                always fits the container exactly and never needs a
-                horizontal scrollbar. */}
-            <div className="overflow-y-auto overflow-x-hidden scrollbar-none flex-1">
+            {/* The desktop table is fitted to this container (tableCols drops
+                low-priority columns that don't fit), so it normally never
+                scrolls sideways; overflow-x-auto is only a safety net so a
+                column can never be silently clipped. */}
+            <div ref={tableWrapRef} className="overflow-y-auto overflow-x-auto scrollbar-none flex-1">
               {visibleTxns.length === 0 ? (
                 <div className="py-14 text-center text-[13px] text-muted-foreground">
                   No transactions match{hasActiveFilters ? " these filters" : ""}.
@@ -2183,13 +2218,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   <table className="hidden md:table w-full text-left border-collapse table-fixed">
                     <colgroup>
                       <col style={{width: 32}}/>
-                      <col style={{width: colWidths.name}}/>
-                      {visibleCols.has("date") && <col style={{width: colWidths.date}}/>}
-                      {visibleCols.has("amount") && <col style={{width: colWidths.amount}}/>}
-                      {visibleCols.has("statement") && <col style={{width: colWidths.statement}}/>}
-                      {visibleCols.has("category") && <col style={{width: colWidths.category}}/>}
-                      {visibleCols.has("status") && <col style={{width: colWidths.status}}/>}
-                      {visibleCols.has("account") && <col style={{width: colWidths.account}}/>}
+                      <col/>
+                      {tableCols.has("date") && <col style={{width: colWidths.date}}/>}
+                      {tableCols.has("amount") && <col style={{width: colWidths.amount}}/>}
+                      {tableCols.has("statement") && <col style={{width: colWidths.statement}}/>}
+                      {tableCols.has("category") && <col style={{width: colWidths.category}}/>}
+                      {tableCols.has("status") && <col style={{width: colWidths.status}}/>}
+                      {tableCols.has("account") && <col style={{width: colWidths.account}}/>}
                     </colgroup>
                     <thead className="sticky top-0 z-[5] bg-card">
                       <tr className="border-b border-border/20">
@@ -2202,13 +2237,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             }}
                             className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
                         </th>
-                        <SortableTh label="Vendor" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} onResizeStart={startColResize("name")} />
-                        {visibleCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
-                        {visibleCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} />}
-                        {visibleCols.has("statement") && <SortableTh label="Statement Desc." active={sortBy==="statement"} desc={sortDesc} onClick={()=>handleSort("statement")} onResizeStart={startColResize("statement")} />}
-                        {visibleCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
-                        {visibleCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
-                        {visibleCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
+                        <SortableTh label="Vendor" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} />
+                        {tableCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
+                        {tableCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} />}
+                        {tableCols.has("statement") && <SortableTh label="Statement Desc." active={sortBy==="statement"} desc={sortDesc} onClick={()=>handleSort("statement")} onResizeStart={startColResize("statement")} />}
+                        {tableCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
+                        {tableCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
+                        {tableCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
                       </tr>
                     </thead>
                     {groupedTxns ? groupedTxns.map(g => {
@@ -2233,7 +2268,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           </td>
                         </tr>
                         {!isCollapsed && g.items.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
@@ -2246,7 +2281,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     }) : (
                       <tbody>
                         {visibleTxns.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
@@ -2332,7 +2367,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     checked ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]" : "border-border-strong")}>
                     {checked && <Check className="h-3 w-3 text-primary-foreground"/>}
                   </div>
-                  {c.label}
+                  <span className="flex-1">{c.label}</span>
+                  {checked && !tableCols.has(c.key) && (
+                    <span className="hidden md:inline text-[11px] text-muted-foreground" title="Not enough room at this window width">hidden</span>
+                  )}
                 </button>
               );
             })}
