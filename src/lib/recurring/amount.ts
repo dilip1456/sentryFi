@@ -9,7 +9,7 @@ export interface AmountModel {
   cv: number;
   /** CV < 8%: subscriptions, rent, loan payments, salary. */
   isFixed: boolean;
-  /** Latest differs >5% from the median (e.g. "Netflix went up $2"). */
+  /** Fixed-amount series only: latest differs >5% from the median (e.g. "Netflix went up $2"). Always false for variable bills. */
   priceChanged: boolean;
   /** Best prediction for the next occurrence. */
   expected: number;
@@ -34,10 +34,12 @@ export function amountModel(amounts: number[]): AmountModel {
   const cv = mean ? sd / mean : 0;
   const latest = abs[abs.length - 1] ?? 0;
   const prev = abs[abs.length - 2];
-  const priceChanged = med > 0 && Math.abs(latest - med) / med > 0.05;
+  // Latest differs >5% from the median. Only meaningful for FIXED series:
+  // a variable utility bill moving from $102.50 to $110 is not a price change.
+  const offMedian = med > 0 && Math.abs(latest - med) / med > 0.05;
   let expected: number;
   // A fixed series whose last two charges agree on a new price → expect the new price.
-  const settledNewPrice = priceChanged && prev != null && Math.abs(prev - latest) / latest <= 0.01;
+  const settledNewPrice = offMedian && prev != null && Math.abs(prev - latest) / latest <= 0.01;
   // Fixed if stable overall OR if the only variation is one step change.
   const stableAfterChange =
     settledNewPrice &&
@@ -46,6 +48,7 @@ export function amountModel(amounts: number[]): AmountModel {
       return idx > 0 && abs.slice(idx).every(x => Math.abs(x - latest) / latest <= 0.01);
     })();
   const isFixed = cv < 0.08 || stableAfterChange;
+  const priceChanged = isFixed && offMedian;
   if (isFixed) expected = settledNewPrice ? latest : med;
   else expected = median(abs.slice(-6));
   return {

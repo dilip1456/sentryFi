@@ -33,17 +33,20 @@ import {
 import { createSharedClassifier } from "./shared-classifier";
 
 export type SeriesDirection = "inflow" | "outflow";
-export type SeriesKind =
-  | "salary"
-  | "income"
-  | "interest"
-  | "bill"
-  | "subscription"
-  | "loan"
-  | "tax"
-  | "savings"
-  | "card_payment"
-  | "transfer";
+/** Every series kind; `recurring_streams.kind` is checked against exactly this list. */
+export const SERIES_KINDS = [
+  "salary",
+  "income",
+  "interest",
+  "bill",
+  "subscription",
+  "loan",
+  "tax",
+  "savings",
+  "card_payment",
+  "transfer",
+] as const;
+export type SeriesKind = (typeof SERIES_KINDS)[number];
 export type OccurrenceStatus = "expected" | "paid" | "late" | "skipped";
 
 export interface Occurrence {
@@ -309,11 +312,23 @@ export function buildOccurrences(
   const firstNonLate = resolved.findIndex(o => o.status !== "late");
   const missedInARow = firstNonLate === -1 ? resolved.length : firstNonLate;
   const active = missedInARow < 2;
-  // Drop the upcoming slot for an ended series; otherwise next = first unpaid future slot.
+  // Drop the upcoming slot for an ended series.
   const result = active ? occ : occ.filter(o => o.expectedDate <= today);
-  const nextOcc = active ? result.find(o => o.expectedDate > today && o.status === "expected") ?? null : null;
+  const nextOcc = nextOutstanding(result, active);
   const next = nextOcc ? slots.find(s => s.period === nextOcc.period) ?? null : null;
   return { occurrences: result, active, next };
+}
+
+/**
+ * The occurrence the user still owes / is still waiting for: the earliest one
+ * that is neither paid nor resolved as late/skipped. A bill due today or
+ * still inside its grace window stays "next" until it is paid (or, once
+ * grace passes, turns late and the next period takes over). Must-pay and
+ * "covered before payday" checks depend on this.
+ */
+export function nextOutstanding(occurrences: Occurrence[], active = true): Occurrence | null {
+  if (!active) return null;
+  return occurrences.find(o => o.status === "expected") ?? null;
 }
 
 function confidenceFor(count: number, fitScore: number): number {
@@ -399,7 +414,7 @@ export function detectRecurringSeries(
       const refined = refineSubtype(type, rawSubtype, text);
       const finalSubtype = f.schedule.kind === "irs-estimated" ? "irs_estimated" : refined;
       const model = amountModel(members.map(m => m.t.amount));
-      const { occurrences, active, next } = buildOccurrences(
+      const { occurrences, active } = buildOccurrences(
         f.schedule,
         members.map(m => ({ id: m.t.transaction_id, date: m.t.date, amount: m.t.amount })),
         model,
@@ -414,6 +429,8 @@ export function detectRecurringSeries(
           if (ov === "skipped") o.daysLate = null;
         }
       }
+      // After user overrides, so marking the current bill paid moves "next" on.
+      const next = nextOutstanding(occurrences, active);
       const counterpart = members.map(m => m.c.counterpartAccountId).filter(Boolean) as string[];
       const s: RecurringSeries = {
         seriesKey: f.key,
@@ -429,8 +446,8 @@ export function detectRecurringSeries(
         accountId: majority(members.map(m => m.t.account_id)),
         counterpartAccountId: counterpart.length ? majority(counterpart) : null,
         amount: model,
-        nextExpectedDate: next?.expected ?? null,
-        nextExpectedAmount: next ? model.expected : null,
+        nextExpectedDate: next?.expectedDate ?? null,
+        nextExpectedAmount: next ? next.expectedAmount : null,
         firstSeen: members[0].t.date,
         lastSeen: members[members.length - 1].t.date,
         occurrenceCount: members.length,
