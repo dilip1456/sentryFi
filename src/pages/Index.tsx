@@ -32,6 +32,7 @@ import { useDemo } from "@/contexts/DemoContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
+import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
@@ -474,11 +475,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               container below, so they need their own loading + no-accounts
               states; previously both rendered a blank screen while the
               linked-account check was pending or when nothing was linked. */}
-          {(view === "spending" || view === "budget") && !effectiveDemo && hasItems === null && (
-            <div className="min-h-[50vh] grid place-items-center" role="status" aria-label="Loading">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
+          {(view === "spending" || view === "budget") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
           {(view === "spending" || view === "budget") && showEmpty && (
             <div className="content-max px-4 md:px-8 pt-6 pb-10">
               <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />

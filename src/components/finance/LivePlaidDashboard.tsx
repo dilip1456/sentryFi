@@ -49,6 +49,7 @@ import {
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
   SlidersHorizontal, Wand2, Sliders,
 } from "lucide-react";
+import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -5140,7 +5141,10 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (loading) {
+    if (view === "spending" || view === "budget") return <SpendingSkeleton />;
+    return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  }
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
   // Segmented switch between the merged Spending and Budget views.

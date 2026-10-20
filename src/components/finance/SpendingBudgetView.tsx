@@ -1222,11 +1222,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (!groupedTxns) return;
     setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
   }, [groupedTxns]);
+  // "Show more" paging; back to the first page whenever the list changes.
+  const [rowLimit, setRowLimit] = useState(ROW_PAGE);
+  useEffect(() => { setRowLimit(ROW_PAGE); }, [visibleTxns, groupBy]);
+  const desktopPage = useMemo(() => limitGroups(
+    groupedTxns ?? [{ key: "__all__", items: visibleTxns, total: 0 }],
+    rowLimit, k => !!groupedTxns && collapsedGroups.has(k),
+  ), [groupedTxns, visibleTxns, rowLimit, collapsedGroups]);
+  const mobilePage = useMemo(() => limitGroups(
+    mobileGroups, rowLimit, k => k !== MOBILE_FLAT_KEY && collapsedGroups.has(k),
+  ), [mobileGroups, rowLimit, collapsedGroups]);
   // Rows actually on screen in the desktop table; "select all" must never
-  // pick up rows hidden inside a collapsed group.
-  const renderedTableTxns = useMemo(() => groupedTxns
-    ? groupedTxns.filter(g => !collapsedGroups.has(g.key)).flatMap(g => g.items)
-    : visibleTxns, [groupedTxns, collapsedGroups, visibleTxns]);
+  // pick up rows hidden inside a collapsed group (or not yet shown).
+  const renderedTableTxns = useMemo(() => desktopPage.groups.flatMap(g => g.shown), [desktopPage]);
 
   // 1 "Description" column + however many optional attribute columns are visible.
   const colSpan = 2 + tableCols.size; // checkbox column + always-on name column + optional columns
@@ -2342,7 +2350,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         {tableCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
                       </tr>
                     </thead>
-                    {groupedTxns ? groupedTxns.map(g => {
+                    {groupedTxns ? desktopPage.groups.map(g => {
                       const isCollapsed = collapsedGroups.has(g.key);
                       return (
                       <tbody key={g.key}>
@@ -2363,7 +2371,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             </div>
                           </td>
                         </tr>
-                        {!isCollapsed && g.items.map(t => (
+                        {!isCollapsed && g.shown.map(t => (
                           <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
@@ -2376,7 +2384,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       );
                     }) : (
                       <tbody>
-                        {visibleTxns.map(t => (
+                        {renderedTableTxns.map(t => (
                           <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
@@ -2388,13 +2396,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       </tbody>
                     )}
                   </table>
+                  {desktopPage.more && (
+                    <div className="hidden md:flex justify-center py-3 border-t border-border/15">
+                      <button onClick={()=>setRowLimit(l=>l+ROW_PAGE)}
+                        className="h-8 px-4 rounded-lg border border-border/60 bg-muted/40 text-[12.5px] font-medium text-foreground hover:bg-muted/70">
+                        Show {Math.min(ROW_PAGE, desktopPage.hidden) || ""} more{desktopPage.hidden > ROW_PAGE ? ` (${desktopPage.hidden.toLocaleString()} left)` : ""}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Mobile: no table; a date-grouped, fixed-row-height feed
                       instead, always grouped by date (see mobileGroups above)
                       regardless of the desktop Group-by control, with each
                       date section independently collapsible. */}
                   <div className="md:hidden">
-                    {mobileGroups.map(g => {
+                    {mobilePage.groups.map(g => {
                       const isCollapsed = g.key !== MOBILE_FLAT_KEY && collapsedGroups.has(g.key);
                       return (
                       <div key={g.key}>
@@ -2410,7 +2426,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         )}
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
-                          {g.items.map(t => (
+                          {g.shown.map(t => (
                             <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} showDate={g.key === MOBILE_FLAT_KEY} selectionMode={selectedIds.size > 0} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                               nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
@@ -2424,6 +2440,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       </div>
                       );
                     })}
+                    {mobilePage.more && (
+                      <div className="flex justify-center px-4 py-4 border-t border-border/15">
+                        <button onClick={()=>setRowLimit(l=>l+ROW_PAGE)}
+                          className="h-11 w-full rounded-xl border border-border/60 bg-muted/40 text-[14px] font-medium text-foreground active:bg-muted/70">
+                          Show more{mobilePage.hidden ? ` (${mobilePage.hidden.toLocaleString()} left)` : ""}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -3090,6 +3114,27 @@ const TxnRow = ({
     </tr>
   );
 };
+
+// ── Incremental rendering ("Show more") ─────────────────────────────────────
+// Rendering every transaction of "All time" at once (thousands of rows, each
+// with popovers) made the tab sluggish. Lists render ROW_PAGE rows at a time;
+// group headings/subtotals still reflect the FULL group.
+const ROW_PAGE = 100;
+function limitGroups<G extends { key: string; items: PTxn[] }>(groups: G[], limit: number, isCollapsed: (key: string) => boolean) {
+  let left = limit;
+  let hidden = 0;
+  let more = false;
+  const out: (G & { shown: PTxn[] })[] = [];
+  for (const g of groups) {
+    if (left <= 0) { more = true; hidden += isCollapsed(g.key) ? 0 : g.items.length; continue; }
+    if (isCollapsed(g.key)) { out.push({ ...g, shown: [] }); continue; }
+    const shown = g.items.slice(0, left);
+    left -= shown.length;
+    if (shown.length < g.items.length) { more = true; hidden += g.items.length - shown.length; }
+    out.push({ ...g, shown });
+  }
+  return { groups: out, hidden, more };
+}
 
 // ── Transaction row (mobile card list) ──────────────────────────────────────
 // Below md there's no table; each transaction is one full-width tap target
