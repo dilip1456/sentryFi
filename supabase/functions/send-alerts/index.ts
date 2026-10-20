@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { cleanBankText, merchantKey } from "../_shared/merchant-name.ts";
 import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
 
 const corsHeaders = {
@@ -56,6 +57,19 @@ async function saveAlert(admin: any, userId: string, alertType: string, alertKey
   if (error) { console.error("[alert_log]", alertKey, error); return false; }
   return (data?.length ?? 0) > 0;
 }
+
+// "$1,234.56" — the old `$${n.toFixed(2)}` had no thousands separators.
+const usd = (n: number, cents = true) =>
+  Number(n ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
+// "Oct 24" for a YYYY-MM-DD date.
+const shortDate = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+};
+// Pending and posted copies of one charge get different transaction_ids, so
+// key "per transaction" alerts on what doesn't change between them.
+const txnAlertKey = (kind: string, t: { account_id: string; amount: number | string; authorized_date?: string | null; date: string; merchant_name?: string | null; name?: string | null }) =>
+  `${kind}:${t.account_id}:${Math.round(Math.abs(Number(t.amount)) * 100)}:${t.authorized_date ?? t.date}:${merchantKey(t.merchant_name ?? t.name ?? "").slice(0, 32)}`;
 
 // Per-category opt-out — defaults to enabled (`!== false`) so existing users
 // keep getting every alert type they already get today unless they've
@@ -204,7 +218,7 @@ Deno.serve(async (req) => {
           if ((spent / budget) * 100 < (pref.budget_pct ?? 90)) continue;
           const over = spent > budget;
           const title = over ? `🔴 ${cat} over budget` : `🟡 ${cat} at ${Math.round((spent/budget)*100)}%`;
-          const body = over ? `$${spent.toFixed(0)} spent vs $${budget} budget` : `$${(budget-spent).toFixed(0)} remaining`;
+          const body = over ? `${usd(spent, false)} spent of your ${usd(budget, false)} budget` : `${usd(budget - spent, false)} left of ${usd(budget, false)}`;
           const added = await saveAlert(admin, userId, "budget_threshold", `budget:${cat}:${monthKey}`, title, body, { category: cat, spent, budget });
           if (added) notifications.push({ title, body });
         }
@@ -217,8 +231,10 @@ Deno.serve(async (req) => {
           const threshold = pref.low_balance ?? 100;
           if (bal >= threshold) continue;
           const title = `⚠️ Low balance: ${acc.name}`;
-          const body = `$${bal.toFixed(2)} remaining`;
-          const added = await saveAlert(admin, userId, "low_balance", `low_balance:${acc.account_id}:${today}`, title, body, { account_id: acc.account_id, balance: bal });
+          const body = `${usd(bal)} available`;
+          // One alert per account per month (was one per day while the
+          // balance stayed low, which flooded the inbox with copies).
+          const added = await saveAlert(admin, userId, "low_balance", `low_balance:${acc.account_id}:${monthKey}`, title, body, { account_id: acc.account_id, balance: bal });
           if (added) notifications.push({ title, body });
         }
       }
@@ -230,9 +246,15 @@ Deno.serve(async (req) => {
           if (!cd.next_payment_due_date) continue;
           const daysUntil = Math.round((new Date(cd.next_payment_due_date).getTime() - now) / 86400000);
           if (daysUntil < 0 || daysUntil > (pref.payment_days ?? 3)) continue;
+          // Already paid this cycle (a payment at least the minimum posted in
+          // the 25 days before the due date) — don't nag.
+          const dueMs = new Date(cd.next_payment_due_date).getTime();
+          const paidMs = cd.last_payment_date ? new Date(cd.last_payment_date).getTime() : NaN;
+          if (Number.isFinite(paidMs) && paidMs >= dueMs - 25 * 86400000 &&
+              Number(cd.last_payment_amount ?? 0) >= Number(cd.minimum_payment_amount ?? 0)) continue;
           const acc = (accounts ?? []).find((a: any) => a.account_id === cd.account_id);
-          const title = `💳 Payment due ${daysUntil === 0 ? "today" : `in ${daysUntil}d`}`;
-          const body = `${acc?.name ?? "Card"}: min $${cd.minimum_payment_amount?.toFixed(2) ?? "-"}`;
+          const title = `💳 ${acc?.name ?? "Card"} payment due ${daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : shortDate(cd.next_payment_due_date)}`;
+          const body = cd.minimum_payment_amount != null ? `Minimum ${usd(cd.minimum_payment_amount)} due ${shortDate(cd.next_payment_due_date)}` : `Due ${shortDate(cd.next_payment_due_date)}`;
           const added = await saveAlert(admin, userId, "payment_due", `payment_due:${cd.account_id}:${cd.next_payment_due_date}`, title, body,
             { account_id: cd.account_id, due_date: cd.next_payment_due_date, min_payment: cd.minimum_payment_amount, days_until: daysUntil });
           if (added) notifications.push({ title, body });
@@ -243,7 +265,7 @@ Deno.serve(async (req) => {
       const yesterday = new Date(now - 86400000).toISOString().slice(0, 10);
       if (categoryEnabled(pref, "alert_large_txn")) {
         const { data: recentTxns } = await admin.from("plaid_transactions")
-          .select("transaction_id,name,merchant_name,amount,date,category,account_id")
+          .select("transaction_id,name,merchant_name,amount,date,authorized_date,category,account_id")
           .eq("user_id", userId).gte("date", yesterday).gt("amount", 0).order("amount", { ascending: false }).limit(50);
 
         const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
@@ -255,10 +277,10 @@ Deno.serve(async (req) => {
         for (const t of recentTxns ?? []) {
           const amt = Number(t.amount);
           if (amt < largeThreshold) break;
-          const merchant = t.merchant_name ?? t.name;
+          const merchant = cleanBankText(t.merchant_name ?? t.name) || "Unknown";
           const title = `💰 Large charge: ${merchant}`;
-          const body = `$${amt.toFixed(2)} - ${t.category?.[0] ?? ""}`;
-          const added = await saveAlert(admin, userId, "large_txn", `large_txn:${t.transaction_id}`, title, body,
+          const body = t.category?.[0] ? `${usd(amt)} · ${t.category[0]}` : usd(amt);
+          const added = await saveAlert(admin, userId, "large_txn", txnAlertKey("large_txn", t), title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
         }
@@ -269,13 +291,13 @@ Deno.serve(async (req) => {
       // We split into buckets and message accordingly. CC payments and internal
       // transfers are silently skipped — they are NOT deposits.
       const { data: credits } = await admin.from("plaid_transactions")
-        .select("transaction_id,name,merchant_name,amount,date,account_id,category")
+        .select("transaction_id,name,merchant_name,amount,date,authorized_date,account_id,category")
         .eq("user_id", userId).gte("date", yesterday).lt("amount", 0);
 
       for (const t of credits ?? []) {
         const amt = Math.abs(Number(t.amount));
         if (amt < 1) continue;
-        const merchant = t.merchant_name ?? t.name ?? "Unknown";
+        const merchant = cleanBankText(t.merchant_name ?? t.name) || "Unknown";
         // Shared classifier first (pairs, card payments, overrides); the old
         // name/category heuristic is only a fallback for rows outside the window.
         const cls = classes.get((ctxTxns.find(x => x.transaction_id === t.transaction_id)?.id) ?? "");
@@ -287,8 +309,8 @@ Deno.serve(async (req) => {
           // Notify as a payment confirmation, not deposit
           const acct = (accounts ?? []).find((a: any) => a.account_id === t.account_id);
           const title = `✅ Payment posted: ${acct?.name ?? merchant}`;
-          const body = `$${amt.toFixed(2)} payment applied to your account`;
-          const added = await saveAlert(admin, userId, "cc_payment_posted", `cc_payment:${t.transaction_id}`, title, body,
+          const body = `${usd(amt)} payment applied to your account`;
+          const added = await saveAlert(admin, userId, "cc_payment_posted", txnAlertKey("cc_payment", t), title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
           continue;
@@ -298,9 +320,9 @@ Deno.serve(async (req) => {
           if (!categoryEnabled(pref, "alert_transfer")) continue;
           // Transfer between accounts — only alert if > $200 to avoid noise
           if (amt < 200) continue;
-          const title = `↔️ Transfer: $${amt.toFixed(2)}`;
+          const title = `↔️ Transfer: ${usd(amt)}`;
           const body = `From ${merchant}`;
-          const added = await saveAlert(admin, userId, "transfer", `transfer:${t.transaction_id}`, title, body,
+          const added = await saveAlert(admin, userId, "transfer", txnAlertKey("transfer", t), title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
           continue;
@@ -310,9 +332,9 @@ Deno.serve(async (req) => {
           if (!categoryEnabled(pref, "alert_refund")) continue;
           // Refunds under $5 are noise
           if (amt < 5) continue;
-          const title = `↩️ Refund: $${amt.toFixed(2)} from ${merchant}`;
+          const title = `↩️ Refund: ${usd(amt)} from ${merchant}`;
           const body = `Credit applied to your account`;
-          const added = await saveAlert(admin, userId, "refund", `refund:${t.transaction_id}`, title, body,
+          const added = await saveAlert(admin, userId, "refund", txnAlertKey("refund", t), title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
           continue;
@@ -320,9 +342,9 @@ Deno.serve(async (req) => {
 
         // True deposit (paycheck, ACH income, etc.)
         if (kind === "deposit" && amt >= 50 && categoryEnabled(pref, "alert_deposit")) {
-          const title = `📥 Deposit: $${amt.toFixed(2)}`;
+          const title = `📥 Deposit: ${usd(amt)}`;
           const body = `From ${merchant}`;
-          const added = await saveAlert(admin, userId, "deposit", `deposit:${t.transaction_id}`, title, body,
+          const added = await saveAlert(admin, userId, "deposit", txnAlertKey("deposit", t), title, body,
             { transaction_id: t.transaction_id, amount: amt, merchant, account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
         }

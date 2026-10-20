@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Switch as UISwitch } from "@/components/ui/switch";
 
 type AlertTypeKey =
   | "alert_budget_threshold" | "alert_low_balance" | "alert_payment_due" | "alert_large_txn"
@@ -53,19 +54,15 @@ const ALERT_TYPES: { key: AlertTypeKey; icon: typeof AlertTriangle; label: strin
   { key: "alert_insight", icon: Sparkles, label: "AI insight", desc: "High-severity insight detected" },
 ];
 
-// Segmented Off/On control — unambiguous in both light and dark, and never
-// reads as a radio button (the recurring complaint about the sliding toggle).
+// A real switch (role="switch", keyboard + screen-reader friendly) with a
+// small On/Off caption beside it so the state reads at a glance in both
+// light and dark themes.
 const Switch = ({ on, onChange, label }: { on: boolean; onChange: () => void; label: string }) => (
-  <div role="group" aria-label={label} className="inline-flex shrink-0 rounded-lg border border-border-strong overflow-hidden text-[12.5px] font-semibold select-none">
-    <button type="button" aria-pressed={!on} onClick={() => { if (on) onChange(); }}
-      className={cn("px-3 py-1.5 transition-colors", !on ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
-      Off
-    </button>
-    <button type="button" aria-pressed={on} onClick={() => { if (!on) onChange(); }}
-      className={cn("px-3 py-1.5 transition-colors", on ? "bg-[hsl(var(--primary))] text-background" : "text-muted-foreground hover:text-foreground")}>
-      On
-    </button>
-  </div>
+  <label className="inline-flex shrink-0 items-center gap-2 cursor-pointer select-none">
+    <span aria-hidden className={cn("text-[12px] font-semibold w-6 text-right", on ? "text-foreground" : "text-muted-foreground")}>{on ? "On" : "Off"}</span>
+    <UISwitch checked={on} onCheckedChange={() => onChange()} aria-label={label}
+      className="data-[state=checked]:bg-[hsl(var(--primary))] data-[state=unchecked]:bg-border-strong" />
+  </label>
 );
 
 export const NotificationPreferences = ({ onClose }: { onClose: () => void }) => {

@@ -17,6 +17,7 @@ import {
   ChevronLeft, ChevronRight, Copy,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
+import { fmtShortDate } from "@/lib/format-date";
 
 const copyToClipboard = async (text: string, label: string) => {
   try {
@@ -93,7 +94,7 @@ const ActivityHistoryList = ({ entries }: { entries: GiftCardActivityRow[] }) =>
               {e.amount != null && (
                 <span className="tabular">{e.kind === "spend" && e.amount > 0 ? "-" : ""}{fmtUSD(Math.abs(Number(e.amount)))}</span>
               )}
-              <span>{new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              <span>{fmtShortDate(e.created_at)}</span>
             </div>
           </div>
         ))}
@@ -376,7 +377,7 @@ const CardDetailDialog = ({
               <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
             ) : (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {fmtShortDate(card.last_balance_update)}
               </span>
             )}
           </div>
@@ -966,7 +967,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
                     <div className="text-[12px] text-muted-foreground">
-                      {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${new Date(card.deleted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                      {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${fmtShortDate(card.deleted_at)}` : ""}
                     </div>
                   </div>
                   <button onClick={() => restoreCard(card.id)} disabled={restoringId === card.id}
