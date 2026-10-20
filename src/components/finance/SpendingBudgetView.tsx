@@ -148,17 +148,28 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
 // from the trigger button's real screen coordinates, so it's never clipped or
 // stacked behind a sibling's overflow-hidden/sticky element (the bug that had
 // the Columns menu rendering underneath the table's sticky header). ─────────
-function useFloatingMenu() {
+//
+// The panel is anchored to whichever element was actually clicked
+// (event.currentTarget), falling back to btnRef. Several menus have two
+// trigger buttons (a mobile one and a desktop one) sharing one ref; React
+// leaves the ref on the last-rendered (desktop, display:none on phones)
+// button, whose rect is all zeros, so anchoring to the ref alone pushed the
+// mobile Filter/Sort panels entirely off the left edge of the screen.
+// `panelWidth` lets the horizontal position be clamped so the panel always
+// stays fully on-screen.
+function useFloatingMenu(panelWidth = 0) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null);
-  const toggle = () => {
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
+  const toggle = (e?: React.MouseEvent<HTMLElement>) => {
+    const anchor = (e?.currentTarget as HTMLElement | undefined) ?? btnRef.current;
+    if (!open && anchor) {
+      const r = anchor.getBoundingClientRect();
       const margin = 8;
       const spaceBelow = window.innerHeight - r.bottom - margin;
       const spaceAbove = r.top - margin;
-      const right = Math.max(8, window.innerWidth - r.right);
+      const maxRight = Math.max(margin, window.innerWidth - Math.min(panelWidth, window.innerWidth - 2*margin) - margin);
+      const right = Math.min(Math.max(margin, window.innerWidth - r.right), maxRight);
       // Anchor below the trigger by default, but flip to anchoring above it
       // when there isn't enough room below and there's meaningfully more
       // room above; otherwise a button near the bottom of a long scrollable
@@ -375,7 +386,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return next;
   });
   const clearSelection = () => setSelectedIds(new Set());
-  const bulkMenu = useFloatingMenu();
+  const bulkMenu = useFloatingMenu(256);
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [showBulkTagInput, setShowBulkTagInput] = useState(false);
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
@@ -421,8 +432,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [dateTo, setDateTo] = useState("");
   const [lastNDays, setLastNDays] = useState("30");
   const [filterYear, setFilterYear] = useState(String(new Date().getFullYear()));
-  const filtersMenu = useFloatingMenu();
-  const sortMenu = useFloatingMenu();
+  const filtersMenu = useFloatingMenu(320);
+  const sortMenu = useFloatingMenu(192);
   // "Ignored" is really just a friendlier, filter-bar-visible way to switch
   // the Categories panel to its Ignored tab; kept as one source of truth
   // (catTab) rather than a second, potentially-contradictory piece of state.
@@ -440,7 +451,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...visibleCols])); } catch { /* ignore */ }
   }, [visibleCols]);
-  const colsMenu = useFloatingMenu();
+  const colsMenu = useFloatingMenu(192);
   const toggleCol = (k: ColKey) => setVisibleCols(prev => {
     const n = new Set(prev);
     if (n.has(k)) { if (n.size > 1) n.delete(k); } // always leave at least one attribute column visible
@@ -494,7 +505,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem("sentryfi_spending_txn_groupby", groupBy); } catch { /* ignore */ }
   }, [groupBy]);
-  const groupMenu = useFloatingMenu();
+  const groupMenu = useFloatingMenu(176);
   const [scrubDay, setScrubDay] = useState<number|null>(null);
   const [hoveredDot, setHoveredDot] = useState<string|null>(null);
   // Tooltip content is portaled to document.body and positioned from the
@@ -2014,7 +2025,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {filtersMenu.open && filtersMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={filtersMenu.close}/>
-                  <div className="spending-v2 fixed z-[999] w-80 overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
+                  <div className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
                     style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
 
                     <div>
@@ -2805,7 +2816,7 @@ export function CategoryPickerPopover({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[998]" onClick={onClose} />
-      <div className="spending-v2 fixed z-[999] w-64 flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+      <div className="spending-v2 fixed z-[999] w-64 max-w-[calc(100vw-16px)] flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
         style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight ?? 360 }} onClick={e=>e.stopPropagation()}>
         <div className="p-2 border-b border-border/30 shrink-0">
           {adding ? (
@@ -2868,7 +2879,7 @@ const TxnRow = ({
   const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
   const acc = accounts.find(a => a.account_id === t.account_id);
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
-  const catMenu = useFloatingMenu();
+  const catMenu = useFloatingMenu(256);
   return (
     <tr onClick={() => onOpenDetail(t)} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
       <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}>
@@ -2969,7 +2980,7 @@ const MobileTxnRow = ({
   const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
   const acc = accounts.find(a => a.account_id === t.account_id);
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
-  const catMenu = useFloatingMenu();
+  const catMenu = useFloatingMenu(256);
   const metaParts: React.ReactNode[] = [];
   // Statement text is already summarized by the clean vendor name above, so
   // the meta line stays short: date + account (full text lives in the detail
