@@ -1415,23 +1415,39 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               </button>
             ))}
           </div>
-          {granularity === "month" && (
-            <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
-              <button onClick={()=>setMonthOffset(o=>Math.max(o-1, -lastIdx))} disabled={selIdx<=0} aria-label="Previous month"
-                className="h-8 w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
-                <ChevronLeft className="h-4 w-4"/>
-              </button>
-              <span className="min-w-[124px] text-center text-[13.5px] font-semibold text-foreground tabular">
-                {new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"})}
-              </span>
-              <button onClick={()=>setMonthOffset(o=>Math.min(0,o+1))} disabled={isCurrentMonth} aria-label="Next month"
-                className="h-8 w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
-                <ChevronRight className="h-4 w-4"/>
-              </button>
-            </div>
-          )}
-          {granularity === "month" && !isCurrentMonth && (
-            <button onClick={()=>setMonthOffset(0)} className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">This month</button>
+          {granularity !== "all" && (() => {
+            // One prev/next switcher for every granularity (it used to exist
+            // for months only, so day/week/year had no way to go back).
+            const atStart = granularity==="month" ? selIdx<=0
+              : granularity==="day" ? dayOffset <= -(DAY_COUNT-1)
+              : granularity==="week" ? weekOffset <= -(WEEK_COUNT-1)
+              : yearOffset <= -(YEAR_COUNT-1);
+            const unit = granularity === "day" ? "day" : granularity;
+            const label = granularity==="month"
+              ? new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"})
+              : activeRange.label;
+            const step = (dir: 1|-1) => granularity==="month"
+              ? setMonthOffset(o => dir < 0 ? Math.max(o-1, -lastIdx) : Math.min(0, o+1))
+              : stepPeriod(dir);
+            return (
+              <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
+                <button onClick={()=>step(-1)} disabled={atStart} aria-label={`Previous ${unit}`}
+                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  <ChevronLeft className="h-4 w-4"/>
+                </button>
+                <span className="min-w-[124px] text-center text-[13.5px] font-semibold text-foreground tabular" aria-live="polite">{label}</span>
+                <button onClick={()=>step(1)} disabled={activeRange.isCurrent} aria-label={`Next ${unit}`}
+                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  <ChevronRight className="h-4 w-4"/>
+                </button>
+              </div>
+            );
+          })()}
+          {granularity !== "all" && !activeRange.isCurrent && (
+            <button onClick={()=> granularity==="month" ? setMonthOffset(0) : resetPeriod()}
+              className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
+              {granularity==="month" ? "This month" : granularity==="week" ? "This week" : granularity==="year" ? "This year" : "Today"}
+            </button>
           )}
         </div>
       </header>
