@@ -22,13 +22,13 @@ create table if not exists public.recurring_streams (
   display_name           text not null,
   direction              text not null check (direction in ('inflow', 'outflow')),
   txn_type               text not null check (txn_type in (
-                           'spend', 'refund', 'income-salary', 'income-interest', 'income-other',
-                           'transfer-internal', 'transfer-in', 'transfer-out', 'credit-card-payment',
-                           'savings-contribution', 'obligation-loan', 'obligation-tax', 'obligation-bill')),
+                           'spend', 'refund', 'income_salary', 'income_interest', 'income_other',
+                           'transfer_internal', 'transfer_in', 'transfer_out', 'credit_card_payment',
+                           'savings_contribution', 'obligation_loan', 'obligation_tax', 'obligation_bill')),
   subtype                text,          -- mortgage | student | auto | irs_estimated | property | rent | utility ...
   kind                   text not null check (kind in (
                            'salary', 'income', 'interest', 'bill', 'subscription', 'loan', 'tax',
-                           'savings', 'card-payment', 'transfer')),
+                           'savings', 'card_payment', 'transfer')),
   category               text,
   cadence                text not null check (cadence in (
                            'weekly', 'biweekly', 'semimonthly', 'monthly', 'quarterly', 'semiannual', 'yearly')),

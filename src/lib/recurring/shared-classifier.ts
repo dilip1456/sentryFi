@@ -4,7 +4,7 @@
  *
  * - ids: the shared module keys by `id`; recurring uses Plaid's stable
  *   `transaction_id`, so we pass `id = transaction_id`.
- * - type names: shared `income_salary` → recurring `income-salary` (1:1).
+ * - type names: identical (the interface re-exports the shared TxnType).
  * - pairs: the shared result carries the other leg's txn id in `pairId`;
  *   we resolve that to `counterpartAccountId` (e.g. the linked mortgage).
  * - overrides: pass them to `withOverrides` (or `detectRecurringSeries`'s
@@ -19,7 +19,6 @@ import {
   type ClassSource,
 } from "../classify";
 import {
-  normalizeTxnType,
   type ClassificationSource,
   type ClassifierAccount,
   type TransactionClassifier,
@@ -81,8 +80,7 @@ export function createSharedClassifier(extras: SharedClassifierExtras = {}): Tra
       const res = sharedClassifyAll(shared, { ...extras, accounts: ctx.accounts.map(toSharedAccount) });
       const out = new Map<string, TxnClassification>();
       for (const [id, c] of res) {
-        const txnType = normalizeTxnType(c.type);
-        if (!txnType) continue;
+        const txnType = c.type;
         const source = SOURCE[c.source] ?? "fallback";
         out.set(id, {
           txnType,

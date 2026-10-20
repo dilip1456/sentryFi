@@ -42,7 +42,7 @@ export type SeriesKind =
   | "loan"
   | "tax"
   | "savings"
-  | "card-payment"
+  | "card_payment"
   | "transfer";
 export type OccurrenceStatus = "expected" | "paid" | "late" | "skipped";
 
@@ -120,17 +120,17 @@ export interface DetectOptions {
   occurrenceOverrides?: OccurrenceOverride[];
 }
 
-const INCOME_TYPES = new Set<TxnType>(["income-salary", "income-interest", "income-other", "transfer-in"]);
+const INCOME_TYPES = new Set<TxnType>(["income_salary", "income_interest", "income_other", "transfer_in"]);
 const OUTFLOW_TYPES = new Set<TxnType>([
   "spend",
-  "obligation-bill",
-  "obligation-loan",
-  "obligation-tax",
-  "savings-contribution",
-  "transfer-out",
-  "credit-card-payment",
+  "obligation_bill",
+  "obligation_loan",
+  "obligation_tax",
+  "savings_contribution",
+  "transfer_out",
+  "credit_card_payment",
 ]);
-const MUST_PAY_KINDS = new Set<SeriesKind>(["loan", "tax", "bill", "card-payment"]);
+const MUST_PAY_KINDS = new Set<SeriesKind>(["loan", "tax", "bill", "card_payment"]);
 
 interface Member {
   t: ClassifierTxn;
@@ -153,14 +153,14 @@ export function isRecurringEligible(
   const acctType = (account?.type ?? "").toLowerCase();
   if (t.amount < 0 && (acctType === "credit" || acctType === "loan") && c.source !== "user") return false;
   // All linked accounts are the user's own: money moving between them is not a bill or income.
-  if (c.txnType === "transfer-internal") return false;
+  if (c.txnType === "transfer_internal") return false;
   if (c.txnType === "refund") return false;
-  if (c.txnType === "credit-card-payment" && !opts.includeCardPayments) return false;
+  if (c.txnType === "credit_card_payment" && !opts.includeCardPayments) return false;
   // A matched pair between two of the user's own accounts is internal movement
   // (savings sweeps, card payments, account-to-account) even when the
   // classifier upgrades its type. The one exception is a payment to the user's
   // own linked LOAN account: that is still a must-pay obligation.
-  if (c.pairId && c.txnType !== "obligation-loan" && !(opts.includeCardPayments && c.txnType === "credit-card-payment")) return false;
+  if (c.pairId && c.txnType !== "obligation_loan" && !(opts.includeCardPayments && c.txnType === "credit_card_payment")) return false;
   const out = t.amount > 0;
   if (out && !OUTFLOW_TYPES.has(c.txnType)) return false;
   if (!out && !INCOME_TYPES.has(c.txnType)) return false;
@@ -175,16 +175,16 @@ function majority<T>(xs: T[]): T {
 
 function kindFor(type: TxnType, subtype: string | null, text: string): SeriesKind {
   switch (type) {
-    case "income-salary": return "salary";
-    case "income-interest": return "interest";
-    case "income-other":
-    case "transfer-in": return "income";
-    case "obligation-loan": return "loan";
-    case "obligation-tax": return "tax";
-    case "obligation-bill": return "bill";
-    case "savings-contribution": return "savings";
-    case "credit-card-payment": return "card-payment";
-    case "transfer-out": return billSubtype(text) === "rent" ? "bill" : "transfer";
+    case "income_salary": return "salary";
+    case "income_interest": return "interest";
+    case "income_other":
+    case "transfer_in": return "income";
+    case "obligation_loan": return "loan";
+    case "obligation_tax": return "tax";
+    case "obligation_bill": return "bill";
+    case "savings_contribution": return "savings";
+    case "credit_card_payment": return "card_payment";
+    case "transfer_out": return billSubtype(text) === "rent" ? "bill" : "transfer";
     default:
       if (billSubtype(text)) return "bill";
       // Money sent to a person (Zelle/Venmo) is "spend/p2p" in the shared taxonomy.
@@ -201,9 +201,9 @@ const TAX_SUBTYPES = new Set(["irs_estimated", "irs_federal", "state", "property
  * servicer matching and must-pay labels work.
  */
 export function refineSubtype(type: TxnType, subtype: string | null, text: string): string | null {
-  if (type === "obligation-tax") return (subtype && TAX_SUBTYPES.has(subtype) ? subtype : null) ?? taxSubtype(text) ?? subtype;
-  if (type === "obligation-loan") return (subtype && LOAN_SUBTYPES.has(subtype) ? subtype : null) ?? loanSubtype(text) ?? subtype;
-  if (type === "obligation-bill" || type === "spend") return billSubtype(text) ?? subtype;
+  if (type === "obligation_tax") return (subtype && TAX_SUBTYPES.has(subtype) ? subtype : null) ?? taxSubtype(text) ?? subtype;
+  if (type === "obligation_loan") return (subtype && LOAN_SUBTYPES.has(subtype) ? subtype : null) ?? loanSubtype(text) ?? subtype;
+  if (type === "obligation_bill" || type === "spend") return billSubtype(text) ?? subtype;
   return subtype;
 }
 
@@ -354,7 +354,7 @@ export function detectRecurringSeries(
       const subtype = refineSubtype(type, members.map(m => m.c.subtype).find(Boolean) ?? null, text);
       const dates = members.map(m => m.t.date);
       const defaultShift: ShiftPolicy = members[0].direction === "inflow" ? "before" : "after";
-      const fit = fitSchedule(dates, { allowIrs: type === "obligation-tax", defaultShift });
+      const fit = fitSchedule(dates, { allowIrs: type === "obligation_tax", defaultShift });
       if (fit) {
         found.push({ members, key: k, schedule: fit.schedule, score: fit.matched * fit.coverage, single: false });
         return true;
@@ -362,7 +362,7 @@ export function detectRecurringSeries(
       // One-off evidence that still implies a schedule.
       const lastM = members[members.length - 1];
       if (diffDays(today, lastM.t.date) > 400) return false;
-      const taxSub = type === "obligation-tax" ? subtype : null;
+      const taxSub = type === "obligation_tax" ? subtype : null;
       if (taxSub === "irs_estimated" && nearestIrsEstimatedDue(lastM.t.date).distance <= 10) {
         found.push({ members: [lastM], key: k, schedule: { cadence: "quarterly", kind: "irs-estimated", shift: "after" }, score: 0.5, single: true });
         return true;

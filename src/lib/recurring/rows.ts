@@ -10,7 +10,6 @@
  */
 import type { OccurrenceOverride, RecurringSeries } from "./detect";
 import type { ISODate } from "./dates";
-import { toSharedTxnType } from "./classifier";
 
 export const DETECTOR_VERSION = 1;
 
@@ -83,8 +82,7 @@ export function toStreamRow(s: RecurringSeries, userId: string): RecurringStream
     merchant_key: s.merchantKey,
     display_name: s.displayName,
     direction: s.direction,
-    // Stored in the shared / database spelling (income_salary), like txn_overrides.
-    txn_type: toSharedTxnType(s.txnType),
+    txn_type: s.txnType,
     subtype: s.subtype,
     kind: s.kind,
     category: s.category,

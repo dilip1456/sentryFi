@@ -6,51 +6,19 @@
  * adapter over the shared classifier in `src/lib/classify/`; tests can pass
  * any other implementation.
  *
- * Spelling: this interface uses the hyphenated taxonomy names
- * (`income-salary`). The shared module and the database (`txn_overrides`,
- * `recurring_streams`) use underscores (`income_salary`). The names map 1:1;
- * `toSharedTxnType` / `normalizeTxnType` convert, and `withOverrides` accepts
- * either spelling so `txn_overrides` rows can be passed straight in.
+ * Type names are the shared taxonomy (`income_salary`, `transfer_internal`,
+ * …), re-exported from `src/lib/classify` so the app, the classifier and the
+ * database (`txn_overrides`, `recurring_streams`) all use one spelling.
  *
  * Pure TS: no React, no Supabase imports.
  */
+import { TXN_TYPES as SHARED_TXN_TYPES, type TxnType } from "../classify";
 
-export const TXN_TYPES = [
-  "spend",
-  "refund",
-  "income-salary",
-  "income-interest",
-  "income-other",
-  "transfer-internal",
-  "transfer-in",
-  "transfer-out",
-  "credit-card-payment",
-  "savings-contribution",
-  "obligation-loan",
-  "obligation-tax",
-  "obligation-bill",
-] as const;
-
-export type TxnType = (typeof TXN_TYPES)[number];
+export type { TxnType };
+export const TXN_TYPES: readonly TxnType[] = SHARED_TXN_TYPES;
 
 export function isTxnType(v: unknown): v is TxnType {
   return typeof v === "string" && (TXN_TYPES as readonly string[]).includes(v);
-}
-
-/** Shared-module / database spelling of a type (`income_salary`). */
-export type SharedTxnTypeName = ReturnType<typeof toSharedTxnType>;
-export function toSharedTxnType(t: TxnType) {
-  return t.replace(/-/g, "_") as
-    | "spend" | "refund" | "income_salary" | "income_interest" | "income_other"
-    | "transfer_internal" | "transfer_in" | "transfer_out" | "credit_card_payment"
-    | "savings_contribution" | "obligation_loan" | "obligation_tax" | "obligation_bill";
-}
-
-/** Accept either spelling (`income_salary` or `income-salary`). */
-export function normalizeTxnType(v: unknown): TxnType | null {
-  if (typeof v !== "string") return null;
-  const h = v.trim().toLowerCase().replace(/_/g, "-");
-  return isTxnType(h) ? h : null;
 }
 
 export type ClassificationSource =
@@ -113,10 +81,10 @@ export interface TransactionClassifier {
   classifyAll(txns: ClassifierTxn[], ctx: ClassifierContext): Map<string, TxnClassification>;
 }
 
-/** A per-transaction user override (row in `txn_overrides`, either spelling). */
+/** A per-transaction user override (a `txn_overrides` row). */
 export interface TxnTypeOverride {
   transaction_id: string;
-  txn_type: TxnType | SharedTxnTypeName;
+  txn_type: TxnType;
   subtype?: string | null;
   category?: string | null;
 }
@@ -140,8 +108,8 @@ export function withOverrides(
       const out = base.classifyAll(txns, ctx);
       for (const t of txns) {
         const o = map.get(t.transaction_id);
-        const type = o ? normalizeTxnType(o.txn_type) : null;
-        if (!o || !type) continue;
+        if (!o || !isTxnType(o.txn_type)) continue; // unknown / misspelled types are ignored
+        const type = o.txn_type;
         const prev = out.get(t.transaction_id);
         out.set(t.transaction_id, {
           txnType: type,
@@ -149,7 +117,7 @@ export function withOverrides(
           category: o.category ?? prev?.category ?? null,
           confidence: 1,
           source: "user",
-          pairId: type === "transfer-internal" ? prev?.pairId ?? null : null,
+          pairId: type === "transfer_internal" ? prev?.pairId ?? null : null,
           counterpartAccountId: prev?.counterpartAccountId ?? null,
           reason: "Set by you",
         });
