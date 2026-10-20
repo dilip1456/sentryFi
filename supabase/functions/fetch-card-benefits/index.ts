@@ -1,3 +1,5 @@
+import { getCallerUser } from "../_shared/auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -11,9 +13,20 @@ const GROQ_MODEL = "openai/gpt-oss-120b";
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    if (!GROQ_KEY) return json({ error: "GROQ_API_KEY not set" }, 500);
-    const { cards } = await req.json() as { cards: { account_id: string; name: string; official_name: string }[] };
-    if (!cards?.length) return json({ benefits: {} });
+    // Security audit M1: only signed-in users may spend the Groq quota.
+    const user = await getCallerUser(req);
+    if (!user) return json({ error: "Unauthorized" }, 401);
+    if (!GROQ_KEY) return json({ error: "Card benefits lookup is not configured" }, 500);
+    const { cards: rawCards } = await req.json() as { cards: { account_id: string; name: string; official_name: string }[] };
+    if (!Array.isArray(rawCards) || !rawCards.length) return json({ benefits: {} });
+    // Bound the prompt size: a user has a handful of cards, and these strings
+    // are interpolated into the prompt.
+    const clip = (v: unknown, n: number) => String(v ?? "").replace(/[\r\n|]+/g, " ").slice(0, n);
+    const cards = rawCards.slice(0, 20).map(c => ({
+      account_id: clip(c?.account_id, 100),
+      name: clip(c?.name, 120),
+      official_name: clip(c?.official_name, 120),
+    }));
 
     const prompt = `You are a credit card benefits expert. For each card, list its KEY annual benefits that provide real dollar value. Focus on credits, travel perks, statement credits, lounge access, insurance, not basic things like fraud protection.
 
@@ -38,7 +51,11 @@ Never use em dashes (—) or double hyphens (--) in any title or description. Us
       }),
     });
 
-    if (!res.ok) { const e = await res.text(); return json({ error: `Groq ${res.status}: ${e.slice(0,200)}` }, 500); }
+    if (!res.ok) {
+      const e = await res.text();
+      console.error("[fetch-card-benefits] Groq error:", res.status, e.slice(0, 300));
+      return json({ error: "Card benefits lookup is temporarily unavailable" }, 502);
+    }
     const data = await res.json();
     const text = data.choices?.[0]?.message?.content ?? "";
     const match = text.match(/\{[\s\S]*\}/);
@@ -47,7 +64,7 @@ Never use em dashes (—) or double hyphens (--) in any title or description. Us
     return json({ benefits: parsed.benefits ?? {} });
   } catch (e) {
     console.error("[fetch-card-benefits]", e);
-    return json({ error: String(e) }, 500);
+    return json({ error: "Card benefits lookup failed" }, 500);
   }
 });
 

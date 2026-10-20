@@ -74,8 +74,13 @@ export const AdminUsersSection = () => {
       toast.error("You can't disable your own account.");
       return;
     }
-    const { error } = await supabase.from("profiles").update({ disabled }).eq("user_id", uid);
-    if (error) return toast.error(error.message);
+    // Goes through an admin-checked edge function that bans/unbans the auth
+    // user and then sets profiles.disabled. Writing the column directly is
+    // blocked by a trigger, so a user can't re-enable themselves.
+    const { data, error } = await supabase.functions.invoke("admin-set-user-disabled", {
+      body: { userId: uid, disabled },
+    });
+    if (error || data?.error) return toast.error(data?.error ?? error?.message ?? "Could not update user");
     toast.success(disabled ? "User disabled" : "User enabled");
     load();
   };

@@ -27,7 +27,38 @@ echo --- git status ---
 git status
 echo.
 
-git add -A
+rem ── Stage ONLY files git already tracks. ─────────────────────────────────
+rem  This used to be "git add -A", which is how .env, the release keystore and
+rem  hard-coded signing passwords ended up in the public repo (security audit M7).
+rem  New files must be added explicitly:  git add path\to\file
+git add -u
+
+echo.
+echo --- Untracked files NOT included in this commit ---
+git ls-files --others --exclude-standard
+echo ^(add any you really want with: git add ^<path^>, then re-run^)
+echo.
+
+rem ── Block obvious secrets from being committed. ──────────────────────────
+for /f "delims=" %%f in ('git diff --cached --name-only') do (
+  echo %%f| findstr /r /i "\.env$ \.env\. \.keystore$ \.jks$ \.p12$ \.pem$ \.key$ service-account google-services-.*\.json" >nul
+  if not errorlevel 1 (
+    echo.
+    echo ERROR: %%f looks like a secret. Unstage it with: git restore --staged "%%f"
+    exit /b 1
+  )
+)
+where gitleaks >nul 2>nul
+if not errorlevel 1 (
+  gitleaks git --pre-commit --staged --redact
+  if errorlevel 1 (
+    echo.
+    echo ERROR: gitleaks found a possible secret in the staged changes. Nothing was committed.
+    exit /b 1
+  )
+) else (
+  echo NOTE: gitleaks not installed - skipping secret scan. Install: winget install gitleaks
+)
 
 git diff --cached --quiet
 if not errorlevel 1 (

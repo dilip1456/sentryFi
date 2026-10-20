@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
+    <!-- Only the app's own folders are shareable (security audit L8). Capacitor's
+         WebView file chooser writes camera captures to
+         getExternalFilesDir(DIRECTORY_PICTURES); cache is used for asset sharing.
+         Previously external-path "." exposed all of shared external storage. -->
+    <external-files-path name="my_images" path="Pictures/" />
     <cache-path name="my_cache_images" path="." />
 </paths>

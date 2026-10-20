@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
     const { data: item, error: itemErr } = await admin
       .from("plaid_items")
-      .select("id, access_token")
+      .select("id, item_id, access_token")
       .eq("id", itemId)
       .eq("user_id", user.id)
       .single();
@@ -56,7 +56,16 @@ Deno.serve(async (req) => {
       }),
     });
     const exData = await exRes.json();
-    if (!exRes.ok) return json({ error: exData.error_message ?? "exchange failed", detail: exData }, 400);
+    if (!exRes.ok) {
+      console.error("[plaid-grant-consent] exchange failed", exData?.error_code, exData?.error_message);
+      return json({ error: "Could not confirm the bank connection. Please try again." }, 400);
+    }
+    // The public_token comes from the client: make sure it belongs to the
+    // item the caller owns, not some other Plaid item.
+    if (exData.item_id !== item.item_id) {
+      console.error("[plaid-grant-consent] item_id mismatch for item", item.id);
+      return json({ error: "This bank connection does not match the selected item" }, 400);
+    }
 
     await admin.from("plaid_items").update({ updated_at: new Date().toISOString() }).eq("id", itemId);
 
@@ -93,7 +102,7 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   } catch (e) {
     console.error(e);
-    return json({ error: String(e) }, 500);
+    return json({ error: "Could not update bank consent" }, 500);
   }
 });
 
