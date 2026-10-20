@@ -16,6 +16,8 @@ import {
   nextOutstanding,
   obligationKindFor,
   OBLIGATION_KINDS,
+  CADENCES,
+  readObligationSchedule,
   scheduleDates,
   SERIES_KINDS,
   toObligationLink,
@@ -32,6 +34,7 @@ const MIG_OBLIGATIONS = "supabase/migrations/20261020130100_obligations_cadence.
 const MIG_LOANS = "supabase/migrations/20261020130200_plaid_loan_details.sql";
 const FN_SYNC = "supabase/functions/plaid-sync-transactions/index.ts";
 const FN_EXCHANGE = "supabase/functions/plaid-exchange-token/index.ts";
+const FN_CONSENT = "supabase/functions/plaid-grant-consent/index.ts";
 
 const ACC: ClassifierAccount[] = [{ account_id: "chk", type: "depository", subtype: "checking", name: "Chk", mask: "1" }];
 let n = 0;
@@ -179,10 +182,10 @@ describe("bug 5: updated_at triggers on new tables", () => {
 
 // ── Bug 6: upsertLoanDetails lives in _shared ────────────────────────────────
 describe("bug 6: loan details helper is shared, not duplicated", () => {
-  it("both edge functions import it from ../_shared and neither defines it", () => {
-    for (const f of [FN_SYNC, FN_EXCHANGE]) {
+  it("all three Plaid functions import it from ../_shared and none defines it", () => {
+    for (const f of [FN_SYNC, FN_EXCHANGE, FN_CONSENT]) {
       const src = read(f);
-      expect(src).toMatch(/from '\.\.\/_shared\/plaid-liabilities\.ts'/);
+      expect(src).toMatch(/from ['"]\.\.\/_shared\/plaid-liabilities\.ts['"]/);
       expect(src).not.toMatch(/function upsertLoanDetails|function loanDetailRows/);
     }
   });
@@ -221,43 +224,151 @@ describe("bug 7: liabilities/get errors log only code/type/request_id", () => {
     expect(plaidErrorSummary(null)).toEqual({ error_code: null, error_type: null, request_id: null });
   });
 
-  it("neither edge function logs the raw liabilities/get body", () => {
-    for (const f of [FN_SYNC, FN_EXCHANGE]) {
+  it("no Plaid function logs the raw liabilities/get body", () => {
+    for (const f of [FN_SYNC, FN_EXCHANGE, FN_CONSENT]) {
       const src = read(f);
       const lines = src.split("\n").filter((l: string) => l.includes("liabilities/get error"));
       expect(lines.length).toBeGreaterThan(0);
       for (const l of lines) {
-        expect(l).toContain("plaidErrorSummary(data)");
-        expect(l).not.toMatch(/,\s*data\)/);
+        expect(l).toMatch(/plaidErrorSummary\(\w+\)\);?\s*(return;\s*\})?\s*$/);
+        expect(l).not.toMatch(/,\s*(data|credData)\)/);
       }
     }
   });
 });
 
-// ── Bug 8: 130100 must survive pre-existing obligations columns ──────────────
-describe("bug 8: obligations migration is robust to legacy values", () => {
+// ── Bug 8 + round 2 (A)/(B): 130100 must survive any legacy obligations ──────
+// The behaviour itself is exercised against throwaway local Postgres
+// (fresh / text legacy / non-text legacy / unmappable values, 2 runs each);
+// these assertions pin the parts that make it safe.
+describe("bug 8 / A / B: obligations migration never aborts and leaves valid constraints", () => {
   const sql = read(MIG_OBLIGATIONS);
-  it("adds every check (and the FK) NOT VALID, then validates best-effort", () => {
-    for (const c of ["obligations_cadence_check", "obligations_due_day_check", "obligations_kind_check"]) {
-      expect(sql).toMatch(new RegExp(`add constraint ${c}[\\s\\S]*?\\) not valid;`, "i"));
-      expect(sql).toMatch(new RegExp(`validate constraint ${c};\\s*exception when check_violation`, "i"));
-    }
-    expect(sql).toMatch(/obligations_stream_id_fkey[\s\S]*?on delete set null not valid;/i);
-    expect(sql).toMatch(/exception when foreign_key_violation/i);
-  });
+  const body = sql.slice(sql.indexOf("do $$"));
 
-  it("drops its own checks before normalising so re-runs can't fail", () => {
-    const firstDrop = sql.search(/drop constraint if exists obligations_cadence_check/i);
-    const firstUpdate = sql.search(/update public\.obligations set cadence/i);
+  it("drops its own constraints before touching any data (re-runnable)", () => {
+    const firstDrop = body.search(/drop constraint if exists obligations_cadence_check/i);
     expect(firstDrop).toBeGreaterThan(-1);
-    expect(firstDrop).toBeLessThan(firstUpdate);
+    expect(firstDrop).toBeLessThan(body.search(/update public\.obligations/i));
+    expect(firstDrop).toBeLessThan(body.search(/alter column \w+ type/i));
   });
 
-  it("normalises legacy spellings only for text columns and FKs only uuid columns", () => {
-    expect(sql).toMatch(/if col_type in \('text', 'character varying'\) then\s+update public\.obligations set cadence/i);
-    expect(sql).toMatch(/when 'annual' then 'yearly'/);
-    expect(sql).toMatch(/when 'bi-weekly' then 'biweekly'/);
-    expect(sql).toMatch(/if col_type = 'uuid' then\s+alter table public\.obligations add constraint obligations_stream_id_fkey/i);
+  it("A: reads the real column type and converts mismatched columns instead of failing", () => {
+    expect(body).toMatch(/format_type\(a\.atttypid, a\.atttypmod\)[\s\S]*?a\.attname = 'cadence'/);
+    expect(body).toMatch(/alter column cadence type text using cadence::text/);
+    expect(body).toMatch(/alter column kind type text using kind::text/);
+    expect(body).toMatch(/alter column due_day type integer using %s/);
+    expect(body).toMatch(/alter column stream_id type uuid using %s/);
+    // due_day conversion: digits only (CASE-guarded), out of range -> NULL
+    expect(sql).toMatch(/case when btrim\(%1\$s::text\) ~ '\^\[0-9\]\{1,6\}\(\\\.0\+\)\?\$'\s+then case when [^]*?between 1 and 31/);
+    // a conversion that can't happen is a NOTICE that skips only that column
+    for (const c of ["cadence", "due_day", "kind", "stream_id"]) {
+      expect(body).toMatch(new RegExp(`raise notice 'obligations\\.${c} is % and could not be converted[^']*'`));
+    }
+    expect(body.match(/exception when others then/g)?.length).toBe(4);
+  });
+
+  it("B: preserves originals in legacy_values (first original wins) before changing or nulling", () => {
+    expect(sql).toMatch(/add column if not exists legacy_values jsonb/);
+    const sets = [...body.matchAll(/set legacy_values = jsonb_build_object\('(\w+)', (?:to_jsonb\()?(?:o\.)?\w+\)?\) \|\| coalesce\((?:o\.)?legacy_values, '\{\}'::jsonb\)/g)].map(m => m[1]);
+    for (const c of ["cadence", "due_day", "kind", "stream_id"]) expect(sets).toContain(c);
+    // every UPDATE in the block also writes legacy_values
+    const updates = body.match(/update public\.obligations[\s\S]*?;/g) ?? [];
+    expect(updates.length).toBeGreaterThan(0);
+    for (const u of updates) expect(u).toMatch(/legacy_values = jsonb_build_object/);
+  });
+
+  it("B: unmappable values map to NULL; dangling stream_id is cleared; then constraints are VALIDATEd", () => {
+    expect(sql).toMatch(/cadence_map[\s\S]*?else null end\)/);
+    expect(sql).toMatch(/kind_map[\s\S]*?else null end\)/);
+    expect(body).toMatch(/due_day = null\s+where due_day is not null and due_day not between 1 and 31/);
+    expect(body).toMatch(/stream_id = null[\s\S]*?not exists \(select 1 from public\.recurring_streams/);
+    for (const c of ["obligations_cadence_check", "obligations_due_day_check", "obligations_kind_check", "obligations_stream_id_fkey"]) {
+      expect(body).toMatch(new RegExp(`validate constraint ${c};`));
+    }
+    // cleaning happens before the constraints are added
+    expect(body.search(/update public\.obligations o/)).toBeLessThan(body.search(/add constraint obligations_cadence_check/));
+  });
+
+  it("cadence check == CADENCES; legacy synonyms (incl. day counts) are mapped", () => {
+    expect(sqlList(sql, "cadence")).toEqual([...CADENCES].sort());
+    for (const [from, to] of [["annual", "yearly"], ["fortnightly", "biweekly"], ["30", "monthly"], ["365", "yearly"], ["semimonthly", "semimonthly"]]) {
+      expect(sql).toMatch(new RegExp(`when '${from}' then '${to}'`));
+    }
+    expect(sql).toMatch(/when 'utilities' then 'bill'/);
+    expect(sql).toMatch(/when 'credit_card' then 'card_payment'/);
+  });
+});
+
+describe("B: app code tolerates NULL / unknown obligation schedule fields", () => {
+  it("readObligationSchedule returns nulls for missing, NULL, legacy or junk values", () => {
+    const none = { cadence: null, dueDay: null, kind: null, nextDueDate: null, streamId: null, mustPay: false };
+    expect(readObligationSchedule(null)).toEqual(none);
+    expect(readObligationSchedule({})).toEqual(none);
+    expect(readObligationSchedule({ cadence: null, due_day: null, kind: null, next_due_date: null, stream_id: null, must_pay: null })).toEqual(none);
+    expect(readObligationSchedule({ cadence: 30, due_day: "the 5th", kind: "weird", next_due_date: "soon", must_pay: "true" })).toEqual(none);
+    expect(readObligationSchedule({ cadence: "every 3 weeks", due_day: 45 })).toMatchObject({ cadence: null, dueDay: null });
+    expect(readObligationSchedule({ due_day: 0 }).dueDay).toBeNull();
+    expect(readObligationSchedule({ due_day: 15.5 }).dueDay).toBeNull();
+  });
+
+  it("reads valid rows", () => {
+    expect(readObligationSchedule({ cadence: "monthly", due_day: 12, kind: "subscription", next_due_date: "2026-11-12", stream_id: "s1", must_pay: true }))
+      .toEqual({ cadence: "monthly", dueDay: 12, kind: "subscription", nextDueDate: "2026-11-12", streamId: "s1", mustPay: true });
+    expect(readObligationSchedule({ due_day: " 7 " }).dueDay).toBe(7);
+  });
+
+  it("what we write always satisfies the DB checks (cadence in CADENCES, due_day 1-31 or null)", () => {
+    const series = [
+      detectRecurringSeries(["2026-07-12", "2026-08-12", "2026-09-12", "2026-10-12"].map(d => tx(d, 15.49, "NETFLIX.COM")), ACC, { today: "2026-10-20" })[0],
+      detectRecurringSeries(["2026-08-07", "2026-08-21", "2026-09-04", "2026-09-18", "2026-10-02", "2026-10-16"].map(d => tx(d, 40, "PLANET FITNESS")), ACC, { today: "2026-10-20" })[0],
+    ];
+    for (const s of series) {
+      const link = toObligationLink(s, "s")!;
+      expect(link).not.toBeNull();
+      expect(CADENCES).toContain(link.cadence);
+      expect(link.due_day === null || (link.due_day >= 1 && link.due_day <= 31)).toBe(true);
+      const back = readObligationSchedule(link);
+      expect(back.cadence).toBe(link.cadence);
+      expect(back.kind).toBe(link.kind);
+    }
+  });
+});
+
+// ── Round 2 (C): plaid_loan_details RLS mirrors plaid_credit_details (PR #10) ─
+describe("C: plaid_loan_details is SELECT-own for users, written by service_role only", () => {
+  const sql = read(MIG_LOANS);
+  it("grants: none to anon, SELECT only to authenticated, ALL to service_role", () => {
+    expect(sql).toMatch(/revoke all on public\.plaid_loan_details from anon;/);
+    expect(sql).toMatch(/revoke all on public\.plaid_loan_details from authenticated;/);
+    expect(sql).toMatch(/grant select on public\.plaid_loan_details to authenticated;/);
+    expect(sql).toMatch(/grant all on public\.plaid_loan_details to service_role;/);
+    expect(sql).not.toMatch(/grant (insert|update|delete)[^;]*to authenticated/i);
+  });
+
+  it("one SELECT policy for authenticated owners; the old FOR ALL policy is dropped", () => {
+    const creates = [...sql.matchAll(/create policy "([^"]+)"\s+on public\.plaid_loan_details\s+for (\w+)\s+to (\w+)\s+using \(([^;]*)\);/g)];
+    expect(creates.map(m => [m[1], m[2], m[3]])).toEqual([["Users view own loan details", "select", "authenticated"]]);
+    expect(creates[0][4]).toBe("(select auth.uid()) = user_id");
+    expect(sql).toMatch(/drop policy if exists "Users can manage own loan details" on public\.plaid_loan_details;/);
+    const code = sql.replace(/--.*$/gm, "");
+    expect(code).not.toMatch(/for (all|insert|update|delete)\b/i);
+    expect(code).not.toMatch(/with check/i);
+  });
+});
+
+// ── Round 2 (D): plaid-grant-consent also stores loan details ────────────────
+describe("D: plaid-grant-consent upserts loan details via the shared helper", () => {
+  const src = read(FN_CONSENT);
+  it("calls upsertLoanDetails with the liabilities it already fetched, before the credit upsert", () => {
+    expect(src).toMatch(/await upsertLoanDetails\(admin, user\.id, credData\.liabilities\)/);
+    expect(src.indexOf("upsertLoanDetails(admin")).toBeLessThan(src.indexOf('from("plaid_credit_details")'));
+  });
+  it("the backfill is best effort: wrapped in try/catch that logs no response data", () => {
+    const backfill = src.slice(src.indexOf("/liabilities/get") - 200, src.indexOf("return json({ ok: true })"));
+    expect(backfill).toMatch(/try \{[\s\S]*\} catch \(e\) \{\s*console\.warn\([^)]*e instanceof Error \? e\.name : "error"\);\s*\}/);
+    for (const l of src.split("\n").filter((x: string) => /console\.\w+\(/.test(x) && x.includes("credData"))) {
+      expect(l.replace("plaidErrorSummary(credData)", "")).not.toContain("credData");
+    }
   });
 });
 
