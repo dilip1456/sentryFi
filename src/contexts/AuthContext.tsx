@@ -48,13 +48,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         { data: s, error: se },
         { data: r, error: re },
       ] = await Promise.all([
-        supabase.from("profiles").select("display_name,avatar_url,phone,timezone").eq("user_id", uid).maybeSingle(),
+        supabase.from("profiles").select("display_name,avatar_url,phone,timezone,disabled").eq("user_id", uid).maybeSingle(),
         supabase.from("subscribers").select("plan,status,current_period_end").eq("user_id", uid).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", uid),
       ]);
       if (pe) console.error("[auth] profiles fetch failed:", pe.message);
       if (se) console.error("[auth] subscribers fetch failed:", se.message);
       if (re) console.error("[auth] user_roles fetch failed:", re.message);
+      // Disabled accounts are banned server-side (admin-set-user-disabled);
+      // this just ends any session that is still alive on this device.
+      if ((p as { disabled?: boolean } | null)?.disabled) {
+        toast.error("This account has been disabled", { description: "Contact support if you think this is a mistake." });
+        await supabase.auth.signOut();
+        return;
+      }
       setProfile(p as Profile | null);
       setSubscriber(s as Subscriber | null);
       setRoles((r ?? []).map((x: { role: string }) => x.role));
@@ -106,21 +113,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           throw new Error(errorDesc);
         }
 
-        const hashPart = url.split("#")[1] ?? "";
-        const hashParams = new URLSearchParams(hashPart);
-        const access_token = hashParams.get("access_token");
-        const refresh_token = hashParams.get("refresh_token");
-
+        // Only the PKCE `code` path is accepted. Raw access/refresh tokens in
+        // the deep-link hash are ignored: any page or app can fire this intent,
+        // so accepting them would let an attacker sign the victim into the
+        // attacker's account (login CSRF, security audit L1). The client uses
+        // flowType "pkce", so Supabase always returns a code here.
         if (code) {
           console.log("[auth] exchanging PKCE code...");
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
           console.log("[auth] PKCE exchange success");
-        } else if (access_token && refresh_token) {
-          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-          if (error) throw error;
         } else {
-          throw new Error(`No auth code or tokens in callback URL`);
+          throw new Error("No auth code in callback URL");
         }
       } catch (err) {
         console.error("[auth] native OAuth callback failed:", err);

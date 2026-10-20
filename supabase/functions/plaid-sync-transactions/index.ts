@@ -1,5 +1,5 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { syncItemTransactions } from '../_shared/plaid-sync.ts';
 import { plaidErrorSummary, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 

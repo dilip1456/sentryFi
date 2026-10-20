@@ -1,3 +1,5 @@
+import { getCallerUser } from "../_shared/auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -20,7 +22,10 @@ const CATEGORIES = [
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    if (!GROQ_KEY) return json({ error: "GROQ_API_KEY not set" }, 500);
+    // Security audit M1: only signed-in users may spend the Groq quota.
+    const user = await getCallerUser(req);
+    if (!user) return json({ error: "Unauthorized" }, 401);
+    if (!GROQ_KEY) return json({ error: "AI categorization is not configured" }, 500);
 
     const body = await req.json();
     const transactions = (body.transactions ?? []).slice(0, 20);
@@ -54,7 +59,7 @@ If nothing is wrong return: {"suggestions":[]}`;
     const rawText = await res.text();
     if (!res.ok) {
       console.error("[ai-categorize] Groq error:", res.status, rawText.slice(0, 300));
-      return json({ error: `Groq ${res.status}: ${rawText.slice(0, 200)}` }, 500);
+      return json({ error: "AI categorization is temporarily unavailable" }, 502);
     }
 
     const data = JSON.parse(rawText);
@@ -65,7 +70,7 @@ If nothing is wrong return: {"suggestions":[]}`;
     return json({ suggestions: parsed.suggestions ?? [] });
   } catch (e) {
     console.error("[ai-categorize]", e);
-    return json({ error: String(e) }, 500);
+    return json({ error: "AI categorization failed" }, 500);
   }
 });
 

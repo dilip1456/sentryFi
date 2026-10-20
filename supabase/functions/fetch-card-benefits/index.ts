@@ -1,3 +1,5 @@
+import { getCallerUser } from "../_shared/auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -104,9 +106,20 @@ async function fetchForCard(cardName: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    if (!GROQ_KEY) return json({ error: "GROQ_API_KEY not set" }, 500);
-    const { cards } = await req.json() as { cards: CardIn[] };
-    if (!cards?.length) return json({ benefits: {} });
+    // Security audit M1: only signed-in users may spend the Groq quota.
+    const user = await getCallerUser(req);
+    if (!user) return json({ error: "Unauthorized" }, 401);
+    if (!GROQ_KEY) return json({ error: "Card benefits lookup is not configured" }, 500);
+    const { cards: rawCards } = await req.json() as { cards: CardIn[] };
+    if (!Array.isArray(rawCards) || !rawCards.length) return json({ benefits: {} });
+    // Bound the work per request: a user has a handful of cards, each distinct
+    // product is one Groq call, and these strings go into the prompt.
+    const clip = (v: unknown, n: number) => String(v ?? "").replace(/[\r\n|]+/g, " ").slice(0, n);
+    const cards: CardIn[] = rawCards.slice(0, 20).map(c => ({
+      account_id: clip(c?.account_id, 100),
+      name: clip(c?.name, 120),
+      official_name: clip(c?.official_name, 120),
+    }));
 
     // Two accounts of the same product share one lookup.
     const byProduct = new Map<string, string[]>();
@@ -131,7 +144,7 @@ Deno.serve(async (req) => {
     return json({ benefits, failed });
   } catch (e) {
     console.error("[fetch-card-benefits]", e);
-    return json({ error: String(e) }, 500);
+    return json({ error: "Card benefits lookup failed" }, 500);
   }
 });
 

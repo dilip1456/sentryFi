@@ -1,5 +1,5 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 
 const GROQ_KEY = Deno.env.get('GROQ_API_KEY');
 // llama-3.3-70b-versatile was decommissioned by Groq on 2026-08-16 (every

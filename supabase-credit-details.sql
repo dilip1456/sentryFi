@@ -1,3 +1,8 @@
+-- ⚠️  LEGACY / DO NOT APPLY. supabase/migrations/ is the source of truth.
+-- This file predates the migrations folder and grants FOR ALL policies on the
+-- plaid_* tables (letting users write Plaid rows and read access_token).
+-- See security audit H2/H4 and 20261020170000/20261020170100 migrations.
+
 -- Run in Supabase SQL Editor to enable credit card detail tracking
 -- (due dates, minimum payments, statement balances from Plaid Liabilities)
 
