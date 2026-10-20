@@ -86,9 +86,10 @@ export async function homeSpent(page: Page): Promise<number> {
   return usd(await card.innerText());
 }
 
-/** Reads Spending's "Total spent" (current month, after the count-up settles). */
+/** Reads Spending's current-month total from the "Month summary" hero
+ *  ("Spent so far in <Month>" → value), after any count-up settles. */
 export async function spendingTotal(page: Page): Promise<number> {
-  const val = page.getByText("Total spent", { exact: true }).locator("xpath=following-sibling::span[1]");
+  const val = page.getByRole("region", { name: "Month summary" }).getByText(/^Spent so far in /).locator("xpath=following-sibling::div[1]");
   await expect(val).toHaveText(/\$[\d,]+/);
   let prev = -1, cur = usd(await val.innerText());
   for (let i = 0; i < 20 && cur !== prev; i++) { await page.waitForTimeout(150); prev = cur; cur = usd(await val.innerText()); }

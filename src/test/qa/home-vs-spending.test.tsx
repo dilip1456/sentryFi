@@ -36,7 +36,10 @@ beforeAll(() => {
 afterAll(() => { vi.useRealTimers(); });
 
 const homeSpent = async () => { renderDashboard("overall"); return parseUSD((await valueAfterLabel(/^spent this month$/i))[0]); };
-const spendingTotal = async () => { renderDashboard("spending"); return parseUSD((await valueAfterLabel(/^total spent$/i))[0]); };
+// Spending's month view (default) shows the total in the "Month summary" hero
+// ("Spent so far in October" → value); the old "Total spent" panel is only
+// rendered for day/week/year since the Spending redesign (#8).
+const spendingTotal = async () => { renderDashboard("spending"); return parseUSD((await valueAfterLabel(/^spent so far in /i))[0]); };
 
 describe("QA Home cash-flow strip (rendered)", () => {
   it("income this month = salary only; internal transfer leg and refunds are not income", async () => {
@@ -82,18 +85,18 @@ describe("QA Home cash-flow strip (rendered)", () => {
 });
 
 describe("QA Spending page totals (rendered)", () => {
-  it("Total spent excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
+  it("Spent (month hero) excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
     expect(await spendingTotal()).toBe(1865);
   });
-  it("Total earned matches Home income", async () => {
+  it("Earned matches Home income", async () => {
     renderDashboard("spending");
-    expect((await valueAfterLabel(/^total earned$/i))[0]).toBe("$3,000");
+    const hero = await screen.findByRole("region", { name: "Month summary" });
+    expect(hero.textContent).toMatch(/Earned\s*\$3,000(?![\d.])/);
   });
-  it("mobile 'Spent' card and desktop 'Total spent' show the same figure", async () => {
+  it("one Month summary hero serves every width (the separate mobile 'Spent' card was removed in #8)", async () => {
     renderDashboard("spending");
-    const mobile = (await screen.findAllByText(/^spent$/i)).map(e => e.nextElementSibling?.textContent);
-    const desk = await valueAfterLabel(/^total spent$/i);
-    expect(mobile[0]).toBe(desk[0]);
+    expect(await screen.findAllByRole("region", { name: "Month summary" })).toHaveLength(1);
+    expect(screen.queryAllByText(/^spent so far in /i)).toHaveLength(1);
   });
 });
 
@@ -127,7 +130,7 @@ describe("QA account group balances & net worth (rendered)", () => {
   it("renders no null/undefined/NaN text on Home or Spending", async () => {
     for (const v of ["overall", "spending"] as const) {
       const r = renderDashboard(v);
-      await screen.findAllByText(v === "overall" ? /^spent this month$/i : /^total spent$/i);
+      await screen.findAllByText(v === "overall" ? /^spent this month$/i : /^spent so far in /i);
       expect(r.container.textContent).not.toMatch(/\b(null|undefined|NaN)\b/);
     }
   });
