@@ -8,6 +8,7 @@ import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { fmtShortDate } from "@/lib/format-date";
 
 interface Row {
   user_id: string;
@@ -143,7 +144,7 @@ export const AdminUsersSection = () => {
                   isUserAdmin ? "bg-info/15 text-info" : "bg-surface text-muted-foreground"
                 )}>{isUserAdmin ? "admin" : "user"}</span>
               </div>
-              <div className="text-muted-foreground text-[13px]">{new Date(r.created_at).toLocaleDateString()}</div>
+              <div className="text-muted-foreground text-[13px]">{fmtShortDate(r.created_at)}</div>
               <div className="flex items-center justify-end gap-1">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

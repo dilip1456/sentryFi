@@ -41,6 +41,10 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
+import { cleanBankText, isStatementSummaryText } from "@/lib/merchant-name";
+import { fmtShortDate } from "@/lib/format-date";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { toast } from "sonner";
 import {
   useObligations, ObligationEditModal, CoverModal, OBLIGATION_BUCKETS,
   type Obligation,
@@ -211,6 +215,13 @@ const classifyFrequency = (avgGapDays: number): Frequency | null => {
 // CLUB #4471 REF 88213". Mirrors the same cleanup used for Obligations so
 // both detectors present names consistently.
 function cleanMerchantName(raw: string): string {
+  // Shared cleanup (ACH keys, confirmation/reference numbers, card masks,
+  // "PURCHASE AUTHORIZED ON" prefixes) — see src/lib/merchant-name.ts.
+  return cleanBankText(raw) || raw;
+}
+// The pre-shared-cleanup key, so merchants a user already dismissed under
+// the old normalization stay dismissed.
+function legacyMerchantKey(raw: string): string {
   let name = raw
     .replace(/\s*(?:#|no\.?|ref|trace|conf|id)[:#]?\s*[a-z0-9-]{4,}\s*$/i, "")
     .replace(/\s{2,}/g, " ")
@@ -218,8 +229,14 @@ function cleanMerchantName(raw: string): string {
   if (name === name.toUpperCase() && /[A-Z]/.test(name)) {
     name = name.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
   }
-  return name || raw;
+  return (name || raw).toLowerCase().trim();
 }
+
+// Single-sighting charges only count as "yearly" when they look like a
+// real annual bill — otherwise any one big purchase (a couch, a flight)
+// was being budgeted as a monthly set-aside.
+const ANNUAL_HINT_RE = /insurance|premium|renewal|annual|yearly|membership|registration|\bdmv\b|license|tax|tuition|subscription|domain|costco|sam'?s club|amazon prime|\baaa\b|\bhoa\b|property/i;
+const ANNUAL_HINT_CATS = /insurance|subscription|tax|fees|education|bills/i;
 
 // Every account reference on this page (income source, obligation funding,
 // recurring bill, savings destination, card autopay) resolves through this
@@ -421,7 +438,7 @@ function DetectedRow({ name, note, detail, amount, txns, section, onAccept, onFl
               <div className="max-h-40 overflow-y-auto rounded-lg border border-border/40 divide-y divide-border/20">
                 {txns.slice().sort((a,b)=>b.date.localeCompare(a.date)).map((t,i) => (
                   <div key={i} className="flex items-center justify-between px-3 py-1.5 text-[12px]">
-                    <span className="text-muted-foreground">{t.date}</span>
+                    <span className="text-muted-foreground">{fmtShortDate(t.date)}</span>
                     <span className="font-medium tabular text-foreground">{fmtUSD(Math.abs(t.amount))}</span>
                   </div>
                 ))}
@@ -560,6 +577,17 @@ export function BudgetPage({
   // on the page, including obligations, so flagging a merchant wrong
   // anywhere sticks everywhere.
   const dismissedRecurringSet = useMemo(() => new Set(dismissedRecurring.map(m => m.toLowerCase())), [dismissedRecurring]);
+  const isDismissedMerchant = useCallback((raw: string) =>
+    dismissedRecurringSet.has(cleanMerchantName(raw).toLowerCase().trim()) ||
+    dismissedRecurringSet.has(legacyMerchantKey(raw)) ||
+    dismissedRecurringSet.has(raw.toLowerCase().trim()), [dismissedRecurringSet]);
+  // Only real spend can be a bill or recurring expense — never a transfer
+  // between your own accounts (e.g. "Zelle to <you>"), a card payment or a
+  // savings move. Uses the shared classifier when available.
+  const isSpendLike = useCallback((t: PTxn) => {
+    const c = classOf?.(t);
+    return !c || c.type === "spend" || c.type.startsWith("obligation_");
+  }, [classOf]);
 
   // ── Obligations data — see ObligationsView.tsx. Fetched here (not inside
   // a separate mounted component) so its rows can render with the exact
@@ -570,7 +598,7 @@ export function BudgetPage({
   const {
     obligations, spentMap: obligationSpentMap, exceeded: obligationsExceeded, detected: obligationsDetected,
     addObligation, updateObligation, removeObligation, userId: obligationsUserId,
-  } = useObligations(txns, getEffectiveCategory, thisMonth, dismissedRecurringSet);
+  } = useObligations(txns, getEffectiveCategory, thisMonth, dismissedRecurringSet, classOf);
 
   // Removing an obligation — whether it was auto-added (high-confidence
   // Fixed detection) or added by hand — also blacklists its merchant, same
@@ -702,9 +730,10 @@ export function BudgetPage({
       const key = monthKey(d);
       for (const t of txns.filter(x => x.date.startsWith(key) && isIncomeTxn(x))) {
         const raw = t.merchant_name ?? t.name ?? "Deposit";
+        if (isStatementSummaryText(raw)) continue;
         const cleaned = cleanMerchantName(raw);
         const mkey = cleaned.toLowerCase().trim();
-        if (dismissedRecurringSet.has(mkey)) continue;
+        if (isDismissedMerchant(raw)) continue;
         if (!merchantTotals[mkey]) merchantTotals[mkey] = { display: cleaned, dates: [], amounts: [], ids: [], accountIds: [] };
         merchantTotals[mkey].dates.push(t.date);
         merchantTotals[mkey].amounts.push(Math.abs(Number(t.amount)));
@@ -715,20 +744,34 @@ export function BudgetPage({
     return Object.entries(merchantTotals)
       // Evidence: at least 2 deposits, and not wildly different amounts —
       // two same-named deposits of $50 and $4,000 aren't the same pattern.
-      .filter(([,d]) => d.dates.length >= 2 && amountsConsistent(d.amounts, 2.5))
+      // Two deposits in the same month are a one-off, not a monthly source.
+      .filter(([,d]) => d.dates.length >= 2 && distinctMonths(d.dates) >= 2 && amountsConsistent(d.amounts, 2.5))
       .map(([,d]) => {
-        const avgAmount = d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length;
+        const perDeposit = d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length;
+        // Cadence decides the monthly figure: a biweekly paycheck is ~2.17
+        // deposits a month, not one. Irregular sources average over the span.
+        const sorted = [...d.dates].sort();
+        const gaps = sorted.slice(1).map((x, i) => (Date.parse(x) - Date.parse(sorted[i])) / 86400000);
+        const freq = gaps.length ? classifyFrequency(gaps.reduce((a,b)=>a+b,0)/gaps.length) : null;
+        const months = distinctMonths(d.dates);
+        if (!freq && months < 3) return null;
+        const first = new Date(sorted[0] + "T00:00:00"), nowD = new Date();
+        const spanMonths = Math.max(1, (nowD.getFullYear() - first.getFullYear()) * 12 + nowD.getMonth() - first.getMonth() + 1);
+        const avgAmount = freq ? perDeposit * FREQ_MONTHLY_MULT[freq] : d.amounts.reduce((s,v)=>s+v,0) / spanMonths;
         // Most common destination account across the matched deposits — the
         // account this income actually lands in, not just a category guess.
         const accountId = mostCommon(d.accountIds);
         return {
           merchant: d.display, avgAmount, count: d.dates.length, txnIds: d.ids, accountId,
           txns: d.dates.map((date,i) => ({ date, amount: d.amounts[i] })),
-          reason: `${fmtUSD(avgAmount)} avg, ${distinctMonths(d.dates)} of last 12 months`,
+          reason: freq
+            ? `${FREQ_LABEL[freq]}, ${fmtUSD(perDeposit)} each ≈ ${fmtUSD(avgAmount)}/mo · ${months} of last 12 months`
+            : `Irregular, ≈ ${fmtUSD(avgAmount)}/mo · ${months} of last 12 months`,
         };
       })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
       .sort((a,b) => b.avgAmount-a.avgAmount);
-  }, [txns, isIncomeTxn, dismissedRecurringSet]);
+  }, [txns, isIncomeTxn, isDismissedMerchant]);
 
   const manualIncomeTotal = manualIncome.reduce((s,m)=>s+m.amount,0);
   const totalMonthlyIncome = manualIncomeTotal;
@@ -867,11 +910,13 @@ export function BudgetPage({
       if (internalTxnIds.has(t.id) || isObligationTxn(t) || isSavingsTxn(t)) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
       if (isIncomeCategory(cat, Number(t.amount)) || isTransferLikeCategory(cat)) continue;
+      if (Number(t.amount) <= 0 || !isSpendLike(t)) continue;
       const raw = t.merchant_name ?? t.name ?? "Unknown";
+      if (isStatementSummaryText(raw)) continue;
       if (isDiscretionarySpend(cat, raw)) continue;
       const cleaned = cleanMerchantName(raw);
       const mkey = cleaned.toLowerCase().trim();
-      if (dismissedRecurringSet.has(mkey)) continue;
+      if (isDismissedMerchant(raw)) continue;
       if (!merchantTotals[mkey]) merchantTotals[mkey] = { display: cleaned, dates: [], amounts: [], cat };
       merchantTotals[mkey].dates.push(t.date);
       merchantTotals[mkey].amounts.push(Math.abs(Number(t.amount)));
@@ -881,7 +926,7 @@ export function BudgetPage({
       // to be worth flagging as "annual." Two sightings need to actually be
       // roughly a year apart with a similar amount.
       .filter(([,d]) => {
-        if (d.dates.length === 1) return Math.max(...d.amounts) >= 150;
+        if (d.dates.length === 1) return Math.max(...d.amounts) >= 150 && (ANNUAL_HINT_RE.test(d.display) || ANNUAL_HINT_CATS.test(d.cat));
         if (d.dates.length === 2) {
           const sorted = [...d.dates].sort();
           const gapDays = (new Date(sorted[1]+"T00:00:00").getTime()-new Date(sorted[0]+"T00:00:00").getTime())/86400000;
@@ -893,13 +938,13 @@ export function BudgetPage({
         merchant: d.display, category: d.cat, amount: Math.max(...d.amounts), lastDate: [...d.dates].sort().slice(-1)[0],
         txns: d.dates.map((date,i) => ({ date, amount: d.amounts[i] })),
         reason: d.dates.length === 1
-          ? `${fmtUSD(Math.max(...d.amounts))} once, on ${[...d.dates].sort().slice(-1)[0]}`
-          : `${fmtUSD(Math.max(...d.amounts))}, ~yearly`,
+          ? `${fmtUSD(Math.max(...d.amounts))} once, on ${fmtShortDate([...d.dates].sort().slice(-1)[0])} · set aside ≈ ${fmtUSD(Math.max(...d.amounts)/12)}/mo`
+          : `${fmtUSD(Math.max(...d.amounts))}, ~yearly · set aside ≈ ${fmtUSD(Math.max(...d.amounts)/12)}/mo`,
       }))
       .filter(y => !savingsGoals.some(g => g.kind === "yearly" && g.name === y.merchant))
       .sort((a,b) => b.amount - a.amount)
       .slice(0, 8);
-  }, [txns, internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory, savingsGoals, dismissedRecurringSet]);
+  }, [txns, internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory, savingsGoals, isDismissedMerchant, isSpendLike]);
 
   // ── Obligations without a funding plan yet ──
   const obligationsNeedingPlan = useMemo(
@@ -923,12 +968,13 @@ export function BudgetPage({
       if (isIncomeCategory(cat, Number(t.amount)) || isTransferLikeCategory(cat)) continue;
       const merchant = (t.merchant_name ?? t.name ?? "").trim();
       if (!merchant) continue;
+      if (Number(t.amount) <= 0 || !isSpendLike(t) || isStatementSummaryText(merchant)) continue;
       if (isDiscretionarySpend(cat, merchant)) continue;
       // Normalized key (trailing reference/trace numbers stripped, not just
       // lowercased) — the same per-charge-varies-slightly problem that hid
       // recurring income also fragments recurring bills into singletons.
       const key = cleanMerchantName(merchant).toLowerCase();
-      if (dismissedRecurringSet.has(key)) continue;
+      if (isDismissedMerchant(merchant)) continue;
       if (!byMerchant[key]) byMerchant[key] = { display: merchant, dates: [], amounts: [], ids: [], cat, accountIds: [] };
       byMerchant[key].dates.push(t.date);
       byMerchant[key].amounts.push(Number(t.amount));
@@ -958,7 +1004,7 @@ export function BudgetPage({
       });
     }
     return out.sort((a,b) => b.avgAmount - a.avgAmount);
-  }, [txns, internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory, groupedTxnIdSet, dismissedRecurringSet]);
+  }, [txns, internalTxnIds, isObligationTxn, isSavingsTxn, getEffectiveCategory, isIncomeCategory, groupedTxnIdSet, isDismissedMerchant, isSpendLike]);
 
   // ── Budget breakdown: what a category's budget is actually made up of ──
   // Detected recurring/yearly candidates already carry a `.category`, so
@@ -1043,6 +1089,7 @@ export function BudgetPage({
       const key = monthKey(d);
       for (const t of txns.filter(x => x.date.startsWith(key) && isSavingsTxn(x))) {
         const raw = t.merchant_name ?? t.name ?? "Transfer";
+        if (isStatementSummaryText(raw)) continue;
         const cleaned = cleanMerchantName(raw);
         const mkey = cleaned.toLowerCase().trim();
         if (!merchantTotals[mkey]) merchantTotals[mkey] = { display: cleaned, dates: [], amounts: [], accountId: t.account_id };
@@ -1051,15 +1098,15 @@ export function BudgetPage({
       }
     }
     return Object.entries(merchantTotals)
-      .filter(([,d]) => d.dates.length >= 2 && amountsConsistent(d.amounts, 2.2))
+      .filter(([,d]) => d.dates.length >= 2 && distinctMonths(d.dates) >= 2 && amountsConsistent(d.amounts, 2.2))
       .map(([,d]) => ({
         merchant: d.display, avgAmount: d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length, count: d.dates.length, accountId: d.accountId,
         txns: d.dates.map((date,i) => ({ date, amount: d.amounts[i] })),
       }))
       .filter(d => !savingsGoals.some(g => (g.kind ?? "transfer") === "transfer" && g.name === d.merchant))
-      .filter(d => !dismissedRecurringSet.has(d.merchant.toLowerCase()))
+      .filter(d => !isDismissedMerchant(d.merchant))
       .sort((a,b) => b.avgAmount-a.avgAmount);
-  }, [txns, isSavingsTxn, savingsGoals, dismissedRecurringSet]);
+  }, [txns, isSavingsTxn, savingsGoals, isDismissedMerchant]);
 
   // ── Auto-add when confident ──────────────────────────────────────────────
   // Extends the pattern ObligationsView already uses for Fixed bills (see
@@ -1243,7 +1290,7 @@ export function BudgetPage({
     });
 
     for (const t of manualRecurringUngrouped) out.push({
-      id: `man_${t.id}`, section: "expenses", name: t.merchant_name ?? t.name ?? "Transaction", detail: `marked recurring by you · ${t.date}`, amount: Math.abs(Number(t.amount)), txns: [{ date: t.date, amount: Number(t.amount) }],
+      id: `man_${t.id}`, section: "expenses", name: cleanMerchantName(t.merchant_name ?? t.name ?? "Transaction"), detail: `marked recurring by you · ${fmtShortDate(t.date)}`, amount: Math.abs(Number(t.amount)), txns: [{ date: t.date, amount: Number(t.amount) }],
       onAccept: (name, amt, section) => addDetected({ merchant: t.merchant_name ?? t.name ?? "", frequency: "monthly", txnIds: [t.id] }, section, name, amt),
       onFlag: (reason) => flagIncorrect(t.merchant_name ?? t.name ?? "", undefined, reason),
     });
@@ -1280,20 +1327,17 @@ export function BudgetPage({
               {summaryLine}
             </p>
           </div>
-          {confirmingReset ? (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[11px] text-muted-foreground">Clear budgets, recurring & savings goals?</span>
-              <button onClick={()=>{ resetBudgetTracking(); setConfirmingReset(false); }}
-                className="h-7 px-2.5 rounded-lg bg-negative text-white text-[11px] font-semibold">Confirm</button>
-              <button onClick={()=>setConfirmingReset(false)}
-                className="h-7 px-2.5 rounded-lg text-muted-foreground hover:text-foreground text-[11px] font-medium">Cancel</button>
-            </div>
-          ) : (
-            <button onClick={()=>setConfirmingReset(true)}
-              className="shrink-0 text-[11px] text-muted-foreground/70 hover:text-negative transition-colors">
-              Reset budget data
-            </button>
-          )}
+          <button onClick={()=>setConfirmingReset(true)}
+            className="shrink-0 text-[11px] text-muted-foreground/70 hover:text-negative transition-colors whitespace-nowrap">
+            Reset budget data
+          </button>
+          <ConfirmDialog
+            open={confirmingReset}
+            onOpenChange={setConfirmingReset}
+            title="Reset budget data?"
+            description="This clears your category budgets, recurring items and savings goals on this page. Your transactions and linked accounts aren't affected."
+            confirmLabel="Reset"
+            onConfirm={() => { resetBudgetTracking(); setConfirmingReset(false); toast.success("Budget data reset"); }} />
         </div>
 
         {/* Two bars, one picture: income on top, and directly below it — at
@@ -1697,7 +1741,7 @@ export function BudgetPage({
                                         className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-muted/20 transition-colors">
                                         <div className="flex-1 min-w-0">
                                           <p className="text-[11.5px] text-foreground truncate">{t.merchant_name ?? t.name ?? "Transaction"}</p>
-                                          <p className="text-[10px] text-muted-foreground truncate">{t.date}{accountLabel(accounts, t.account_id) ? ` · ${accountLabel(accounts, t.account_id)}` : ""}</p>
+                                          <p className="text-[10px] text-muted-foreground truncate">{fmtShortDate(t.date)}{accountLabel(accounts, t.account_id) ? ` · ${accountLabel(accounts, t.account_id)}` : ""}</p>
                                         </div>
                                         <span className="text-[11.5px] font-medium tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
                                         <ChevronRight className="h-3 w-3 text-muted-foreground/30 shrink-0"/>
@@ -1775,7 +1819,7 @@ export function BudgetPage({
                         .map(t => (
                           <div key={t.id} className="flex items-center gap-2 px-2.5 py-1.5">
                             <span className="text-[11.5px] text-foreground truncate flex-1 min-w-0">{t.merchant_name ?? t.name ?? "Transaction"}</span>
-                            <span className="text-[10px] text-muted-foreground shrink-0">{t.date}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{fmtShortDate(t.date)}</span>
                             <span className="text-[11.5px] font-medium tabular text-foreground shrink-0">{fmtUSD(Number(t.amount))}</span>
                             <button onClick={()=>removeTxnFromRecurringGroup(g.id, t.id)} aria-label="Remove from this entry"
                               className="text-muted-foreground/50 hover:text-negative shrink-0"><X className="h-3 w-3"/></button>
