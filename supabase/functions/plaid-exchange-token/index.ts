@@ -153,7 +153,7 @@ async function syncLiabilities(admin: any, userId: string, accessToken: string) 
 }
 
 // Mortgage + student loans from /liabilities/get → plaid_loan_details
-// (migration 20261020120200_plaid_loan_details.sql). Feeds the loan recurring
+// (migration 20261020130200_plaid_loan_details.sql). Feeds the loan recurring
 // streams' next due date / amount. Isolated so a missing table (migration not
 // yet applied) can never break the credit-card upsert.
 interface PlaidMortgageLiability {

@@ -2,7 +2,7 @@
 -- Obligations become schedule-aware and can be backed by a detected recurring
 -- stream (recurring_streams, previous migration). Requires
 -- 20260825120000_obligations_and_cover_actions.sql and
--- 20261020120000_recurring_streams.sql.
+-- 20261020130000_recurring_streams.sql.
 
 alter table public.obligations add column if not exists cadence text;
 alter table public.obligations add column if not exists due_day integer;

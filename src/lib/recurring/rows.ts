@@ -1,6 +1,6 @@
 /**
  * Mapping between detected series and the `recurring_streams` /
- * `stream_occurrences` tables (supabase/migrations/20261020120000_*). Pure:
+ * `stream_occurrences` tables (supabase/migrations/20261020130000_*). Pure:
  * callers (client hook or edge function) do the actual upsert.
  *
  * Re-detection must never clobber user decisions, so `mergeStreamRow` keeps
