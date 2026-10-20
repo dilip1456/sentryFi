@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { fmtUSD } from "@/lib/format";
+import { fmtUSD, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
 import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import { classifyTxn, countsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
@@ -2262,7 +2262,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                               </div>
                               <div className="text-right shrink-0">
                                 <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
-                                <div className="text-[13px] font-bold text-foreground tabular leading-tight mt-0.5">{fmtUSD(g.total)}</div>
+                                <div className={cn("text-[13px] font-bold tabular leading-tight mt-0.5", txnAmountClass(g.total))}>{fmtTxnAmount(g.total)}</div>
                               </div>
                             </div>
                           </td>
@@ -2308,7 +2308,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                             <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
                           </div>
-                          <span className="text-[11px] text-muted-foreground tabular shrink-0">{fmtUSD(g.total)}</span>
+                          <span className={cn("text-[11px] tabular shrink-0", g.total < 0 ? "text-positive" : "text-muted-foreground")}>{fmtTxnAmount(g.total)}</span>
                         </div>
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
@@ -2950,8 +2950,8 @@ const TxnRow = ({
         <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground truncate tabular" title={fmtDayHeading(t.date)}>{fmtShortDate(t.date)}</td>
       )}
       {visibleCols.has("amount") && (
-        <td className={cn("px-4 py-2.5 text-right text-[13.5px] font-bold tabular truncate", t.pending ? "text-muted-foreground" : "text-foreground")}
-          title={t.pending ? "Pending: amount may change before it posts" : undefined}>{fmtUSD(Number(t.amount))}</td>
+        <td className={cn("px-4 py-2.5 text-right text-[13.5px] font-bold tabular truncate", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}
+          title={t.pending ? "Pending: amount may change before it posts" : undefined}>{fmtTxnAmount(t.amount)}</td>
       )}
       {visibleCols.has("statement") && (
         <td className="px-4 py-2.5" title={t.name ?? undefined}>
@@ -3055,7 +3055,7 @@ const MobileTxnRow = ({
         </div>
       </div>
       {visibleCols.has("amount") && (
-        <span className={cn("text-[14px] font-bold tabular shrink-0", t.pending ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(Number(t.amount))}</span>
+        <span className={cn("text-[14px] font-bold tabular shrink-0", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</span>
       )}
       {visibleCols.has("category") && (
         <div onClick={e=>e.stopPropagation()} className="shrink-0">

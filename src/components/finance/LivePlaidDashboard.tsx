@@ -25,7 +25,7 @@ import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
-import { fmtUSD } from "@/lib/format";
+import { fmtUSD, fmtTxnAmount } from "@/lib/format";
 import { fmtUSDCompact } from "@/lib/format-compact";
 import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
@@ -2428,8 +2428,8 @@ const TxnDetailModal = ({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
-                {isIncome ? "+" : "−"}{fmtUSD(amt, {cents: true})}
+              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-positive" : "text-foreground")}>
+                {fmtTxnAmount(txn.amount, {cents: true})}
               </p>
               {recurringLabel && <p className="text-[10px] text-muted-foreground/70">{recurringLabel}</p>}
             </div>
