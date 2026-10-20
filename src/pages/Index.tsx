@@ -163,6 +163,53 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     );
   };
 
+  // Header controls shared by Home-style page headers (also rendered in
+  // Spending's own full-bleed header so the two match).
+  const topButtons = (
+    <div className="flex items-center gap-2">
+      {!effectiveDemo && guestDemo && (
+        <button onClick={() => navigate("/auth")}
+          className="bg-gold h-9 px-4 rounded-lg text-[14px] mr-1">
+          Create free account
+        </button>
+      )}
+      {!effectiveDemo && hasItems === true && (
+        <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
+          title="Sync data"
+          className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-50">
+          <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
+        </button>
+      )}
+      {user && (
+        <button onClick={() => setShowInbox(true)}
+          title="Notifications"
+          className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      )}
+      {user && !guestDemo && (
+        <button onClick={() => signOut().then(() => navigate("/welcome"))}
+          title="Sign out"
+          className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-negative hover:border-negative/40 transition-colors">
+          <LogOut className="h-4 w-4" />
+        </button>
+      )}
+      {user && !guestDemo && (
+        <button onClick={() => setShowProfile(true)} title="Profile & settings"
+          className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
+          {profile?.avatar_url
+            ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+            : <span className="text-[14px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-[100dvh] bg-background flex overflow-hidden">
 
@@ -430,6 +477,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   manualAccounts={manualAccounts}
                   onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
                   onDeleteManual={removeManual}
+                  headerActions={topButtons}
                 />
               )}
               {effectiveDemo && (
@@ -443,6 +491,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                   syncTrigger={0}
                   selectedCategory={selectedCategory}
                   onCategorySelect={handleCategorySelect}
+                  headerActions={topButtons}
                 />
               )}
             </>
@@ -502,48 +551,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               ) : <div />}
 
               {/* Top button bar */}
-              <div className="flex items-center gap-2">
-                {!effectiveDemo && guestDemo && (
-                  <button onClick={() => navigate("/auth")}
-                    className="bg-gold h-9 px-4 rounded-lg text-[14px] mr-1">
-                    Create free account
-                  </button>
-                )}
-                {!effectiveDemo && hasItems === true && (
-                  <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                    title="Sync data"
-                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors disabled:opacity-50">
-                    <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-                  </button>
-                )}
-                {user && (
-                  <button onClick={() => setShowInbox(true)}
-                    title="Notifications"
-                    className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
-                    <Bell className="h-4 w-4" />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-                        {unreadCount > 9 ? "9+" : unreadCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {user && !guestDemo && (
-                  <button onClick={() => signOut().then(() => navigate("/welcome"))}
-                    title="Sign out"
-                    className="h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-negative hover:border-negative/40 transition-colors">
-                    <LogOut className="h-4 w-4" />
-                  </button>
-                )}
-                {user && !guestDemo && (
-                  <button onClick={() => setShowProfile(true)} title="Profile & settings"
-                    className="h-9 w-9 rounded-full overflow-hidden border border-border hover:border-[hsl(var(--primary)/0.5)] transition-colors grid place-items-center bg-[hsl(var(--primary)/0.12)]">
-                    {profile?.avatar_url
-                      ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
-                      : <span className="text-[14px] font-semibold text-[hsl(var(--primary))]">{(profile?.display_name ?? user.email ?? "?").trim().charAt(0).toUpperCase()}</span>}
-                  </button>
-                )}
-              </div>
+              {topButtons}
             </div>
 
             {/* Loading state */}

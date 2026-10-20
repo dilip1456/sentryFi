@@ -4384,13 +4384,15 @@ interface Props {
   manualAccounts?: import("@/hooks/useManualAccounts").ManualAccount[];
   onEditManual?: (acct: import("@/hooks/useManualAccounts").ManualAccount) => void;
   onDeleteManual?: (id: string) => void;
+  /** Right-side header controls (sync/bell/profile) rendered in full-bleed views' own header. */
+  headerActions?: React.ReactNode;
 }
 
 export const LivePlaidDashboard = ({
   onAddAccount, hasItems, demo=false, guestDemo=false, view="overall", onViewChange,
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
-  manualAccounts = [], onEditManual, onDeleteManual,
+  manualAccounts = [], onEditManual, onDeleteManual, headerActions,
 }: Props) => {
   const { user, profile } = useAuth();
 
@@ -6679,6 +6681,8 @@ export const LivePlaidDashboard = ({
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
           onOpenRules={() => setShowRulesManager(true)}
           onOpenImport={() => setShowImportModal(true)}
+          headerActions={headerActions}
+          isCategoryEdited={t => overrides[t.id] != null}
         />
         <ImportStatementModal
           open={showImportModal}
