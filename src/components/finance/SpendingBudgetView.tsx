@@ -410,6 +410,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // term to stay visible, so each addition narrows further.
   const [searchDraft, setSearchDraft] = useState(initialSearch ?? "");
   const [searchTerms, setSearchTerms] = useState<string[]>(initialSearch ? [initialSearch] : []);
+  // Search filters as you type (debounced); Enter still pins the current
+  // text as a removable chip so several terms can be combined.
+  const [liveSearch, setLiveSearch] = useState((initialSearch ?? "").trim());
+  useEffect(() => {
+    const id = window.setTimeout(() => setLiveSearch(searchDraft.trim()), 200);
+    return () => window.clearTimeout(id);
+  }, [searchDraft]);
+  const activeSearchTerms = useMemo(() => {
+    const live = liveSearch.trim();
+    return live && !searchTerms.some(t => t.toLowerCase() === live.toLowerCase()) ? [...searchTerms, live] : searchTerms;
+  }, [searchTerms, liveSearch]);
   // Mobile-only layout state; the period/spend-pulse card and burn-runway
   // chart are collapsed behind a toggle below `md` so the transaction list
   // itself is what fills the screen; the mobile search field is likewise a
@@ -1012,7 +1023,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [nameOverrides, getEffectiveCategory, accounts]);
 
   const visibleTxns = useMemo(() => {
-    const searching = searchTerms.length > 0;
+    const searching = activeSearchTerms.length > 0;
     // A search is a "find this transaction" action, not normal browsing; it
     // deliberately looks across every period and category, not just the one
     // currently selected, so it isn't pre-scoped by periodTxns (which is
@@ -1052,7 +1063,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         const cat = (getEffectiveCategory(x) ?? "").toLowerCase();
         // Every committed term must match; each addition narrows further,
         // rather than broadening like the tag/category filters do.
-        return searchTerms.every(term => {
+        return activeSearchTerms.every(term => {
           const q = term.toLowerCase();
           return desc.includes(q) || stmt.includes(q) || cat.includes(q);
         });
@@ -1064,7 +1075,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, txns, internalTxnIds, searchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+  }, [periodTxns, txns, internalTxnIds, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
   const accountsInPeriod = useMemo(() => {
@@ -1088,9 +1099,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [periodTxns, txnTags]);
   const toggleTagFilter = (tag: string) => setTagFilter(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
 
-  const hasActiveFilters = !!(searchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
+  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
   const clearFilters = () => {
-    setSearchDraft(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
+    setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
     setTypeFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
   };
   // "date" desc (newest first) is the default sort; anything else counts as
@@ -1916,14 +1927,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               <div className="md:hidden flex items-center gap-1.5">
                 <button onClick={()=>setMobileSearchOpen(v=>!v)} aria-label="Search" aria-expanded={mobileSearchOpen}
                   className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
-                    mobileSearchOpen || searchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
+                    mobileSearchOpen || activeSearchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
                   <Search className="h-4 w-4"/>
                 </button>
                 {mobileSearchOpen && (
-                  <input autoFocus value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } }}
-                    placeholder="Search, then press Enter…"
-                    className="flex-1 min-w-0 h-8 px-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
+                  <div className="relative flex-1 min-w-0">
+                    <input autoFocus type="search" enterKeyHint="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                      onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setMobileSearchOpen(false); } }}
+                      placeholder="Search transactions" aria-label="Search transactions"
+                      className="w-full h-11 pl-3 pr-10 rounded-xl bg-muted/40 border border-border/60 text-[15px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                    <button onClick={()=>{ if (searchDraft) { setSearchDraft(""); setLiveSearch(""); } else setMobileSearchOpen(false); }}
+                      aria-label={searchDraft ? "Clear search" : "Close search"}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground">
+                      <X className="h-4 w-4"/>
+                    </button>
+                  </div>
                 )}
                 <div className={cn("flex items-center gap-1.5 ml-auto", mobileSearchOpen && "hidden")}>
                   <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort"
@@ -1942,10 +1960,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               <div className="hidden md:flex items-center gap-1.5 flex-wrap">
                 <div className="relative w-56 shrink-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
-                  <input value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } }}
-                    placeholder="Search, then press Enter…"
-                    className="w-full h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
+                  <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") setSearchDraft(""); }}
+                    placeholder="Search transactions" aria-label="Search transactions" title="Filters as you type; press Enter to pin the term"
+                    className="w-full h-8 pl-8 pr-8 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                  {searchDraft && (
+                    <button onClick={()=>{ setSearchDraft(""); setLiveSearch(""); }} aria-label="Clear search"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground">
+                      <X className="h-3.5 w-3.5"/>
+                    </button>
+                  )}
                 </div>
 
                 <div className="relative shrink-0">
