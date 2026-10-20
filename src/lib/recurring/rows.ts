@@ -10,6 +10,7 @@
  */
 import type { OccurrenceOverride, RecurringSeries, SeriesKind } from "./detect";
 import type { ISODate } from "./dates";
+import { CADENCES, type Cadence } from "./schedule";
 
 export const DETECTOR_VERSION = 1;
 
@@ -39,6 +40,35 @@ export function toObligationLink(s: RecurringSeries, streamId: string) {
     next_due_date: s.nextExpectedDate,
     must_pay: s.mustPay,
   };
+}
+
+/**
+ * Read the schedule fields of an `obligations` row defensively. After
+ * 20261020130100 they are either NULL or valid, but rows created by hand (or
+ * a DB where a legacy column could not be converted, e.g. an integer cadence
+ * behind a view) may still carry anything. Unknown or missing values come
+ * back as null, and callers treat a null cadence/due day as "no schedule"
+ * (the obligation still works as a plain amount). Originals of values the
+ * migration had to clear live in `legacy_values` and are not read here.
+ */
+export interface ObligationSchedule {
+  cadence: Cadence | null;
+  dueDay: number | null;
+  kind: ObligationKind | null;
+  nextDueDate: ISODate | null;
+  streamId: string | null;
+  mustPay: boolean;
+}
+
+export function readObligationSchedule(row: Record<string, unknown> | null | undefined): ObligationSchedule {
+  const r = row ?? {};
+  const cadence = typeof r.cadence === "string" && (CADENCES as readonly string[]).includes(r.cadence) ? (r.cadence as Cadence) : null;
+  const rawDay = typeof r.due_day === "number" ? r.due_day : typeof r.due_day === "string" && /^\s*\d{1,2}\s*$/.test(r.due_day) ? Number(r.due_day) : NaN;
+  const dueDay = Number.isInteger(rawDay) && rawDay >= 1 && rawDay <= 31 ? rawDay : null;
+  const kind = typeof r.kind === "string" && (OBLIGATION_KINDS as readonly string[]).includes(r.kind) ? (r.kind as ObligationKind) : null;
+  const nextDueDate = typeof r.next_due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.next_due_date) ? (r.next_due_date as ISODate) : null;
+  const streamId = typeof r.stream_id === "string" && r.stream_id ? r.stream_id : null;
+  return { cadence, dueDay, kind, nextDueDate, streamId, mustPay: r.must_pay === true };
 }
 
 export type StreamStatus = "suggested" | "confirmed" | "dismissed";
