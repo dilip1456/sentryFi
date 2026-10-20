@@ -31,6 +31,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fmtUSD } from "@/lib/format";
+import { cleanBankText, isStatementSummaryText } from "@/lib/merchant-name";
 import { cn } from "@/lib/utils";
 import { Lock, Zap, X, ArrowRight, Wallet } from "lucide-react";
 
@@ -122,7 +123,8 @@ function isDiscretionarySpend(cat: string, merchantName: string): boolean {
 }
 
 function isIncomeAmount(amount: number, cat: string): boolean {
-  return amount > 0 && INCOME_CATS.some(k => cat.toLowerCase().includes(k));
+  // Plaid convention: amount < 0 is money IN.
+  return amount < 0 && INCOME_CATS.some(k => cat.toLowerCase().includes(k));
 }
 
 function classifyCategory(cat: string, name: string): "fixed" | "flex" | null {
@@ -159,10 +161,7 @@ const NAME_PATTERNS: [RegExp, string][] = [
 // either maps it to a well-known bill label above or title-cases it if it
 // looks like raw ALL-CAPS statement text.
 function cleanName(raw: string): string {
-  let name = raw
-    .replace(/\s*(?:#|no\.?|ref|trace|conf|id)[:#]?\s*[a-z0-9-]{4,}\s*$/i, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  let name = cleanBankText(raw) || raw;
   for (const [re, label] of NAME_PATTERNS) {
     if (re.test(name)) return label;
   }
@@ -207,7 +206,9 @@ export interface DetectedObligation {
   accountId?: string;
 }
 
-function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): DetectedObligation[] {
+type ClassOf = (t: PTxn) => { type: string } | undefined;
+
+function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string, classOf?: ClassOf): DetectedObligation[] {
   const now = new Date();
   const results: DetectedObligation[] = [];
 
@@ -222,8 +223,16 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): DetectedOb
     const amt = Number(t.amount);
     const cat = getEffCat(t).toLowerCase();
     const merchantName = (t.merchant_name || t.name || "").trim();
-    return amt < 0 && !isIncomeAmount(amt, cat) && !t.pending
-      && !isDiscretionarySpend(cat, merchantName);
+    // Plaid convention: amount > 0 is money OUT. (This used to test amt < 0,
+    // so recurring *deposits* — e.g. the incoming leg of a "Zelle to <you>"
+    // transfer — were being suggested as bills.)
+    if (amt <= 0 || t.pending || isIncomeAmount(amt, cat)) return false;
+    // Shared classifier: transfers between your own accounts, card payments
+    // and savings moves are never bills.
+    const c = classOf?.(t);
+    if (c && c.type !== "spend" && !c.type.startsWith("obligation_")) return false;
+    if (isStatementSummaryText(merchantName)) return false;
+    return !isDiscretionarySpend(cat, merchantName);
   });
 
   // ── FIXED & FLEX: group by merchant, check recurrence ──────────────────
@@ -319,7 +328,7 @@ function autoDetect(allTxns: PTxn[], getEffCat: (t: PTxn) => string): DetectedOb
 function spentForObligation(ob: Obligation, txns: PTxn[], getEffCat: (t: PTxn) => string): number {
   return txns.filter(t => {
     const amt = Number(t.amount);
-    if (amt >= 0) return false;
+    if (amt <= 0) return false; // Plaid convention: > 0 is money out
     const name = (t.merchant_name || t.name || "").toLowerCase();
     const cat  = getEffCat(t).toLowerCase();
     if (ob.merchant_hint && name.includes(ob.merchant_hint.toLowerCase())) return true;
@@ -335,6 +344,7 @@ export function useObligations(
   getEffectiveCategory: (t: PTxn) => string,
   month: string,
   dismissedRecurringSet: Set<string>,
+  classOf?: ClassOf,
 ) {
   const [obligations, setObs] = useState<Obligation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -370,10 +380,10 @@ export function useObligations(
   // blacklist) and merchants already tracked never resurface.
   const detected = useMemo(() => {
     if (!userId || loading) return [];
-    return autoDetect(txns, getEffectiveCategory)
+    return autoDetect(txns, getEffectiveCategory, classOf)
       .filter(d => !dismissedRecurringSet.has(d.merchant.toLowerCase()))
       .filter(d => !obligations.some(ob => ob.name.toLowerCase() === d.name.toLowerCase()));
-  }, [txns, getEffectiveCategory, userId, loading, obligations, dismissedRecurringSet]);
+  }, [txns, getEffectiveCategory, userId, loading, obligations, dismissedRecurringSet, classOf]);
 
   const addObligation = useCallback(async (payload: {
     name: string; type: Obligation["type"]; amount: number;

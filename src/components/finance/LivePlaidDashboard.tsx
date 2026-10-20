@@ -27,6 +27,7 @@ import {
 } from "@/lib/txn-rules";
 import { fmtUSD } from "@/lib/format";
 import { fmtUSDCompact } from "@/lib/format-compact";
+import { cleanBankText, merchantKey as cleanMerchantKey, isStatementSummaryText } from "@/lib/merchant-name";
 import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
 import {
@@ -661,6 +662,7 @@ const detectRecurring = (
     const merchant = (t.merchant_name ?? t.name ?? "").toLowerCase();
     if (NON_RECURRING_MERCHANT.test(merchant)) return false;
     if (PAYMENT_LIKE_MERCHANT.test(merchant)) return false;
+    if (isStatementSummaryText(merchant)) return false;
     if (cat0.includes("transfer")) return false;
     if (suppressMerchants.has(norm(t))) return false; // user-dismissed merchants
     return true;
@@ -669,8 +671,8 @@ const detectRecurring = (
   // Group by normalized merchant name
   const groups: Record<string, PTxn[]> = {};
   for (const t of expenses) {
-    const key = (t.merchant_name ?? t.name ?? "").trim().toLowerCase()
-      .replace(/\s+(and|&|llc|inc|co\.?|corp\.?)[\s,]*$/i, "").slice(0, 40);
+    // Cleaned key so "GEICO REF 1234" and "GEICO REF 5678" are one series.
+    const key = cleanMerchantKey(t.merchant_name ?? t.name ?? "").slice(0, 40);
     if (!key) continue;
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
@@ -725,7 +727,7 @@ const detectRecurring = (
     }
     if (predictedDate > lookahead) continue;
 
-    const displayName = deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "Unknown";
+    const displayName = cleanBankText(deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "") || "Unknown";
     const dayOfMonth = predictedDate.getDate();
     const category = (deduped.find(t => t.category?.[0])?.category?.[0] ?? "").toLowerCase();
     const merchantKey = norm(deduped[0]);
