@@ -48,3 +48,14 @@ supabase/.temp
 *.pfx
 *.b64
 RELEASE_KEYSTORE_CREDENTIALS.txt
+
+# Playwright (QA harness)
+playwright-report/
+test-results/
+blob-report/
+
+# Leftovers from the 2026-10 history scrub (local clones / mirrors) — never
+# commit these; they contain pre-scrub history.
+sentryfi-history-scrubbed/
+sentryFi-scrub/
+*.bfg-report/

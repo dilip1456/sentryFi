@@ -2,12 +2,18 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { fmtUSD } from "@/lib/format";
+import { fmtUSD, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
+import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
+import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
+import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
+import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
+import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
+import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
-  Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter,
+  Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter, MoreHorizontal,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -20,7 +26,10 @@ export interface SpendingBudgetViewProps {
   nameOverrides:Record<string,string>; setBudget:(c:string,n:number)=>void;
   removeBudget?:(c:string)=>void;
   getEffectiveCategory:(t:PTxn)=>string; formatCat:(s:string)=>string;
-  catColor:(s:string)=>string; onOpenDetail:(t:PTxn)=>void; internalTxnIds:Set<string>;
+  catColor:(s:string)=>string;
+  // Opens the transaction detail modal; `recurringFrequency` is the cadence
+  // this list shows for the row, so the modal can display the same label.
+  onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; internalTxnIds:Set<string>;
   initialSearch?:string;
   // Classifies a transaction as income/expense by its assigned category
   // (falling back to the amount's sign only for unclassified categories) so
@@ -49,18 +58,25 @@ export interface SpendingBudgetViewProps {
   // Opens the "Import statement" modal; a PDF-upload entry point living in
   // this same toolbar since that's where transactions are already browsed.
   onOpenImport?:()=>void;
+  // Optional right-side header controls (notifications, profile...) so the
+  // Spending header row matches Home's.
+  headerActions?: React.ReactNode;
+  // True when the user has manually re-categorized/re-typed this
+  // transaction (drives the small "Edited" indicator).
+  isCategoryEdited?: (t:PTxn)=>boolean;
+  /** Shared-classifier result for a transaction (src/lib/classify, computed once by the dashboard). */
+  classOf?: (t:{ id: string })=>Classification|undefined;
+  /** Persist a per-transaction type override ("Counts as"); null clears it. */
+  onSetTxnType?: (t:PTxn, type:TxnType|null)=>void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fc2 =(n:number) => { const v=Math.abs(n); if(v>=1000) return "$"+(v/1000).toFixed(v>=10000?0:1).replace(/\.0$/,"")+"k"; return "$"+v.toFixed(v%1<0.005?0:2).replace(/\B(?=(\d{3})+(?!\d))/g,","); };
-const rDate = (s:string) => {
-  const d=new Date(s+"T00:00:00"), t=new Date(); t.setHours(0,0,0,0);
-  const y=new Date(t); y.setDate(t.getDate()-1);
-  if(+d===+t) return "Today";
-  if(+d===+y) return "Yesterday";
-  return d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
-};
+// One date format family across the page: "Oct 18" in cells, "Sun, Oct 18"
+// in day headings (relative "Today"/"Yesterday" mixed with absolute dates
+// read inconsistently and truncated in narrow columns).
+const rDate = (s:string) => fmtDayHeading(s);
 const isoDay = (s:string) => Number(s.slice(8,10));
 
 // ── Transaction table columns; toggleable via the "Columns" picker.
@@ -104,6 +120,13 @@ const DEFAULT_COL_WIDTHS: Record<WidthKey, number> = {
 };
 const COL_WIDTHS_STORAGE_KEY = "sentryfi_spending_txn_col_widths";
 const MIN_COL_WIDTH = 60;
+// The Vendor column has no fixed width; it takes whatever the attribute
+// columns leave, but never less than this. When the container is too
+// narrow for every enabled column, the lowest-priority ones are hidden
+// (in this order) instead of the table overflowing and getting clipped.
+const SELECT_COL_WIDTH = 32;
+const VENDOR_MIN_WIDTH = 200;
+const COL_DROP_ORDER: ColKey[] = ["statement", "account", "status", "category", "date", "amount"];
 
 // Category names that are really a fixed obligation (mortgage, a loan, rent)
 // rather than everyday discretionary spend; the left-hand Categories panel
@@ -113,41 +136,9 @@ const MIN_COL_WIDTH = 60;
 const OBLIGATION_LIKE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student Loan", "Loan", "Loan Payment"]);
 
 // ── Recurring-charge detection (Burn runway / Upcoming charges below) is for
-// genuine bills only: subscriptions, utilities, insurance, loan payments,
-// rent. A merchant that merely gets visited on a roughly-monthly cadence,
-// a grocery store, a regular coffee run, a clothing store, is still
-// variable discretionary spend, not something to project forward as an
-// upcoming charge, no matter how regularly it happens to recur. ───────────
-const RECURRING_EXCLUDED_CATEGORIES = new Set([
-  "food & drink", "food and drink", "groceries", "shopping", "travel", "entertainment", "restaurants", "dining",
-]);
-// A real subscription/membership can be filed under one of those
-// discretionary-sounding categories (Netflix/Spotify often land under
-// "Entertainment") but is still a genuine recurring bill, so pull those back
-// out of the exclusion by merchant name.
-const RECURRING_OVERRIDE_KEYWORDS = [
-  "netflix", "spotify", "hulu", "disney+", "disney plus", "paramount+", "peacock", "hbo max",
-  "amazon prime", "apple tv", "apple music", "youtube premium", "gym", "fitness", "planet fitness",
-];
-const isNonBillRecurringCandidate = (cat: string, merchantName: string): boolean => {
-  const c = cat.toLowerCase();
-  const n = merchantName.toLowerCase();
-  if (!RECURRING_EXCLUDED_CATEGORIES.has(c)) return false;
-  return !RECURRING_OVERRIDE_KEYWORDS.some(k => n.includes(k));
-};
-
-// Classifies the actual cadence a merchant repeats on, from the average gap
-// (in days) between its occurrences, instead of just saying "recurring" with
-// no indication of how often. A gap that doesn't fall cleanly into one of
-// these windows isn't a real recurring cadence, just an irregular habit.
-const classifyRecurrenceFrequency = (avgGapDays: number): string | null => {
-  if (avgGapDays >= 5 && avgGapDays <= 9) return "Weekly";
-  if (avgGapDays >= 12 && avgGapDays <= 17) return "Biweekly";
-  if (avgGapDays >= 25 && avgGapDays <= 36) return "Monthly";
-  if (avgGapDays >= 80 && avgGapDays <= 100) return "Quarterly";
-  if (avgGapDays >= 340 && avgGapDays <= 390) return "Yearly";
-  return null;
-};
+// genuine bills only; the category exclusions and cadence windows live in
+// src/lib/recurring/spending-cadence.ts so the transaction detail modal uses the exact same
+// rules and never disagrees with the list. ─────────────────────────────────
 
 // ── The Categories panel's three tabs; mirrors the app's own
 // expenseCategories/incomeCategories/ignoredCategories taxonomy so a category
@@ -169,39 +160,6 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   { key: "status", label: "Status" },
 ];
 
-// ── Small floating-menu helper; portals its panel to <body> and positions it
-// from the trigger button's real screen coordinates, so it's never clipped or
-// stacked behind a sibling's overflow-hidden/sticky element (the bug that had
-// the Columns menu rendering underneath the table's sticky header). ─────────
-function useFloatingMenu() {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number; maxHeight: number } | null>(null);
-  const toggle = () => {
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      const margin = 8;
-      const spaceBelow = window.innerHeight - r.bottom - margin;
-      const spaceAbove = r.top - margin;
-      const right = Math.max(8, window.innerWidth - r.right);
-      // Anchor below the trigger by default, but flip to anchoring above it
-      // when there isn't enough room below and there's meaningfully more
-      // room above; otherwise a button near the bottom of a long scrollable
-      // table (e.g. a per-row category picker) opens a panel that renders
-      // partly or fully below the viewport, unreachable and unreadable.
-      // maxHeight is capped to whichever side it opens toward so the panel
-      // itself never has to spill past the edge of the screen either.
-      if (spaceBelow < 220 && spaceAbove > spaceBelow) {
-        setPos({ bottom: window.innerHeight - r.top + 6, right, maxHeight: Math.max(160, Math.min(spaceAbove - 6, 420)) });
-      } else {
-        setPos({ top: r.bottom + 6, right, maxHeight: Math.max(160, Math.min(spaceBelow - 6, 420)) });
-      }
-    }
-    setOpen(o => !o);
-  };
-  const close = () => setOpen(false);
-  return { btnRef, open, pos, toggle, close };
-}
 
 function monthBucketsList(count: number) {
   const now = new Date();
@@ -210,10 +168,10 @@ function monthBucketsList(count: number) {
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
     const end = new Date(d.getFullYear(), d.getMonth()+1, 0);
     out.push({
-      key: d.toISOString().slice(0,7),
+      key: localISOMonth(d),
       label: d.toLocaleDateString("en-US",{month:"short"}),
-      start: d.toISOString().slice(0,10),
-      end: end.toISOString().slice(0,10),
+      start: localISODate(d),
+      end: localISODate(end),
       year: d.getFullYear(), monthIdx: d.getMonth(),
     });
   }
@@ -229,7 +187,7 @@ function dayBucketsList(count: number) {
   const out: { key:string; label:string; start:string; end:string; year:number }[] = [];
   for (let i = count-1; i >= 0; i--) {
     const d = new Date(now); d.setDate(now.getDate()-i);
-    const iso = d.toISOString().slice(0,10);
+    const iso = localISODate(d);
     out.push({
       key: iso,
       label: d.toLocaleDateString("en-US",{day:"numeric"}),
@@ -250,10 +208,10 @@ function weekBucketsList(count: number) {
     const monday = new Date(thisMonday); monday.setDate(thisMonday.getDate()-i*7);
     const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
     out.push({
-      key: monday.toISOString().slice(0,10),
+      key: localISODate(monday),
       label: monday.toLocaleDateString("en-US",{month:"short",day:"numeric"}),
-      start: monday.toISOString().slice(0,10),
-      end: sunday.toISOString().slice(0,10),
+      start: localISODate(monday),
+      end: localISODate(sunday),
       year: monday.getFullYear(),
     });
   }
@@ -292,7 +250,7 @@ function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
                 isSel ? "bg-gold" : isLast ? "bg-[hsl(var(--primary)/0.55)]" : "bg-[hsl(var(--primary)/0.25)] group-hover:bg-[hsl(var(--primary)/0.45)]")}
                 style={{height:`${pct}%`}}/>
             </div>
-            <span className={cn("text-[9px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
+            <span className={cn("text-[11px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
           </button>
         );
       })}
@@ -306,8 +264,12 @@ function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
 // request. Its computed data/state is left in place (harmless if unused)
 // so it's a one-line flip to bring back.
 const SHOW_BURN_RUNWAY = false;
+// The left-hand Categories sidebar is superseded by the overview's "Where it
+// went" card plus the category pill row above the table; kept behind a flag
+// like the burn runway so it's a one-line flip to bring back.
+const SHOW_CATEGORY_SIDEBAR = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf,onSetTxnType}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -356,11 +318,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const activeRange = useMemo(() => {
     const base = new Date(); base.setHours(0,0,0,0);
     if (granularity==="all") {
-      return { start: "0000-01-01", end: base.toISOString().slice(0,10), isCurrent: true, label: "All time" };
+      return { start: "0000-01-01", end: localISODate(base), isCurrent: true, label: "All time" };
     }
     if (granularity==="day") {
       const d = new Date(base); d.setDate(d.getDate()+dayOffset);
-      const iso = d.toISOString().slice(0,10);
+      const iso = localISODate(d);
       return { start: iso, end: iso, isCurrent: dayOffset===0,
         label: d.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric",year:"numeric"}) };
     }
@@ -369,7 +331,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const diffToMonday = dow===0 ? -6 : 1-dow;
       const monday = new Date(base); monday.setDate(base.getDate()+diffToMonday+weekOffset*7);
       const sunday = new Date(monday); sunday.setDate(monday.getDate()+6);
-      return { start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10), isCurrent: weekOffset===0,
+      return { start: localISODate(monday), end: localISODate(sunday), isCurrent: weekOffset===0,
         label: `${monday.toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${sunday.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}` };
     }
     if (granularity==="year") {
@@ -396,7 +358,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return next;
   });
   const clearSelection = () => setSelectedIds(new Set());
-  const bulkMenu = useFloatingMenu();
+  const bulkMenu = useFloatingMenu(256);
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [showBulkTagInput, setShowBulkTagInput] = useState(false);
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
@@ -410,11 +372,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // term to stay visible, so each addition narrows further.
   const [searchDraft, setSearchDraft] = useState(initialSearch ?? "");
   const [searchTerms, setSearchTerms] = useState<string[]>(initialSearch ? [initialSearch] : []);
+  // Search filters as you type (debounced); Enter still pins the current
+  // text as a removable chip so several terms can be combined.
+  const [liveSearch, setLiveSearch] = useState((initialSearch ?? "").trim());
+  useEffect(() => {
+    const id = window.setTimeout(() => setLiveSearch(searchDraft.trim()), 200);
+    return () => window.clearTimeout(id);
+  }, [searchDraft]);
+  const activeSearchTerms = useMemo(() => {
+    const live = liveSearch.trim();
+    return live && !searchTerms.some(t => t.toLowerCase() === live.toLowerCase()) ? [...searchTerms, live] : searchTerms;
+  }, [searchTerms, liveSearch]);
   // Mobile-only layout state; the period/spend-pulse card and burn-runway
   // chart are collapsed behind a toggle below `md` so the transaction list
   // itself is what fills the screen; the mobile search field is likewise a
   // slide-down reveal instead of permanent toolbar space.
-  const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const commitSearchDraft = () => {
     const q = searchDraft.trim();
@@ -443,8 +415,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [dateTo, setDateTo] = useState("");
   const [lastNDays, setLastNDays] = useState("30");
   const [filterYear, setFilterYear] = useState(String(new Date().getFullYear()));
-  const filtersMenu = useFloatingMenu();
-  const sortMenu = useFloatingMenu();
+  const filtersMenu = useFloatingMenu(320);
+  const sortMenu = useFloatingMenu(192);
   // "Ignored" is really just a friendlier, filter-bar-visible way to switch
   // the Categories panel to its Ignored tab; kept as one source of truth
   // (catTab) rather than a second, potentially-contradictory piece of state.
@@ -462,7 +434,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...visibleCols])); } catch { /* ignore */ }
   }, [visibleCols]);
-  const colsMenu = useFloatingMenu();
+  const colsMenu = useFloatingMenu(192);
+  const moreMenu = useFloatingMenu(224);
   const toggleCol = (k: ColKey) => setVisibleCols(prev => {
     const n = new Set(prev);
     if (n.has(k)) { if (n.size > 1) n.delete(k); } // always leave at least one attribute column visible
@@ -485,6 +458,41 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(colWidths)); } catch { /* ignore */ }
   }, [colWidths]);
+  // Height of the (sticky, phones only) list toolbar, so the mobile date
+  // headings can stick directly underneath it.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarH, setToolbarH] = useState(0);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setToolbarH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ── Fit the desktop table to its container (see COL_DROP_ORDER). ────────
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [tableWrapWidth, setTableWrapWidth] = useState(0);
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => setTableWrapWidth(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tableCols = useMemo(() => {
+    const cols = new Set(visibleCols);
+    if (!tableWrapWidth) return cols;
+    const used = () => [...cols].reduce((s, k) => s + (colWidths[k] ?? DEFAULT_COL_WIDTHS[k]), 0);
+    for (const k of COL_DROP_ORDER) {
+      if (SELECT_COL_WIDTH + VENDOR_MIN_WIDTH + used() <= tableWrapWidth) break;
+      if (cols.size > 1) cols.delete(k);
+    }
+    return cols;
+  }, [visibleCols, colWidths, tableWrapWidth]);
+  const fitRef = useRef({ tableCols, tableWrapWidth, colWidths });
+  fitRef.current = { tableCols, tableWrapWidth, colWidths };
+
   const resizingCol = useRef<{ key: WidthKey; startX: number; startWidth: number } | null>(null);
   const startColResize = (key: WidthKey) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -492,7 +500,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const onMove = (ev: PointerEvent) => {
       if (!resizingCol.current) return;
       const { key: k, startX, startWidth } = resizingCol.current;
-      const next = Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX)));
+      // Never let a drag widen a column past what still leaves the Vendor
+      // column its minimum width, so resizing can't push the table into
+      // overflow (or auto-hide a neighbouring column).
+      const { tableCols: tc, tableWrapWidth: ww, colWidths: cw } = fitRef.current;
+      const others = [...tc].filter(c => c !== k).reduce((s, c) => s + cw[c], 0);
+      const cap = ww ? Math.max(MIN_COL_WIDTH, ww - SELECT_COL_WIDTH - VENDOR_MIN_WIDTH - others) : Infinity;
+      const next = Math.min(cap, Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX))));
       setColWidths(w => ({ ...w, [k]: next }));
     };
     const onUp = () => {
@@ -516,7 +530,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem("sentryfi_spending_txn_groupby", groupBy); } catch { /* ignore */ }
   }, [groupBy]);
-  const groupMenu = useFloatingMenu();
+  const groupMenu = useFloatingMenu(176);
   const [scrubDay, setScrubDay] = useState<number|null>(null);
   const [hoveredDot, setHoveredDot] = useState<string|null>(null);
   // Tooltip content is portaled to document.body and positioned from the
@@ -558,10 +572,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Whether a transaction counts toward spend; income never does, and
   // neither does a *confirmed* internal transfer (internalTxnIds, detected
   // by pairing a matching opposite-amount transaction on a different one of
-  // the user's own accounts). A "Transfer Out"/"Credit Card Payment"-labeled
-  // transaction that ISN'T part of a confirmed pair is money that genuinely
-  // left to an external party; real spend, not a transfer-category
-  // exclusion, so category text alone is never checked here.
+  // the user's own accounts). Ignored categories (card payments, savings,
+  // "Transfer Out"/"Transfer In" for P2P and unmatched transfers) are
+  // filtered by the callers via ignoredCategories; the shared classifier
+  // decides which category a transaction lands in.
   const isExpenseTxn = useCallback((t: PTxn) => {
     const cat = getEffectiveCategory(t) ?? "Other";
     return !isIncomeCategory(cat, Number(t.amount));
@@ -640,12 +654,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (!isIncomeCategory(cat, Number(t.amount))) continue;
       // A confirmed internal transfer is already excluded above (and its
       // category forced to "Internal Transfer" upstream, which never matches
-      // isIncomeCategory anyway); a "Transfer In" that reaches this point is
-      // real money someone else sent, so it's normal income like any other.
+      // isIncomeCategory anyway). Money someone else sent ("Transfer In",
+      // P2P) is ignored above, not income; the user can re-type it.
       const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi === -1) continue;
       if (!out[cat]) out[cat] = new Array(monthBuckets.length).fill(0);
-      out[cat][bi] += Math.abs(Number(t.amount));
+      out[cat][bi] -= Number(t.amount); // signed: a payroll reversal nets income down (shared definition)
     }
     return out;
   }, [txns, internalTxnIds, monthBuckets, lastIdx, isIncomeCategory, getEffectiveCategory, ignoredCategories]);
@@ -733,7 +747,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (internalTxnIds.has(t.id)) continue;
       if (t.date < activeRange.start || t.date > activeRange.end) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
-      if (isIncomeCategory(cat, Number(t.amount))) total += Math.abs(Number(t.amount));
+      if (isIncomeCategory(cat, Number(t.amount))) total -= Number(t.amount); // signed, matches Home
     }
     return total;
   }, [txns, internalTxnIds, activeRange, getEffectiveCategory, isIncomeCategory]);
@@ -768,7 +782,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const recurring = useMemo(() => {
     const byMerchant: Record<string, { dates:string[]; amounts:number[]; cat:string; label:string; accountId:string }> = {};
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-13);
-    const cutoffStr = cutoff.toISOString().slice(0,10);
+    const cutoffStr = localISODate(cutoff);
     for (const t of txns) {
       if (internalTxnIds.has(t.id)) continue;
       if (!isExpenseTxn(t)) continue;
@@ -794,7 +808,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const freq = classifyRecurrenceFrequency(avgGap);
       if (!freq) continue; // not a recognizable cadence, just an irregular habit
       const lastDate = sorted[sorted.length-1];
-      const nextDate = new Date(new Date(lastDate+"T00:00:00").getTime() + avgGap*86400000).toISOString().slice(0,10);
+      const nextDate = addDaysISO(lastDate, Math.round(avgGap));
       const avgAmount = d.amounts.reduce((s,v)=>s+v,0)/d.amounts.length;
       out.push({ merchant: d.label, category: d.cat, avgAmount, nextDate, intervalDays: Math.round(avgGap), frequency: freq, accountId: d.accountId });
     }
@@ -803,8 +817,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
   const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [r.merchant.toLowerCase(), r.frequency])), [recurring]);
 
-  const todayStr = now.toISOString().slice(0,10);
-  const in30 = new Date(now.getTime() + 30*86400000).toISOString().slice(0,10);
+  const todayStr = todayISO(now);
+  const in30 = addDaysISO(todayStr, 30);
   const next30Recurring = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
   const committedNext30 = next30Recurring.reduce((s,r)=>s+r.avgAmount,0);
 
@@ -848,12 +862,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // charge's account is projected to run short. ─────────────────────────────
   const future15 = useMemo(() => {
     const items = upcomingCharges.filter(r => {
-      const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+      const days = daysBetweenISO(todayStr, r.nextDate);
       return days >= 0 && days <= PROJECTION_DAYS;
     });
     let cum = 0;
     return items.map(r => { cum += r.avgAmount; return { ...r, cum }; });
-  }, [upcomingCharges]);
+  }, [upcomingCharges, todayStr]);
 
   // ── Category rows for the active period, one list per Categories tab.
   // Month mode reuses the 12-month bucket data (so it keeps its
@@ -898,7 +912,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat) || !isIncomeCategory(cat, Number(t.amount))) continue;
-      map[cat] = (map[cat] ?? 0) + Math.abs(Number(t.amount));
+      map[cat] = (map[cat] ?? 0) - Number(t.amount);
     }
     return Object.entries(map)
       .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
@@ -940,7 +954,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // needed here (budgeting is inherently a spend concept; an income category
   // like "Salary" or an ignored one like "Credit Card Payment" shouldn't show
   // up asking to be budgeted).
-  const budgetNeeds = useMemo(() => expenseCatRows.filter(c => budgets[c.cat] == null), [expenseCatRows, budgets]);
+  const budgetNeeds = useMemo(() => expenseCatRows.filter(c => budgets[c.cat] == null && !ignoredCategories.includes(c.cat)
+    && categoryCountsAsSpend(c.cat, customCategories)), [expenseCatRows, budgets, ignoredCategories, customCategories]);
   const budgetDefined = useMemo(() => Object.entries(budgets)
     .map(([cat, budget]) => ({ cat, budget, spend: catRows.find(c => c.cat === cat)?.spend ?? 0 }))
     .sort((a, b) => b.spend - a.spend),
@@ -971,7 +986,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [nameOverrides, getEffectiveCategory, accounts]);
 
   const visibleTxns = useMemo(() => {
-    const searching = searchTerms.length > 0;
+    const searching = activeSearchTerms.length > 0;
     // A search is a "find this transaction" action, not normal browsing; it
     // deliberately looks across every period and category, not just the one
     // currently selected, so it isn't pre-scoped by periodTxns (which is
@@ -997,7 +1012,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       const n = parseInt(lastNDays, 10);
       if (!isNaN(n) && n > 0) {
         const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - n);
-        const cutoffStr = cutoff.toISOString().slice(0,10);
+        const cutoffStr = localISODate(cutoff);
         t = t.filter(x => x.date >= cutoffStr);
       }
     } else if (dateMode === "year" && filterYear) {
@@ -1011,7 +1026,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         const cat = (getEffectiveCategory(x) ?? "").toLowerCase();
         // Every committed term must match; each addition narrows further,
         // rather than broadening like the tag/category filters do.
-        return searchTerms.every(term => {
+        return activeSearchTerms.every(term => {
           const q = term.toLowerCase();
           return desc.includes(q) || stmt.includes(q) || cat.includes(q);
         });
@@ -1023,7 +1038,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, txns, internalTxnIds, searchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+  }, [periodTxns, txns, internalTxnIds, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
   const accountsInPeriod = useMemo(() => {
@@ -1047,9 +1062,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [periodTxns, txnTags]);
   const toggleTagFilter = (tag: string) => setTagFilter(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
 
-  const hasActiveFilters = !!(searchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
+  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
   const clearFilters = () => {
-    setSearchDraft(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
+    setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
     setTypeFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
   };
   // "date" desc (newest first) is the default sort; anything else counts as
@@ -1120,7 +1135,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // desktop Group-by control; the redesigned mobile layout is built around
   // a chronological, date-headed feed regardless of what grouping mode
   // desktop/tablet happens to have selected.
+  // Date headings only make sense while the feed is in date order; sorted
+  // by amount/name/etc. the date buckets would be scattered fragments in
+  // sort order, so the feed renders as one flat, header-less list instead.
+  const MOBILE_FLAT_KEY = "__flat__";
   const mobileGroups = useMemo(() => {
+    if (sortBy !== "date") {
+      return [{ key: MOBILE_FLAT_KEY, items: visibleTxns, total: visibleTxns.reduce((s, t) => s + Number(t.amount), 0) }];
+    }
     const buckets = new Map<string, { items: PTxn[]; firstIdx: number }>();
     visibleTxns.forEach((t, idx) => {
       const key = granularity === "all" ? t.date.slice(0, 4) : granularity === "year" ? t.date.slice(0, 7) : t.date;
@@ -1131,7 +1153,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return [...buckets.entries()]
       .sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       .map(([key, { items }]) => ({ key, items, total: items.reduce((s, t) => s + Number(t.amount), 0) }));
-  }, [visibleTxns, granularity]);
+  }, [visibleTxns, granularity, sortBy]);
 
   const mobileGroupHeading = useCallback((key: string): string => {
     if (granularity === "all") return key;
@@ -1163,12 +1185,152 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (!groupedTxns) return;
     setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
   }, [groupedTxns]);
+  // "Show more" paging; back to the first page whenever the list changes.
+  const [rowLimit, setRowLimit] = useState(ROW_PAGE);
+  useEffect(() => { setRowLimit(ROW_PAGE); }, [visibleTxns, groupBy]);
+  const desktopPage = useMemo(() => limitGroups(
+    groupedTxns ?? [{ key: "__all__", items: visibleTxns, total: 0 }],
+    rowLimit, k => !!groupedTxns && collapsedGroups.has(k),
+  ), [groupedTxns, visibleTxns, rowLimit, collapsedGroups]);
+  const mobilePage = useMemo(() => limitGroups(
+    mobileGroups, rowLimit, k => k !== MOBILE_FLAT_KEY && collapsedGroups.has(k),
+  ), [mobileGroups, rowLimit, collapsedGroups]);
+  // Rows actually on screen in the desktop table; "select all" must never
+  // pick up rows hidden inside a collapsed group (or not yet shown).
+  const renderedTableTxns = useMemo(() => desktopPage.groups.flatMap(g => g.shown), [desktopPage]);
 
   // 1 "Description" column + however many optional attribute columns are visible.
-  const colSpan = 2 + visibleCols.size; // checkbox column + always-on name column + optional columns
+  const colSpan = 2 + tableCols.size; // checkbox column + always-on name column + optional columns
 
 
   const animatedTotal = useCountUp(totalSpent, 900);
+
+  // ── Redesigned overview (hero / daily chart / categories / merchants /
+  // review flags) for the selected month. Same spend rules as
+  // catMonthlyTotals: no confirmed internal transfers, no income, no ignored
+  // categories. ─────────────────────────────────────────────────────────────
+  // Owner rule: only real spending is "spend". Card payments, savings
+  // contributions, money to/from other people and internal transfers are
+  // reported separately (Money movement card) and never budgeted.
+  const flowOf = useCallback((t: PTxn): TxnClass => {
+    const cat = getEffectiveCategory(t) ?? "Other";
+    const classification = classOf?.(t);
+    if (!classification && ignoredCategories.includes(cat) && !/credit card payment/i.test(cat)) return "transfer_internal";
+    // An explicit user edit beats auto-detected internal pairing.
+    const internal = internalTxnIds.has(t.id) && !(isCategoryEdited?.(t) ?? false);
+    return classifyTxn(t as unknown as ClassifierTxn, { category: cat, classification, internal, customCategories });
+  }, [getEffectiveCategory, ignoredCategories, internalTxnIds, isCategoryEdited, classOf, customCategories]);
+  const isTypeEdited = useCallback((t: PTxn) =>
+    classOf?.(t)?.source === "override" || (isCategoryEdited?.(t) ?? false), [classOf, isCategoryEdited]);
+  // "Change type" from a row: persisted as a re-categorization so it rides
+  // the existing override sync; Spending falls back to "Other" so the user
+  // can pick the specific spend category next.
+  const changeTxnType = useCallback((t: PTxn, type: TxnClass) => {
+    // Preferred: the shared per-transaction type override (txn_overrides).
+    if (onSetTxnType && t.transaction_id) { onSetTxnType(t, type); return; }
+    const def = TXN_TYPES.find(x => x.key === type);
+    if (!def) return;
+    const cat = def.category ?? "Other";
+    if (type === "savings_contribution" && !customCategories.some(c => c.name === cat) && !expenseCategories.includes(cat)) onAddCategory(cat, "expense");
+    onSelectCategory(t, cat);
+  }, [customCategories, expenseCategories, onAddCategory, onSelectCategory, onSetTxnType]);
+  const isSpendTxn = useCallback((t: PTxn) => countsAsSpend(flowOf(t)), [flowOf]);
+  const isSpendCategory = useCallback((cat: string) =>
+    !ignoredCategories.includes(cat) && categoryCountsAsSpend(cat, customCategories),
+  [ignoredCategories, customCategories]);
+  const spendBudgetTotal = useMemo(() => Object.entries(budgets).filter(([c]) => isSpendCategory(c)).reduce((s, [, v]) => s + v, 0), [budgets, isSpendCategory]);
+  const txnLabel = useCallback((t: PTxn) => (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").trim() || "Unknown", [nameOverrides]);
+  const txnFlags = useMemo(() => detectTxnFlags(txns, {
+    isExpense: isSpendTxn, label: txnLabel, excludeIds: internalTxnIds,
+  }), [txns, isSpendTxn, txnLabel, internalTxnIds]);
+
+  const overview = useMemo(() => {
+    const monthAll = txns.filter(t => t.date >= sel.start && t.date <= sel.end);
+    const cur = monthAll.filter(isSpendTxn);
+    const prevTxns = prevSel ? txns.filter(t => t.date >= prevSel.start && t.date <= prevSel.end && isSpendTxn(t)) : [];
+    const dCur = dailyTotals(cur, sel.year, sel.monthIdx);
+    const dPrev = prevSel ? dailyTotals(prevTxns, prevSel.year, prevSel.monthIdx) : [];
+    const cumCur = cumulative(dCur), cumPrev = cumulative(dPrev);
+    const spent = cur.reduce((s, t) => s + Number(t.amount), 0);
+    const prevTotal = prevSel ? prevTxns.reduce((s, t) => s + Number(t.amount), 0) : null;
+    const projected = isCurrentMonth ? projectMonthEnd(spent, dayOfMonth, daysInSelMonth) : spent;
+    const days = dCur.map((amount, i) => {
+      const day = i + 1;
+      const past = !isCurrentMonth || day <= dayOfMonth;
+      return {
+        day, amount: past ? amount : 0,
+        cum: past ? cumCur[i] : null,
+        prevCum: i < cumPrev.length ? cumPrev[i] : null,
+        projected: isCurrentMonth && day >= dayOfMonth && daysInSelMonth > dayOfMonth
+          ? spent + (projected - spent) * ((day - dayOfMonth) / (daysInSelMonth - dayOfMonth)) : null,
+      };
+    });
+    const prevSameDay = prevSel && cumPrev.length ? cumPrev[Math.min(dayOfMonth, cumPrev.length) - 1] : null;
+    const pending = cur.filter(t => t.pending);
+
+    const catSum = (list: PTxn[]) => {
+      const m: Record<string, number> = {};
+      for (const t of list) { const c = getEffectiveCategory(t) ?? "Other"; m[c] = (m[c] ?? 0) + Number(t.amount); }
+      return m;
+    };
+    const curByCat = catSum(cur), prevByCat = catSum(prevTxns);
+    const categories = Object.entries(curByCat)
+      .map(([cat, spend]) => ({ cat, spend, prevSpend: prevByCat[cat] ?? 0, budget: budgets[cat] ?? null, fixed: OBLIGATION_LIKE_CATS.has(cat) }))
+      .filter(c => c.spend > 0)
+      .sort((a, b) => b.spend - a.spend);
+
+    // Everything that moved money but isn't spending, grouped by flow.
+    const movement: OverviewMovement = {
+      credit_card_payment: { total: 0, count: 0 }, savings_contribution: { total: 0, count: 0 },
+      transfer_out: { total: 0, count: 0 }, transfer_in: { total: 0, count: 0 }, transfer_internal: { total: 0, count: 0 },
+    };
+    for (const t of monthAll) {
+      const f = flowOf(t);
+      if (!(f in movement)) continue;
+      // An internal transfer posts twice (out of one account, into the
+      // other); count only the outgoing leg so the total isn't doubled.
+      if (f === "transfer_internal" && Number(t.amount) < 0) continue;
+      movement[f as MovementKey].total += Math.abs(Number(t.amount)); movement[f as MovementKey].count += 1;
+    }
+
+    // Top merchants this month + a 6-month trend line for each.
+    const trendStart = Math.max(0, selIdx - 5);
+    const keyOf = (t: PTxn) => normalizeMerchant(txnLabel(t)) || txnLabel(t).toLowerCase();
+    const byM = new Map<string, OverviewMerchant>();
+    for (const t of cur) {
+      const k = keyOf(t);
+      const m = byM.get(k) ?? { name: txnLabel(t), cat: getEffectiveCategory(t) ?? "Other", total: 0, count: 0, trend: new Array(selIdx - trendStart + 1).fill(0) };
+      m.total += Number(t.amount); m.count += 1;
+      byM.set(k, m);
+    }
+    const merchants = [...byM.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 6);
+    const topKeys = new Map(merchants);
+    for (const t of txns) {
+      if (t.date < monthBuckets[trendStart].start || t.date > sel.end || !isSpendTxn(t)) continue;
+      const m = topKeys.get(keyOf(t));
+      if (!m) continue;
+      const bi = monthBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
+      if (bi >= trendStart && bi <= selIdx) m.trend[bi - trendStart] += Number(t.amount);
+    }
+
+    const flagged = cur.filter(t => txnFlags.has(t.id))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map(t => ({ id: t.id, label: txnLabel(t), amount: Number(t.amount), date: t.date, flag: txnFlags.get(t.id) as TxnFlag }));
+
+    return {
+      spent, prevTotal, movement,
+      days, prevSameDay, projected, categories, flagged,
+      merchants: merchants.map(([, m]) => m),
+      pendingSpent: pending.reduce((s, t) => s + Number(t.amount), 0), pendingCount: pending.length,
+    };
+  }, [txns, sel, prevSel, isSpendTxn, flowOf, isCurrentMonth, dayOfMonth, daysInSelMonth, selIdx, budgets, txnLabel, getEffectiveCategory, monthBuckets, txnFlags]);
+  const selectOverviewCat = (cat: string | null) => {
+    if (catTab !== "expenses") setCatTabRaw("expenses");
+    setCatSel(cat);
+  };
+  const monthName = new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US", { month: "long" });
+  const prevMonthShort = prevSel ? new Date(prevSel.year, prevSel.monthIdx, 1).toLocaleDateString("en-US", { month: "short" }) : "last month";
+  const todayLong = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   // ── Burn runway SVG geometry ──────────────────────────────────────────────
   // x is addressed by day-offset (0-based from the selected month's start) so
@@ -1199,76 +1361,97 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const future15Scale = Math.max(...future15.map(f=>f.cum), 1);
   const xForFuture = (days:number) => (days/PROJECTION_DAYS)*CW;
   const yForFuture = (v:number) => CH - (v/future15Scale)*CH;
-  const daysFromToday = (dateStr:string) => Math.round((new Date(dateStr+"T00:00:00").getTime()-now.getTime())/86400000);
+  const daysFromToday = (dateStr:string) => daysBetweenISO(todayStr, dateStr);
   const future15Path = future15.length
     ? [`M0,${CH.toFixed(2)}`, ...future15.map(f => `L${xForFuture(daysFromToday(f.nextDate)).toFixed(2)},${yForFuture(f.cum).toFixed(2)}`)].join(" ")
     : "";
 
   return (
-    <div className="flex flex-col bg-background spending-v2 lg:h-full lg:overflow-hidden">
+    <div className="flex flex-col bg-background spending-v2">
 
-      {/* ═══ 1. Header; on desktop the whole screen is a fixed-height flex
-          column (nothing scrolls past this), so it no longer needs to be sticky ═══ */}
-      <div className="shrink-0 bg-card/95 backdrop-blur-sm border-b border-border/60">
-        <div className="w-full px-4 md:px-6 pt-3 pb-2.5">
-          <h1 className="font-display text-[19px] md:text-[21px] font-semibold text-foreground tracking-tight">Spending</h1>
+      {/* ═══ 1. Header; same title/date treatment as Home, plus the period
+          controls (granularity + month switcher) in one clean row ═══ */}
+      <header className="content-max px-4 md:px-8 pt-3 md:pt-6 pb-4">
+        <div className="flex items-start justify-between gap-3">
+          {/* Phones show the title in the app's top bar (Index.tsx); repeating
+              it here pushed the content down for no information. */}
+          <div className="hidden md:block">
+            <h1 className="font-display text-2xl text-foreground">Spending</h1>
+            <p className="text-[13px] text-muted-foreground mt-0.5">{todayLong}</p>
+          </div>
+          {headerActions && <div className="hidden md:flex items-center gap-2">{headerActions}</div>}
         </div>
-      </div>
-
-      <div className="w-full px-4 md:px-6 py-3.5 space-y-3.5 flex flex-col lg:flex-1 lg:min-h-0">
-
-        {/* ═══ Mobile-only compact header: period chips, spent/earned, and a
-            toggle for the full Spend Pulse + Burn runway cards below (hidden
-            by default so the transaction list is what fills the screen) ═══ */}
-        <div className="md:hidden space-y-2.5 shrink-0">
-          <div className="flex gap-1 overflow-x-auto scrollbar-none -mx-4 px-4">
-            {(["all","day","week","month","year"] as const).map(g => (
-              <button key={g} onClick={() => setGranularity(g)}
-                className={cn("shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold capitalize transition-colors",
-                  granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground" : "bg-muted/50 text-muted-foreground")}>
-                {g}
+        <div className="md:mt-4 flex flex-wrap items-center gap-2">
+          <div className="flex bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
+            {(["day","week","month","year","all"] as const).map(g => (
+              <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
+                className={cn("px-3 py-1.5 rounded-lg text-[12.5px] font-semibold capitalize transition-all",
+                  granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/60")}>
+                {g === "all" ? "All time" : g}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 surface-card px-3 py-2">
-              <div className="text-[10.5px] text-muted-foreground">Spent</div>
-              <div className="text-[16px] font-semibold tabular text-foreground">{fmtUSD(animatedTotal)}</div>
-            </div>
-            <div className="flex-1 surface-card px-3 py-2">
-              <div className="text-[10.5px] text-muted-foreground">Earned</div>
-              <div className="text-[16px] font-semibold tabular text-positive">{fmtUSD(totalEarned)}</div>
-            </div>
-            <button onClick={()=>setMobileInsightsOpen(v=>!v)} aria-label={mobileInsightsOpen ? "Hide insights" : "Show insights"}
-              aria-expanded={mobileInsightsOpen}
-              className={cn("h-[42px] w-[42px] shrink-0 rounded-xl border grid place-items-center transition-colors",
-                mobileInsightsOpen ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-              <TrendingUp className="h-4 w-4"/>
+          {granularity !== "all" && (() => {
+            // One prev/next switcher for every granularity (it used to exist
+            // for months only, so day/week/year had no way to go back).
+            const atStart = granularity==="month" ? selIdx<=0
+              : granularity==="day" ? dayOffset <= -(DAY_COUNT-1)
+              : granularity==="week" ? weekOffset <= -(WEEK_COUNT-1)
+              : yearOffset <= -(YEAR_COUNT-1);
+            const unit = granularity === "day" ? "day" : granularity;
+            const label = granularity==="month"
+              ? new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"})
+              : activeRange.label;
+            const step = (dir: 1|-1) => granularity==="month"
+              ? setMonthOffset(o => dir < 0 ? Math.max(o-1, -lastIdx) : Math.min(0, o+1))
+              : stepPeriod(dir);
+            return (
+              <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
+                <button onClick={()=>step(-1)} disabled={atStart} aria-label={`Previous ${unit}`}
+                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  <ChevronLeft className="h-4 w-4"/>
+                </button>
+                <span className="min-w-[124px] text-center text-[13.5px] font-semibold text-foreground tabular" aria-live="polite">{label}</span>
+                <button onClick={()=>step(1)} disabled={activeRange.isCurrent} aria-label={`Next ${unit}`}
+                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  <ChevronRight className="h-4 w-4"/>
+                </button>
+              </div>
+            );
+          })()}
+          {granularity !== "all" && !activeRange.isCurrent && (
+            <button onClick={()=> granularity==="month" ? setMonthOffset(0) : resetPeriod()}
+              className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
+              {granularity==="month" ? "This month" : granularity==="week" ? "This week" : granularity==="year" ? "This year" : "Today"}
             </button>
-          </div>
+          )}
         </div>
+      </header>
 
-        {/* ═══ 2. Spend Pulse; single row: duration picker + bar spikes on the
-            left, "This <period>" summary on the right, fully driven by the
-            selected granularity/offset so it updates as the range changes ═══
-            Below md this (and the burn-runway card after it) is collapsed
-            behind the insights toggle above; always visible at md and up. */}
-        <div className={cn("space-y-3.5", "hidden md:block", mobileInsightsOpen && "!block")}>
+      <div className="content-max px-4 md:px-8 pb-10 space-y-4 flex flex-col">
+
+        {granularity === "month" ? (
+          <SpendingOverview
+            monthName={monthName} prevMonthShort={prevMonthShort}
+            monthEndLabel={fmtShortDate(sel.end)}
+            isCurrentMonth={isCurrentMonth} dayOfMonth={dayOfMonth} daysInMonth={daysInSelMonth}
+            spent={overview.spent} pendingSpent={overview.pendingSpent} pendingCount={overview.pendingCount}
+            earned={totalEarned} prevSameDay={overview.prevSameDay} prevTotal={overview.prevTotal}
+            budgetTotal={spendBudgetTotal} projected={overview.projected} movement={overview.movement}
+            onShowIgnored={()=>setCatTab("ignored")}
+            days={overview.days} categories={overview.categories} merchants={overview.merchants} flagged={overview.flagged}
+            selectedCat={catTab === "expenses" ? catSel : null} onSelectCat={selectOverviewCat}
+            onCategoryDetails={setDetailsCat} onManageBudgets={()=>setBudgetDialogOpen(true)}
+            onOpenFlagged={id => { const t = txns.find(x => x.id === id); if (t) onOpenDetail(t); }}
+            catColor={catColor} categoryIcon={categoryIcon} formatCat={formatCat}
+          />
+        ) : (
+        <div className="space-y-3.5">
         <div className="surface-card p-4 md:p-5 shrink-0">
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 lg:gap-7 items-stretch">
 
             {/* Left: duration toggle + spend bar spikes */}
             <div className="min-w-0">
-              <div className="flex bg-muted/50 rounded-lg p-0.5 gap-0.5 w-fit mb-3">
-                {(["all","day","week","month","year"] as const).map(g => (
-                  <button key={g} onClick={() => setGranularity(g)}
-                    className={cn("px-2.5 py-1 rounded-md text-[11px] font-semibold capitalize transition-all",
-                      granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
-                    {g}
-                  </button>
-                ))}
-              </div>
-
               {granularity==="all" ? (
                 /* No scrubber to bucket "all time" into; just a plain label,
                    same vertical footprint as the other tabs so switching
@@ -1280,21 +1463,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 /* 14-day scrubber; same bar format as the other granularities
                    so the header never changes height when switching tabs. */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
                   <PeriodBars buckets={dayBuckets} totals={overallDaily} selIdx={selDayIdx}
                     onSelect={(i) => setDayOffset(i-(DAY_COUNT-1))} maxWidth={560}/>
                 </div>
               ) : granularity==="week" ? (
                 /* 12-week scrubber, same bar format as months */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
                   <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
                     onSelect={(i) => setWeekOffset(i-(WEEK_COUNT-1))} maxWidth={640}/>
                 </div>
               ) : granularity==="year" ? (
                 /* 6-year scrubber; each bar is one calendar year */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
                   <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
                     onSelect={(i) => setYearOffset(i-(YEAR_COUNT-1))} maxWidth={400}/>
                 </div>
@@ -1302,7 +1485,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 /* 12-month scrubber; capped width so bars stay a sensible size on wide screens.
                    Year label above clarifies which calendar year(s) the months belong to. */
                 <div>
-                  <div className="text-[9.5px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
                   <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
                     onSelect={(i) => setMonthOffset(i-lastIdx)} maxWidth={560}/>
                 </div>
@@ -1313,7 +1496,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 for the selected range, so the panel's height and shape never
                 change across day/week/month/year (no month-only budget block). */}
             <div className="w-full lg:w-[240px] shrink-0 lg:border-l lg:border-border/50 lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/50">
-              <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 {activeRange.label}
               </div>
               <div className="space-y-2">
@@ -1346,7 +1529,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {runwayIdx===0 && scrubDay !== null && rolling30[scrubDay] && (
                 <div className="text-right mr-1">
                   <div className="text-[13px] font-bold text-foreground tabular">{fmtUSD(rolling30[scrubDay].cum)}</div>
-                  <div className="text-[10.5px] text-muted-foreground">{new Date(rolling30[scrubDay].date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                  <div className="text-[11px] text-muted-foreground">{new Date(rolling30[scrubDay].date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                 </div>
               )}
               <button onClick={()=>setRunwayIdx(0)} aria-label="Show this month's cumulative spend" className={cn("h-1.5 w-1.5 rounded-full transition-all", runwayIdx===0?"bg-[hsl(var(--primary))] w-4":"bg-border")}/>
@@ -1393,7 +1576,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const hovered = hoveredDot===key;
                     const content = (
                       <>
-                        <div className="text-[10px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                        <div className="text-[11px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
                         {d.txns.map((t,ti) => (
                           <div key={ti} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
                             <span className="truncate">{t.merchant}</span>
@@ -1414,13 +1597,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {/* Date axis; day 1 through the last day of the selected month */}
                 <div className="relative h-4 mt-1">
                   {past30Ticks.map(d => (
-                    <span key={d} className="absolute -translate-x-1/2 text-[9.5px] text-muted-foreground/60 tabular"
+                    <span key={d} className="absolute -translate-x-1/2 text-[11px] text-muted-foreground/60 tabular"
                       style={{left:`${xForPast(d-1)}%`}}>
                       {d}
                     </span>
                   ))}
                 </div>
-                <div className="flex items-center gap-4 mt-1 text-[10.5px] text-muted-foreground flex-wrap">
+                <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>Cumulative spend</span>
                   {past30BudgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
                   <span className="ml-auto">Swipe or tap dot to see next 15 days →</span>
@@ -1453,13 +1636,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     const hovered = hoveredDot===key;
                     const content = (
                       <>
-                        <div className="text-[10px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · {f.frequency}{f.insufficient?" · insufficient funds":""}</div>
+                        <div className="text-[11px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · {f.frequency}{f.insufficient?" · insufficient funds":""}</div>
                         <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", f.insufficient?"text-negative":"text-foreground")}>
                           <span className="truncate">{f.merchant}</span>
                           <span className="tabular shrink-0">{fmtUSD(f.avgAmount)}</span>
                         </div>
                         {f.balanceAfter !== null && (
-                          <div className={cn("text-[10.5px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
+                          <div className={cn("text-[11px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
                         )}
                       </>
                     );
@@ -1473,7 +1656,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-4 mt-2 text-[10.5px] text-muted-foreground flex-wrap">
+                <div className="flex items-center gap-4 mt-2 text-[11px] text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Anticipated spend</span>
                   <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-negative inline-block"/>Low balance risk</span>
                   <span className="ml-auto">← Swipe back for last 30 days</span>
@@ -1486,7 +1669,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming charges</div>
                     <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
                       {upcomingCharges.map(r => {
-                        const days = Math.round((new Date(r.nextDate+"T00:00:00").getTime()-now.getTime())/86400000);
+                        const days = daysBetweenISO(todayStr, r.nextDate);
                         return (
                           <div key={r.merchant} className={cn("shrink-0 w-[150px] rounded-xl border p-3",
                             r.insufficient ? "border-negative/40 bg-negative/5" : "border-border/40 bg-muted/20")}>
@@ -1497,9 +1680,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                               {new Date(r.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · in {Math.max(days,0)}d
                             </div>
                             {r.insufficient ? (
-                              <div className="text-[10px] font-bold text-negative mt-1">Insufficient funds</div>
+                              <div className="text-[11px] font-bold text-negative mt-1">Insufficient funds</div>
                             ) : r.balanceAfter !== null && (
-                              <div className="text-[10px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
+                              <div className="text-[11px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
                             )}
                           </div>
                         );
@@ -1513,15 +1696,28 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </div>
         )}
         </div>
+        )}
 
         {/* ═══ 4. Categories + transactions ═══════════════════════════════ */}
-        <div className="flex flex-col lg:flex-row gap-4 min-w-0 lg:flex-1 lg:min-h-0">
+        <section className="flex flex-col gap-3 min-w-0 pt-2" aria-label="Transactions">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-[16px] font-semibold text-foreground">Transactions</h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                {activeRange.label} · totals include pending charges · confirmed transfers are hidden
+              </p>
+            </div>
+            <button onClick={()=>setBudgetDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[hsl(var(--primary))] hover:opacity-80">
+              <Wallet className="h-3.5 w-3.5"/> Manage budgets
+            </button>
+          </div>
 
           {/* Mobile: category filter as a horizontal pill row instead of the
               taller vertical box below; tap a pill to filter the list,
               same catSel state the desktop sidebar and table use. */}
           {(expenseCatRows.length > 0 || incomeCatRows.length > 0 || ignoredCatRows.length > 0) && (
-            <div className="md:hidden flex gap-1.5 overflow-x-auto scrollbar-none -mx-4 px-4 shrink-0">
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap shrink-0">
               {CAT_TABS.map(tab => (
                 <button key={tab.key} onClick={()=>setCatTab(tab.key)} title={tab.title}
                   className={cn("shrink-0 px-2.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors",
@@ -1539,7 +1735,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 const col = catColor(c.cat);
                 return (
                   <button key={c.cat} onClick={()=>setCatSel(active ? null : c.cat)}
-                    style={active ? { backgroundColor: col, color: "white" } : { backgroundColor: `${col}1a`, color: col }}
+                    style={active ? { backgroundColor: col, color: "white" } : { backgroundColor: withAlpha(col, 0.14), color: vivid(col) }}
                     className="shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors">
                     {formatCat(c.cat)}
                   </button>
@@ -1551,20 +1747,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* Categories; colorful cards, vertically scrollable. Each card
               shows its budget progress if one's set, or a "Set budget" pill
               if not; both routes into the same Manage Budgets dialog. */}
-          {(expenseCatRows.length > 0 || incomeCatRows.length > 0 || ignoredCatRows.length > 0) && (
+          {SHOW_CATEGORY_SIDEBAR && (expenseCatRows.length > 0 || incomeCatRows.length > 0 || ignoredCatRows.length > 0) && (
             <div className="hidden md:flex surface-card overflow-hidden flex-col max-h-[240px] lg:max-h-none lg:h-full lg:w-[260px] lg:shrink-0">
               <div className="px-3 py-2 border-b border-border/20 flex items-center justify-between shrink-0 gap-2">
                 <div className="flex items-center gap-0.5 rounded-full bg-muted/50 p-0.5 shrink-0">
                   {CAT_TABS.map(tab => (
                     <button key={tab.key} onClick={()=>setCatTab(tab.key)} title={tab.title}
-                      className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors",
+                      className={cn("px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors",
                         catTab === tab.key ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]" : "text-muted-foreground hover:text-foreground")}>
                       {tab.label}
                     </button>
                   ))}
                 </div>
                 <button onClick={()=>setBudgetDialogOpen(true)}
-                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity shrink-0">
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity shrink-0">
                   <Wallet className="h-2.5 w-2.5"/> Budget
                 </button>
               </div>
@@ -1582,9 +1778,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         borderLeft: `3px solid ${col}`,
                       }}
                       className="bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
-                      <span className="text-[10.5px] font-semibold text-foreground truncate block">{formatCat(c.cat)}</span>
+                      <span className="text-[11px] font-semibold text-foreground truncate block">{formatCat(c.cat)}</span>
                       <span className="text-[12px] font-bold text-foreground tabular">{fmtUSD(c.spend)}</span>
-                      <div className="text-[9px] text-muted-foreground mt-0.5">{c.count} txn{c.count!==1?"s":""} · excluded from spend</div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">{c.count} txn{c.count!==1?"s":""} · excluded from spend</div>
                     </div>
                   );
                 }) : (catTab === "income" ? incomeCatRows : expenseCatRows).map((c,i) => {
@@ -1623,7 +1819,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       }}
                       className="group/catlistrow bento-rise cursor-pointer rounded-md px-2 py-1.5 transition-colors">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10.5px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
+                        <span className="text-[11px] font-semibold text-foreground truncate flex-1 min-w-0">{formatCat(c.cat)}</span>
                         <button onClick={(e)=>{ e.stopPropagation(); setDetailsCat(c.cat); }}
                           aria-label={`View ${formatCat(c.cat)} details`}
                           // Always visible below the md breakpoint; a
@@ -1635,7 +1831,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           <Pencil className="h-2.5 w-2.5"/>
                         </button>
                         {c.mom !== null && (
-                          <span className={cn("text-[9px] font-semibold shrink-0", momColor)}>{c.mom>0?"+":""}{c.mom}%</span>
+                          <span className={cn("text-[11px] font-semibold shrink-0", momColor)}>{c.mom>0?"+":""}{c.mom}%</span>
                         )}
                       </div>
                       <div className="flex items-center gap-1.5 min-w-0">
@@ -1647,9 +1843,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         )}
                       </div>
                       {isObligation ? (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
                       ) : !isIncome && b != null && (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                        <div className="text-[11px] text-muted-foreground mt-0.5">
                           {fmtUSD(c.spend)} spent{over && <span className="text-negative font-semibold"> · {fmtUSD(c.spend-b)} over</span>}
                         </div>
                       )}
@@ -1663,10 +1859,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* Transaction feed. Fixed-height card with its own internal scroll
               (header stays put, list scrolls beneath it) instead of growing
               the whole page. */}
-          <div className="surface-card overflow-hidden min-w-0 flex flex-col flex-1 max-h-[480px] lg:max-h-none lg:h-full">
-            <div className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 backdrop-blur-sm space-y-2">
+          <div className="surface-card min-w-0 flex flex-col md:overflow-hidden md:h-[640px]">
+            {/* Phones: one scroll (the page). The toolbar sticks to the top of
+                the scroll area and the date headings stick right below it,
+                instead of a 480px box scrolling inside a scrolling page. */}
+            <div ref={toolbarRef} className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 max-md:bg-card backdrop-blur-sm space-y-2 max-md:sticky max-md:top-0 max-md:z-20 max-md:rounded-t-[var(--radius)]">
               {selectedIds.size > 0 ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 [&_button]:max-md:h-10">
                   <span className="text-[12.5px] font-semibold text-foreground shrink-0">{selectedIds.size} selected</span>
                   <button ref={bulkMenu.btnRef} onClick={bulkMenu.toggle}
                     className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-[12px] font-medium text-foreground hover:bg-muted/60 transition-colors shrink-0">
@@ -1712,26 +1911,33 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   exact same popovers the desktop buttons open. */}
               <div className="md:hidden flex items-center gap-1.5">
                 <button onClick={()=>setMobileSearchOpen(v=>!v)} aria-label="Search" aria-expanded={mobileSearchOpen}
-                  className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
-                    mobileSearchOpen || searchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                  <Search className="h-3.5 w-3.5"/>
+                  className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
+                    mobileSearchOpen || activeSearchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
+                  <Search className="h-4 w-4"/>
                 </button>
                 {mobileSearchOpen && (
-                  <input autoFocus value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } }}
-                    placeholder="Search, then press Enter…"
-                    className="flex-1 min-w-0 h-8 px-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
+                  <div className="relative flex-1 min-w-0">
+                    <input autoFocus type="search" enterKeyHint="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                      onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setMobileSearchOpen(false); } }}
+                      placeholder="Search transactions" aria-label="Search transactions"
+                      className="w-full h-11 pl-3 pr-10 rounded-xl bg-muted/40 border border-border/60 text-[15px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                    <button onClick={()=>{ if (searchDraft) { setSearchDraft(""); setLiveSearch(""); } else setMobileSearchOpen(false); }}
+                      aria-label={searchDraft ? "Clear search" : "Close search"}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground">
+                      <X className="h-4 w-4"/>
+                    </button>
+                  </div>
                 )}
                 <div className={cn("flex items-center gap-1.5 ml-auto", mobileSearchOpen && "hidden")}>
-                  <button ref={sortMenu.btnRef} onClick={sortMenu.toggle}
-                    className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
+                  <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort"
+                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
                       hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <ArrowUpDown className="h-3.5 w-3.5"/>
+                    <ArrowUpDown className="h-4 w-4"/>
                   </button>
-                  <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle}
-                    className={cn("h-8 w-8 grid place-items-center rounded-lg border shrink-0",
+                  <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter"
+                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
                       hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <Filter className="h-3.5 w-3.5"/>
+                    <Filter className="h-4 w-4"/>
                   </button>
                 </div>
               </div>
@@ -1739,10 +1945,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               <div className="hidden md:flex items-center gap-1.5 flex-wrap">
                 <div className="relative w-56 shrink-0">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
-                  <input value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } }}
-                    placeholder="Search, then press Enter…"
-                    className="w-full h-8 pl-8 pr-3 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
+                  <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") setSearchDraft(""); }}
+                    placeholder="Search transactions" aria-label="Search transactions" title="Filters as you type; press Enter to pin the term"
+                    className="w-full h-8 pl-8 pr-8 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                  {searchDraft && (
+                    <button onClick={()=>{ setSearchDraft(""); setLiveSearch(""); }} aria-label="Clear search"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground">
+                      <X className="h-3.5 w-3.5"/>
+                    </button>
+                  )}
                 </div>
 
                 <div className="relative shrink-0">
@@ -1781,22 +1993,36 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-3 w-3"/> Sort
                 </button>
-                <button ref={colsMenu.btnRef} onClick={colsMenu.toggle} title="Columns"
+                {/* Secondary tools (Columns / Rules / Import) live behind one
+                    "More" button instead of three unlabeled icon buttons. The
+                    Columns picker anchors to this same button. */}
+                <button ref={colsMenu.btnRef} onClick={moreMenu.toggle} aria-label="More list options" aria-haspopup="menu" aria-expanded={moreMenu.open} title="More"
                   className={cn("h-7 w-7 grid place-items-center rounded-lg border transition-colors shrink-0",
-                    colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Settings className="h-3.5 w-3.5"/>
+                    moreMenu.open || colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <MoreHorizontal className="h-3.5 w-3.5"/>
                 </button>
-                {onOpenRules && (
-                  <button onClick={onOpenRules} title="View and run transaction rules"
-                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
-                    <Wand2 className="h-3.5 w-3.5"/>
-                  </button>
-                )}
-                {onOpenImport && (
-                  <button onClick={onOpenImport} title="Import a bank statement PDF"
-                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
-                    <Upload className="h-3.5 w-3.5"/>
-                  </button>
+                {moreMenu.open && moreMenu.pos && createPortal(
+                  <>
+                    <div className="fixed inset-0 z-[998]" onClick={moreMenu.close}/>
+                    <div role="menu" className="spending-v2 fixed z-[999] w-56 rounded-xl border border-border/60 bg-card shadow-2xl p-1"
+                      style={{ top: moreMenu.pos.top, bottom: moreMenu.pos.bottom, right: moreMenu.pos.right }}>
+                      {([
+                        { label: "Columns…", hint: "Show, hide or reset columns", Icon: Settings, run: () => colsMenu.toggle() },
+                        ...(onOpenRules ? [{ label: "Rules", hint: "View and run transaction rules", Icon: Wand2, run: onOpenRules }] : []),
+                        ...(onOpenImport ? [{ label: "Import statement", hint: "Import a bank statement PDF", Icon: Upload, run: onOpenImport }] : []),
+                      ]).map(({ label, hint, Icon, run }) => (
+                        <button key={label} role="menuitem" onClick={() => { moreMenu.close(); run(); }}
+                          className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-muted/60">
+                          <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0"/>
+                          <span className="min-w-0">
+                            <span className="block text-[12.5px] font-medium text-foreground">{label}</span>
+                            <span className="block text-[11px] text-muted-foreground">{hint}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>,
+                  document.body
                 )}
               </div>
 
@@ -1889,12 +2115,24 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
               {filtersMenu.open && filtersMenu.pos && createPortal(
                 <>
-                  <div className="fixed inset-0 z-[998]" onClick={filtersMenu.close}/>
-                  <div className="spending-v2 fixed z-[999] w-80 overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3"
+                  <div className="fixed inset-0 z-[998] max-md:bg-black/40 max-md:animate-in max-md:fade-in-0" onClick={filtersMenu.close}/>
+                  {/* Desktop: popover under the button. Phones: a bottom sheet
+                      (full width, thumb-reachable, clear of the home indicator). */}
+                  <div role="dialog" aria-label="Filters"
+                    className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3
+                      max-md:!top-auto max-md:!bottom-0 max-md:!left-0 max-md:!right-0 max-md:w-full max-md:max-w-none max-md:!max-h-[85dvh] max-md:rounded-b-none max-md:rounded-t-2xl max-md:px-4 max-md:pt-2 max-md:pb-0
+                      max-md:animate-in max-md:slide-in-from-bottom-full max-md:duration-200"
                     style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
+                    <div className="md:hidden flex flex-col items-center gap-2 pb-1">
+                      <span className="h-1 w-10 rounded-full bg-border" aria-hidden/>
+                      <div className="w-full flex items-center justify-between">
+                        <span className="text-[15px] font-semibold text-foreground">Filters</span>
+                        {hasActiveFilters && <button onClick={clearFilters} className="h-9 px-2 text-[13px] font-medium text-[hsl(var(--primary))]">Clear all</button>}
+                      </div>
+                    </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
                       <select value={catSel ?? ""} onChange={e=>setCatSel(e.target.value || null)}
                         className="w-full h-8 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none">
                         <option value="">All categories</option>
@@ -1904,7 +2142,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
                     {tagsInPeriod.length > 0 && (
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Tags</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Tags</div>
                         <div className="flex flex-wrap gap-1">
                           {tagsInPeriod.map(tag => (
                             <button key={tag} onClick={()=>toggleTagFilter(tag)}
@@ -1918,11 +2156,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     )}
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Date</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Date</div>
                       <div className="flex gap-1 mb-1.5">
                         {([["none","Period"],["range","Range"],["lastN","Last N days"],["year","Year"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setDateMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               dateMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1955,11 +2193,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Money in / out</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Money in / out</div>
                       <div className="flex gap-1">
                         {([["all","All"],["in","Incoming"],["out","Outgoing"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setTypeFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               typeFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1968,11 +2206,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Amount</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Amount</div>
                       <div className="flex gap-1 mb-1.5">
                         {([["range","Range"],["fixed","Exact"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setAmountMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               amountMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1980,7 +2218,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       </div>
                       {amountMode==="range" ? (
                         <div className="flex items-center gap-1 h-8 px-2 rounded-lg bg-muted/40 border border-border/60">
-                          <span className="text-[10.5px] text-muted-foreground">$</span>
+                          <span className="text-[11px] text-muted-foreground">$</span>
                           <input type="number" inputMode="decimal" min={0} placeholder="Min" value={minAmount} onChange={e=>setMinAmount(e.target.value)}
                             className="w-full bg-transparent text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground/60"/>
                           <span className="text-muted-foreground/40">–</span>
@@ -1997,16 +2235,22 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </div>
 
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Ignored</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Ignored</div>
                       <div className="flex gap-1">
                         {([["no","No"],["yes","Yes"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>toggleIgnoredFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[10.5px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
                               ignoredFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
                         ))}
                       </div>
+                    </div>
+                    <div className="md:hidden sticky bottom-0 -mx-4 px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-card border-t border-border/20">
+                      <button onClick={filtersMenu.close}
+                        className="w-full h-11 rounded-xl bg-[hsl(var(--primary))] text-primary-foreground text-[14px] font-semibold">
+                        Show {visibleTxns.length.toLocaleString()} {visibleTxns.length === 1 ? "transaction" : "transactions"}
+                      </button>
                     </div>
                   </div>
                 </>,
@@ -2016,7 +2260,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {sortMenu.open && sortMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={sortMenu.close}/>
-                  <div className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
+                  <div role="menu" aria-label="Sort transactions" className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
                     style={{top:sortMenu.pos.top, bottom:sortMenu.pos.bottom, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
                     {(["date","amount"] as const).map(key => (
                       <button key={key} onClick={()=>{ handleSort(key); }}
@@ -2032,15 +2276,38 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               )}
 
             </div>
-            {/* overflow-x-hidden (not auto) is deliberate: the desktop table
-                below is table-layout:fixed with resizable columns whose
-                widths are proportional weights, not absolute pixels, so it
-                always fits the container exactly and never needs a
-                horizontal scrollbar. */}
-            <div className="overflow-y-auto overflow-x-hidden scrollbar-none flex-1">
+            {/* The desktop table is fitted to this container (tableCols drops
+                low-priority columns that don't fit), so it normally never
+                scrolls sideways; overflow-x-auto is only a safety net so a
+                column can never be silently clipped. */}
+            <div ref={tableWrapRef} className="md:overflow-y-auto md:overflow-x-auto scrollbar-none flex-1">
               {visibleTxns.length === 0 ? (
-                <div className="py-14 text-center text-[13px] text-muted-foreground">
-                  No transactions match{hasActiveFilters ? " these filters" : ""}.
+                <div className="py-14 px-6 text-center space-y-3">
+                  {(hasActiveFilters || catSel) ? (
+                    <>
+                      <div className="text-[14px] font-semibold text-foreground">No transactions match these filters</div>
+                      <div className="text-[12.5px] text-muted-foreground">Try removing a filter or search term.</div>
+                      <button onClick={()=>{ clearFilters(); setCatSel(null); }}
+                        className="h-9 px-4 rounded-lg border border-border/60 bg-muted/40 text-[13px] font-medium text-foreground hover:bg-muted/60 transition-colors">
+                        Clear filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[14px] font-semibold text-foreground">
+                        No {catTab === "income" ? "income" : catTab === "ignored" ? "ignored transactions" : "spending"} {granularity === "all" ? "on record" : `in ${activeRange.label.toLowerCase() === "this month" ? "this month" : activeRange.label}`}
+                      </div>
+                      <div className="text-[12.5px] text-muted-foreground">
+                        {granularity === "all" ? "Transactions appear here once your accounts sync." : "Pick another period, or view everything."}
+                      </div>
+                      {granularity !== "all" && (
+                        <button onClick={()=>setGranularity("all")}
+                          className="h-9 px-4 rounded-lg border border-border/60 bg-muted/40 text-[13px] font-medium text-foreground hover:bg-muted/60 transition-colors">
+                          View all time
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               ) : (
                 <>
@@ -2048,35 +2315,35 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   <table className="hidden md:table w-full text-left border-collapse table-fixed">
                     <colgroup>
                       <col style={{width: 32}}/>
-                      <col style={{width: colWidths.name}}/>
-                      {visibleCols.has("date") && <col style={{width: colWidths.date}}/>}
-                      {visibleCols.has("amount") && <col style={{width: colWidths.amount}}/>}
-                      {visibleCols.has("statement") && <col style={{width: colWidths.statement}}/>}
-                      {visibleCols.has("category") && <col style={{width: colWidths.category}}/>}
-                      {visibleCols.has("status") && <col style={{width: colWidths.status}}/>}
-                      {visibleCols.has("account") && <col style={{width: colWidths.account}}/>}
+                      <col/>
+                      {tableCols.has("date") && <col style={{width: colWidths.date}}/>}
+                      {tableCols.has("amount") && <col style={{width: colWidths.amount}}/>}
+                      {tableCols.has("statement") && <col style={{width: colWidths.statement}}/>}
+                      {tableCols.has("category") && <col style={{width: colWidths.category}}/>}
+                      {tableCols.has("status") && <col style={{width: colWidths.status}}/>}
+                      {tableCols.has("account") && <col style={{width: colWidths.account}}/>}
                     </colgroup>
                     <thead className="sticky top-0 z-[5] bg-card">
                       <tr className="border-b border-border/20">
                         <th className="px-2 py-2">
                           <input type="checkbox" aria-label="Select all visible transactions"
-                            checked={visibleTxns.length>0 && visibleTxns.every(t=>selectedIds.has(t.id))}
+                            checked={renderedTableTxns.length>0 && renderedTableTxns.every(t=>selectedIds.has(t.id))}
                             onChange={e=>{
-                              if (e.target.checked) setSelectedIds(new Set(visibleTxns.map(t=>t.id)));
+                              if (e.target.checked) setSelectedIds(new Set(renderedTableTxns.map(t=>t.id)));
                               else clearSelection();
                             }}
                             className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
                         </th>
-                        <SortableTh label="Vendor" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} onResizeStart={startColResize("name")} />
-                        {visibleCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
-                        {visibleCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} />}
-                        {visibleCols.has("statement") && <SortableTh label="Statement Desc." active={sortBy==="statement"} desc={sortDesc} onClick={()=>handleSort("statement")} onResizeStart={startColResize("statement")} />}
-                        {visibleCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
-                        {visibleCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
-                        {visibleCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
+                        <SortableTh label="Vendor" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} />
+                        {tableCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
+                        {tableCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} />}
+                        {tableCols.has("statement") && <SortableTh label="Statement Desc." active={sortBy==="statement"} desc={sortDesc} onClick={()=>handleSort("statement")} onResizeStart={startColResize("statement")} />}
+                        {tableCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
+                        {tableCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
+                        {tableCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
                       </tr>
                     </thead>
-                    {groupedTxns ? groupedTxns.map(g => {
+                    {groupedTxns ? desktopPage.groups.map(g => {
                       const isCollapsed = collapsedGroups.has(g.key);
                       return (
                       <tbody key={g.key}>
@@ -2086,94 +2353,101 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                               <div className="flex items-center gap-2 min-w-0">
                                 <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                                 <span className="text-[12px] font-semibold text-foreground truncate">{groupHeading(g.key)}</span>
-                                <span className="shrink-0 text-[10px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
+                                <span className="shrink-0 text-[11px] font-medium text-muted-foreground bg-border/30 rounded-full px-1.5 py-0.5">
                                   {g.items.length} {g.items.length===1?"txn":"txns"}
                                 </span>
                               </div>
                               <div className="text-right shrink-0">
-                                <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
-                                <div className="text-[13px] font-bold text-foreground tabular leading-tight mt-0.5">{fmtUSD(g.total)}</div>
+                                <div className="text-[11px] text-muted-foreground uppercase tracking-wide leading-none">Subtotal</div>
+                                <div className={cn("text-[13px] font-bold tabular leading-tight mt-0.5", txnAmountClass(g.total))}>{fmtTxnAmount(g.total)}</div>
                               </div>
                             </div>
                           </td>
                         </tr>
-                        {!isCollapsed && g.items.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                        {!isCollapsed && g.shown.map(t => (
+                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
+                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                         ))}
                       </tbody>
                       );
                     }) : (
                       <tbody>
-                        {visibleTxns.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                        {renderedTableTxns.map(t => (
+                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                             nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
+                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                         ))}
                       </tbody>
                     )}
                   </table>
+                  {desktopPage.more && (
+                    <div className="hidden md:flex justify-center py-3 border-t border-border/15">
+                      <button onClick={()=>setRowLimit(l=>l+ROW_PAGE)}
+                        className="h-8 px-4 rounded-lg border border-border/60 bg-muted/40 text-[12.5px] font-medium text-foreground hover:bg-muted/70">
+                        Show {Math.min(ROW_PAGE, desktopPage.hidden) || ""} more{desktopPage.hidden > ROW_PAGE ? ` (${desktopPage.hidden.toLocaleString()} left)` : ""}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Mobile: no table; a date-grouped, fixed-row-height feed
                       instead, always grouped by date (see mobileGroups above)
                       regardless of the desktop Group-by control, with each
                       date section independently collapsible. */}
                   <div className="md:hidden">
-                    {mobileGroups.map(g => {
-                      const isCollapsed = collapsedGroups.has(g.key);
+                    {mobilePage.groups.map(g => {
+                      const isCollapsed = g.key !== MOBILE_FLAT_KEY && collapsedGroups.has(g.key);
                       return (
                       <div key={g.key}>
-                        <div className="bg-muted/30 px-4 py-1.5 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
-                          onClick={()=>toggleGroupCollapsed(g.key)}>
+                        {g.key !== MOBILE_FLAT_KEY && (
+                        <div className="sticky z-10 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
+                          style={{ top: toolbarH }} onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                             <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
                           </div>
-                          <span className="text-[11px] text-muted-foreground tabular shrink-0">{fmtUSD(g.total)}</span>
+                          <span className={cn("text-[11px] tabular shrink-0", g.total < 0 ? "text-positive" : "text-muted-foreground")}>{fmtTxnAmount(g.total)}</span>
                         </div>
+                        )}
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
-                          {g.items.map(t => (
-                            <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                          {g.shown.map(t => (
+                            <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} showDate={g.key === MOBILE_FLAT_KEY} selectionMode={selectedIds.size > 0} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                               nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect}/>
+                            selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
+                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
                           ))}
                         </div>
                         )}
                       </div>
                       );
                     })}
+                    {mobilePage.more && (
+                      <div className="flex justify-center px-4 py-4 border-t border-border/15">
+                        <button onClick={()=>setRowLimit(l=>l+ROW_PAGE)}
+                          className="h-11 w-full rounded-xl border border-border/60 bg-muted/40 text-[14px] font-medium text-foreground active:bg-muted/70">
+                          Show more{mobilePage.hidden ? ` (${mobilePage.hidden.toLocaleString()} left)` : ""}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}
             </div>
           </div>
-        </div>
+        </section>
       </div>
-
-      {/* Month nav (compact, replaces the old chevrons; scrubber above is primary) */}
-      {monthOffset !== 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-card border border-border shadow-2xl rounded-full px-2 py-1.5">
-          <button onClick={()=>setMonthOffset(o=>o-1)} disabled={selIdx<=0} aria-label="Previous month" className="h-8 w-8 rounded-full grid place-items-center text-muted-foreground hover:text-foreground disabled:opacity-30">
-            <ChevronLeft className="h-4 w-4"/>
-          </button>
-          <span className="text-[12.5px] font-semibold text-foreground px-1">{new Date(sel.year,sel.monthIdx,1).toLocaleDateString("en-US",{month:"short",year:"numeric"})}</span>
-          <button onClick={()=>setMonthOffset(o=>Math.min(0,o+1))} aria-label="Next month" className="h-8 w-8 rounded-full grid place-items-center text-muted-foreground hover:text-foreground">
-            <ChevronRight className="h-4 w-4"/>
-          </button>
-          <button onClick={()=>setMonthOffset(0)} className="text-[11.5px] text-[hsl(var(--primary))] font-medium px-1.5">Today</button>
-        </div>
-      )}
 
       {/* Burn-chart dot tooltip; portaled to <body> so it's never clipped by
           the chart cards' overflow-hidden (needed to hide the swipeable
@@ -2198,7 +2472,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
           <div className="spending-v2 fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
-            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
             {COLUMN_DEFS.map(c => {
               const checked = visibleCols.has(c.key);
               return (
@@ -2208,7 +2482,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     checked ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]" : "border-border-strong")}>
                     {checked && <Check className="h-3 w-3 text-primary-foreground"/>}
                   </div>
-                  {c.label}
+                  <span className="flex-1">{c.label}</span>
+                  {checked && !tableCols.has(c.key) && (
+                    <span className="hidden md:inline text-[11px] text-muted-foreground" title="Not enough room at this window width">hidden</span>
+                  )}
                 </button>
               );
             })}
@@ -2231,7 +2508,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
           <div className="spending-v2 fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
             style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
-            <div className="px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
             {GROUP_OPTIONS.map(g => (
               <button key={g.key} onClick={()=>{ setGroupBy(g.key); groupMenu.close(); }}
                 className={cn("w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px]",
@@ -2418,7 +2695,7 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
         <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/15">
           {/* Left: categories with usage but no budget yet */}
           <div className="flex flex-col min-h-0 max-h-[55vh]">
-            <div className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            <div className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
               Not budgeted yet · {needsBudget.length}
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-none divide-y divide-border/10">
@@ -2459,7 +2736,7 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
 
           {/* Right: categories that already have a budget */}
           <div className="flex flex-col min-h-0 max-h-[55vh]">
-            <div className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            <div className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
               Budgeted · {defined.length}
             </div>
             <div className="flex-1 overflow-y-auto scrollbar-none divide-y divide-border/10">
@@ -2670,7 +2947,7 @@ export function CategoryPickerPopover({
     if (shown.length === 0 && shownCustom.length === 0) return null;
     return (
       <div className="py-1.5">
-        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
+        <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
         {shown.map(cat => <Row key={cat} cat={cat} />)}
         {shownCustom.map(cat => <Row key={cat} cat={cat} removable />)}
       </div>
@@ -2692,7 +2969,7 @@ export function CategoryPickerPopover({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[998]" onClick={onClose} />
-      <div className="spending-v2 fixed z-[999] w-64 flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+      <div className="spending-v2 fixed z-[999] w-64 max-w-[calc(100vw-16px)] flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
         style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight ?? 360 }} onClick={e=>e.stopPropagation()}>
         <div className="p-2 border-b border-border/30 shrink-0">
           {adding ? (
@@ -2738,15 +3015,16 @@ export function CategoryPickerPopover({
 const TxnRow = ({
   t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
   categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
-  selected, onToggleSelect,
+  selected, onToggleSelect, flag, txnType, edited, onChangeType,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Map<string,string>;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
   onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
-  selected: boolean; onToggleSelect: (id:string)=>void;
+  selected: boolean; onToggleSelect: (id:string)=>void; flag?: TxnFlag;
+  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
   const col = catColor(cat);
@@ -2754,9 +3032,9 @@ const TxnRow = ({
   const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
   const acc = accounts.find(a => a.account_id === t.account_id);
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
-  const catMenu = useFloatingMenu();
+  const catMenu = useFloatingMenu(256);
   return (
-    <tr onClick={() => onOpenDetail(t)} className={cn("cursor-pointer hover:bg-muted/20 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]")}>
+    <tr onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
       <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}>
         <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
           className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
@@ -2769,22 +3047,31 @@ const TxnRow = ({
           {/* Vendor name is the thing people actually read; instead of hard
               ellipsis-truncating it to fit a narrow column, let it wrap to a
               second line so the full name stays visible. */}
-          <span className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">{nm}</span>
-          {recurringFreq && (
-            <span title={`Recurring: ${recurringFreq}`} className="shrink-0 mt-1 flex items-center gap-0.5 text-[9.5px] text-muted-foreground/60">
-              <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
-            </span>
-          )}
+          <div className="min-w-0">
+            <span className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug" title={nm}>{nm}</span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5" onClick={e=>e.stopPropagation()}>
+              <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType}/>
+              {flag && <FlagChip flag={flag}/>}
+              {recurringFreq && (
+                <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
+                  <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </td>
       {visibleCols.has("date") && (
-        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground truncate">{rDate(t.date)}</td>
+        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground truncate tabular" title={fmtDayHeading(t.date)}>{fmtShortDate(t.date)}</td>
       )}
       {visibleCols.has("amount") && (
-        <td className="px-4 py-2.5 text-right text-[13.5px] font-bold text-foreground tabular truncate">{fmtUSD(Number(t.amount))}</td>
+        <td className={cn("px-4 py-2.5 text-right text-[13.5px] font-bold tabular truncate", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}
+          title={t.pending ? "Pending: amount may change before it posts" : undefined}>{fmtTxnAmount(t.amount)}</td>
       )}
       {visibleCols.has("statement") && (
-        <td className="px-4 py-2.5 text-[11.5px] text-muted-foreground/80 font-mono line-clamp-2 leading-snug">{t.name ?? "-"}</td>
+        <td className="px-4 py-2.5" title={t.name ?? undefined}>
+          <span className="block text-[11.5px] text-muted-foreground/80 font-mono truncate">{t.name ?? "-"}</span>
+        </td>
       )}
       {visibleCols.has("category") && (
         <td className="px-4 py-2.5" onClick={e=>e.stopPropagation()}>
@@ -2808,94 +3095,192 @@ const TxnRow = ({
       {visibleCols.has("status") && (
         <td className="px-4 py-2.5 truncate">
           {t.pending
-            ? <span className="text-[10.5px] font-bold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full">Pending</span>
-            : <span className="text-[10.5px] font-medium text-muted-foreground">Posted</span>}
+            ? <PendingChip/>
+            : <span className="text-[11px] font-medium text-muted-foreground">Posted</span>}
         </td>
       )}
       {visibleCols.has("account") && (
-        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground line-clamp-2 leading-snug">{acc?.name ?? "-"}</td>
+        <td className="px-4 py-2.5" title={[acc?.name, acc?.mask ? `••${acc.mask}` : null].filter(Boolean).join(" ") || undefined}>
+          <span className="block text-[12.5px] text-muted-foreground truncate">{acc?.name ?? "-"}</span>
+        </td>
       )}
     </tr>
   );
 };
 
+// ── Incremental rendering ("Show more") ─────────────────────────────────────
+// Rendering every transaction of "All time" at once (thousands of rows, each
+// with popovers) made the tab sluggish. Lists render ROW_PAGE rows at a time;
+// group headings/subtotals still reflect the FULL group.
+const ROW_PAGE = 100;
+function limitGroups<G extends { key: string; items: PTxn[] }>(groups: G[], limit: number, isCollapsed: (key: string) => boolean) {
+  let left = limit;
+  let hidden = 0;
+  let more = false;
+  const out: (G & { shown: PTxn[] })[] = [];
+  for (const g of groups) {
+    if (left <= 0) { more = true; hidden += isCollapsed(g.key) ? 0 : g.items.length; continue; }
+    if (isCollapsed(g.key)) { out.push({ ...g, shown: [] }); continue; }
+    const shown = g.items.slice(0, left);
+    left -= shown.length;
+    if (shown.length < g.items.length) { more = true; hidden += g.items.length - shown.length; }
+    out.push({ ...g, shown });
+  }
+  return { groups: out, hidden, more };
+}
+
 // ── Transaction row (mobile card list) ──────────────────────────────────────
-// Below md there's no table at all; resizable columns don't translate to a
-// phone-width screen, so instead each transaction renders as a two-line card:
-// name + amount on top, then whichever attribute columns are toggled on
-// (category/date/status/account) as a compact meta line underneath.
+// Below md there's no table; each transaction is one full-width tap target
+// (≥64px tall): avatar, vendor + chips, amount on the first line; type chip,
+// category and account on the second. Tap opens the detail sheet; long-press
+// (or tap while something is already selected) toggles selection, so there
+// are no tiny per-row checkboxes or category pickers to mis-tap. The date is
+// omitted while the feed is grouped under date headings (it would repeat the
+// heading) and shown when the feed is a flat, non-date-sorted list.
+const LONG_PRESS_MS = 450;
 const MobileTxnRow = ({
   t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
-  categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
-  selected, onToggleSelect,
+  selected, onToggleSelect, flag, txnType, edited, onChangeType, showDate = false, selectionMode = false,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn)=>void; recurringKeys: Map<string,string>;
-  categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
-  customCategories:{name:string;type:"income"|"expense"}[];
-  onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
-  selected: boolean; onToggleSelect: (id:string)=>void;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
+  categoryIcon?:(cat:string)=>React.ElementType; expenseCategories?:string[]; incomeCategories?:string[]; ignoredCategories?:string[];
+  customCategories?:{name:string;type:"income"|"expense"}[];
+  onSelectCategory?:(t:PTxn,cat:string)=>void; onAddCategory?:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
+  selected: boolean; onToggleSelect: (id:string)=>void; flag?: TxnFlag;
+  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
+  showDate?: boolean; selectionMode?: boolean;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
   const col = catColor(cat);
-  const CatIcon = categoryIcon(cat);
   const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
   const acc = accounts.find(a => a.account_id === t.account_id);
   const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
-  const catMenu = useFloatingMenu();
-  const metaParts: React.ReactNode[] = [];
-  if (visibleCols.has("date")) metaParts.push(<span key="date">{rDate(t.date)}</span>);
-  if (visibleCols.has("statement") && t.name) metaParts.push(<span key="stmt" className="font-mono truncate max-w-[140px]">{t.name}</span>);
-  if (visibleCols.has("account") && acc?.name) metaParts.push(<span key="acc" className="truncate">{acc.name}</span>);
-  if (visibleCols.has("status") && t.pending) metaParts.push(<span key="status" className="font-semibold text-warning">Pending</span>);
+  const pressTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => { if (pressTimer.current) window.clearTimeout(pressTimer.current); pressTimer.current = null; };
+  const onPointerDown = (e: React.PointerEvent) => {
+    longPressed.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    cancelPress();
+    pressTimer.current = window.setTimeout(() => {
+      longPressed.current = true;
+      onToggleSelect(t.id);
+      try { navigator.vibrate?.(10); } catch { /* unsupported */ }
+    }, LONG_PRESS_MS);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const s = pressStart.current;
+    if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) cancelPress(); // it's a scroll, not a press
+  };
+  const activate = () => {
+    if (longPressed.current) { longPressed.current = false; return; }
+    if (selectionMode) onToggleSelect(t.id);
+    else onOpenDetail(t, { recurringFrequency: recurringFreq ?? null });
+  };
+  const accLabel = acc ? `${acc.name ?? acc.official_name ?? "Account"}${acc.mask ? ` ••${acc.mask}` : ""}` : null;
   return (
-    <div className={cn("w-full min-h-[60px] px-4 py-2.5 flex items-center gap-3 active:bg-muted/30 transition-colors", selected && "bg-[hsl(var(--primary)/0.06)]")}>
-      <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
-        className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))] shrink-0"/>
-      <button onClick={() => onOpenDetail(t)} className="h-9 w-9 rounded-full shrink-0 grid place-items-center text-[13px] font-bold text-white" style={{background:col}}>
-        {(nm[0]??"?").toUpperCase()}
-      </button>
-      <div className="min-w-0 flex-1" onClick={() => onOpenDetail(t)}>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13.5px] font-medium text-foreground truncate">{nm}</span>
-          {recurringFreq && (
-            <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[9.5px] text-muted-foreground/60">
-              <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
+    <div role="button" tabIndex={0} data-txn-row aria-pressed={selectionMode ? selected : undefined}
+      aria-label={`${nm}, ${fmtTxnAmount(t.amount)}${t.pending ? ", pending" : ""}`}
+      onClick={activate}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } }}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={cancelPress} onPointerLeave={cancelPress} onPointerCancel={cancelPress}
+      onContextMenu={e => e.preventDefault()}
+      className={cn("w-full min-h-[64px] px-4 py-3 flex items-center gap-3 text-left select-none active:bg-muted/30 transition-colors outline-none focus-visible:bg-muted/30",
+        selected && "bg-[hsl(var(--primary)/0.08)]", t.pending && !selected && "bg-warning/[0.03]")}>
+      <div className="relative h-10 w-10 rounded-full shrink-0 grid place-items-center text-[14px] font-bold text-white" style={{background:col}} aria-hidden>
+        {selected ? <Check className="h-5 w-5"/> : (nm[0]??"?").toUpperCase()}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[14px] font-medium text-foreground truncate min-w-0" title={t.name ?? nm}>{nm}</span>
+          {t.pending && <span className="shrink-0"><PendingChip/></span>}
+          {flag && <span className="shrink-0"><FlagChip flag={flag} compact/></span>}
+          {recurringFreq && !flag && !t.pending && (
+            <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
+              <RefreshCw className="h-3 w-3" /> {recurringFreq}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground mt-0.5 truncate">
-          <span className="truncate">{formatCat(cat)}</span>
-          {metaParts.length > 0 && metaParts.map((p, i) => (
-            <span key={i} className="flex items-center gap-1.5 shrink-0">
-              <span className="text-border">·</span>
-              {p}
-            </span>
-          ))}
+        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-1 min-w-0">
+          {/* The global touch rule gives every button a 40px min-height;
+              the type chip is a secondary control inside a 64px row, so it's
+              capped at 28px to keep rows compact. */}
+          <span onClick={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()} className="shrink-0 [&_button]:!min-h-[28px]">
+            <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType} compact/>
+          </span>
+          {/* Category keeps priority; the account name gives way first. */}
+          <span className="truncate min-w-[3rem] shrink" style={{ color: vivid(col) }}>{formatCat(cat)}</span>
+          {visibleCols.has("account") && accLabel && (
+            <>
+              <span aria-hidden className="shrink-0 text-muted-foreground/50">·</span>
+              <span className="truncate min-w-0 shrink-[4]" title={accLabel}>{accLabel}</span>
+            </>
+          )}
         </div>
       </div>
-      {visibleCols.has("amount") && (
-        <span className="text-[14px] font-bold text-foreground tabular shrink-0">{fmtUSD(Number(t.amount))}</span>
-      )}
-      {visibleCols.has("category") && (
-        <div onClick={e=>e.stopPropagation()} className="shrink-0">
-          <button ref={catMenu.btnRef} onClick={catMenu.toggle}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-muted/40 transition-colors">
-            <span className="h-4 w-4 rounded grid place-items-center shrink-0" style={{backgroundColor:`${col}22`, color:col}}>
-              <CatIcon className="h-2.5 w-2.5"/>
-            </span>
-            <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
-          </button>
-          {catMenu.open && (
-            <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
-              expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
-              customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
-              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-              onClose={catMenu.close}/>
-          )}
-        </div>
-      )}
+      <div className="shrink-0 text-right">
+        {visibleCols.has("amount") && (
+          <div className={cn("text-[15px] font-bold tabular", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</div>
+        )}
+        {showDate && <div className="text-[11.5px] text-muted-foreground tabular mt-0.5">{fmtShortDate(t.date)}</div>}
+      </div>
     </div>
   );
 };
+
+// ── "Change type" control (row chip + menu) ─────────────────────────────────
+// Lets the user override how any transaction is treated (spending, bill,
+// income, card payment, savings, transfer to/from someone, internal) with a
+// small "Edited" mark once they've overridden the automatic classification.
+const typeTone = (c: TxnClass): string =>
+  c.startsWith("income_") || c === "savings_contribution" || c === "transfer_in" ? "text-positive bg-[hsl(var(--positive)/0.12)]"
+  : c === "credit_card_payment" ? "text-[hsl(215_40%_72%)] bg-[hsl(215_40%_60%/0.14)]"
+  : c === "transfer_out" ? "text-[hsl(30_60%_68%)] bg-[hsl(30_60%_60%/0.12)]"
+  : c === "transfer_internal" ? "text-muted-foreground/80 bg-muted/40"
+  : "text-muted-foreground bg-muted/60";
+function TypeControl({ t, txnType, edited, onChangeType, compact = false }: {
+  t: PTxn; txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void; compact?: boolean;
+}) {
+  const menu = useFloatingMenu();
+  // Left-anchored to the chip (it sits at the left edge of the row), unlike
+  // the right-anchored category picker.
+  const [left, setLeft] = useState(8);
+  const def = txnTypeOption(txnType);
+  return (
+    <>
+      <button ref={menu.btnRef} type="button" onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setLeft(Math.max(8, Math.min(r.left, window.innerWidth - 264))); menu.toggle(); }}
+        title={`Type: ${def.label}${edited ? " (edited by you)" : ""}. Click to change.`}
+        aria-label={`Change type, currently ${def.label}`}
+        className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap transition-colors hover:ring-1 hover:ring-[hsl(var(--primary)/0.5)]", typeTone(txnType))}>
+        {def.short}
+        {edited && <span className="inline-flex items-center gap-0.5 text-[hsl(var(--primary))] no-underline"><Pencil className="h-2 w-2"/>{!compact && "Edited"}</span>}
+        <ChevronDown className="h-2.5 w-2.5 opacity-60"/>
+      </button>
+      {menu.open && menu.pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[998]" onClick={e => { e.stopPropagation(); menu.close(); }} />
+          <div role="menu" className="spending-v2 fixed z-[999] w-64 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5 overflow-y-auto"
+            style={{ top: menu.pos.top, bottom: menu.pos.bottom, left, maxHeight: menu.pos.maxHeight }}
+            onClick={e => e.stopPropagation()}>
+            <div className="px-2 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Treat this transaction as</div>
+            {TXN_TYPES.map(o => (
+              <button key={o.key} role="menuitemradio" aria-checked={o.key === def.key}
+                onClick={() => { if (o.key !== def.key) onChangeType(t, o.key); menu.close(); }}
+                className={cn("w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted/50 transition-colors", o.key === def.key && "bg-[hsl(var(--primary)/0.08)]")}>
+                <span className="h-4 w-4 mt-0.5 grid place-items-center shrink-0">{o.key === def.key && <Check className="h-3.5 w-3.5 text-[hsl(var(--primary))]"/>}</span>
+                <span className="min-w-0">
+                  <span className="block text-[12.5px] font-medium text-foreground">{o.label}</span>
+                  <span className="block text-[11px] text-muted-foreground">{o.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body
+      )}
+    </>
+  );
+}

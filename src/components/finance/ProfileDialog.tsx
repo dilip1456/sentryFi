@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from "react";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
-import { Loader2, Landmark, Trash2, AlertTriangle, Camera, User } from "lucide-react";
+import { Loader2, Landmark, Trash2, Camera, User, X, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
@@ -45,6 +46,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [items, setItems] = useState<PlaidItemRow[] | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState<PlaidItemRow | null>(null);
+  const [confirmFullResync, setConfirmFullResync] = useState(false);
+  const [fullResyncing, setFullResyncing] = useState(false);
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -155,6 +158,29 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
     }
   };
 
+  // Re-walks every linked bank's history from the start (no sync cursor), so
+  // older transactions pick up fields added since they were first synced
+  // (e.g. Plaid's detailed category) and rows a failed sync skipped come back.
+  // Nothing is deleted; existing transactions are updated in place.
+  const fullResync = async () => {
+    setFullResyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("plaid-sync-transactions", {
+        body: { full_resync: true },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Full resync failed");
+      const synced = data?.synced ?? 0;
+      toast.success(`Full resync complete: ${synced} transaction${synced !== 1 ? "s" : ""} refreshed`);
+      setConfirmFullResync(false);
+      // Same as disconnect: reload so every screen shows the refreshed data.
+      window.location.reload();
+    } catch (e) {
+      toast.error("Full resync failed", { description: (e as Error).message });
+    } finally {
+      setFullResyncing(false);
+    }
+  };
+
   const deleteAccount = async () => {
     setDeletingAccount(true);
     try {
@@ -171,11 +197,16 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+      {/* Fixed height so switching tabs doesn't make the modal jump. */}
+      <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
         <DialogTitle className="sr-only">Profile</DialogTitle>
         <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
-        <div className="p-5 border-b border-border/40 shrink-0">
-          <div className="font-display text-base text-foreground">Settings</div>
+        <div className="relative p-5 border-b border-border/40 shrink-0">
+          <DialogClose aria-label="Close settings" title="Close"
+            className="absolute top-3.5 right-3.5 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <X className="h-4 w-4" />
+          </DialogClose>
+          <div className="font-display text-base text-foreground pr-10">Settings</div>
           <div className="text-[13px] text-muted-foreground mt-0.5">{user?.email}</div>
           <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[13px] w-fit">
             {([["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"]] as const).map(([tab, label]) => (
@@ -246,36 +277,25 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
           {/* ── Danger zone: delete account ── */}
           <div className="px-5 pb-5">
             <div className="border-t border-negative/20 pt-4">
-              {!showDeleteAccount ? (
-                <button onClick={() => setShowDeleteAccount(true)}
-                  className="inline-flex items-center gap-1.5 text-[13px] text-negative hover:underline">
-                  <Trash2 className="h-3.5 w-3.5" /> Delete account
-                </button>
-              ) : (
-                <div className="rounded-lg border border-negative/30 bg-negative/5 p-3.5 space-y-2.5">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-negative shrink-0 mt-0.5" />
-                    <div className="text-[13px] text-foreground">
-                      This permanently deletes your account, disconnects every linked bank, and erases all your data. This can't be undone.
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[12.5px] text-muted-foreground">Type <span className="font-semibold text-foreground">DELETE</span> to confirm</label>
-                    <input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      className="mt-1 w-full bg-surface/40 border border-negative/30 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-negative" />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={deleteAccount} disabled={deleteConfirmText !== "DELETE" || deletingAccount}
-                      className="flex-1 h-9 rounded-md bg-negative text-white text-[13.5px] font-medium hover:opacity-90 disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
-                      {deletingAccount && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Permanently delete my account
-                    </button>
-                    <button onClick={() => { setShowDeleteAccount(false); setDeleteConfirmText(""); }}
-                      className="h-9 px-3 rounded-md border border-border-strong text-[13.5px] text-muted-foreground hover:text-foreground">
-                      Cancel
-                    </button>
-                  </div>
+              <button onClick={() => { setDeleteConfirmText(""); setShowDeleteAccount(true); }}
+                className="inline-flex items-center gap-1.5 text-[13px] text-negative hover:underline">
+                <Trash2 className="h-3.5 w-3.5" /> Delete account
+              </button>
+              <ConfirmDialog
+                open={showDeleteAccount}
+                onOpenChange={o => { setShowDeleteAccount(o); if (!o) setDeleteConfirmText(""); }}
+                title="Delete your account?"
+                description="This permanently deletes your account, disconnects every linked bank, and erases all your data. This can't be undone."
+                confirmLabel="Permanently delete"
+                busy={deletingAccount}
+                confirmDisabled={deleteConfirmText !== "DELETE"}
+                onConfirm={deleteAccount}>
+                <div>
+                  <label htmlFor="delete-confirm" className="text-[12.5px] text-muted-foreground">Type <span className="font-semibold text-foreground">DELETE</span> to confirm</label>
+                  <input id="delete-confirm" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} autoComplete="off"
+                    className="mt-1 w-full bg-surface/40 border border-negative/30 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-negative" />
                 </div>
-              )}
+              </ConfirmDialog>
             </div>
           </div>
           </>}
@@ -298,20 +318,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
                         <div className="text-[13.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
                         <div className="text-[12px] text-muted-foreground capitalize">{item.status}</div>
                       </div>
-                      {confirmDisconnect?.id === item.id ? (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={() => disconnectBank(item)} disabled={disconnectingId === item.id}
-                            className="h-7 px-2.5 rounded-md bg-negative text-white text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
-                            {disconnectingId === item.id && <Loader2 className="h-3 w-3 animate-spin" />} Confirm
-                          </button>
-                          <button onClick={() => setConfirmDisconnect(null)} className="h-7 px-2 rounded-md border border-border-strong text-[12.5px] text-muted-foreground hover:text-foreground">
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setConfirmDisconnect(item)}
-                          className="text-[12.5px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
-                      )}
+                      <button onClick={() => setConfirmDisconnect(item)}
+                        className="text-[12.5px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
                     </div>
                   ))}
                 </div>
@@ -319,6 +327,39 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
               <div className="text-[12px] text-muted-foreground mt-2">
                 Disconnecting fully revokes access with your bank. It doesn't just remove it from this view.
               </div>
+              <ConfirmDialog
+                open={confirmDisconnect !== null}
+                onOpenChange={o => { if (!o) setConfirmDisconnect(null); }}
+                title={`Disconnect ${confirmDisconnect?.institution_name ?? "this bank"}?`}
+                description="SentryFi will revoke its access with the bank and stop syncing these accounts. You can link it again later."
+                confirmLabel="Disconnect"
+                busy={disconnectingId !== null}
+                onConfirm={() => { if (confirmDisconnect) return disconnectBank(confirmDisconnect); }} />
+
+              {items !== null && items.length > 0 && (
+                <div className="mt-5">
+                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Full resync</div>
+                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
+                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                      Re-download all transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories and notes are kept.
+                    </div>
+                    <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing}
+                      aria-label="Full resync of all banks"
+                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
+                      <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
+                    </button>
+                  </div>
+                </div>
+              )}
+              <ConfirmDialog
+                open={confirmFullResync}
+                onOpenChange={o => { if (!o && !fullResyncing) setConfirmFullResync(false); }}
+                title="Run a full resync?"
+                description="SentryFi will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
+                confirmLabel="Full resync"
+                destructive={false}
+                busy={fullResyncing}
+                onConfirm={fullResync} />
             </div>
           )}
         </div>

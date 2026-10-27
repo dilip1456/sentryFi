@@ -17,6 +17,7 @@ import type { Budgets } from "@/hooks/useBudgets";
 import type { CategoryOverrides } from "@/hooks/useCategoryOverrides";
 import type { CategoryRule } from "@/hooks/useCategoryRules";
 import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
+import { fmtShortDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────
 type PTxn = {
@@ -479,7 +480,7 @@ export const CategoryManager = ({
                           {t.merchant_name ?? t.name ?? "Transaction"}
                         </div>
                         <div className="text-[12px] text-muted-foreground">
-                          {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {fmtShortDate(t.date)}
                           {suggestion && (
                             <span className={cn("ml-2 font-medium", confColor)}>
                               AI: {suggestion.category}

@@ -25,14 +25,23 @@ import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
-import { fmtUSD } from "@/lib/format";
-import { findDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
+import { fmtUSD, fmtUSDCompact, fmtTxnAmount } from "@/lib/format";
+import { cleanBankText, merchantKey as cleanMerchantKey, isStatementSummaryText } from "@/lib/merchant-name";
+import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
+import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
+import {
+  classifyAll, matchInternalTransfers, bucketOf, displayCategoryForType, normalisePlaidCategory, summarizeFlow, monthRange,
+  samePeriodLastMonth, savingsRate as calcSavingsRate, TXN_TYPE_LABEL, TXN_TYPES,
+  INCOME_CATEGORIES as SHARED_INCOME_CATEGORIES, IGNORED_CATEGORIES as SHARED_IGNORED_CATEGORIES,
+  type Classification, type ClassifierTxn, type TxnType, type AccountRole as AccountRoleName,
+} from "@/lib/classify/index.ts";
+import { recurringFrequencyFor } from "@/lib/recurring";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
   ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
-  ArrowDownLeft, ArrowUpRight, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
+  ArrowDownLeft, ArrowUpRight, ArrowUp, ArrowDown, Wallet, ArrowRight, Check, Sparkles, Coins, PiggyBank,
   AlertTriangle, ChevronRight, ChevronDown, Lock, X,
   Pencil, Search, Trash2, ExternalLink, Tag, Calendar, Unlink,
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
@@ -40,11 +49,13 @@ import {
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
   SlidersHorizontal, Wand2, Sliders,
 } from "lucide-react";
+import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { fmtDayDate, fmtShortDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────
 type PAccount = {
@@ -57,6 +68,8 @@ type PTxn = {
   amount: number; date: string; authorized_date: string | null;
   name: string | null; merchant_name: string | null; category: string[] | null;
   pending: boolean | null; payment_channel: string | null;
+  // Present once supabase/migrations/20261020140000_plaid_transactions_pfc_detail.sql is applied.
+  pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null;
 };
 // PostgREST caps any unbounded select at ~1000 rows by default — once total
 // transaction volume (synced + imported) crosses that line, an ordinary
@@ -252,7 +265,11 @@ const EXPENSE_CATEGORIES = [
   // Finance
   "Financial Services", "Bank Fees", "Business",
   // Giving & transfers
-  "Charitable Giving", "Transfer Out", "Internal Transfer",
+  "Charitable Giving", "Transfer Out", "Transfer In", "Internal Transfer",
+  // Money movement the shared classifier files under "Ignored" (never spend).
+  "Savings & Investments", "Unreviewed Transfer",
+  // Obligations and other types the classifier can assign.
+  "Taxes", "Loan Payment", "Cash & ATM",
   // Refunds/returns net back against spend, not income (see "Tax|Refund"
   // mapping below) — a return must reduce what you spent, never count as
   // money earned.
@@ -262,19 +279,17 @@ const EXPENSE_CATEGORIES = [
 
 // Full classification taxonomy — kept broad so auto-categorized transactions
 // (mapped from raw Plaid categories via CATEGORY_MAP below, e.g. "Salary",
-// "Transfer In") still classify correctly as income. "Income"/"Dividends"/
+// "Salary") still classify correctly as income. "Income"/"Dividends"/
 // "Interest Earned" are newer, simpler names added alongside the originals
 // rather than replacing them, so nothing already categorized as "Salary" or
-// "Transfer In" silently stops counting as income.
+// "Salary" silently stops counting as income. "Transfer In" is NOT income:
+// money from other people (Zelle, Venmo, …) or an unmatched transfer is a
+// transfer (shared classifier: transfer_in), listed under Ignored.
 // NOTE: "Refund / Reimbursement" deliberately lives in EXPENSE_CATEGORIES,
 // not here — a refund/return is money coming back from something you
 // already spent on, not newly earned income. Keeping it on the expense
 // side means it nets the relevant spend down instead of inflating income.
-const INCOME_CATEGORIES = [
-  "Income", "Dividends", "Interest Earned",
-  "Salary", "Freelance Income", "Interest & Dividends",
-  "Transfer In", "Other Income",
-];
+const INCOME_CATEGORIES = SHARED_INCOME_CATEGORIES;
 
 // The curated set actually offered in the category picker's "Income" section
 // — a short, clean list instead of the full classification taxonomy above.
@@ -284,7 +299,7 @@ const INCOME_CATEGORIES_PICKER = ["Income", "Dividends", "Interest Earned"];
 // (shown under their own "Ignored" section in the category picker instead of
 // mixed into "Expenses" — they remain ordinary EXPENSE_CATEGORIES entries for
 // classification purposes, this only changes how the picker groups them).
-const IGNORED_CATEGORIES = ["Credit Card Payment", "Internal Transfer"];
+const IGNORED_CATEGORIES = SHARED_IGNORED_CATEGORIES;
 
 // What the picker's "Expenses" section actually lists — every expense
 // category except the ones broken out into "Ignored" above.
@@ -526,123 +541,69 @@ const buildNWByPeriod = (netWorth: number, txns: PTxn[], period: Period, interna
   });
 };
 
+// Classifier fallback for the standalone helpers below when the caller
+// doesn't pass the component's (override-aware) classification.
+type ClassOf = (t: PTxn) => Classification | undefined;
+const looseClassOf = (
+  txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null,
+  customCategories: { name: string; type: "income" | "expense" }[] = [],
+): ClassOf => {
+  const m = classifyAll(txns as ClassifierTxn[], {
+    categoryOverrides: overrides,
+    ruleCategory: t => getRuleCategory(t.merchant_name ?? t.name ?? null),
+    customCategories,
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+  });
+  return t => m.get(t.id);
+};
+
+/** Linked-account transfer legs (thin wrapper over the shared matcher). */
+const detectInternalTransfers = (txns: PTxn[]): Set<string> =>
+  new Set(matchInternalTransfers(txns as ClassifierTxn[]).keys());
+
+/** Home 6-month cash-flow chart — same definitions as every other total (src/lib/classify). */
 const buildMonthlyFlow = (
   txns: PTxn[],
   overrides: Record<string,string>,
   getRuleCategory: (m:string|null)=>string|null,
   customCategories: { name: string; type: "income" | "expense" }[] = [],
+  classOf?: ClassOf,
 ) => {
   const now = new Date();
+  const cls = classOf ?? looseClassOf(txns, overrides, getRuleCategory, customCategories);
   return Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5-i), 1);
-    const mo = d.getMonth(); const yr = d.getFullYear();
-    const mt = txns.filter(t => { const td = new Date(t.date+"T00:00:00"); return td.getMonth()===mo && td.getFullYear()===yr; });
-    const isInc = (t: PTxn) => isIncomeCategory(getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other", customCategories, Number(t.amount));
+    const s = summarizeFlow(txns as ClassifierTxn[], t => cls(t as PTxn), () => "", monthRange(now, i - 5));
     return {
       m: d.toLocaleDateString("en-US", { month: "short" }),
-      income: Math.round(mt.filter(isInc).reduce((s,t)=>s+Math.abs(Number(t.amount)),0)),
-      spend:  Math.round(mt.filter(t=>!isInc(t)).reduce((s,t)=>s+Number(t.amount),0)),
+      income: Math.round(s.income),
+      spend:  Math.round(s.spending),
     };
   });
 };
 
-// Transfer-flavored category or name text. Used as a *necessary* precondition
-// before two transactions are even considered as a possible internal-transfer
-// pair below. Without this, any two unrelated transactions that merely share
-// the same dollar amount within a few days (e.g. an external $200 Zelle
-// deposit from someone else, and an unrelated $200 bill on another of the
-// user's accounts) get coincidentally paired and hidden as "Internal
-// Transfer" instead of counted as income/spending.
-const TRANSFER_CATEGORY_RE = /transfer|credit card payment|loan payment|zelle|venmo|cash app|cashapp/i;
-
-/**
- * Detect internal transfers between the user's own accounts.
- * Returns a Set of transaction IDs that are internal transfers.
- * Criteria: BOTH legs look transfer-flavored (category or name) — this alone
- * is not proof of an internal transfer (an external Zelle/ACH deposit also
- * looks transfer-flavored), so it's required together with: a matching
- * opposite-amount transaction in a DIFFERENT one of the user's own accounts
- * within 3 days, AND that match is unique (no other same-amount
- * transfer-looking candidate in the window — an ambiguous coincidence is
- * left unmatched rather than guessed). Only a transaction whose counterpart
- * is confirmed on one of the user's OWN other accounts is ever marked
- * internal; a transfer-flavored deposit/withdrawal with no such counterpart
- * (e.g. money coming in from someone else) is real income/spending, not
- * internal, and is intentionally left alone here.
- */
-const detectInternalTransfers = (txns: PTxn[]): Set<string> => {
-  const ids = new Set<string>();
-  const isTransferCandidate = (t: PTxn) => {
-    const cat = t.category?.[0] ?? "";
-    const label = t.merchant_name ?? t.name ?? "";
-    return TRANSFER_CATEGORY_RE.test(cat) || TRANSFER_CATEGORY_RE.test(label);
-  };
-  // Grouped by exact amount (transfer-flavored candidates only) so this
-  // stays fast even across a large transaction history, instead of an
-  // all-pairs scan.
-  const byAmount = new Map<string, PTxn[]>();
-  for (const t of txns) {
-    if (t.pending) continue;
-    if (!isTransferCandidate(t)) continue;
-    const amt = Math.abs(Number(t.amount));
-    if (amt === 0) continue;
-    const key = amt.toFixed(2);
-    const group = byAmount.get(key);
-    if (group) group.push(t); else byAmount.set(key, [t]);
-  }
-
-  for (const group of byAmount.values()) {
-    if (group.length < 2) continue;
-    for (const t of group) {
-      if (ids.has(t.id)) continue;
-      const amt = Number(t.amount);
-      const tDate = new Date(t.date + "T00:00:00");
-      const candidates = group.filter(o =>
-        o.id !== t.id && !ids.has(o.id) &&
-        o.account_id !== t.account_id &&
-        Math.sign(Number(o.amount)) !== Math.sign(amt) &&
-        Math.abs(new Date(o.date + "T00:00:00").getTime() - tDate.getTime()) <= 3 * 86400000
-      );
-      // Only pair off an unambiguous match — if more than one same-amount
-      // transfer-looking candidate falls in the window, don't guess which
-      // (if any) is the real counterpart.
-      if (candidates.length === 1) {
-        ids.add(t.id);
-        ids.add(candidates[0].id);
-      }
-    }
-  }
-  return ids;
-};
-
 /** Month-over-month spend change per category, excluding internal transfers */
-const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null, internalIds: Set<string>, customCategories: {name:string;type:"income"|"expense"}[] = []) => {
+const buildSpendTrends = (txns: PTxn[], overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null, internalIds: Set<string>, customCategories: {name:string;type:"income"|"expense"}[] = [], classOf?: ClassOf) => {
   const now = new Date();
-  const thisM = now.getMonth(); const thisY = now.getFullYear();
-  const lastM = thisM === 0 ? 11 : thisM - 1;
-  const lastY = thisM === 0 ? thisY - 1 : thisY;
-  const catMap: Record<string,{this:number;last:number}> = {};
-  for (const t of txns) {
-    if (internalIds.has(t.id)) continue;
-    const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
-    // Classify by category type, not sign — a refund into an expense category
-    // reduces that category's total instead of being dropped or counted as income.
-    if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
-    const d = new Date(t.date+"T00:00:00");
-    const isThis = d.getMonth()===thisM && d.getFullYear()===thisY;
-    const isLast = d.getMonth()===lastM && d.getFullYear()===lastY;
-    if (!isThis && !isLast) continue;
-    if (!catMap[cat]) catMap[cat]={this:0,last:0};
-    if (isThis) catMap[cat].this += Number(t.amount);
-    else catMap[cat].last += Number(t.amount);
-  }
-  return Object.entries(catMap).map(([category,v])=>({
-    category,
-    thisMonth: Math.round(v.this),
-    lastMonth: Math.round(v.last),
-    delta: Math.round(v.this - v.last),
-    pct: v.last > 0 ? Math.round(((v.this - v.last) / v.last) * 100) : null,
-  })).sort((a,b)=>b.thisMonth-a.thisMonth);
+  const cls = classOf ?? looseClassOf(txns, overrides, getRuleCategory, customCategories);
+  const real = txns.filter(t => !internalIds.has(t.id));
+  const catOf = (t: ClassifierTxn) => getEffectiveCategory(t as PTxn, overrides, getRuleCategory) ?? "Other";
+  // Only spend categories (budgetable), so card payments, transfers and
+  // obligations can't show up as "spending trends".
+  const classOfSpend = (t: ClassifierTxn) => { const c = cls(t as PTxn); return c && (c.type === "spend" || c.type === "refund") ? c : undefined; };
+  const cur = summarizeFlow(real as ClassifierTxn[], classOfSpend, catOf, monthRange(now, 0)).spendingByCategory;
+  const prev = summarizeFlow(real as ClassifierTxn[], classOfSpend, catOf, monthRange(now, -1)).spendingByCategory;
+  const cats = new Set([...Object.keys(cur), ...Object.keys(prev)]);
+  return [...cats].map(category => {
+    const t = cur[category]?.total ?? 0, l = prev[category]?.total ?? 0;
+    return {
+      category,
+      thisMonth: Math.round(t),
+      lastMonth: Math.round(l),
+      delta: Math.round(t - l),
+      pct: l > 0 ? Math.round(((t - l) / l) * 100) : null,
+    };
+  }).sort((a,b)=>b.thisMonth-a.thisMonth);
 };
 
 type RecurringCharge = {
@@ -705,6 +666,7 @@ const detectRecurring = (
     const merchant = (t.merchant_name ?? t.name ?? "").toLowerCase();
     if (NON_RECURRING_MERCHANT.test(merchant)) return false;
     if (PAYMENT_LIKE_MERCHANT.test(merchant)) return false;
+    if (isStatementSummaryText(merchant)) return false;
     if (cat0.includes("transfer")) return false;
     if (suppressMerchants.has(norm(t))) return false; // user-dismissed merchants
     return true;
@@ -713,8 +675,8 @@ const detectRecurring = (
   // Group by normalized merchant name
   const groups: Record<string, PTxn[]> = {};
   for (const t of expenses) {
-    const key = (t.merchant_name ?? t.name ?? "").trim().toLowerCase()
-      .replace(/\s+(and|&|llc|inc|co\.?|corp\.?)[\s,]*$/i, "").slice(0, 40);
+    // Cleaned key so "GEICO REF 1234" and "GEICO REF 5678" are one series.
+    const key = cleanMerchantKey(t.merchant_name ?? t.name ?? "").slice(0, 40);
     if (!key) continue;
     if (!groups[key]) groups[key] = [];
     groups[key].push(t);
@@ -769,7 +731,7 @@ const detectRecurring = (
     }
     if (predictedDate > lookahead) continue;
 
-    const displayName = deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "Unknown";
+    const displayName = cleanBankText(deduped.find(t => t.merchant_name)?.merchant_name ?? deduped[0].name ?? "") || "Unknown";
     const dayOfMonth = predictedDate.getDate();
     const category = (deduped.find(t => t.category?.[0])?.category?.[0] ?? "").toLowerCase();
     const merchantKey = norm(deduped[0]);
@@ -1033,7 +995,7 @@ const generateActions = (
       items.push({
         id: `large-txn-${t.id}`, priority: "info",
         title: `Large charge: ${fmtUSD(Number(t.amount))}`,
-        detail: `${t.merchant_name ?? t.name ?? "Unknown merchant"} on ${new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}${big.length > 1 ? ` (+${big.length-1} more)` : ""}.`,
+        detail: `${t.merchant_name ?? t.name ?? "Unknown merchant"} on ${fmtShortDate(t.date)}${big.length > 1 ? ` (+${big.length-1} more)` : ""}.`,
         cta: "Review", icon: AlertTriangle, reviewCategory: getEffectiveCategory(t, overrides, getRuleCategory) ?? undefined,
       });
     }
@@ -1107,7 +1069,7 @@ const generateActions = (
         items.push({
           id: `month-large-${top.id}`, priority: "info",
           title: `Biggest expense this month: ${fmtUSD(Number(top.amount))}`,
-          detail: `${top.merchant_name ?? top.name ?? "Unknown"} on ${new Date(top.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}, well above your typical spend.`,
+          detail: `${top.merchant_name ?? top.name ?? "Unknown"} on ${fmtShortDate(top.date)}, well above your typical spend.`,
           cta: "Review", icon: TrendingUp, reviewCategory: getEffectiveCategory(top, overrides, getRuleCategory) ?? undefined,
         });
       }
@@ -1145,265 +1107,8 @@ const isAIInsight=(x:unknown):x is AIInsight=>{ if(!x||typeof x!=="object") retu
 const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(isAIInsight):[]);
 
 /** Resolve the effective display category for a transaction, respecting overrides → rules → original */
-// ── Plaid → App category mapping ───────────────────────────────────────────
-// Plaid sends category as an array: [level1, level2?, level3?]
-// This table covers every category Plaid can send, mapped to the app's names.
-// Priority: exact 3-level > exact 2-level > exact 1-level > name-based fallback.
-// Reference: https://plaid.com/docs/transactions/categories/
+// Plaid → app category mapping lives in src/lib/classify/plaid-categories.ts
 
-const PLAID_CATEGORY_MAP: Record<string, string> = {
-  // ── Bank Fees ──────────────────────────────────────────────
-  "Bank Fees":                               "Bank Fees",
-  "Bank Fees|Atm Fees":                      "Bank Fees",
-  "Bank Fees|Foreign Transaction":           "Bank Fees",
-  "Bank Fees|Insufficient Funds":            "Bank Fees",
-  "Bank Fees|Interest Charge":               "Bank Fees",
-  "Bank Fees|Overdraft":                     "Bank Fees",
-  "Bank Fees|Other Bank Fees":               "Bank Fees",
-  "Bank Fees|Wire Transfer":                 "Bank Fees",
-
-  // ── Interest ───────────────────────────────────────────────
-  "Interest":                                "Interest & Dividends",
-  "Interest|Interest Earned":                "Interest & Dividends",
-  "Interest|Interest Charged":               "Bank Fees",
-
-  // ── Cash Advance ───────────────────────────────────────────
-  "Cash Advance":                            "Bank Fees",
-  "Cash Advance|Credit Card":                "Bank Fees",
-
-  // ── Community ─────────────────────────────────────────────
-  "Community":                               "Other",
-  "Community|Animal Shelter":                "Charitable Giving",
-  "Community|Assisted Living Services":      "Healthcare",
-  "Community|Courts":                        "Other",
-  "Community|Day Care And Preschools":       "Education",
-  "Community|Education":                     "Education",
-  "Community|Government Departments And Agencies": "Other",
-  "Community|Non-Governmental Organizations": "Charitable Giving",
-  "Community|Organizations And Associations": "Charitable Giving",
-  "Community|Religious":                     "Charitable Giving",
-
-  // ── Entertainment ─────────────────────────────────────────
-  "Entertainment":                           "Entertainment",
-  "Entertainment|Amusement Parks And Arcades": "Entertainment",
-  "Entertainment|Arts And Crafts":           "Entertainment",
-  "Entertainment|Bars":                      "Food & Drink",
-  "Entertainment|Casinos And Gambling":      "Entertainment",
-  "Entertainment|Events And Attractions":    "Entertainment",
-  "Entertainment|Music And Audio":           "Entertainment",
-  "Entertainment|Outdoors And Recreation":   "Entertainment",
-  "Entertainment|Sports":                    "Entertainment",
-  "Entertainment|Video Games":               "Entertainment",
-
-  // ── Food and Drink ────────────────────────────────────────
-  "Food & Drink":                            "Food & Drink",
-  "Food And Drink":                          "Food & Drink",
-  "Food And Drink|Bar":                      "Food & Drink",
-  "Food And Drink|Beer, Wine And Spirits":   "Food & Drink",
-  "Food And Drink|Coffee Shop":              "Food & Drink",
-  "Food And Drink|Fast Food":                "Food & Drink",
-  "Food And Drink|Food Truck":               "Food & Drink",
-  "Food And Drink|Restaurants":              "Food & Drink",
-  "Food And Drink|Restaurants|Fast Food":    "Food & Drink",
-  "Food And Drink|Restaurants|Seafood":      "Food & Drink",
-  "Food And Drink|Vending Machines":         "Food & Drink",
-
-  // ── Groceries ─────────────────────────────────────────────
-  "Groceries":                               "Groceries",
-  "Shops|Supermarkets And Groceries":        "Groceries",
-  "Shops|Food And Beverage Store":           "Groceries",
-  "Shops|Food And Beverage Store|Farmers Market": "Groceries",
-  "Shops|Food And Beverage Store|Health Food Store": "Groceries",
-  "Shops|Farmers Markets":                   "Groceries",
-
-  // ── Healthcare ────────────────────────────────────────────
-  "Healthcare":                              "Healthcare",
-  "Healthcare|Dentists":                     "Healthcare",
-  "Healthcare|Emergency Services":           "Healthcare",
-  "Healthcare|Hospitals":                    "Healthcare",
-  "Healthcare|Optometrists":                 "Healthcare",
-  "Healthcare|Pharmacies":                   "Healthcare",
-  "Healthcare|Physicians":                   "Healthcare",
-  "Healthcare|Veterinarians":                "Healthcare",
-  "Shops|Pharmacies":                        "Healthcare",
-  "Shops|Drug Store/Pharmacy":               "Healthcare",
-
-  // ── Payment ────────────────────────────────────────────────
-  "Payment":                                 "Mortgage",
-  "Payment|Rent":                            "Rent",
-  "Payment|Loan":                            "Loan Payment",
-  "Payment|Credit Card":                     "Credit Card Payment",
-
-  // ── Personal Care ─────────────────────────────────────────
-  "Personal Care":                           "Personal Care",
-  "Service|Personal Care":                   "Personal Care",
-  "Service|Salons And Barbers":              "Personal Care",
-
-  // ── Salary / Income ───────────────────────────────────────
-  "Salary":                                  "Salary",
-  "Transfer|Payroll":                        "Salary",
-  "Transfer|Deposit":                        "Transfer In",
-
-  // ── Service → Bills & Utilities ───────────────────────────
-  "Service":                                 "Bills & Utilities",
-  "Service|Advertising And Marketing":       "Business",
-  "Service|Automotive":                      "Auto & Transport",
-  "Service|Automotive|Repairs":              "Auto & Transport",
-  "Service|Business Services":               "Business",
-  "Service|Cable":                           "Bills & Utilities",
-  "Service|Cleaning":                        "Home",
-  "Service|Computer Repair":                 "Bills & Utilities",
-  "Service|Digital Purchase":                "Shopping",
-  "Service|Financial":                       "Financial Services",
-  "Service|Financial|Financial Planning And Investments": "Financial Services",
-  "Service|Financial|Mortgages":             "Mortgage",
-  "Service|Financial|Stock Brokers":         "Financial Services",
-  "Service|Funeral Services":                "Other",
-  "Service|Insurance":                       "Insurance",
-  "Service|Landscaping And Arborists":       "Home",
-  "Service|Laundry And Dry Cleaning":        "Personal Care",
-  "Service|Legal":                           "Other",
-  "Service|Moving":                          "Home",
-  "Service|Postage And Shipping":            "Shopping",
-  "Service|Real Estate":                     "Home",
-  "Service|Repairs And Maintenance":         "Home",
-  "Service|Security And Safety":             "Bills & Utilities",
-  "Service|Subscription":                    "Bills & Utilities",
-  "Service|Tax Preparation":                 "Financial Services",
-  "Service|Telecommunication Services":      "Bills & Utilities",
-  "Service|Travel Agency":                   "Travel",
-  "Service|Utilities":                       "Bills & Utilities",
-  "Service|Utilities|Cable":                 "Bills & Utilities",
-  "Service|Utilities|Electric":              "Bills & Utilities",
-  "Service|Utilities|Gas":                   "Bills & Utilities",
-  "Service|Utilities|Internet":              "Bills & Utilities",
-  "Service|Utilities|Sanitary And Waste Management": "Bills & Utilities",
-  "Service|Utilities|Telephone":             "Bills & Utilities",
-  "Service|Utilities|Water":                 "Bills & Utilities",
-
-  // ── Shopping ──────────────────────────────────────────────
-  "Shopping":                                "Shopping",
-  "Shops":                                   "Shopping",
-  "Shops|Antiques":                          "Shopping",
-  "Shops|Arts And Crafts":                   "Shopping",
-  "Shops|Automotive/Parts And Accessories":  "Auto & Transport",
-  "Shops|Beauty Products":                   "Personal Care",
-  "Shops|Books And Newsstands":              "Shopping",
-  "Shops|Children":                          "Shopping",
-  "Shops|Clothing And Accessories":          "Shopping",
-  "Shops|Computer And Electronics":          "Shopping",
-  "Shops|Convenience Stores":               "Shopping",
-  "Shops|Department Stores":                 "Shopping",
-  "Shops|Electronics":                       "Shopping",
-  "Shops|Flowers":                           "Shopping",
-  "Shops|Furniture And Home Decor":          "Home",
-  "Shops|Gas Stations":                      "Transportation",
-  "Shops|Gift And Novelty":                  "Shopping",
-  "Shops|Hardware Store":                    "Home",
-  "Shops|Hobby And Collectibles":            "Shopping",
-  "Shops|Jewelry And Watches":               "Shopping",
-  "Shops|Musical Instruments":               "Entertainment",
-  "Shops|Office Supplies":                   "Shopping",
-  "Shops|Pet Supplies":                      "Shopping",
-  "Shops|Sporting Goods":                    "Shopping",
-  "Shops|Toys":                              "Shopping",
-  "Shops|Warehouses And Wholesale":          "Shopping",
-
-  // ── Tax ───────────────────────────────────────────────────
-  "Tax":                                     "Financial Services",
-  "Tax|Payment":                             "Financial Services",
-  // A tax refund is money back on tax you already paid, not new income —
-  // classify it like any other refund so it nets against spend instead of
-  // being counted as earnings.
-  "Tax|Refund":                              "Refund / Reimbursement",
-
-  // ── Transfer ──────────────────────────────────────────────
-  "Transfer":                                "Transfer Out",
-  "Transfer In":                             "Transfer In",
-  "Transfer Out":                            "Transfer Out",
-  "Transfer|Credit":                         "Transfer In",
-  "Transfer|Debit":                          "Transfer Out",
-  "Transfer|Deposit":                        "Transfer In",
-  "Transfer|Internal Account Transfer":      "Internal Transfer",
-  "Transfer|Keep The Change Savings Program": "Savings",
-  "Transfer|Payroll":                        "Salary",
-  "Transfer|Savings":                        "Savings",
-  "Transfer|Third Party":                    "Transfer Out",
-  "Transfer|Third Party|Paypal":             "Transfer Out",
-  "Transfer|Third Party|Venmo":              "Transfer Out",
-  "Transfer|Third Party|Zelle":              "Transfer Out",
-  "Transfer|Wire":                           "Transfer Out",
-  "Transfer|Withdrawal":                     "Transfer Out",
-
-  // ── Transportation ────────────────────────────────────────
-  "Transportation":                          "Transportation",
-  "Travel|Car Service":                      "Transportation",
-  "Travel|Charter Buses":                    "Transportation",
-  "Travel|Commuter Transportation":          "Transportation",
-  "Travel|Gas Stations":                     "Transportation",
-  "Travel|Parking":                          "Transportation",
-  "Travel|Subway And Bus":                   "Transportation",
-  "Travel|Taxi":                             "Transportation",
-
-  // ── Travel ────────────────────────────────────────────────
-  "Travel":                                  "Travel",
-  "Travel|Airlines And Aviation Services":   "Travel",
-  "Travel|Car And Truck Rentals":            "Travel",
-  "Travel|Hotels And Motels":                "Travel",
-  "Travel|Lodging":                          "Travel",
-  "Travel|Tolls And Fees":                   "Transportation",
-
-  // ── Bills & Utilities (already clean from newer Plaid) ────
-  "Bills & Utilities":                       "Bills & Utilities",
-};
-
-// Known merchants that Plaid consistently miscategorizes
-const MERCHANT_OVERRIDES: Record<string, string> = {
-  "parkwhiz": "Transportation",
-  "spothero": "Transportation",
-  "parkmobile": "Transportation",
-  "park mobile": "Transportation",
-  "laseraway": "Personal Care",
-  "anthropic": "Business",
-  "openai": "Business",
-  "github": "Business",
-  "vercel": "Business",
-  "digitalocean": "Bills & Utilities",
-};
-
-// Resolve a Plaid category array to an app category name.
-const normalisePlaidCategory = (cats: string[] | null | undefined, merchantName?: string | null, txnName?: string | null): string => {
-  if (!cats || cats.length === 0) return "Other";
-
-  // Check merchant overrides first — fixes Plaid ML errors like ParkWhiz → Food
-  const merchant = (merchantName ?? txnName ?? "").toLowerCase();
-  for (const [key, cat] of Object.entries(MERCHANT_OVERRIDES)) {
-    if (merchant.includes(key)) return cat;
-  }
-
-  // Build lookup key — try most specific first (3-level → 2-level → 1-level)
-  const c0 = cats[0] ?? "";
-  const c1 = cats[1] ?? "";
-  const c2 = cats[2] ?? "";
-
-  const key3 = [c0, c1, c2].filter(Boolean).join("|");
-  const key2 = [c0, c1].filter(Boolean).join("|");
-  const key1 = c0;
-
-  // Normalise key for lookup (title-case, trim)
-  const norm = (s: string) => s.trim().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-  const nk3 = [norm(c0), norm(c1), norm(c2)].filter(Boolean).join("|");
-  const nk2 = [norm(c0), norm(c1)].filter(Boolean).join("|");
-  const nk1 = norm(c0);
-
-  const mapped = PLAID_CATEGORY_MAP[nk3] ?? PLAID_CATEGORY_MAP[nk2] ?? PLAID_CATEGORY_MAP[nk1]
-               ?? PLAID_CATEGORY_MAP[key3] ?? PLAID_CATEGORY_MAP[key2] ?? PLAID_CATEGORY_MAP[key1];
-
-  if (mapped) return mapped;
-
-  // Last resort: return the raw category[0] as-is
-  return c0 || "Other";
-};
 
 // Category priority (highest → lowest):
 // 1. Manual per-transaction override (user explicitly set this transaction's category)
@@ -1710,7 +1415,7 @@ const TxnRow = ({ t, i, overrides, getRuleCategory, isInternal, isAutoInternal, 
           {t.pending && <span className="text-[12px] uppercase px-1.5 py-0.5 rounded border border-warning/30 bg-warning/10 text-warning shrink-0">Pending</span>}
         </div>
         <div className="text-[12px] text-muted-foreground flex items-center gap-1 mt-0.5">
-          <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+          <span>{fmtShortDate(t.date)}</span>
           {displayCat && !isInternal && <>
             <span className="text-muted-foreground/30">·</span>
             <button onClick={e=>{e.stopPropagation();onOpenDetailCat(t);}}
@@ -2386,8 +2091,15 @@ const TxnDetailModal = ({
   onFindSimilar,
   tags, onAddTag, onRemoveTag, note, onSaveNote,
   isRecurringOverride, onSetRecurringOverride, onClearRecurringOverride,
-  splits, onSaveSplits,
+  splits, onSaveSplits, recurringFrequency,
+  classification, hasTypeOverride, onSetTxnType, possibleDuplicate,
 }: {
+  /** Cadence shown by the list that opened this modal (undefined = compute here). */
+  recurringFrequency?: string | null;
+  classification?: Classification;
+  hasTypeOverride?: boolean;
+  onSetTxnType?: (type: TxnType | null) => void;
+  possibleDuplicate?: boolean;
   txn: PTxn; overrides: Record<string,string>; getRuleCategory: (m:string|null)=>string|null;
   nameOverride?: string; nameRules: Record<string,string>;
   customCategories: {name:string;type:"income"|"expense"}[];
@@ -2433,13 +2145,14 @@ const TxnDetailModal = ({
   const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant) : [];
 
   // Detect recurring
-  const recurringLabel = (() => {
-    if (samemerchantTxns.length < 2) return null;
-    const dates = [txn, ...samemerchantTxns].map(t => t.date).sort().reverse();
-    const intervals = dates.slice(0,-1).map((d,i) => Math.round((new Date(d+"T00:00:00").getTime() - new Date(dates[i+1]+"T00:00:00").getTime()) / 86400000));
-    const avg = intervals.reduce((s,v)=>s+v,0)/intervals.length;
-    return avg <= 8 ? "Weekly" : avg <= 16 ? "Biweekly" : avg <= 35 ? "Monthly" : avg <= 100 ? "Quarterly" : avg >= 340 && avg <= 390 ? "Yearly" : null;
-  })();
+  // Detect recurring. When opened from the Spending list the caller passes
+  // the exact cadence that list shows; otherwise the same shared rules
+  // (src/lib/recurring/spending-cadence.ts) are applied here, so the two never disagree
+  // (e.g. a grocery store is never labelled "Quarterly").
+  const recurringLabel = recurringFrequency !== undefined
+    ? recurringFrequency
+    : (samemerchantTxns.length < 2 ? null
+      : recurringFrequencyFor([txn, ...samemerchantTxns].map(t => t.date), rawCat ?? "Other", currentDisplayName));
 
   const [tab, setTab] = useState<"info"|"edit">("info");
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -2630,11 +2343,15 @@ const TxnDetailModal = ({
   };
 
   const amt = Math.abs(Number(txn.amount));
-  const dateStr = new Date(txn.date+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  const dateStr = fmtDayDate(txn.date);
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl">
+      {/* Phones: a bottom sheet (full width, anchored to the bottom edge,
+          padded by the bottom safe-area inset) instead of a centered card. */}
+      <DialogContent className={cn("max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl",
+        "max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:translate-x-0 max-md:translate-y-0 max-md:max-w-none max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]",
+        "max-md:data-[state=open]:slide-in-from-left-0 max-md:data-[state=open]:slide-in-from-bottom-full max-md:data-[state=closed]:slide-out-to-left-0 max-md:data-[state=closed]:slide-out-to-bottom-full max-md:data-[state=open]:zoom-in-100 max-md:data-[state=closed]:zoom-out-100")}>
         <DialogTitle className="sr-only">Transaction details</DialogTitle>
         <DialogDescription className="sr-only">Transaction info, edit, and rules.</DialogDescription>
 
@@ -2652,8 +2369,8 @@ const TxnDetailModal = ({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-emerald-400" : "text-foreground")}>
-                {isIncome ? "+" : "−"}{fmtUSD(amt, {cents: true})}
+              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-positive" : "text-foreground")}>
+                {fmtTxnAmount(txn.amount, {cents: true})}
               </p>
               {recurringLabel && <p className="text-[10px] text-muted-foreground/70">{recurringLabel}</p>}
             </div>
@@ -2726,6 +2443,32 @@ const TxnDetailModal = ({
                   </button>
                 )}
               </div>
+
+              {/* How this transaction counts in totals (shared classifier). A
+                  choice here is saved per transaction and always wins. */}
+              {classification && onSetTxnType && (
+                <div className="rounded-xl border border-border/30 px-4 py-2.5 bg-card/50 space-y-1">
+                  <div className="flex items-center gap-3">
+                    <label htmlFor={`txn-type-${txn.id}`} className="text-[12px] text-muted-foreground w-20 shrink-0">Counts as</label>
+                    <select id={`txn-type-${txn.id}`} value={classification.type}
+                      onChange={e => onSetTxnType(e.target.value as TxnType)}
+                      className="flex-1 bg-transparent text-[12.5px] text-foreground font-medium text-right outline-none cursor-pointer">
+                      {TXN_TYPES.map(tp => <option key={tp} value={tp}>{TXN_TYPE_LABEL[tp]}</option>)}
+                    </select>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
+                    <span className="flex-1">{hasTypeOverride ? "Set by you" : classification.reason}</span>
+                    {hasTypeOverride && (
+                      <button onClick={() => onSetTxnType(null)} className="underline underline-offset-2 hover:text-foreground">Use automatic</button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {possibleDuplicate && (
+                <div className="rounded-xl border border-gold/40 bg-gold/5 px-4 py-2 text-[11.5px] text-foreground">
+                  Possible duplicate: another posted transaction on this account has the same date, amount and merchant. Nothing was removed.
+                </div>
+              )}
 
               {/* Tags */}
               <div>
@@ -3077,7 +2820,7 @@ const SpendingCatPopup = ({ cat, txns, accounts, nameOverrides, onClose, onOpenD
                     {nameOverrides[t.id] ?? t.merchant_name ?? t.name}
                   </div>
                   <div className="text-[12px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                    <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                    <span>{fmtShortDate(t.date)}</span>
                     {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
                   </div>
                 </div>
@@ -3290,7 +3033,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         {meta.apr != null && (
           <Mini
             label={debt ? "Annual interest cost" : "Annual interest earned"}
-            value={`${debt ? "−" : "+"}${fmtUSD(Math.abs(yearlyInterest), { compact: true })}`}
+            value={`${debt ? "−" : "+"}${fmtUSDCompact(Math.abs(yearlyInterest))}`}
             tone={debt ? "negative" : "positive"}
           />
         )}
@@ -3300,7 +3043,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         {credit?.next_payment_due_date && (
           <Mini
             label="Due date"
-            value={new Date(credit.next_payment_due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            value={fmtShortDate(credit.next_payment_due_date)}
             tone={credit.is_overdue ? "negative" : "info"}
           />
         )}
@@ -3310,7 +3053,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         {utilization !== null && (
           <Mini
             label="Credit used"
-            value={`${(utilization * 100).toFixed(0)}% of ${fmtUSD(Math.abs(bal) + avail, { compact: true })}`}
+            value={`${(utilization * 100).toFixed(0)}% of ${fmtUSDCompact(Math.abs(bal) + avail)}`}
             tone={utilization > 0.5 ? "negative" : utilization > 0.3 ? "warning" : "positive"}
           />
         )}
@@ -3326,7 +3069,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         <div>
           <div className="flex justify-between text-[12px] text-muted-foreground tabular mb-1">
             <span>Credit used {(utilization * 100).toFixed(0)}%</span>
-            <span>{fmtUSD(Math.abs(bal) + avail, { compact: true })} limit</span>
+            <span>{fmtUSDCompact(Math.abs(bal) + avail)} limit</span>
           </div>
           <div className="h-1 rounded-full bg-secondary overflow-hidden">
             <div className="h-full rounded-full transition-all"
@@ -3341,7 +3084,7 @@ const AccountDetailRow = ({ a, meta, credit, instName, instUrl, onEdit, onRemove
         <div className="inline-flex items-center gap-1.5 chip chip-positive">
           <Sparkles className="h-3 w-3" />
           {daysUntilPromoEnd != null && daysUntilPromoEnd > 0
-            ? `0% APR · ${daysUntilPromoEnd}d remaining${meta.promoEndDate ? ` (${new Date(meta.promoEndDate).toLocaleDateString("en-US",{month:"short",day:"numeric"})})` : ""}`
+            ? `0% APR · ${daysUntilPromoEnd}d remaining${meta.promoEndDate ? ` (${fmtShortDate(meta.promoEndDate)})` : ""}`
             : "0% APR active"}
         </div>
       )}
@@ -3454,14 +3197,14 @@ const AccountRow = ({ a, txns, meta, credit, instName, onSelect }: {
         {showTrend && (
           <div className={cn("text-[12px] tabular mb-0.5 flex items-center justify-end gap-0.5", trendGood ? "text-positive" : "text-negative")}>
             {trendUp ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-            {netFlow > 0 ? "+" : ""}{fmtUSD(Math.abs(netFlow), { compact: true })}
+            {netFlow > 0 ? "+" : ""}{fmtUSDCompact(Math.abs(netFlow))}
           </div>
         )}
         <div className={cn("text-[15px] font-semibold tabular", debt ? "text-negative" : "text-foreground")}>
-          {debt ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+          {debt ? "−" : ""}{fmtUSDCompact(Math.abs(bal))}
         </div>
         {avail != null && !debt && avail !== bal && (
-          <div className="text-[12px] text-muted-foreground tabular">{fmtUSD(avail, { compact: true })} avail</div>
+          <div className="text-[12px] text-muted-foreground tabular">{fmtUSDCompact(avail)} avail</div>
         )}
       </div>
 
@@ -3500,9 +3243,9 @@ const BucketGroup = ({
   }, 0);
 
   let trailing: string | null = null;
-  if (bucket === "cash" && yearlyInterest > 0) trailing = `Earning +${fmtUSD(yearlyInterest, { compact: true })}/yr`;
-  if (bucket === "credit" && monthlyStatement > 0) trailing = `${fmtUSD(monthlyStatement, { compact: true })} due this cycle`;
-  if (bucket === "loan") trailing = `${fmtUSD(Math.abs(yearlyInterest), { compact: true })} interest/yr`;
+  if (bucket === "cash" && yearlyInterest > 0) trailing = `Earning +${fmtUSDCompact(yearlyInterest)}/yr`;
+  if (bucket === "credit" && monthlyStatement > 0) trailing = `${fmtUSDCompact(monthlyStatement)} due this cycle`;
+  if (bucket === "loan") trailing = `${fmtUSDCompact(Math.abs(yearlyInterest))} interest/yr`;
   if (bucket === "investment") trailing = "Held for the future";
 
   const getInstName = (a: PAccount) => getInstNameFor(a, items);
@@ -3537,7 +3280,7 @@ const BucketGroup = ({
         <div className="text-right shrink-0">
           <div className={cn("font-display text-[15px] tabular leading-none font-semibold",
             isNeg ? "text-negative" : "text-foreground")}>
-            {isNeg ? "−" : ""}{fmtUSD(Math.abs(total), { compact: true })}
+            {isNeg ? "−" : ""}{fmtUSDCompact(Math.abs(total))}
           </div>
           {trailing && (
             <div className={cn("text-[12px] tabular mt-1 font-medium", trailingColor)}>
@@ -3831,14 +3574,22 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
   // Pre-compute each bucket's accounts/total once, shared by the category
   // grid and the expanded account lists below it, instead of re-filtering
   // the same accounts array twice.
+  // Manually-tracked mortgages/loans count toward the Loans total too, so a
+  // $3,000/mo mortgage isn't missing from "Loans" just because it isn't linked.
+  const MANUAL_LOAN_TYPES = new Set(["mortgage","home_loan","auto_loan","student_loan","personal_loan"]);
+  const manualLoans = manualAccounts.filter(a => MANUAL_LOAN_TYPES.has(a.type));
+  const manualLoanTotal = manualLoans.reduce((s,a)=> s + Math.abs(Number(a.current_balance ?? 0)), 0);
   const bucketData = activeBuckets.map(bucket => {
     const list = accounts.filter(a => groupFor(a) === bucket);
-    const total = list.reduce((s,a)=> s + Math.abs(Number(a.current_balance)||0), 0);
+    const linkedTotal = list.reduce((s,a)=> s + Math.abs(Number(a.current_balance)||0), 0);
+    const manualCount = bucket === "loan" ? manualLoans.length : 0;
+    const total = linkedTotal + (bucket === "loan" ? manualLoanTotal : 0);
     const debt = bucket === "credit" || bucket === "loan";
-    return { bucket, list, total, debt };
+    return { bucket, list, total, debt, manualCount };
   });
+  const loansShown = bucketData.some(b => b.bucket === "loan");
   const manualTotal = manualAccounts.reduce((s,a)=> s + Math.abs(Number(a.current_balance ?? 0)), 0);
-  const grandTotal = bucketData.reduce((s,b)=>s+b.total,0) + manualTotal;
+  const grandTotal = bucketData.reduce((s,b)=>s+b.total,0) + manualTotal - (loansShown ? manualLoanTotal : 0);
 
   const renderAccountRow = (a: PAccount) => {
     const debt = isDebt(a.type);
@@ -3887,8 +3638,8 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                   style={{ width: `${(total / grandTotal) * 100}%`, background: ACCOUNT_GROUP_META[bucket].color }} />
               ))}
               {manualTotal > 0 && (
-                <div title={`Manual: ${fmtUSD(manualTotal)}`}
-                  style={{ width: `${(manualTotal / grandTotal) * 100}%`, background: MANUAL_GROUP_META.color }} />
+                <div title={`Manual: ${fmtUSD(manualTotal - (loansShown ? manualLoanTotal : 0))}`}
+                  style={{ width: `${((manualTotal - (loansShown ? manualLoanTotal : 0)) / grandTotal) * 100}%`, background: MANUAL_GROUP_META.color }} />
               )}
             </div>
           )}
@@ -3898,8 +3649,10 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
       {/* Category grid: each card is color-coded by account type (checking,
           savings, credit, loans, investments) so the categorization reads at
           a glance instead of one flat gray list. Tap a card to expand it. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
-        {bucketData.map(({ bucket, list, total, debt }) => {
+      {/* auto-fit collapses unused tracks, so 5 buckets fill the row instead
+          of leaving an empty 6th slot. */}
+      <div className="grid grid-cols-2 sm:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2">
+        {bucketData.map(({ bucket, list, total, debt, manualCount }) => {
           const open = !!openBuckets[bucket];
           const meta = ACCOUNT_GROUP_META[bucket];
           const Icon = meta.icon;
@@ -3914,7 +3667,7 @@ const AccountsPanel = ({ accounts, manualAccounts, accountMeta, items, txns, onS
                 <span className="text-[12px] font-semibold text-foreground truncate">{meta.label}</span>
                 <ChevronDown className={cn("h-3 w-3 text-muted-foreground/40 shrink-0 transition-transform", open && "rotate-180")} />
               </div>
-              <div className="text-[10px] text-muted-foreground/60 mb-1">{list.length} account{list.length !== 1 ? "s" : ""}</div>
+              <div className="text-[10px] text-muted-foreground/60 mb-1">{list.length} account{list.length !== 1 ? "s" : ""}{manualCount > 0 ? ` + ${manualCount} manual` : ""}</div>
               <div className={cn("text-[16px] font-bold tabular", debt ? "text-negative" : "text-foreground")}>{fmtUSD(total)}</div>
             </button>
           );
@@ -4108,7 +3861,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                   <div className="flex justify-between text-[12.5px]">
                     <span className="text-muted-foreground">Credit utilization</span>
                     <span className={cn("font-semibold tabular", utilization > 0.5 ? "text-negative" : utilization > 0.3 ? "text-warning" : "text-positive")}>
-                      {(utilization * 100).toFixed(0)}% of {fmtUSD(creditLimit, { compact: true })}
+                      {(utilization * 100).toFixed(0)}% of {fmtUSDCompact(creditLimit)}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
@@ -4165,7 +3918,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
               <span className="text-[12.5px] text-muted-foreground">{debt ? "APR" : "APY"} (set manually)</span>
               <div className="text-right">
                 <span className="text-[13px] font-semibold text-foreground">{aprRate.toFixed(2)}%</span>
-                <span className="text-[11px] text-muted-foreground ml-2">≈ {fmtUSD(yearlyAmount, { compact: true })}/yr</span>
+                <span className="text-[11px] text-muted-foreground ml-2">≈ {fmtUSDCompact(yearlyAmount)}/yr</span>
               </div>
             </div>
           )}
@@ -4208,7 +3961,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
                       <div className="flex-1 min-w-0">
                         <p className="text-[12.5px] text-foreground truncate">{name}</p>
                         <p className="text-[11px] text-muted-foreground">
-                          {new Date(t.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {fmtShortDate(t.date)}
                           {t.pending && <span className="ml-1.5 text-warning">· Pending</span>}
                         </p>
                       </div>
@@ -4454,15 +4207,17 @@ interface Props {
   manualAccounts?: import("@/hooks/useManualAccounts").ManualAccount[];
   onEditManual?: (acct: import("@/hooks/useManualAccounts").ManualAccount) => void;
   onDeleteManual?: (id: string) => void;
+  /** Right-side header controls (sync/bell/profile) rendered in full-bleed views' own header. */
+  headerActions?: React.ReactNode;
 }
 
 export const LivePlaidDashboard = ({
   onAddAccount, hasItems, demo=false, guestDemo=false, view="overall", onViewChange,
   syncTrigger=0, onSyncingChange,
   selectedCategory, onCategorySelect,
-  manualAccounts = [], onEditManual, onDeleteManual,
+  manualAccounts = [], onEditManual, onDeleteManual, headerActions,
 }: Props) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   // ── All user preferences — synced to Supabase ──────────────────
   // Demo mode (whether guest /demo or a real user previewing "Demo mode") must
@@ -4693,6 +4448,9 @@ export const LivePlaidDashboard = ({
   // nameOverrides, nameRules, setNameOverride, bulkSetNameOverride, saveNameRule — all from useUserSettings above
 
   const [detailTxn, setDetailTxn] = useState<PTxn | null>(null);
+  // Recurring cadence the Spending list displayed for detailTxn (undefined
+  // when the modal was opened from anywhere else).
+  const [detailTxnRecurring, setDetailTxnRecurring] = useState<string | null | undefined>(undefined);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
@@ -4734,40 +4492,106 @@ export const LivePlaidDashboard = ({
     return { catById, nameById, internalIds };
   }, [smartRules, evalTxns]);
 
-  // Detect internal transfers once — money moving between two of the user's
-  // OWN linked accounts, regardless of what category or description it
-  // carries (a self-payment can be labeled "Salary", a card bill can be
-  // labeled "Credit Card Payment" — the category text is never the signal,
-  // the matched pair is). Used to exclude these from all spend/income
-  // analysis and to force their displayed category to "Internal Transfer"
-  // below, since a transaction is never both a real income/expense category
-  // AND an internal transfer at the same time.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const autoInternalIds = useMemo(() => detectInternalTransfers(txns), [txns]);
-  // User-marked internal transfers — from Supabase settings
-  const manualInternalIds = new Set<string>(settings.manualInternal ?? []);
+  // ── Shared classification (src/lib/classify) ──────────────────────────
+  // Every page (Home, Spending, Budget, Money Map) reads the SAME per-
+  // transaction type from here, so totals can't drift apart again.
+  // Precedence: your per-transaction type override → your category →
+  // rules → linked-account transfer pairs → card payments → Plaid detailed
+  // category → descriptor patterns → stored category / sign.
+  // User-marked internal transfers (legacy setting) act as a type override.
+  const manualInternalIds = useMemo(() => new Set<string>(settings.manualInternal ?? []), [settings.manualInternal]);
   // Whitelist: user explicitly un-flagged an auto-detected transfer
-  const manualExternalIds = new Set<string>(settings.manualExternal ?? []);
-  const internalTxnIds = useMemo(
-    () => new Set([...autoInternalIds, ...smartResults.internalIds, ...manualInternalIds].filter(id => !manualExternalIds.has(id))),
-    [autoInternalIds, smartResults, manualInternalIds, manualExternalIds]
-  );
-  // Forces the displayed/effective category of every internally-paired
-  // transaction to "Internal Transfer" — it should never still show as
-  // "Salary", "Transfer Out", etc. once pairing has confirmed it's really
-  // money moving between the user's own accounts. Sits below smart-rule
-  // output but above manual overrides, so an explicit per-transaction
-  // category choice (or the "not actually internal" toggle, which removes
-  // the id from internalTxnIds entirely) still wins.
-  const internalForcedCat = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const id of internalTxnIds) m[id] = "Internal Transfer";
+  const manualExternalIds = useMemo(() => new Set<string>(settings.manualExternal ?? []), [settings.manualExternal]);
+  const { overrides: typeOverridesByPlaidId, setOverride: setTypeOverride } = useTxnTypeOverrides((demo || guestDemo) ? undefined : user?.id);
+  const typeOverrides = useMemo(() => {
+    const m: Record<string, TxnType> = {};
+    for (const t of txns) {
+      const ov = t.transaction_id ? typeOverridesByPlaidId[t.transaction_id] : undefined;
+      if (ov) m[t.id] = ov;
+      else if (manualInternalIds.has(t.id) && !manualExternalIds.has(t.id)) m[t.id] = "transfer_internal";
+    }
     return m;
-  }, [internalTxnIds]);
+  }, [txns, typeOverridesByPlaidId, manualInternalIds, manualExternalIds]);
+  const selfNames = useMemo(() => {
+    const meta = (user?.user_metadata ?? {}) as Record<string, unknown>;
+    return [meta.full_name, meta.name, profile?.display_name].filter((x): x is string => typeof x === "string" && x.trim().includes(" "));
+  }, [user, profile]);
+  const txnClasses = useMemo(() => classifyAll(txns as ClassifierTxn[], {
+    accounts: accounts.map(a => ({
+      account_id: a.account_id, item_id: (a as unknown as { item_id?: string }).item_id ?? null,
+      name: a.name, mask: a.mask, type: a.type, subtype: a.subtype,
+      role: getRole(a.account_id, a.type, a.subtype).role as AccountRoleName,
+    })),
+    typeOverrides,
+    categoryOverrides: catOverridesManual,
+    ruleCategory: t => smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null),
+    ruleInternalIds: smartResults.internalIds,
+    notInternalIds: manualExternalIds,
+    selfNames,
+    customCategories,
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
+  const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
+  // Everything that is NOT spending or income (internal transfers, card
+  // payments, savings contributions, unreviewed transfers) — excluded from
+  // every spend/income total. Kept under the historical name so existing
+  // call sites keep excluding the right things.
+  const internalTxnIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, c] of txnClasses) { const b = bucketOf(c.type); if (b === "ignored" || b === "neutral") ids.add(id); }
+    return ids;
+  }, [txnClasses]);
+  // Auto-detected (not user-forced) transfers, for the "Internal" chip.
+  const autoInternalIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, c] of txnClasses) if (c.type === "transfer_internal" && c.source !== "override" && c.source !== "category_override") ids.add(id);
+    return ids;
+  }, [txnClasses]);
+  // Align each transaction's displayed category with its type, so a page
+  // that groups by category (Spending's Expenses / Income / Ignored tabs)
+  // lands on the same totals as the classifier. Only applied where the two
+  // disagree (e.g. a paired transfer still labeled "Salary").
+  const classForcedCat = useMemo(() => {
+    const m: Record<string, string> = {};
+    const ignored = new Set(IGNORED_CATEGORIES.map(c => c.toLowerCase()));
+    for (const t of txns) {
+      const c = txnClasses.get(t.id);
+      if (!c) continue;
+      const amount = Number(t.amount);
+      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name);
+      const isIgnoredCat = ignored.has(current.toLowerCase());
+      const isIncomeCat = isIncomeCategory(current, customCategories, amount);
+      const bucket = bucketOf(c.type);
+      let forced: string | null = null;
+      if (bucket === "ignored" || bucket === "neutral") {
+        // P2P with other people shows as "Transfer Out"/"Transfer In"; other
+        // unmatched transfers as "Unreviewed Transfer" (both ignored).
+        const display = displayCategoryForType(c.type, c.subtype);
+        if (!isIgnoredCat || current.toLowerCase() !== (display ?? "").toLowerCase()) forced = display;
+      } else if (bucket === "income") {
+        if (!isIncomeCat || isIgnoredCat) forced = displayCategoryForType(c.type, c.subtype);
+      } else if (isIncomeCat || isIgnoredCat) {
+        // e.g. the user typed a Venmo as "spend": don't leave it in an ignored category
+        forced = displayCategoryForType(c.type) ?? "Other";
+      }
+      if (forced && forced !== current) m[t.id] = forced;
+    }
+    return m;
+  }, [txns, txnClasses, catOverridesManual, smartResults, getRuleCategory, customCategories]);
+  /** Change (or clear) a transaction's type — persisted, always wins. */
+  const setTxnType = useCallback((t: PTxn, type: TxnType | null) => {
+    if (!t.transaction_id) { toast.error("This transaction can't be reclassified"); return; }
+    // The legacy internal flags would otherwise fight the new choice.
+    if (manualInternalIds.has(t.id)) S.toggleManualInternal(t.id);
+    setTypeOverride(t.transaction_id, type);
+  }, [manualInternalIds, S, setTypeOverride]);
+  // Possible duplicates: flagged for review, never deleted.
+  const possibleDupIds = useMemo(() => new Set(findPossibleDuplicateIds(txns)), [txns]);
 
-  // Merged maps — manual edits always win over smart-rule output, which in
-  // turn is overridden by a confirmed internal-transfer pairing.
-  const overrides = useMemo(() => ({ ...smartResults.catById, ...internalForcedCat, ...catOverridesManual }), [smartResults, internalForcedCat, catOverridesManual]);
+  // Merged maps — the classifier's alignment wins, then manual edits, then
+  // smart-rule output.
+  const overrides = useMemo(() => ({ ...smartResults.catById, ...catOverridesManual, ...classForcedCat }), [smartResults, catOverridesManual, classForcedCat]);
   const nameOverrides = useMemo(() => ({ ...smartResults.nameById, ...nameOverridesManual }), [smartResults, nameOverridesManual]);
 
   // Resolve display name: per-txn override → merchant rule → merchant name
@@ -4786,14 +4610,9 @@ export const LivePlaidDashboard = ({
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
   const txnListRef = useRef<HTMLDivElement>(null);
-  // Fire daily alerts check silently (once per day per device)
-  useEffect(() => {
-    if (!user || demo || guestDemo) return;
-    const key = `sentryfi_alerts_checked_${new Date().toISOString().slice(0,10)}`;
-    if (localStorage.getItem(key)) return;
-    localStorage.setItem(key, "1");
-    supabase.functions.invoke("send-alerts").catch(() => {}); // fire and forget
-  }, [user, demo, guestDemo]);
+  // Alerts are sent by the send-alerts edge function on a pg_cron schedule
+  // (every 20 min). It is server-only now (service_role or cron secret), so
+  // the client no longer triggers it.
   const handlePanelDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id) {
@@ -5000,7 +4819,7 @@ export const LivePlaidDashboard = ({
   const assets      = accounts.filter(a=>!isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualAssets + (mortgageEquity > 0 ? mortgageEquity : 0);
   const liabilities = accounts.filter(a=>isDebt(a.type)).reduce((s,a)=>s+(Number(a.current_balance)||0),0) + manualLiab + (mortgageEquity < 0 ? Math.abs(mortgageEquity) : 0);
   const netWorth    = assets-liabilities;
-  const monthlyFlow = buildMonthlyFlow(txns, overrides, getRuleCategory, customCategories);
+  const monthlyFlow = buildMonthlyFlow(txns, overrides, getRuleCategory, customCategories, classOf);
 
   const animatedNW   = useCountUp(netWorth, 1200);
   const animatedAss  = useCountUp(assets, 1000);
@@ -5016,26 +4835,27 @@ export const LivePlaidDashboard = ({
   const nwData   = buildNWByPeriod(netWorth, txns, period, internalTxnIds);
   const nwChange = nwData.length>1 ? nwData[nwData.length-1].v - nwData[0].v : 0;
 
-  // Current-month spending aggregation (homepage + spending tab default)
+  // ── Unified totals (src/lib/classify) ────────────────────────────────────
+  // Every page uses the same definitions:
+  //   spending = spend + refunds (net) + obligations (bills, loans, mortgage, taxes), pending included
+  //   income   = salary + interest/dividends + other income (net of reversals)
+  //   excluded = internal transfers, credit-card payments, savings contributions
+  //   neutral  = unmatched transfers (review), never income or spend
+  // Home, the 6-month chart, Spending, Budget and Money Map all call
+  // summarizeFlow with the same classOf, so they can't drift apart again.
   const now = new Date();
-  const curMo = now.getMonth(); const curYr = now.getFullYear();
-  const curMonthTxns = txns.filter(t=>{ const d=new Date(t.date+"T00:00:00"); return d.getMonth()===curMo&&d.getFullYear()===curYr; });
-  // Classify by the category's assigned type, not transaction sign — a refund
-  // into an expense category stays grouped there instead of counting as income.
-  const curMonthExpenses = curMonthTxns.filter(t=>
-    !internalTxnIds.has(t.id) &&
-    !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)) &&
-    !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
-  );
-
-  // Category aggregation for current month (homepage High Spending + spending tab)
-  // Categories to exclude from spending display (they're financial obligations, not discretionary)
-  const SPEND_EXCLUDE_CATS = new Set(["Mortgage", "Rent", "Auto Loan", "Student Loan", "Loan", "Loan Payment", "Internal Transfer"]);
+  const catOfTxn = (t: ClassifierTxn) => getEffectiveCategory(t as PTxn, overrides, getRuleCategory) ?? "Other";
+  const classOfC = (t: ClassifierTxn) => classOf(t as PTxn);
+  const curRange = monthRange(now, 0);
+  const curMonthTxns = txns.filter(t => t.date >= curRange.start && t.date <= curRange.end);
+  const curSummary = summarizeFlow(curMonthTxns as ClassifierTxn[], classOfC, catOfTxn);
+  const prevSpan = samePeriodLastMonth(now);
+  const prevSpanSummary = summarizeFlow(txns as ClassifierTxn[], classOfC, catOfTxn, prevSpan);
+  const curMonthExpenses = curMonthTxns.filter(t => { const c = classOf(t); return !!c && bucketOf(c.type) === "spending"; });
 
   const spendMap: Record<string,{total:number;count:number;txns:PTxn[]}> = {};
   for (const t of curMonthExpenses) {
     const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
-    if (SPEND_EXCLUDE_CATS.has(cat)) continue; // mortgage/loans not discretionary spend
     if (!spendMap[cat]) spendMap[cat]={total:0,count:0,txns:[]};
     spendMap[cat].total += Number(t.amount);
     spendMap[cat].count += 1;
@@ -5044,61 +4864,26 @@ export const LivePlaidDashboard = ({
   const spendByCategory = Object.entries(spendMap)
     .map(([category,{total,count,txns:catTxns}])=>({category,total,count,txns:catTxns}))
     .sort((a,b)=>b.total-a.total);
-  const totalSpend = spendByCategory.reduce((s,c)=>s+c.total,0);
-  const curMonthIncome = curMonthTxns.filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
+  const totalSpend = curSummary.spending;
+  const curMonthIncome = curSummary.income;
+  // Same day-span last month (e.g. Oct 1–20 vs Sep 1–20), not the full month.
+  const spendVsLastMonth = totalSpend - prevSpanSummary.spending;
+  const curSavingsRate = calcSavingsRate(curSummary.income, curSummary.spending);
 
   // Period-filtered data for monthly/spending tabs
   const monthlyPeriodTxns = filterByPeriod(txns, monthlyPeriod);
-  const monthlyIncome = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-  const monthlySpend  = monthlyPeriodTxns.filter(t=>!internalTxnIds.has(t.id)&&!isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s,t)=>s+Number(t.amount),0);
 
-  // Spending-tab period filtered — bucket by the CATEGORY's assigned type
-  // (income vs expense), not by the sign of any one transaction. This keeps a
-  // refund (a negative-amount credit back into an expense category like
-  // "Shopping") grouped under "Shopping" — reducing that category's net
-  // total — instead of being swept into income.
   const spendingPeriodTxns = filterByPeriod(txns, spendingPeriod);
-  const spendingPeriodExpenses = spendingPeriodTxns.filter(t=>
-    !internalTxnIds.has(t.id) &&
-    !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)) &&
-    !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer")
-  );
-  const spendingPeriodMap: Record<string,{total:number;count:number}> = {};
-  for (const t of spendingPeriodExpenses) {
-    const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
-    if (!spendingPeriodMap[cat]) spendingPeriodMap[cat]={total:0,count:0};
-    spendingPeriodMap[cat].total += Number(t.amount);
-    spendingPeriodMap[cat].count += 1;
-  }
-  const spendingPeriodByCategory = Object.entries(spendingPeriodMap)
+  const spendingPeriodSummary = summarizeFlow(spendingPeriodTxns as ClassifierTxn[], classOfC, catOfTxn);
+  const spendingPeriodByCategory = Object.entries(spendingPeriodSummary.spendingByCategory)
     .map(([category,v])=>({category,...v}))
     .sort((a,b)=>b.total-a.total);
-  const spendingPeriodTotal = spendingPeriodByCategory.reduce((s,c)=>s+c.total,0);
-  const spendingPeriodIncome = spendingPeriodTxns
-    .filter(t=>!internalTxnIds.has(t.id)&&isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount)))
-    .reduce((s,t)=>s+Math.abs(Number(t.amount)),0);
-  // Prior period spend for delta comparison
-  const prevSpendingPeriodSpent = filterByPeriod(txns, {...spendingPeriod, offset: spendingPeriod.offset-1})
-    .filter(t=>
-      !internalTxnIds.has(t.id) && Number(t.amount)>0 &&
-      !humanizeCategory(getEffectiveCategory(t,overrides,getRuleCategory),Number(t.amount)).toLowerCase().includes("transfer"))
-    .reduce((s,t)=>s+Number(t.amount),0);
-  const spendDeltaPct = prevSpendingPeriodSpent > 0
-    ? Math.round(((spendingPeriodTotal - prevSpendingPeriodSpent) / prevSpendingPeriodSpent) * 100)
-    : null;
-  // Average spend per elapsed day in the period
-  const spendingDailyAvg = (() => {
-    const { start, end } = getPeriodRange(spendingPeriod);
-    const now = new Date();
-    const effectiveEnd = end < now ? end : now;
-    const days = Math.max(1, Math.round((effectiveEnd.getTime() - start.getTime()) / 86400000) + 1);
-    return spendingPeriodTotal / days;
-  })();
+  const spendingPeriodTotal = spendingPeriodSummary.spending;
 
   const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
-  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories);
+  const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories, classOf);
   const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
 
   // Filtered + sorted txns for the spending-tab explorer
@@ -5169,7 +4954,10 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading) return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  if (loading) {
+    if (view === "spending" || view === "budget") return <SpendingSkeleton />;
+    return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
+  }
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
   // Segmented switch between the merged Spending and Budget views.
@@ -5231,9 +5019,14 @@ export const LivePlaidDashboard = ({
                   {fmtUSD(animatedNW)}
                 </h2>
                 {nwChange!==0 && (
-                  <span className={cn("chip !py-0.5 !px-1.5 !text-[12px] animate-pop-in", nwChange>=0?"chip-positive":"chip-negative")}>
-                    <ArrowUpRight className={cn("h-2.5 w-2.5",nwChange<0&&"rotate-180")} />
-                    {fmtUSD(Math.abs(nwChange),{compact:true})}
+                  // A tiny rotated ArrowUpRight read as "×"; use a clear up/down
+                  // arrow and say which period the change covers.
+                  <span className={cn("chip !py-0.5 !px-1.5 !text-[12px] animate-pop-in inline-flex items-center gap-0.5 whitespace-nowrap", nwChange>=0?"chip-positive":"chip-negative")}
+                    title={`${nwChange>=0?"Up":"Down"} ${fmtUSD(Math.abs(nwChange))} over ${period === "ALL" ? "all time" : `the last ${period}`}`}>
+                    {nwChange>=0 ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />}
+                    <span className="sr-only">{nwChange>=0?"Up":"Down"}</span>
+                    {fmtUSDCompact(Math.abs(nwChange))}
+                    <span className="opacity-70 font-normal">· {period === "ALL" ? "all time" : period}</span>
                   </span>
                 )}
               </div>
@@ -5241,11 +5034,11 @@ export const LivePlaidDashboard = ({
             <div className="flex gap-4 mt-2">
               <div>
                 <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Assets</div>
-                <div className="font-display text-base tabular text-positive">{fmtUSD(animatedAss,{compact:true})}</div>
+                <div className="font-display text-base tabular text-positive">{fmtUSDCompact(animatedAss)}</div>
               </div>
               <div>
                 <div className="text-[12px] uppercase tracking-wider text-muted-foreground">Liabilities</div>
-                <div className="font-display text-base tabular text-negative">−{fmtUSD(animatedLiab,{compact:true})}</div>
+                <div className="font-display text-base tabular text-negative">−{fmtUSDCompact(animatedLiab)}</div>
               </div>
             </div>
             {/* Period selector */}
@@ -5262,14 +5055,15 @@ export const LivePlaidDashboard = ({
           {/* Right — compact chart (hidden on small screens) */}
           <div className="hidden sm:block w-[45%] shrink-0 -mr-1 -my-1">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={nwData} margin={{top:4,right:4,bottom:4,left:4}}>
+              <AreaChart data={nwData} margin={{top:4,right:8,bottom:4,left:8}}>
                 <defs>
                   <linearGradient id="nw-live" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
                     <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:8}} interval={nwTickEvery-1} />
+                <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{fill:"hsl(var(--muted-foreground))",fontSize:8}} interval={nwTickEvery-1}
+                  padding={{left:14,right:14}} minTickGap={4} />
                 <YAxis hide domain={["dataMin - 1000","dataMax + 1000"]} />
                 <Tooltip contentStyle={{background:"hsl(var(--card))",border:"1px solid var(--gold-border)",borderRadius:8,fontSize:11,padding:"6px 10px",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}
                   labelStyle={{color:"hsl(var(--muted-foreground))",fontSize:9}}
@@ -5284,7 +5078,12 @@ export const LivePlaidDashboard = ({
       {/* This month cash-flow strip */}
       {(totalSpend > 0 || curMonthIncome > 0) && (() => {
         const net = curMonthIncome - totalSpend;
-        const savingsRate = curMonthIncome > 0 ? Math.round((net / curMonthIncome) * 100) : null;
+        const savingsRate = curSavingsRate;
+        const excludedNote = [
+          curSummary.creditCardPayments > 0 ? `card payments ${fmtUSD(curSummary.creditCardPayments)}` : null,
+          curSummary.savingsContributions > 0 ? `savings ${fmtUSD(curSummary.savingsContributions)}` : null,
+          curSummary.internalTransfers > 0 ? `transfers ${fmtUSD(curSummary.internalTransfers)}` : null,
+        ].filter(Boolean).join(" · ");
         return (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button type="button" onClick={()=>{
@@ -5294,15 +5093,16 @@ export const LivePlaidDashboard = ({
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
               <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
-              <div className="font-display text-lg tabular text-foreground mt-0.5">{fmtUSD(totalSpend)}</div>
-              {spendTrends.length > 0 && (() => {
-                const delta = spendTrends.reduce((s,c)=>s+c.delta,0);
-                return delta !== 0 ? (
-                  <div className={cn("text-[12px] tabular mt-0.5", delta > 0 ? "text-negative" : "text-positive")}>
-                    {delta > 0 ? "+" : ""}{fmtUSD(Math.abs(delta))} vs last mo
-                  </div>
-                ) : null;
-              })()}
+              <div className="font-display text-lg tabular text-foreground mt-0.5"
+                title={`Purchases, bills, loans and taxes (refunds netted, pending included).${excludedNote ? ` Not counted: ${excludedNote}.` : ""}`}>
+                {fmtUSD(totalSpend)}
+              </div>
+              {Math.round(spendVsLastMonth) !== 0 && (
+                <div className={cn("text-[12px] tabular mt-0.5", spendVsLastMonth > 0 ? "text-negative" : "text-positive")}
+                  title={`Compared with the same days last month (${prevSpan.label}: ${fmtUSD(prevSpanSummary.spending)})`}>
+                  {spendVsLastMonth > 0 ? "↑" : "↓"} {fmtUSD(Math.abs(spendVsLastMonth))} {spendVsLastMonth > 0 ? "more" : "less"} than {prevSpan.label}
+                </div>
+              )}
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("income");setTxnLimit(150);
@@ -5311,7 +5111,10 @@ export const LivePlaidDashboard = ({
               className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
               <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
               <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Income this month</div>
-              <div className="font-display text-lg tabular text-positive mt-0.5">{fmtUSD(curMonthIncome)}</div>
+              <div className="font-display text-lg tabular text-positive mt-0.5"
+                title={`Salary ${fmtUSD(curSummary.salary)} · interest ${fmtUSD(curSummary.interest)} · other ${fmtUSD(curSummary.otherIncome)}. Transfers between your accounts are not income.`}>
+                {fmtUSD(curMonthIncome)}
+              </div>
               <div className="text-[12px] text-muted-foreground mt-0.5">excl. transfers</div>
             </button>
             <button type="button" onClick={()=>{
@@ -5336,7 +5139,7 @@ export const LivePlaidDashboard = ({
               <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
                 {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
-              <div className="text-[12px] text-muted-foreground mt-0.5">{spendByCategory.length} categories</div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">of income kept</div>
             </button>
           </div>
         );
@@ -5501,7 +5304,7 @@ export const LivePlaidDashboard = ({
                               <span className="text-[14px] text-foreground font-medium truncate">{item.title}</span>
                               <span className={cn("text-[12px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border shrink-0",m.chip)}>{m.label}</span>
                             </div>
-                            <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 truncate">{item.detail}</p>
+                            <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 line-clamp-2 break-words" title={typeof item.detail === "string" ? item.detail : undefined}>{item.detail}</p>
                           </div>
                           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
                         </button>
@@ -5521,7 +5324,7 @@ export const LivePlaidDashboard = ({
                   <h3 className="font-display text-[14px] text-primary flex-1">Saving opportunities</h3>
                   {!insightsLoading && visibleInsights.length>0 && (
                     <span className="text-[12px] font-semibold text-positive tabular bg-positive/10 px-2 py-0.5 rounded-full">
-                      +{fmtUSD(visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0), { compact: true })}/yr
+                      +{fmtUSDCompact(visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0))}/yr
                     </span>
                   )}
                   <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
@@ -5563,7 +5366,7 @@ export const LivePlaidDashboard = ({
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col gap-0.5 pt-0.5">
                               <span className="text-[13px] text-foreground font-medium leading-snug line-clamp-2 break-words">{insight.title}</span>
-                              <span className="text-[11.5px] tabular text-positive font-semibold truncate">{insight.impact}</span>
+                              <span className="text-[11.5px] tabular text-positive font-semibold line-clamp-2 break-words" title={insight.impact}>{insight.impact}</span>
                             </div>
                           </button>
                           <button onClick={()=>dismissInsight(insight.id)} title="Dismiss" aria-label="Dismiss insight"
@@ -5584,19 +5387,21 @@ export const LivePlaidDashboard = ({
 
             const panelUpcomingCharges = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden h-full">
-                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                {/* select-none: dragging the grip used to leave the header text
+                    (e.g. the "$9.35" total) with a blue selection highlight. */}
+                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2 select-none">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-display text-[14px] text-primary">Upcoming Charges</h3>
-                    <div className="flex items-center gap-2">
-                      <div className="text-[12px] text-muted-foreground">
+                    <div className="flex items-center gap-x-2 flex-wrap">
+                      <div className="text-[12px] text-muted-foreground whitespace-nowrap">
                         Next 15 days · {recurringCharges.length} recurring
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
                       {suppressRecurringMerchants.size > 0 && (
-                        <button onClick={restoreAllRecurring} className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors">
+                        <button onClick={restoreAllRecurring} title="Show hidden charges again" className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors whitespace-nowrap">
                           {suppressRecurringMerchants.size} hidden · restore
                         </button>
                       )}
@@ -5669,7 +5474,7 @@ export const LivePlaidDashboard = ({
                           <div className="relative shrink-0">
                             <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
                               className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
-                                recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100")}>
+                                recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}>
                               <X className="h-3.5 w-3.5" />
                             </button>
                             {recurringMenuFor===r.merchantKey && (()=>{
@@ -5722,7 +5527,9 @@ export const LivePlaidDashboard = ({
             return (
               <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
                 <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-2.5 items-stretch">
+                  {/* One column per panel (3) on wide screens — the old xl:grid-cols-4
+                      left an empty 4th column; at lg the odd last panel spans both. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2.5 items-stretch lg:[&>*:last-child:nth-child(odd)]:col-span-2 xl:[&>*:last-child:nth-child(odd)]:col-span-1">
                     {panelOrder.map(id => (
                       <SortableCard key={id} id={id}>
                         {(handleProps) => renderPanel(id, handleProps)}
@@ -5859,7 +5666,7 @@ export const LivePlaidDashboard = ({
                             <Receipt className="h-3 w-3 text-muted-foreground/50 shrink-0" />
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                              <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                              <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                             </div>
                             <span className="text-[13px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
                           </div>
@@ -5908,7 +5715,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -5988,7 +5795,7 @@ export const LivePlaidDashboard = ({
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                              <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                              <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                             </div>
                             <span className={cn("text-[13px] tabular font-medium shrink-0",isInc?"text-positive":"text-foreground")}>
                               {isInc?"+":"−"}{fmtUSD(Math.abs(Number(t.amount)),{cents:true})}
@@ -6104,7 +5911,7 @@ export const LivePlaidDashboard = ({
                           <Receipt className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <div className="text-[13px] text-foreground truncate">{nameOverrides[t.id]??t.merchant_name??t.name??"Transaction"}</div>
-                            <div className="text-[12px] text-muted-foreground">{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
+                            <div className="text-[12px] text-muted-foreground">{fmtShortDate(t.date)}</div>
                           </div>
                           <span className="text-[13px] tabular font-medium text-foreground shrink-0">{fmtUSD(Number(t.amount),{cents:true})}</span>
                         </div>
@@ -6387,7 +6194,7 @@ export const LivePlaidDashboard = ({
                           className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
                           <option value="">Cover from…</option>
                           {fundingAccounts.map(a => (
-                            <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSD(Number(a.current_balance) || 0, { compact: true })})</option>
+                            <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSDCompact(Number(a.current_balance) || 0)})</option>
                           ))}
                         </select>
                         {chosen && !confirmed && (
@@ -6644,7 +6451,7 @@ export const LivePlaidDashboard = ({
                     <div className="flex-1 min-w-0">
                       <div className="text-[14px] font-medium text-foreground truncate">{nameOverrides[t.id] ?? t.merchant_name ?? t.name}</div>
                       <div className="text-[12px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                        <span>{new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+                        <span>{fmtShortDate(t.date)}</span>
                         {acc && <><span>·</span><span className="truncate max-w-[100px]">{acc.name}</span></>}
                         {t.pending && <span className="text-warning font-medium">· Pending</span>}
                       </div>
@@ -6685,7 +6492,7 @@ export const LivePlaidDashboard = ({
           isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
           formatCat={formatCat}
           catColor={catColor}
-          onOpenDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+          onOpenDetail={(t, info) => { setDetailTxn(t); setDetailTxnOpenCat(false); setDetailTxnRecurring(info?.recurringFrequency); }}
           internalTxnIds={internalTxnIds}
           initialSearch={txnSearch}
           categoryIcon={categoryIcon}
@@ -6712,6 +6519,10 @@ export const LivePlaidDashboard = ({
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
           onOpenRules={() => setShowRulesManager(true)}
           onOpenImport={() => setShowImportModal(true)}
+          headerActions={headerActions}
+          isCategoryEdited={t => overrides[t.id] != null}
+          classOf={classOf}
+          onSetTxnType={(demo || guestDemo) ? undefined : setTxnType}
         />
         <ImportStatementModal
           open={showImportModal}
@@ -6746,7 +6557,7 @@ export const LivePlaidDashboard = ({
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6771,6 +6582,7 @@ export const LivePlaidDashboard = ({
         internalTxnIds={internalTxnIds}
         getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
         isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
+        classOf={classOf}
         formatCat={formatCat}
         catColor={catColor}
         manualIncome={manualIncome}
@@ -6805,7 +6617,7 @@ export const LivePlaidDashboard = ({
         removeCardAutopayFrom={S.removeCardAutopayFrom}
         onOpenTxnDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
       />
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6834,6 +6646,8 @@ export const LivePlaidDashboard = ({
     const moneyMapPeriod: PeriodState = { granularity: "month", offset: 0 };
     const periodKey = new Date().toISOString().slice(0, 7); // "2026-06" for suggestion ids
     const periodTxns = filterByPeriod(txns, moneyMapPeriod).filter(t => !internalTxnIds.has(t.id));
+    // Same definitions as Home/Spending/Budget (src/lib/classify).
+    const mmSummary = summarizeFlow(filterByPeriod(txns, moneyMapPeriod) as ClassifierTxn[], classOfC, catOfTxn);
 
     // ── Categorize accounts by role ──
     const accountsWithRole = accounts.map(a => ({ acc: a, info: getRole(a.account_id, a.type, a.subtype) }));
@@ -6850,21 +6664,24 @@ export const LivePlaidDashboard = ({
     const reserveBalance = sumBal(reserveAccts);
     const investmentBalance = sumBal(investmentAccts);
     const debtBalance = sumBal(debtAccts);
+    const unassignedBalance = sumBal(unassignedAccts.filter(x => !isDebt(x.acc.type)));
 
     // ── True Available: income this period minus planned expenses minus committed
     //    savings transfers, period. Buffer/reserve balances never enter this number
     //    at all -- they're informational, shown separately. ──
-    const incomeThisPeriod = periodTxns.filter(t => isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s, t) => s + Math.abs(Number(t.amount)), 0);
-    const expensesThisPeriod = periodTxns.filter(t => !isIncomeCategory(getEffectiveCategory(t,overrides,getRuleCategory) ?? "Other", customCategories, Number(t.amount))).reduce((s, t) => s + Number(t.amount), 0);
+    const incomeThisPeriod = mmSummary.income;
+    const expensesThisPeriod = mmSummary.spending;
     const totalBudgeted = Object.values(budgets).reduce((s, b) => s + b, 0);
     const trueAvailable = spendingBalance; // current real balance in spending-role accounts is the ground truth
     const projectedRemaining = incomeThisPeriod - expensesThisPeriod; // this period's net flow so far
 
     // ── Spend-by-category this period, for overspend detection ──
+    // Budgets apply to spend categories only.
     const catTotals: Record<string, number> = {};
     for (const t of periodTxns) {
+      const c = classOf(t);
+      if (!c || (c.type !== "spend" && c.type !== "refund")) continue;
       const cat = getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other";
-      if (isIncomeCategory(cat, customCategories, Number(t.amount))) continue;
       catTotals[cat] = (catTotals[cat] || 0) + Number(t.amount);
     }
 
@@ -6926,11 +6743,16 @@ export const LivePlaidDashboard = ({
     // ── Suggestion 3: autopay / credit-card payment risk ──
     // Find transactions that look like credit-card or bill payments
     const PAYMENT_RE = /\bpayment\b|autopay|bill\s*pay|online\s*payment|e-?pay/i;
-    const paymentTxns = txns.filter(t =>
-      Number(t.amount) > 0 && // positive = debit from source account
-      (PAYMENT_RE.test(t.merchant_name ?? t.name ?? "") ||
-       (t.category?.[0] ?? "").toLowerCase().includes("credit card"))
-    );
+    const paymentTxns = txns.filter(t => {
+      if (Number(t.amount) <= 0) return false; // positive = debit from source account
+      const c = classOf(t);
+      // Card payments and bills/loans only — never savings sweeps or other
+      // transfers between the user's own accounts.
+      if (c?.type === "credit_card_payment" || c?.type === "obligation_loan" || c?.type === "obligation_bill") return true;
+      if (c && bucketOf(c.type) !== "spending") return false;
+      return PAYMENT_RE.test(t.merchant_name ?? t.name ?? "") ||
+        (t.category?.[0] ?? "").toLowerCase().includes("credit card");
+    });
     // Group by source account
     const payByAcct: Record<string, PTxn[]> = {};
     for (const t of paymentTxns) {
@@ -7000,6 +6822,9 @@ export const LivePlaidDashboard = ({
             { label: "Savings",                    value: reserveBalance,    icon: Target,      color: "hsl(var(--gold))",     count: reserveAccts.length },
             { label: ROLE_META.investment.name,    value: investmentBalance, icon: TrendingUp,  color: "hsl(var(--positive))", count: investmentAccts.length },
             { label: ROLE_META.debt.name,          value: debtBalance,       icon: CreditCard,  color: "hsl(var(--negative))", count: debtAccts.length },
+            // Accounts without a role used to vanish from these tiles, so the
+            // Money Map totals didn't reconcile with Home's account groups.
+            ...(unassignedAccts.length > 0 ? [{ label: "Unassigned", value: unassignedBalance, icon: Info, color: "hsl(var(--muted-foreground))", count: unassignedAccts.length }] : []),
           ].map(b => (
             <div key={b.label} className="surface-card p-3.5">
               <div className="flex items-center gap-1.5">
@@ -7045,7 +6870,7 @@ export const LivePlaidDashboard = ({
                             className="h-8 flex-1 max-w-[240px] rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
                             <option value="">Cover from…</option>
                             {fundingAccounts.map(x => (
-                              <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSD(Number(x.acc.current_balance) || 0, { compact: true })})</option>
+                              <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSDCompact(Number(x.acc.current_balance) || 0)})</option>
                             ))}
                           </select>
                           {chosen && (
@@ -7144,7 +6969,7 @@ export const LivePlaidDashboard = ({
                                   {acc.mask && <div className="text-[11px] text-muted-foreground">···· {acc.mask}</div>}
                                 </div>
                                 <div className={cn("text-[14px] tabular font-semibold shrink-0", isDebtAcc ? "text-negative" : "text-foreground")}>
-                                  {isDebtAcc ? "−" : ""}{fmtUSD(Math.abs(bal), { compact: true })}
+                                  {isDebtAcc ? "−" : ""}{fmtUSDCompact(Math.abs(bal))}
                                 </div>
                               </div>
                               {/* Role chips */}

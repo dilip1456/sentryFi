@@ -79,8 +79,9 @@ export const estimateRemainingBalance = (
   try {
     const r = annualRate / 100 / 12;
     const n = termYears * 12;
-    if (r === 0) return null;
-    const monthlyPayment = (originalAmount * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+    if (!(n > 0) || !Number.isFinite(originalAmount)) return null;
+    // 0% APR (common for promo auto loans) amortizes linearly.
+    const monthlyPayment = r === 0 ? originalAmount / n : (originalAmount * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
     const start = new Date(startDate + "T00:00:00");
     const now = new Date();
     const elapsed = Math.max(0,
@@ -88,8 +89,11 @@ export const estimateRemainingBalance = (
     );
     const remaining = Math.max(0, n - elapsed);
     // Balance after elapsed payments
-    const balance = originalAmount * Math.pow(1 + r, elapsed)
-      - monthlyPayment * ((Math.pow(1 + r, elapsed) - 1) / r);
+    const paid = Math.min(elapsed, n);
+    const raw = paid >= n ? 0 : r === 0
+      ? originalAmount - monthlyPayment * paid
+      : originalAmount * Math.pow(1 + r, paid) - monthlyPayment * ((Math.pow(1 + r, paid) - 1) / r);
+    const balance = Math.round(raw * 100) / 100;
     const payoffDate = new Date(now);
     payoffDate.setMonth(payoffDate.getMonth() + remaining);
     return { balance: Math.max(0, balance), payoffDate, monthsRemaining: remaining };

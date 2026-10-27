@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Upload, FileText, X, AlertTriangle, Loader2 } from "lucide-react";
 import { extractPdfLines, parseStatement, buildImportTransactionId, type ParsedStatementTxn } from "@/lib/statement-import";
+import { fmtShortDate } from "@/lib/format-date";
 
 const IMPORT_TAG = "Imported";
 
@@ -250,7 +251,7 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
                         {groupRows.map(r => (
                           <label key={r.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/10 cursor-pointer">
                             <input type="checkbox" checked={r.include} onChange={() => toggleRow(r.id)} className="shrink-0"/>
-                            <span className="text-[10.5px] text-muted-foreground tabular shrink-0 w-16">{r.date}</span>
+                            <span className="text-[10.5px] text-muted-foreground tabular shrink-0 w-16">{fmtShortDate(r.date)}</span>
                             <span className="text-[11px] text-foreground truncate flex-1 min-w-0" title={r.description}>{r.description}</span>
                             <span className={cn("text-[11px] font-semibold tabular shrink-0 w-20 text-right", r.amount < 0 ? "text-positive" : "text-foreground")}>
                               {r.amount < 0 ? "+" : ""}{fmtUSD(Math.abs(r.amount))}

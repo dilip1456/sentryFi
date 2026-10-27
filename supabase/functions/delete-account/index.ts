@@ -1,4 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.106.2";
+import { plaidErrorSummary } from "../_shared/plaid-errors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          console.warn("[delete-account] Plaid item/remove non-OK for item", item.id, body);
+          console.warn("[delete-account] Plaid item/remove non-OK for item", item.id, plaidErrorSummary(body, res.status));
         }
       } catch (e) {
         console.warn("[delete-account] Plaid item/remove failed for item", item.id, e);

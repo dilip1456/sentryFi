@@ -1,5 +1,6 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
+import { describeUpstreamError, summarizeFailedResponse } from '../_shared/http-errors.ts';
 
 const GROQ_KEY = Deno.env.get('GROQ_API_KEY');
 // llama-3.3-70b-versatile was decommissioned by Groq on 2026-08-16 (every
@@ -510,13 +511,12 @@ Deno.serve(async (req) => {
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.error('[analyze-finances] Groq error:', errText);
-      // Surface a trimmed version of Groq's own error text instead of a bare
-      // "Groq API error" — that opaque message is exactly what made the
-      // model-decommission failure above impossible to diagnose from the
-      // client without shell access to the function's own logs.
-      return json({ error: `Groq API error: ${errText.slice(0, 300)}` }, 500);
+      // Status + Groq's error code/type/request id only: the body can echo
+      // the prompt (the user's transactions). The code (e.g.
+      // model_decommissioned) is still enough to diagnose from the client.
+      const summary = await summarizeFailedResponse(res);
+      console.error('[analyze-finances] Groq error:', summary);
+      return json({ error: `Groq API error (${describeUpstreamError(summary)})` }, 500);
     }
 
     const aiResponse = await res.json();
@@ -524,7 +524,8 @@ Deno.serve(async (req) => {
 
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) {
-      console.error('[analyze-finances] No JSON array in Groq response:', text.slice(0, 500));
+      // The AI reply is derived from the user's transactions; log only its size.
+      console.error('[analyze-finances] No JSON array in Groq response (chars):', text.length);
       return json({ error: 'Invalid AI response format' }, 500);
     }
 

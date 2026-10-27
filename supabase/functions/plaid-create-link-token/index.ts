@@ -1,4 +1,7 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.106.2";
+import { getCallerUser } from "../_shared/auth.ts";
+import { plaidErrorSummary } from "../_shared/plaid-errors.ts";
+import { newItemLinkProducts } from "../_shared/plaid-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,14 +18,10 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Verify the caller from their own JWT (anon-key client + their
+    // Authorization header). Returns null for a missing/anon/expired token.
+    const user = await getCallerUser(req);
+    if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -44,7 +43,16 @@ Deno.serve(async (req) => {
     };
 
     if (itemId) {
-      const { data: item, error: itemErr } = await supabase
+      // plaid_items.access_token is not selectable by `authenticated`
+      // (migration 20261020170000), so read it with a pure service_role
+      // client: no user Authorization header, so PostgREST runs as
+      // service_role. Ownership is enforced by the user_id filter below.
+      const admin = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        { auth: { persistSession: false, autoRefreshToken: false } },
+      );
+      const { data: item, error: itemErr } = await admin
         .from("plaid_items")
         .select("access_token")
         .eq("id", itemId)
@@ -57,9 +65,12 @@ Deno.serve(async (req) => {
       }
       params.access_token = item.access_token;
       params.products = ["liabilities"];
+      // No transactions.days_requested here: Transactions is already
+      // initialised on this Item, so Plaid ignores it (history depth is fixed
+      // at the original Link). Raising it needs a new Item: docs/PLAID_HISTORY.md.
     } else {
-      params.products = ["transactions"];
-      params.optional_products = ["investments", "liabilities"];
+      // New Item: 730 days of history (Plaid default is 90).
+      Object.assign(params, newItemLinkProducts());
     }
 
     const res = await fetch(`${plaidBase}/link/token/create`, {
@@ -70,8 +81,8 @@ Deno.serve(async (req) => {
 
     const data = await res.json();
     if (!res.ok) {
-      console.error("Plaid link token error", data);
-      return new Response(JSON.stringify({ error: data.error_message || data }), {
+      console.error("Plaid link token error", plaidErrorSummary(data, res.status));
+      return new Response(JSON.stringify({ error: data.error_message || "Plaid error", error_code: data.error_code ?? null }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

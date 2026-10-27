@@ -1,6 +1,17 @@
 -- Runs send-alerts every 20 minutes so deposit/salary/refund/budget emails go
 -- out even when the user never opens the app (previously fire-and-forget on load only).
-select cron.schedule(
+--
+-- Guarded (same style as 20261020170300): when pg_cron isn't installed, e.g.
+-- a fresh `supabase db reset` with no cron schema, this skips with a NOTICE
+-- instead of failing the whole reset. With pg_cron present (production) it
+-- schedules exactly the same job as before; it is already applied there.
+DO $do$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    RAISE NOTICE 'pg_cron is not installed; send-alerts-every-20-min not scheduled';
+    RETURN;
+  END IF;
+  PERFORM cron.schedule(
   'send-alerts-every-20-min',
   '*/20 * * * *',
   $$
@@ -14,3 +25,5 @@ select cron.schedule(
   );
   $$
 );
+END
+$do$;

@@ -10,12 +10,14 @@ import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { GIFT_CARD_BRANDS, logoUrlForDomain, clearbitLogoUrl, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
+import { isMissingColumnError, isMissingTableError } from "@/lib/supabase-errors";
 import {
   Gift, Plus, X, ExternalLink, ShoppingBag, Pencil, Trash2, Search,
   CheckCircle2, AlertCircle, Loader2, MinusCircle, Clock, Eye, EyeOff,
   ChevronLeft, ChevronRight, Copy,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
+import { fmtShortDate } from "@/lib/format-date";
 
 const copyToClipboard = async (text: string, label: string) => {
   try {
@@ -45,12 +47,17 @@ type GiftCardActivityRow = {
   created_at: string;
 };
 
+// Set once a load discovers gift_card_activity is missing on the live DB, so
+// later inserts don't spam 404s while the migration is pending.
+let activityTableMissing = false;
+
 /** Append-only usage-trail insert. Fire-and-forget on purpose — a logging
  *  failure shouldn't block or roll back the balance change that triggered it. */
 const logActivity = async (entry: {
   gift_card_id: string; user_id: string; kind: GiftCardActivityKind;
   amount: number | null; balance_after: number; note?: string | null;
 }) => {
+  if (activityTableMissing) return;
   const { error } = await supabase.from("gift_card_activity").insert({
     gift_card_id: entry.gift_card_id,
     user_id: entry.user_id,
@@ -59,7 +66,10 @@ const logActivity = async (entry: {
     balance_after: entry.balance_after,
     note: entry.note ?? null,
   });
-  if (error) console.error("[gift_card_activity] insert failed:", error.message);
+  if (error) {
+    if (isMissingTableError(error)) activityTableMissing = true;
+    console.error("[gift_card_activity] insert failed:", error.message);
+  }
 };
 
 const ACTIVITY_LABEL: Record<GiftCardActivityKind, string> = {
@@ -84,7 +94,7 @@ const ActivityHistoryList = ({ entries }: { entries: GiftCardActivityRow[] }) =>
               {e.amount != null && (
                 <span className="tabular">{e.kind === "spend" && e.amount > 0 ? "-" : ""}{fmtUSD(Math.abs(Number(e.amount)))}</span>
               )}
-              <span>{new Date(e.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              <span>{fmtShortDate(e.created_at)}</span>
             </div>
           </div>
         ))}
@@ -367,7 +377,7 @@ const CardDetailDialog = ({
               <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
             ) : (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {new Date(card.last_balance_update).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {fmtShortDate(card.last_balance_update)}
               </span>
             )}
           </div>
@@ -473,6 +483,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
   const [trashCards, setTrashCards] = useState<GiftCardRow[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // True when the live DB predates the soft-delete migration (no deleted_at
+  // column): cards still load, but remove/restore are unavailable.
+  const [legacySchema, setLegacySchema] = useState(false);
   const [activity, setActivity] = useState<Record<string, GiftCardActivityRow[]>>({});
   const [addOpen, setAddOpen] = useState(false);
   const [spendCard, setSpendCard] = useState<GiftCardRow | null>(null);
@@ -492,25 +506,52 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const demoBlocked = () => toast("Create a free account to manage your gift cards", { description: "This is sample data in demo mode." });
 
   const load = useCallback(async () => {
-    if (demo) { setCards(DEMO_GIFT_CARDS); setTrashCards([]); setActivity({}); return; }
+    if (demo) { setCards(DEMO_GIFT_CARDS); setTrashCards([]); setActivity({}); setLoadError(null); return; }
     if (!user) return;
-    const [{ data, error }, { data: trashData, error: trashError }, { data: activityData, error: activityError }] = await Promise.all([
-      supabase.from("gift_cards").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
-      supabase.from("gift_cards").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false }),
-      supabase.from("gift_card_activity").select("*").order("created_at", { ascending: false }),
-    ]);
-    if (error) { toast.error("Couldn't load gift cards", { description: error.message }); return; }
-    setCards(data ?? []);
-    if (trashError) toast.error("Couldn't load removed cards", { description: trashError.message });
-    else setTrashCards(trashData ?? []);
-    if (activityError) {
-      console.error("[gift_card_activity] load failed:", activityError.message);
-    } else {
-      const grouped: Record<string, GiftCardActivityRow[]> = {};
-      for (const row of (activityData ?? []) as GiftCardActivityRow[]) {
-        (grouped[row.gift_card_id] ??= []).push(row);
+    try {
+      const [{ data, error }, { data: trashData, error: trashError }, { data: activityData, error: activityError }] = await Promise.all([
+        supabase.from("gift_cards").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
+        supabase.from("gift_cards").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false }),
+        activityTableMissing
+          ? Promise.resolve({ data: [], error: null })
+          : supabase.from("gift_card_activity").select("*").order("created_at", { ascending: false }),
+      ]);
+
+      if (error && isMissingColumnError(error, "deleted_at")) {
+        // DB is missing the soft-delete migration — show every card rather
+        // than failing the whole page.
+        const legacy = await supabase.from("gift_cards").select("*").order("created_at", { ascending: false });
+        if (legacy.error) throw new Error(legacy.error.message);
+        console.warn("[gift_cards] deleted_at column missing — apply supabase/migrations/20261020120000_repair_gift_cards_trash_and_activity.sql");
+        setLegacySchema(true);
+        setCards((legacy.data ?? []) as unknown as GiftCardRow[]);
+        setTrashCards([]);
+      } else if (error) {
+        throw new Error(error.message);
+      } else {
+        setLegacySchema(false);
+        setCards(data ?? []);
+        if (trashError) console.error("[gift_cards] removed-cards load failed:", trashError.message);
+        else setTrashCards(trashData ?? []);
       }
-      setActivity(grouped);
+      setLoadError(null);
+
+      if (activityError) {
+        if (isMissingTableError(activityError)) activityTableMissing = true;
+        console.error("[gift_card_activity] load failed:", activityError.message);
+        setActivity({});
+      } else {
+        const grouped: Record<string, GiftCardActivityRow[]> = {};
+        for (const row of (activityData ?? []) as unknown as GiftCardActivityRow[]) {
+          (grouped[row.gift_card_id] ??= []).push(row);
+        }
+        setActivity(grouped);
+      }
+    } catch (e) {
+      // Previously a failed query returned early with `cards` still null,
+      // which rendered the spinner forever. Now an error panel with a retry
+      // replaces the spinner whenever loadError is set and no cards loaded.
+      setLoadError(e instanceof Error ? e.message : String(e));
     }
   }, [user, demo]);
 
@@ -548,6 +589,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
 
   const removeCard = async (id: string) => {
     if (demo) { demoBlocked(); return; }
+    if (legacySchema) {
+      toast.error("Removing cards isn't available yet", { description: "The gift card database update hasn't been applied. Your cards are safe." });
+      return;
+    }
     const card = (cards ?? []).find(c => c.id === id);
     setRemovingId(id);
     const { error } = await supabase.from("gift_cards")
@@ -654,7 +699,21 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         </div>
       )}
 
-      {cards === null ? (
+      {loadError && (
+        <div className="surface-card p-6 text-center">
+          <AlertCircle className="h-6 w-6 mx-auto text-negative/70 mb-2" />
+          <div className="text-[14px] text-foreground font-medium">Couldn't load your gift cards</div>
+          <div className="text-[12.5px] text-muted-foreground mt-1 break-words">{loadError}</div>
+          <button
+            onClick={() => { setCards(null); setLoadError(null); load(); }}
+            className="mt-3 inline-flex items-center gap-1.5 h-8 px-4 rounded-md border border-border-strong text-[13px] font-medium hover:bg-secondary/40 transition-colors"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {loadError && (cards ?? []).length === 0 ? null : cards === null ? (
         <div className="surface-card p-8 grid place-items-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
@@ -908,7 +967,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                   <div className="flex-1 min-w-0">
                     <div className="text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
                     <div className="text-[12px] text-muted-foreground">
-                      {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${new Date(card.deleted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                      {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${fmtShortDate(card.deleted_at)}` : ""}
                     </div>
                   </div>
                   <button onClick={() => restoreCard(card.id)} disabled={restoringId === card.id}

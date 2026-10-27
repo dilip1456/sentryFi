@@ -8,6 +8,8 @@ import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { fmtShortDate } from "@/lib/format-date";
+import { setAdminRole } from "@/lib/admin-roles";
 
 interface Row {
   user_id: string;
@@ -57,15 +59,11 @@ export const AdminUsersSection = () => {
       toast.error("You can't remove your own admin role.");
       return;
     }
-    if (makeAdmin) {
-      const { error } = await supabase.from("user_roles").insert({ user_id: uid, role: "admin" });
-      if (error) return toast.error(error.message);
-      toast.success("Admin role granted");
-    } else {
-      const { error } = await supabase.from("user_roles").delete().eq("user_id", uid).eq("role", "admin");
-      if (error) return toast.error(error.message);
-      toast.success("Admin role revoked");
-    }
+    // Clients can't write user_roles (SELECT only): an admin-checked edge
+    // function makes the change and refuses to remove the last admin.
+    const res = await setAdminRole(supabase, uid, makeAdmin);
+    if ("error" in res) return toast.error(res.error);
+    toast.success(makeAdmin ? "Admin role granted" : "Admin role revoked");
     load();
   };
 
@@ -74,8 +72,13 @@ export const AdminUsersSection = () => {
       toast.error("You can't disable your own account.");
       return;
     }
-    const { error } = await supabase.from("profiles").update({ disabled }).eq("user_id", uid);
-    if (error) return toast.error(error.message);
+    // Goes through an admin-checked edge function that bans/unbans the auth
+    // user and then sets profiles.disabled. Writing the column directly is
+    // blocked by a trigger, so a user can't re-enable themselves.
+    const { data, error } = await supabase.functions.invoke("admin-set-user-disabled", {
+      body: { userId: uid, disabled },
+    });
+    if (error || data?.error) return toast.error(data?.error ?? error?.message ?? "Could not update user");
     toast.success(disabled ? "User disabled" : "User enabled");
     load();
   };
@@ -138,7 +141,7 @@ export const AdminUsersSection = () => {
                   isUserAdmin ? "bg-info/15 text-info" : "bg-surface text-muted-foreground"
                 )}>{isUserAdmin ? "admin" : "user"}</span>
               </div>
-              <div className="text-muted-foreground text-[13px]">{new Date(r.created_at).toLocaleDateString()}</div>
+              <div className="text-muted-foreground text-[13px]">{fmtShortDate(r.created_at)}</div>
               <div className="flex items-center justify-end gap-1">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

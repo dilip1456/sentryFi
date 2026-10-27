@@ -1,5 +1,7 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
+import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
+import { plaidErrorSummary } from '../_shared/plaid-errors.ts';
+import { newItemLinkProducts } from '../_shared/plaid-link.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
@@ -29,14 +31,15 @@ Deno.serve(async (req) => {
         language: 'en',
         country_codes: ['US'],
         user: { client_user_id: user.id },
-        products: ['transactions'],
-        optional_products: ['investments', 'liabilities'],
+        // products + optional_products + transactions.days_requested: 730
+        ...newItemLinkProducts(),
       }),
     });
     const data = await res.json();
     if (!res.ok) {
-      console.error('Plaid link token error', data);
-      return json({ error: data.error_message || 'Plaid error', detail: data }, 400);
+      const summary = plaidErrorSummary(data, res.status);
+      console.error('Plaid link token error', summary);
+      return json({ error: data.error_message || 'Plaid error', detail: summary }, 400);
     }
     return json({ link_token: data.link_token, expiration: data.expiration });
   } catch (e) {
