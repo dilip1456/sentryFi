@@ -1645,13 +1645,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{width:`${actualPct}%`,background:over?"hsl(var(--negative))":col}}/>
                           </div>
                         )}
-                        {!isObligation && !isIncome && b == null && (
-                          <button onClick={(e)=>{ e.stopPropagation(); setBudgetDialogOpen(true); }}
-                            style={{ color: col }}
-                            className="shrink-0 text-[9px] font-semibold hover:underline">
-                            + budget
-                          </button>
-                        )}
                       </div>
                       {isObligation ? (
                         <div className="text-[9px] text-muted-foreground mt-0.5">{fmtUSD(c.spend)} paid this period</div>
