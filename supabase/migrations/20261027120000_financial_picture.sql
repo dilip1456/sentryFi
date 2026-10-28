@@ -1,0 +1,21 @@
+-- ── My Financial Picture: editable overrides + funding-account tags ────────
+-- "My Financial Picture" starts every figure as a transaction-derived
+-- estimate, but a few things (ESPP/RSU payroll withholding, a bonus split
+-- out from salary, etc.) can't be derived from bank transactions at all, and
+-- any detected figure can be wrong and needs a manual correction. Stored the
+-- same way as the app's other per-user JSON blobs (accountRoles,
+-- cardAutopayFrom, etc.) — a single jsonb object column on user_settings.
+--
+-- Shape: { overrides: Record<string, number>, fundingAccounts: Record<string, string>, riskProfile?: string }
+--   overrides       — keyed by a stable field id (e.g. "income.salary",
+--                     "deduction.hsa", "obligation:Mortgage"), valued by the
+--                     user-corrected dollar amount.
+--   fundingAccounts — keyed the same way, valued by the plaid account_id the
+--                     user confirmed that obligation/bill is paid from, for
+--                     cases where the detected transactions don't agree on a
+--                     single account. (Credit card autopay already has its
+--                     own column, card_autopay_from, added earlier.)
+--   riskProfile     — self-reported investing risk tolerance; not derivable
+--                     from transactions at all.
+alter table public.user_settings
+  add column if not exists financial_picture jsonb not null default '{}'::jsonb;
