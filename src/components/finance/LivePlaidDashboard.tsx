@@ -19,7 +19,7 @@ import { CategoryManager } from "@/components/finance/CategoryManager";
 import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
-import { BudgetPage } from "@/components/finance/BudgetPage";
+import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -4586,6 +4586,17 @@ export const LivePlaidDashboard = ({
     if (manualInternalIds.has(t.id)) S.toggleManualInternal(t.id);
     setTypeOverride(t.transaction_id, type);
   }, [manualInternalIds, S, setTypeOverride]);
+  // Picking an explicit category is a more specific signal than an earlier
+  // "mark as internal" flag or manual type override on the same txn — but
+  // classifyOne checks type overrides BEFORE category overrides, so leaving
+  // a stale one in place means the category keeps "reverting": the
+  // classifier's type still wins, and classForcedCat forces the displayed
+  // category back to match that type on the very next render. Clear any
+  // conflicting type-level override whenever the user sets a category.
+  const clearConflictingTypeOverride = useCallback((t: PTxn) => {
+    if (manualInternalIds.has(t.id)) S.toggleManualInternal(t.id);
+    if (t.transaction_id && typeOverridesByPlaidId[t.transaction_id]) setTypeOverride(t.transaction_id, null);
+  }, [manualInternalIds, S, typeOverridesByPlaidId, setTypeOverride]);
   // Possible duplicates: flagged for review, never deleted.
   const possibleDupIds = useMemo(() => new Set(findPossibleDuplicateIds(txns)), [txns]);
 
@@ -4955,15 +4966,15 @@ export const LivePlaidDashboard = ({
     </div>
   );
   if (loading) {
-    if (view === "spending" || view === "budget") return <SpendingSkeleton />;
+    if (view === "spending" || view === "myfinances") return <SpendingSkeleton />;
     return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
   // ── Period nav pill (reused in monthly + spending tabs) ──────
-  // Segmented switch between the merged Spending and Budget views.
+  // Segmented switch between the merged Spending and My Financial Picture views.
   const SpendBudgetTabs = () => (
     <div className="flex bg-muted/40 rounded-full p-0.5 text-[13px] font-medium">
-      {([["spending", "Spending"], ["budget", "Overview"]] as const).map(([k, label]) => (
+      {([["spending", "Spending"], ["myfinances", "My Financial Picture"]] as const).map(([k, label]) => (
         <button key={k} onClick={() => onViewChange?.(k)}
           className={cn("px-5 py-1.5 rounded-full transition-all",
             view === k ? "bg-background text-foreground font-semibold shadow-sm" : "text-muted-foreground hover:text-foreground")}>
@@ -5715,7 +5726,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6502,6 +6513,7 @@ export const LivePlaidDashboard = ({
           customCategories={customCategories}
           onSelectCategory={(t, cat) => {
             setOverride(t.id, cat);
+            clearConflictingTypeOverride(t as unknown as PTxn);
             // Manually re-categorizing a transaction is an explicit signal
             // that it isn't part of whatever recurring pattern it was
             // previously attached to — drop it from any recurring group it
@@ -6557,7 +6569,7 @@ export const LivePlaidDashboard = ({
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6573,51 +6585,32 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  if (view==="budget") {
+  if (view==="myfinances") {
     return (
       <>
-      <BudgetPage
+      <MyFinancialPicture
         txns={txns}
         accounts={accounts}
-        internalTxnIds={internalTxnIds}
         getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
-        isIncomeCategory={(cat, amount) => isIncomeCategory(cat, customCategories, amount)}
-        classOf={classOf}
         formatCat={formatCat}
         catColor={catColor}
+        classOf={classOf}
         manualIncome={manualIncome}
-        addManualIncome={addManualIncome}
-        removeManualIncome={removeManualIncome}
-        savingsGoals={settings.savingsGoals}
-        addSavingsGoal={S.addSavingsGoal}
-        removeSavingsGoal={S.removeSavingsGoal}
-        updateSavingsGoal={S.updateSavingsGoal}
-        recurringOverrides={settings.recurringOverrides}
-        recurringGroups={settings.recurringGroups}
-        addRecurringGroup={S.addRecurringGroup}
-        removeRecurringGroup={S.removeRecurringGroup}
-        updateRecurringGroup={S.updateRecurringGroup}
-        addTxnToRecurringGroup={S.addTxnToRecurringGroup}
-        removeTxnFromRecurringGroup={S.removeTxnFromRecurringGroup}
-        dismissedRecurring={settings.dismissedRecurring}
-        dismissRecurring={dismissRecurring}
-        dismissRecurringWithReason={dismissRecurringWithReason}
-        clearRecurringDismissals={S.clearRecurringDismissals}
-        resetBudgetTracking={S.resetBudgetTracking}
-        budgets={budgets}
-        accountRoles={settings.accountRoles}
-        overageFundingPrefs={settings.overageFundingPrefs}
-        plannedTransfers={settings.plannedTransfers}
-        confirmOverageFunding={S.confirmOverageFunding}
-        dismissTransfer={S.dismissTransfer}
-        setBudget={S.setBudget}
-        removeBudget={S.removeBudget}
-        cardAutopayFrom={settings.cardAutopayFrom}
-        setCardAutopayFrom={S.setCardAutopayFrom}
-        removeCardAutopayFrom={S.removeCardAutopayFrom}
         onOpenTxnDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+        budgets={budgets}
+        onSetBudget={setBudget}
+        onRemoveBudget={removeBudget}
+        cardAutopayFrom={settings.cardAutopayFrom}
+        onSetCardAutopayFrom={S.setCardAutopayFrom}
+        onRemoveCardAutopayFrom={S.removeCardAutopayFrom}
+        financialPicture={settings.financialPicture}
+        onSetOverride={S.setFinancialPictureOverride}
+        onClearOverride={S.clearFinancialPictureOverride}
+        onSetFundingAccount={S.setFinancialPictureFundingAccount}
+        onClearFundingAccount={S.clearFinancialPictureFundingAccount}
+        onSetRiskProfile={S.setRiskProfile}
       />
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>setOverride(id,cat)} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}

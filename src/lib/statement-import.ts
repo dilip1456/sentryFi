@@ -8,6 +8,7 @@
  * bundled as an npm dependency — statement imports happen rarely enough
  * that shipping a PDF parser in every page load isn't worth it.
  */
+import { supabase } from "@/integrations/supabase/client";
 
 const PDFJS_VERSION = "3.11.174";
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
@@ -83,6 +84,14 @@ export interface ParsedStatementTxn {
 
 const DATE_LINE_RE = /^(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(.+?)\s+(-?[\d,]+\.\d{2})$/;
 
+// A statement's own running/summary balance ("Beginning Balance 1,234.56",
+// "New Balance as of 3/1", "Balance Forward") happens to look exactly like a
+// transaction row to every regex above: a date, some words, a dollar figure.
+// Checked against the parsed description on every code path below so a
+// balance line is never mistaken for a real transaction and double-counted
+// into income/spending totals.
+const BALANCE_LINE_RE = /\b(beginning|opening|previous|ending|closing|new|statement|daily|running)\s+balance\b|\bbalance\s+(forward|brought\s+forward)\b|^balance\s*$/i;
+
 function toIsoDate(mmddyy: string): string | null {
   const parts = mmddyy.split("/");
   if (parts.length !== 3) return null;
@@ -119,6 +128,7 @@ export function parseStatementLines(lines: string[]): { txns: ParsedStatementTxn
 
     const m = line.match(DATE_LINE_RE);
     if (m) {
+      if (BALANCE_LINE_RE.test(m[2])) continue;
       const iso = toIsoDate(m[1]);
       if (!iso) continue;
       const absAmt = Math.abs(parseFloat(m[3].replace(/,/g, "")));
@@ -144,12 +154,84 @@ export function parseStatementLines(lines: string[]): { txns: ParsedStatementTxn
     const line = raw.trim();
     const m = line.match(DATE_LINE_RE);
     if (!m) continue;
+    if (BALANCE_LINE_RE.test(m[2])) continue;
     const iso = toIsoDate(m[1]);
     if (!iso) continue;
     const literal = parseFloat(m[3].replace(/,/g, ""));
     fallback.push({ date: iso, description: m[2].trim(), amount: -literal });
   }
   return { txns: fallback, recognizedFormat: false };
+}
+
+// Every occurrence of a printed account number in the document, in reading
+// order. A combined statement that covers more than one account of the same
+// type (e.g. two Health Savings Accounts) prints each account's own number
+// right before that account's own transaction tables, so the FIRST match is
+// not necessarily the only account present — treating it as such is what
+// silently merged every account's transactions into whichever one happened
+// to be detected (see parseBoaMultiAccount below, which uses every match).
+const ACCOUNT_NUMBER_RE = /account(?:\/plan)?\s*(?:number)?[:#]?\s*(\d[\d\s]{6,}\d)\b/i;
+function findAccountNumberMarkers(lines: string[]): { index: number; last4: string }[] {
+  const out: { index: number; last4: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(ACCOUNT_NUMBER_RE);
+    if (m) {
+      const digits = m[1].replace(/\s/g, "");
+      if (digits.length >= 4) out.push({ index: i, last4: digits.slice(-4) });
+    }
+  }
+  return out;
+}
+
+// A short, title-like line just above an account-number marker is almost
+// always that account's printed nickname ("Health Savings Account",
+// "Regular Checking") — the same heuristic parseCitiFormat uses for its
+// account labels, reused here since BoA-style statements print labels the
+// same way (name line, then number line).
+function labelAboveMarker(lines: string[], markerIndex: number): string | null {
+  for (let i = markerIndex - 1; i >= Math.max(0, markerIndex - 4); i--) {
+    const line = lines[i].trim();
+    if (line.length > 0 && line.length < 60 && !/\d{4,}/.test(line) && !/balance|date\s+description/i.test(line)) {
+      return line;
+    }
+  }
+  return null;
+}
+
+// Splits a BoA-style statement into one block per account when it prints
+// more than one DISTINCT account number — a combined statement covering two
+// same-type sub-accounts (two HSAs, say) each get their own "Deposits and
+// other additions" / subtraction tables, so running the normal single-pass
+// section scanner over the whole document mixes both accounts' rows
+// together under whichever account number happened to be detected first.
+// Returns null when the document only ever prints one distinct account
+// number (the common case), so callers fall back to the existing
+// whole-document parse — this only changes behavior for genuinely
+// multi-account documents.
+function parseBoaMultiAccount(lines: string[]): ParsedAccountBlock[] | null {
+  const markers = findAccountNumberMarkers(lines);
+  // Collapse consecutive markers that repeat the same account number (e.g.
+  // printed again in a page footer) into a single boundary — only a change
+  // in which number is printed starts a new account section.
+  const boundaries: { index: number; last4: string }[] = [];
+  let active: string | null = null;
+  for (const m of markers) {
+    if (m.last4 !== active) { boundaries.push(m); active = m.last4; }
+  }
+  const distinct = new Set(boundaries.map(b => b.last4));
+  if (distinct.size < 2) return null;
+
+  const blocks: ParsedAccountBlock[] = [];
+  for (let i = 0; i < boundaries.length; i++) {
+    const start = boundaries[i].index;
+    const end = i + 1 < boundaries.length ? boundaries[i + 1].index : lines.length;
+    const chunk = lines.slice(start, end);
+    const { txns, recognizedFormat } = parseStatementLines(chunk);
+    if (!recognizedFormat || txns.length === 0) continue;
+    const label = labelAboveMarker(lines, start) ?? `Account ••${boundaries[i].last4}`;
+    blocks.push({ key: boundaries[i].last4, label, hint: boundaries[i].last4, txns, source: "deterministic" });
+  }
+  return blocks.length >= 2 ? blocks : null;
 }
 
 // One logical account's worth of transactions found inside a statement PDF.
@@ -162,6 +244,7 @@ export interface ParsedAccountBlock {
   label: string;       // display name from the statement, e.g. "Regular Checking"
   hint?: string;        // last 4 digits, for auto-matching to a linked account
   txns: ParsedStatementTxn[];
+  source?: "deterministic" | "ai"; // which parser produced this block, for a UI badge
 }
 
 export interface StatementParseResult {
@@ -295,6 +378,7 @@ function parseCitiFormat(lines: string[]): StatementParseResult {
       if (!iso || numbers.length === 0) continue;
       const amount = numbers[0]; // second figure, if present, is the running balance — not the transaction amount
       const desc = rowMatch[2].replace(MONEY_RE, "").trim().replace(/\s{2,}/g, " ");
+      if (BALANCE_LINE_RE.test(desc)) continue;
       const dir = classifyCitiRow(desc);
       // Unclassified rows default to money-out rather than silently
       // inflating income — the import preview still shows every row for
@@ -324,6 +408,7 @@ function parseGenericMMDD(lines: string[]): ParsedStatementTxn[] {
     const line = raw.trim();
     const m = line.match(ROW_RE);
     if (!m) continue;
+    if (BALANCE_LINE_RE.test(m[2])) continue;
     const [mmStr, ddStr] = m[1].split("/");
     const mm = parseInt(mmStr, 10), dd = parseInt(ddStr, 10);
     if (!mm || !dd || mm < 1 || mm > 12 || dd < 1 || dd > 31) continue;
@@ -380,10 +465,13 @@ export function parseStatement(lines: string[]): StatementParseResult {
   const citi = parseCitiFormat(lines);
   if (citi.recognizedFormat) return { ...citi, accounts: cleanAccounts(citi.accounts) };
 
+  const multiAccount = parseBoaMultiAccount(lines);
+  if (multiAccount) return { recognizedFormat: true, accounts: cleanAccounts(multiAccount) };
+
   const boa = parseStatementLines(lines);
   const hint = detectAccountHint(lines) ?? undefined;
   if (boa.recognizedFormat || boa.txns.length > 0) {
-    return { recognizedFormat: boa.recognizedFormat, accounts: cleanAccounts([{ key: hint ?? "file", label: "Statement", hint, txns: boa.txns }]) };
+    return { recognizedFormat: boa.recognizedFormat, accounts: cleanAccounts([{ key: hint ?? "file", label: "Statement", hint, txns: boa.txns, source: "deterministic" }]) };
   }
 
   // Neither known layout matched and the MM/DD/YYYY fallback found nothing —
@@ -420,4 +508,48 @@ function hashStr(s: string): string {
 
 export function buildImportTransactionId(accountId: string, date: string, description: string, amount: number): string {
   return `pdfimport_${accountId}_${date}_${hashStr(`${description}|${amount}`)}`;
+}
+
+// Hard-coded per-bank parsers above only ever cover the layouts they were
+// built and tested against — any other bank, or a BoA/Citi layout change,
+// falls back to a blind date-and-dollar-amount scan that trusts whatever
+// sign is printed and can't tell a statement with several accounts apart.
+// This calls a Supabase edge function (parse-statement-ai) that hands the
+// extracted text to an LLM and asks it to return the same structured
+// accounts/transactions shape, so an unfamiliar layout gets a real attempt
+// at being split into accounts correctly instead of one unreliable flat
+// list. Nothing from here is ever written to the database directly — it
+// flows through the same include/exclude review checklist as every other
+// parse path, since an LLM can misread a figure and that has to stay
+// catchable by a human before import.
+export interface AiParseResult {
+  accounts: ParsedAccountBlock[];
+  error?: string;
+}
+
+const AI_PARSE_MAX_LINES = 1400; // keeps the request within a safe token budget
+
+export async function parseStatementWithAI(lines: string[]): Promise<AiParseResult> {
+  const trimmed = lines.slice(0, AI_PARSE_MAX_LINES);
+  const { data, error } = await supabase.functions.invoke("parse-statement-ai", {
+    body: { lines: trimmed },
+  });
+  if (error) return { accounts: [], error: error.message || "AI parsing failed" };
+  const rawAccounts = Array.isArray(data?.accounts) ? data.accounts : [];
+  const accounts: ParsedAccountBlock[] = rawAccounts
+    .map((a: { label?: string; last4?: string; txns?: { date?: string; description?: string; amount?: number }[] }, i: number) => {
+      const txns: ParsedStatementTxn[] = (a.txns ?? [])
+        .map(t => ({ date: String(t?.date ?? ""), description: cleanDescription(String(t?.description ?? "")), amount: Number(t?.amount) }))
+        .filter(t => /^\d{4}-\d{2}-\d{2}$/.test(t.date) && Number.isFinite(t.amount) && t.description && !BALANCE_LINE_RE.test(t.description));
+      return {
+        key: a.last4 || `ai-${i}`,
+        label: a.label?.trim() || `Account ${i + 1}`,
+        hint: a.last4 || undefined,
+        txns,
+        source: "ai" as const,
+      };
+    })
+    .filter(a => a.txns.length > 0);
+  if (accounts.length === 0) return { accounts: [], error: data?.error || "AI couldn't find any transactions in this file" };
+  return { accounts };
 }

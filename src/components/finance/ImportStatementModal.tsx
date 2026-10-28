@@ -11,14 +11,16 @@
  * one group per account it finds, and each group gets its own "which linked
  * account is this for" picker rather than one picker for the whole file.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, type DragEvent } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Upload, FileText, X, AlertTriangle, Loader2 } from "lucide-react";
-import { extractPdfLines, parseStatement, buildImportTransactionId, type ParsedStatementTxn } from "@/lib/statement-import";
+import { Upload, FileText, X, AlertTriangle, Loader2, Trash2, Sparkles } from "lucide-react";
+import { extractPdfLines, parseStatement, parseStatementWithAI, buildImportTransactionId, type ParsedStatementTxn } from "@/lib/statement-import";
+import { IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { fmtShortDate } from "@/lib/format-date";
 
 const IMPORT_TAG = "Imported";
@@ -37,6 +39,7 @@ interface DetectedGroup {
   label: string;
   hint?: string;
   accountId: string;
+  source?: "deterministic" | "ai";
 }
 
 interface PreviewRow extends ParsedStatementTxn {
@@ -60,31 +63,70 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
   const [unrecognizedFiles, setUnrecognizedFiles] = useState<string[]>([]);
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+  const [confirmingRemoveImports, setConfirmingRemoveImports] = useState(false);
+  const [removingImports, setRemovingImports] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [fileLines, setFileLines] = useState<Record<string, string[]>>({});
+  const [aiParsingFile, setAiParsingFile] = useState<string | null>(null);
 
   const reset = useCallback(() => {
-    setGroups([]); setRows([]); setUnrecognizedFiles([]); setParsing(false); setImporting(false);
+    setGroups([]); setRows([]); setUnrecognizedFiles([]); setParsing(false); setImporting(false); setFileLines({}); setAiParsingFile(null);
   }, []);
 
   const close = () => { reset(); onClose(); };
 
-  const handleFiles = async (fileList: FileList | null) => {
+  const refreshImportedCount = useCallback(async () => {
+    const { count, error } = await supabase
+      .from("plaid_transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .like("transaction_id", `${IMPORT_ID_PREFIX}%`);
+    if (!error) setImportedCount(count ?? 0);
+  }, [userId]);
+
+  useEffect(() => { if (open) void refreshImportedCount(); }, [open, refreshImportedCount]);
+
+  const removeAllImported = async () => {
+    setRemovingImports(true);
+    try {
+      const { error } = await supabase
+        .from("plaid_transactions")
+        .delete()
+        .eq("user_id", userId)
+        .like("transaction_id", `${IMPORT_ID_PREFIX}%`);
+      if (error) throw error;
+      toast.success("Removed all previously imported transactions");
+      setImportedCount(0);
+      setConfirmingRemoveImports(false);
+      onImported();
+    } catch (e) {
+      toast.error("Couldn't remove imported data", { description: (e as Error)?.message });
+    } finally {
+      setRemovingImports(false);
+    }
+  };
+
+  const handleFiles = async (fileList: FileList | File[] | null) => {
     if (!fileList || fileList.length === 0) return;
     setParsing(true);
     const files = Array.from(fileList);
     const nextGroups: DetectedGroup[] = [];
     const nextRows: PreviewRow[] = [];
     const unrecognized: string[] = [];
+    const nextFileLines: Record<string, string[]> = {};
     try {
       for (const file of files) {
         try {
           const lines = await extractPdfLines(file);
+          nextFileLines[file.name] = lines;
           const { accounts: blocks, recognizedFormat } = parseStatement(lines);
           if (!recognizedFormat) unrecognized.push(file.name);
           for (const block of blocks) {
             if (block.txns.length === 0) continue;
             const groupId = crypto.randomUUID();
             const matched = block.hint ? accounts.find(a => a.mask && a.mask === block.hint) : undefined;
-            nextGroups.push({ groupId, file: file.name, label: block.label, hint: block.hint, accountId: matched?.account_id ?? "" });
+            nextGroups.push({ groupId, file: file.name, label: block.label, hint: block.hint, accountId: matched?.account_id ?? "", source: block.source ?? "deterministic" });
             for (const t of block.txns) nextRows.push({ ...t, id: crypto.randomUUID(), groupId, include: true });
           }
         } catch (e) {
@@ -94,12 +136,63 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
       setGroups(prev => [...prev, ...nextGroups]);
       setRows(prev => [...prev, ...nextRows]);
       setUnrecognizedFiles(prev => [...prev, ...unrecognized]);
+      setFileLines(prev => ({ ...prev, ...nextFileLines }));
       if (nextRows.length === 0 && unrecognized.length === 0) {
         toast.error("No transactions found in that file");
       }
     } finally {
       setParsing(false);
     }
+  };
+
+  // Re-parses one already-uploaded file with the AI-assisted extractor and
+  // swaps its groups/rows for the result — the escape hatch for when a
+  // layout was technically "recognized" by the deterministic parser but
+  // structured wrong (e.g. two accounts merged into one), or wasn't
+  // recognized at all. Uses the lines captured during the original upload,
+  // so the user doesn't have to re-pick the file.
+  const reparseWithAI = async (fileName: string) => {
+    const lines = fileLines[fileName];
+    if (!lines) return;
+    setAiParsingFile(fileName);
+    try {
+      const { accounts: blocks, error } = await parseStatementWithAI(lines);
+      if (error && blocks.length === 0) {
+        toast.error("AI-assisted parsing didn't find anything usable", { description: error });
+        return;
+      }
+      setGroups(prev => prev.filter(g => g.file !== fileName));
+      setRows(prev => prev.filter(r => {
+        const g = groups.find(gr => gr.groupId === r.groupId);
+        return g ? g.file !== fileName : true;
+      }));
+      setUnrecognizedFiles(prev => prev.filter(f => f !== fileName));
+      const addedGroups: DetectedGroup[] = [];
+      const addedRows: PreviewRow[] = [];
+      for (const block of blocks) {
+        const groupId = crypto.randomUUID();
+        const matched = block.hint ? accounts.find(a => a.mask && a.mask === block.hint) : undefined;
+        addedGroups.push({ groupId, file: fileName, label: block.label, hint: block.hint, accountId: matched?.account_id ?? "", source: "ai" });
+        for (const t of block.txns) addedRows.push({ ...t, id: crypto.randomUUID(), groupId, include: true });
+      }
+      setGroups(prev => [...prev, ...addedGroups]);
+      setRows(prev => [...prev, ...addedRows]);
+      toast.success(`AI found ${addedGroups.length} account${addedGroups.length !== 1 ? "s" : ""} and ${addedRows.length} transaction${addedRows.length !== 1 ? "s" : ""}`);
+    } catch (e) {
+      toast.error("AI-assisted parsing failed", { description: (e as Error)?.message });
+    } finally {
+      setAiParsingFile(null);
+    }
+  };
+
+  const handleDrop = (e: DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const dropped = Array.from(e.dataTransfer.files ?? []);
+    const pdfs = dropped.filter(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
+    const skipped = dropped.length - pdfs.length;
+    if (skipped > 0) toast.error(`Skipped ${skipped} file${skipped !== 1 ? "s" : ""} that ${skipped !== 1 ? "aren't" : "isn't"} a PDF`);
+    void handleFiles(pdfs);
   };
 
   const toggleRow = (id: string) => setRows(prev => prev.map(r => r.id === id ? { ...r, include: !r.include } : r));
@@ -188,22 +281,43 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
         </DialogDescription>
 
         {groups.length === 0 && unrecognizedFiles.length === 0 ? (
-          <label className="mt-2 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/50 py-10 cursor-pointer hover:border-[hsl(var(--primary)/0.5)] hover:bg-muted/10 transition-colors">
-            <input type="file" accept="application/pdf" multiple className="hidden"
-              onChange={e => handleFiles(e.target.files)} disabled={parsing}/>
-            {parsing ? (
-              <>
-                <Loader2 className="h-6 w-6 text-muted-foreground animate-spin"/>
-                <p className="text-[12.5px] text-muted-foreground">Reading statement…</p>
-              </>
-            ) : (
-              <>
-                <Upload className="h-6 w-6 text-muted-foreground/60"/>
-                <p className="text-[12.5px] text-foreground font-medium">Choose PDF statements</p>
-                <p className="text-[11px] text-muted-foreground/70">You can select more than one at a time</p>
-              </>
+          <>
+            <label
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={handleDrop}
+              className={cn(
+                "mt-2 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-10 cursor-pointer transition-colors",
+                dragging ? "border-[hsl(var(--primary)/0.7)] bg-muted/20" : "border-border/50 hover:border-[hsl(var(--primary)/0.5)] hover:bg-muted/10",
+              )}>
+              <input type="file" accept="application/pdf" multiple className="hidden"
+                onChange={e => handleFiles(e.target.files)} disabled={parsing}/>
+              {parsing ? (
+                <>
+                  <Loader2 className="h-6 w-6 text-muted-foreground animate-spin"/>
+                  <p className="text-[12.5px] text-muted-foreground">Reading statement…</p>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-6 w-6 text-muted-foreground/60"/>
+                  <p className="text-[12.5px] text-foreground font-medium">Choose PDF statements</p>
+                  <p className="text-[11px] text-muted-foreground/70">Drag and drop files here, or click to browse — you can pick more than one</p>
+                </>
+              )}
+            </label>
+            {!!importedCount && (
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-border/30 px-3 py-2">
+                <span className="text-[11.5px] text-muted-foreground">
+                  {importedCount} transaction{importedCount !== 1 ? "s" : ""} from a previous import, found a mistake (like a
+                  statement balance line getting imported as a transaction)?
+                </span>
+                <button onClick={() => setConfirmingRemoveImports(true)}
+                  className="h-7 px-2.5 rounded-lg text-[11px] font-medium text-negative hover:bg-negative/10 flex items-center gap-1 shrink-0">
+                  <Trash2 className="h-3 w-3"/> Remove all imported data
+                </button>
+              </div>
             )}
-          </label>
+          </>
         ) : (
           <div className="flex flex-col flex-1 min-h-0 gap-3 mt-1">
             {unrecognizedFiles.length > 0 && (
@@ -216,15 +330,31 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
               </div>
             )}
 
-            <label className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/50 py-2 cursor-pointer hover:border-[hsl(var(--primary)/0.5)] transition-colors text-[11.5px] text-muted-foreground">
+            <label
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={handleDrop}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-2 cursor-pointer transition-colors text-[11.5px] text-muted-foreground",
+                dragging ? "border-[hsl(var(--primary)/0.7)] bg-muted/20" : "border-border/50 hover:border-[hsl(var(--primary)/0.5)]",
+              )}>
               <input type="file" accept="application/pdf" multiple className="hidden" onChange={e => handleFiles(e.target.files)} disabled={parsing}/>
               {parsing ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Upload className="h-3.5 w-3.5"/>}
-              Add more files
+              {dragging ? "Drop PDFs to add them" : "Add more files, or drag and drop"}
             </label>
 
             <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-border/30 divide-y divide-border/20">
               {filesShown.map(file => (
                 <div key={file}>
+                  <div className="flex items-center justify-between gap-2 px-3 py-1 bg-muted/10">
+                    <span className="text-[10px] text-muted-foreground/60 truncate">{file}</span>
+                    <button onClick={() => reparseWithAI(file)} disabled={aiParsingFile === file || !fileLines[file]}
+                      title="Didn't come out right? Re-read this file with AI instead"
+                      className="h-6 px-2 rounded-md text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/40 flex items-center gap-1 shrink-0 disabled:opacity-50">
+                      {aiParsingFile === file ? <Loader2 className="h-3 w-3 animate-spin"/> : <Sparkles className="h-3 w-3"/>}
+                      Re-parse with AI
+                    </button>
+                  </div>
                   {groups.filter(g => g.file === file).map(g => {
                     const groupRows = rows.filter(r => r.groupId === g.groupId);
                     return (
@@ -233,7 +363,11 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
                           <FileText className="h-3 w-3 text-muted-foreground/60 shrink-0"/>
                           <span className="text-[11px] font-medium text-foreground truncate">{g.label}</span>
                           {g.hint && <span className="text-[10px] text-muted-foreground/60 shrink-0">••{g.hint}</span>}
-                          <span className="text-[10px] text-muted-foreground/50 truncate">{file}</span>
+                          {g.source === "ai" && (
+                            <span className="inline-flex items-center gap-1 text-[9.5px] font-medium text-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.12)] rounded px-1.5 py-0.5 shrink-0">
+                              <Sparkles className="h-2.5 w-2.5"/> AI
+                            </span>
+                          )}
                           <span className="text-[10.5px] text-muted-foreground/70 shrink-0 ml-auto">{groupRows.length} txns</span>
                           <select value={g.accountId} onChange={e => setGroupAccount(g.groupId, e.target.value)}
                             className={cn("h-7 max-w-[190px] rounded-lg border text-[11px] text-foreground px-1.5 outline-none shrink-0",
@@ -285,6 +419,16 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
           </div>
         )}
       </DialogContent>
+
+      <ConfirmDialog
+        open={confirmingRemoveImports}
+        onOpenChange={setConfirmingRemoveImports}
+        title="Remove all imported data?"
+        description={`This permanently deletes all ${importedCount ?? 0} transaction${importedCount === 1 ? "" : "s"} brought in from a PDF statement import — useful if a statement's balance line or a duplicate got imported by mistake. Transactions synced directly from your bank are not affected. This can't be undone.`}
+        confirmLabel="Remove imported data"
+        onConfirm={removeAllImported}
+        busy={removingImports}
+      />
     </Dialog>
   );
 }

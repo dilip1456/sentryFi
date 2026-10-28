@@ -32,6 +32,14 @@ const CATEGORY_TYPE: Record<string, TxnType> = {
   "savings & investments": "savings_contribution",
   "savings": "savings_contribution",
   "investment transfer": "savings_contribution",
+  "investing": "savings_contribution",
+  "investment": "savings_contribution",
+  "investments": "savings_contribution",
+  "retirement": "savings_contribution",
+  "401k": "savings_contribution",
+  "401(k)": "savings_contribution",
+  "hsa": "savings_contribution",
+  "health savings account": "savings_contribution",
   "unreviewed transfer": "transfer_out",
   "transfer out": "transfer_out",
   "transfer in": "transfer_in",
@@ -81,11 +89,12 @@ export function typeForCategory(
 ): TxnType | null {
   const c = (category ?? "").trim().toLowerCase();
   if (!c) return null;
-  const custom = customCategories.find(x => x.name.trim().toLowerCase() === c);
-  if (custom) {
-    if (custom.type === "income") return "income_other";
-    return amount < 0 ? "refund" : "spend";
-  }
+  // A known financial term (mortgage, HSA, taxes, ...) wins even if the user
+  // also happens to have a custom category of the same name — otherwise a
+  // custom "Mortgage" expense category silently defeats loan-payment
+  // detection and the transaction looks like ordinary spending everywhere
+  // in the app. Only truly unrecognized category names fall to the
+  // custom-category / generic-spend fallback below.
   const t = CATEGORY_TYPE[c];
   if (t) {
     if (t === "transfer_out" && amount < 0) return "transfer_in";
@@ -93,6 +102,11 @@ export function typeForCategory(
     if (t === "savings_contribution" && amount < 0) return "transfer_internal"; // money back from savings
     if (isObligationType(t) && amount < 0) return "refund";
     return t;
+  }
+  const custom = customCategories.find(x => x.name.trim().toLowerCase() === c);
+  if (custom) {
+    if (custom.type === "income") return "income_other";
+    return amount < 0 ? "refund" : "spend";
   }
   if (c === "other") return null; // catch-all, not a deliberate assignment
   if (KNOWN_SPEND.has(c)) return amount < 0 ? "refund" : "spend";

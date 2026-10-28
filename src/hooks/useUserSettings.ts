@@ -73,6 +73,21 @@ export interface RecurringGroup {
 // for reporting/reading purposes.
 export interface TxnSplit { label: string; amount: number; category?: string; }
 
+// Self-reported investing risk tolerance for My Financial Picture's Risk
+// Profile card — nothing in transaction history can tell us this.
+export type RiskProfile = "conservative" | "moderate" | "aggressive";
+
+// My Financial Picture's editable-overrides + funding-account-tag state.
+// `overrides` and `fundingAccounts` are both keyed by a stable field id the
+// page assigns (e.g. "income.salary", "deduction.hsa", "obligation:Mortgage")
+// rather than a fixed set of named fields, so the page can grow new editable
+// rows without another migration every time.
+export interface FinancialPictureData {
+  overrides: Record<string, number>;
+  fundingAccounts: Record<string, string>; // field id -> plaid account_id
+  riskProfile?: RiskProfile;
+}
+
 export interface UserSettings {
   budgets: Record<string, number>;
   accountRoles: Record<string, AccountRoleInfo>;
@@ -110,6 +125,8 @@ export interface UserSettings {
   // valued by the funding account's account_id. Mirrors the "Credit Cards /
   // Autopay from" block users already keep by hand in a spreadsheet.
   cardAutopayFrom: Record<string, string>;
+  // My Financial Picture's manual corrections + funding-account tags + risk profile.
+  financialPicture: FinancialPictureData;
 }
 
 const DEFAULTS: UserSettings = {
@@ -121,6 +138,7 @@ const DEFAULTS: UserSettings = {
   panelOrder: [], accountMeta: {}, benefitsUsed: {}, moneyMapFeedback: {},
   txnTags: {}, txnNotes: {}, recurringOverrides: {}, txnSplits: {}, recurringGroups: [],
   cardAutopayFrom: {},
+  financialPicture: { overrides: {}, fundingAccounts: {} },
 };
 
 // Migrate existing localStorage data on first load (one-time)
@@ -195,6 +213,9 @@ const dbToSettings = (row: any): UserSettings => ({
   txnSplits:          row.txn_splits        ?? {},
   recurringGroups:    Array.isArray(row.recurring_groups) ? row.recurring_groups : [],
   cardAutopayFrom:    row.card_autopay_from  ?? {},
+  financialPicture:   row.financial_picture && typeof row.financial_picture === "object"
+    ? { overrides: {}, fundingAccounts: {}, ...row.financial_picture }
+    : { overrides: {}, fundingAccounts: {} },
 });
 
 const settingsToDb = (s: UserSettings) => ({
@@ -226,6 +247,7 @@ const settingsToDb = (s: UserSettings) => ({
   txn_splits:          s.txnSplits,
   recurring_groups:    s.recurringGroups,
   card_autopay_from:   s.cardAutopayFrom,
+  financial_picture:   s.financialPicture,
 });
 
 export const useUserSettings = (userId: string | undefined) => {
@@ -567,6 +589,30 @@ export const useUserSettings = (userId: string | undefined) => {
     update({ cardAutopayFrom: next });
   };
 
+  // ── My Financial Picture: editable overrides, funding-account tags, risk profile ──
+  const setFinancialPictureOverride = (key: string, amount: number) =>
+    update({ financialPicture: {
+      ...latestSettings.current.financialPicture,
+      overrides: { ...latestSettings.current.financialPicture.overrides, [key]: amount },
+    } });
+  const clearFinancialPictureOverride = (key: string) => {
+    const next = { ...latestSettings.current.financialPicture.overrides };
+    delete next[key];
+    update({ financialPicture: { ...latestSettings.current.financialPicture, overrides: next } });
+  };
+  const setFinancialPictureFundingAccount = (key: string, accountId: string) =>
+    update({ financialPicture: {
+      ...latestSettings.current.financialPicture,
+      fundingAccounts: { ...latestSettings.current.financialPicture.fundingAccounts, [key]: accountId },
+    } });
+  const clearFinancialPictureFundingAccount = (key: string) => {
+    const next = { ...latestSettings.current.financialPicture.fundingAccounts };
+    delete next[key];
+    update({ financialPicture: { ...latestSettings.current.financialPicture, fundingAccounts: next } });
+  };
+  const setRiskProfile = (profile: RiskProfile) =>
+    update({ financialPicture: { ...latestSettings.current.financialPicture, riskProfile: profile } });
+
   return {
     settings, loaded,
     // Raw updater for anything not covered
@@ -596,5 +642,8 @@ export const useUserSettings = (userId: string | undefined) => {
     addTxnToRecurringGroup, removeTxnFromRecurringGroup,
     resetBudgetTracking,
     setCardAutopayFrom, removeCardAutopayFrom,
+    setFinancialPictureOverride, clearFinancialPictureOverride,
+    setFinancialPictureFundingAccount, clearFinancialPictureFundingAccount,
+    setRiskProfile,
   };
 };

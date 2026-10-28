@@ -160,6 +160,26 @@ const GROUP_OPTIONS: { key: GroupKey; label: string }[] = [
   { key: "status", label: "Status" },
 ];
 
+// ── Account-type grouping for the Accounts filter dropdown — same buckets
+// the Accounts tab itself groups by, so "Credit Cards" here means the same
+// thing it does there. Lets the dropdown offer a one-click "every credit
+// card" selection instead of making the user tick each card individually. ──
+type AcctGroupKey = "checking" | "savings" | "credit" | "loan" | "investment" | "other";
+const ACCOUNT_GROUP_ORDER: AcctGroupKey[] = ["checking", "savings", "credit", "loan", "investment", "other"];
+const ACCOUNT_GROUP_LABEL: Record<AcctGroupKey, string> = {
+  checking: "Checking", savings: "Savings & HSA", credit: "Credit Cards", loan: "Loans", investment: "Investments", other: "Other",
+};
+function accountGroupKey(a: { type: string | null; subtype: string | null }): AcctGroupKey {
+  const type = (a.type ?? "").toLowerCase();
+  const sub = (a.subtype ?? "").toLowerCase();
+  if (type === "credit") return "credit";
+  if (type === "loan") return "loan";
+  if (type === "investment") return "investment";
+  if (sub === "checking") return "checking";
+  if (sub === "savings" || sub.includes("money market") || sub === "hsa" || sub === "cd") return "savings";
+  return "other";
+}
+
 
 function monthBucketsList(count: number) {
   const now = new Date();
@@ -402,7 +422,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     setSortBy(key);
     setSortDesc(key === "date" || key === "amount" || key === "status"); // dates/amounts start newest/largest first; text columns start A→Z
   };
-  const [accountFilter, setAccountFilter] = useState<string>("");
+  const [accountFilters, setAccountFilters] = useState<string[]>([]);
+  const toggleAccountFilter = (id: string) => setAccountFilters(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const accountsMenu = useFloatingMenu(260);
   const [amountMode, setAmountMode] = useState<"range"|"fixed">("range");
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
@@ -994,7 +1016,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     // (account/type/amount/date/tag) still apply on top, since those are
     // filters the user explicitly set, not automatic period scoping.
     let t = searching ? txns.filter(x => !internalTxnIds.has(x.id)) : [...periodTxns];
-    if (accountFilter) t = t.filter(x => x.account_id === accountFilter);
+    if (accountFilters.length > 0) t = t.filter(x => accountFilters.includes(x.account_id));
     if (typeFilter === "in") t = t.filter(x => Number(x.amount) < 0);
     else if (typeFilter === "out") t = t.filter(x => Number(x.amount) > 0);
     if (amountMode === "fixed" && fixedAmount.trim()) {
@@ -1038,13 +1060,30 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, txns, internalTxnIds, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilter, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+  }, [periodTxns, txns, internalTxnIds, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilters, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
   const accountsInPeriod = useMemo(() => {
     const ids = new Set(periodTxns.map(t => t.account_id));
     return accounts.filter(a => ids.has(a.account_id)).sort((a,b) => (a.name??"").localeCompare(b.name??""));
   }, [accounts, periodTxns]);
+
+  // Same accounts, bucketed into the Checking/Savings/Credit Cards/etc.
+  // groups the Accounts filter dropdown shows, so a whole group can be
+  // selected in one click instead of ticking every card individually.
+  const accountGroups = useMemo(() => {
+    const byGroup = new Map<AcctGroupKey, PAccount[]>();
+    for (const a of accountsInPeriod) {
+      const k = accountGroupKey(a);
+      const list = byGroup.get(k);
+      if (list) list.push(a); else byGroup.set(k, [a]);
+    }
+    return ACCOUNT_GROUP_ORDER.filter(k => byGroup.has(k)).map(k => ({ key: k, label: ACCOUNT_GROUP_LABEL[k], accounts: byGroup.get(k)! }));
+  }, [accountsInPeriod]);
+  const toggleAccountGroup = (ids: string[]) => setAccountFilters(prev => {
+    const allSelected = ids.length > 0 && ids.every(id => prev.includes(id));
+    return allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])];
+  });
 
   // Every category present this period (for the standalone Category filter,
   // independent of clicking a card in the Categories list).
@@ -1062,9 +1101,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [periodTxns, txnTags]);
   const toggleTagFilter = (tag: string) => setTagFilter(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
 
-  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilter || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
+  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilters.length > 0 || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
   const clearFilters = () => {
-    setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); setAccountFilter(""); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
+    setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); setAccountFilters([]); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
     setTypeFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
   };
   // "date" desc (newest first) is the default sort; anything else counts as
@@ -1447,8 +1486,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           />
         ) : (
         <div className="space-y-3.5">
-        <div className="surface-card p-4 md:p-5 shrink-0">
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 lg:gap-7 items-stretch">
+        <div className={cn("surface-card p-4 md:p-5 shrink-0", granularity==="all" && "inline-flex")}>
+          <div className={cn(
+            granularity==="all"
+              // Nothing to bucket into a scrubber for "all time" — a full
+              // stretched grid just leaves a wide empty gap between the label
+              // and the stats. Sit them together, compact, on one side instead.
+              ? "flex flex-wrap items-center gap-5"
+              : "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 lg:gap-7 items-stretch w-full",
+          )}>
 
             {/* Left: duration toggle + spend bar spikes */}
             <div className="min-w-0">
@@ -1456,7 +1502,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 /* No scrubber to bucket "all time" into; just a plain label,
                    same vertical footprint as the other tabs so switching
                    between them doesn't reflow the header. */
-                <div className="h-8 flex items-center text-[11px] text-muted-foreground/70">
+                <div className="h-8 flex items-center text-[11px] text-muted-foreground/70 whitespace-nowrap">
                   Every transaction on record, across every account and year.
                 </div>
               ) : granularity==="day" ? (
@@ -1495,16 +1541,21 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             {/* Right: period summary; always just Total earned / Total spent
                 for the selected range, so the panel's height and shape never
                 change across day/week/month/year (no month-only budget block). */}
-            <div className="w-full lg:w-[240px] shrink-0 lg:border-l lg:border-border/50 lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/50">
+            <div className={cn(
+              "shrink-0 border-border/50",
+              granularity==="all"
+                ? "border-l pl-5"
+                : "w-full lg:w-[240px] lg:border-l lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0",
+            )}>
               <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 {activeRange.label}
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
+              <div className={cn(granularity==="all" ? "flex items-center gap-5" : "space-y-2")}>
+                <div className={cn("flex items-center gap-3", granularity==="all" ? "flex-col items-start" : "justify-between")}>
                   <span className="text-[12px] text-muted-foreground">Total earned</span>
                   <span className="text-[15px] font-semibold tabular text-positive">{fmtUSD(totalEarned)}</span>
                 </div>
-                <div className="flex items-center justify-between gap-3">
+                <div className={cn("flex items-center gap-3", granularity==="all" ? "flex-col items-start" : "justify-between")}>
                   <span className="text-[12px] text-muted-foreground">Total spent</span>
                   <span className="text-[15px] font-semibold tabular text-foreground">{fmtUSD(animatedTotal)}</span>
                 </div>
@@ -1957,18 +2008,18 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   )}
                 </div>
 
-                <div className="relative shrink-0">
-                  <Landmark className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50 pointer-events-none"/>
-                  <select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)}
-                    className="h-7 pl-6 pr-6 rounded-lg bg-muted/40 border border-border/60 text-[11.5px] font-medium text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] appearance-none max-w-[150px]">
-                    <option value="">All accounts</option>
-                    {accountsInPeriod.map(a => (
-                      <option key={a.account_id} value={a.account_id}>
-                        {a.name ?? a.official_name ?? "Account"}{a.mask ? ` ••${a.mask}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
+                  className={cn("h-7 pl-2.5 pr-2 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0 max-w-[170px]",
+                    accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Landmark className="h-3 w-3 shrink-0"/>
+                  <span className="truncate">
+                    {accountFilters.length===0
+                      ? "All accounts"
+                      : accountFilters.length===1
+                        ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "1 account")
+                        : `${accountFilters.length} accounts`}
+                  </span>
+                </button>
 
                 <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
                   className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
@@ -2043,28 +2094,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     <button onClick={clearSort} aria-label="Clear sort" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
                   </span>
                 )}
-                {catTab !== "expenses" && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {CAT_TABS.find(t => t.key === catTab)?.label}
-                    <button onClick={()=>setCatTab("expenses")} aria-label="Back to Expenses" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {catSel && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
-                    Category: {formatCat(catSel)}
-                    <button onClick={()=>setCatSel(null)} aria-label="Clear category filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
                 {searchTerms.map(term => (
                   <span key={term} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
                     "{term}"
                     <button onClick={()=>removeSearchTerm(term)} aria-label={`Clear search filter ${term}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
                   </span>
                 ))}
-                {accountFilter && (
+                {accountFilters.length > 0 && (
                   <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {accountsInPeriod.find(a=>a.account_id===accountFilter)?.name ?? "Account"}
-                    <button onClick={()=>setAccountFilter("")} aria-label="Clear account filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
+                    {accountFilters.length === 1 ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "Account") : `${accountFilters.length} accounts`}
+                    <button onClick={()=>setAccountFilters([])} aria-label="Clear account filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
                   </span>
                 )}
                 {amountMode==="range" ? (minAmount || maxAmount) && (
@@ -2517,6 +2556,55 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {groupBy===g.key && <Check className="h-3.5 w-3.5"/>}
               </button>
             ))}
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* Accounts filter; checkbox multi-select grouped the same way the
+          Accounts tab groups accounts (Checking/Savings/Credit Cards/...),
+          with a group-level checkbox so "every credit card" is one click
+          instead of ticking each card. Replaces the old single-account
+          <select> so more than one account can be filtered to at once. */}
+      {accountsMenu.open && accountsMenu.pos && createPortal(
+        <>
+          <div className="fixed inset-0 z-[998]" onClick={accountsMenu.close}/>
+          <div className="spending-v2 fixed z-[999] w-64 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
+            style={{ top: accountsMenu.pos.top, bottom: accountsMenu.pos.bottom, right: accountsMenu.pos.right, maxHeight: accountsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Accounts</span>
+              {accountFilters.length > 0 && (
+                <button onClick={()=>setAccountFilters([])} className="text-[10.5px] text-muted-foreground hover:text-foreground">Clear</button>
+              )}
+            </div>
+            {accountGroups.length === 0 && (
+              <div className="px-3 py-2 text-[12px] text-muted-foreground">No accounts in this period</div>
+            )}
+            {accountGroups.map(g => {
+              const ids = g.accounts.map(a => a.account_id);
+              const allSelected = ids.every(id => accountFilters.includes(id));
+              return (
+                <div key={g.key} className="border-t border-border/20 first:border-t-0 py-0.5">
+                  <button onClick={()=>toggleAccountGroup(ids)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left hover:bg-secondary/50 transition-colors">
+                    <span className="text-[11.5px] font-semibold text-foreground">{g.label}</span>
+                    <span className={cn("h-4 w-4 rounded border grid place-items-center shrink-0",
+                      allSelected ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]" : "border-border/60")}>
+                      {allSelected && <Check className="h-3 w-3 text-background"/>}
+                    </span>
+                  </button>
+                  {g.accounts.map(a => {
+                    const checked = accountFilters.includes(a.account_id);
+                    return (
+                      <label key={a.account_id} className="w-full flex items-center gap-2 pl-5 pr-3 py-1.5 cursor-pointer hover:bg-secondary/50 transition-colors">
+                        <input type="checkbox" checked={checked} onChange={()=>toggleAccountFilter(a.account_id)} className="shrink-0"/>
+                        <span className="text-[12.5px] text-foreground truncate">{a.name ?? a.official_name ?? "Account"}{a.mask ? ` ••${a.mask}` : ""}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </>,
         document.body

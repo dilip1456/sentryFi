@@ -8,6 +8,42 @@ new/remaining ideas.
   No free public API exists; plan is manual entry + transaction matching now, with a
   licensed feed (Cardlytics/Fidel) as a possible future data source.
 
+## Planned: multi-provider bank linking
+Goal: stop depending on Plaid alone, without rewriting the app per provider.
+Context: Plaid is referenced in ~94 files; classify/pfc.ts and plaid-categories.ts
+assume Plaid's category taxonomy; dedup.ts assumes one source per account.
+
+1. Provider abstraction layer. Define neutral Account / Transaction / Category types.
+   Wrap the current plaid-* edge functions as a "Plaid adapter" that maps into them.
+   Classifier, recurring detection, budgets and insights read only the neutral types.
+2. Connection-failure logging per institution (Plaid item errors, relink rate).
+   This data decides whether step 4 is worth paying for.
+3. Surface statement import (ImportStatementModal / parse-statement-ai) as the
+   fallback whenever a Plaid link fails. Zero contract cost.
+4. Second aggregator as fallback only, routed per institution where Plaid fails.
+   Candidates: MX, Finicity (sales contracts, likely minimums), Teller (self-serve,
+   smaller coverage). Not a user-facing "pick your provider" option.
+5. Cross-provider dedup: same account linked via two providers must not double count.
+
+## Backlog (from competitor review, 2026-10-28; not committed)
+Competitors: PocketGuard, Simplifi, Monarch, YNAB, Rocket Money, Copilot, Origin.
+Differentiators to protect: Money Map (purpose per account), Smart Suggestions
+(move $X from the matching savings account), Gift Card Tracker.
+
+- Savings goals with target date, tied to Money Map accounts (Monarch, Simplifi).
+- Subscription view: list recurring charges, flag price increases, link to cancel
+  (Rocket Money). Builds on lib/recurring.
+- Net worth over time (Monarch, Origin).
+- Investment tracking: PocketGuard has none, cheap win against it.
+- Partner / shared access with per-account privacy (Monarch, Origin).
+- Ask-your-money assistant over transactions (Origin Sidekick, Cleo). Reuses
+  ai-categorize / analyze-finances.
+- Gift card security: encrypt card numbers and PINs at rest, or stop storing PINs.
+- Unit economics: Plaid cost per user vs "free to use". Decide paid tier before scale.
+- Open question: marketing leads with "True Available" but the Safe to spend hero
+  was removed from My Financial Picture. Pick one story, since PocketGuard and
+  Simplifi already own safe-to-spend.
+
 ## Done (this cycle)
 - Home / Overall: removed the "Home" tab (logo is now Home), welcome header, top button
   bar with sync / notifications / logout / profile image; account-composition

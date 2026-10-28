@@ -27,6 +27,10 @@ import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuCheckboxItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDemo } from "@/contexts/DemoContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
@@ -42,19 +46,19 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "benefits" | "spending" | "budget" | "moneymap" | "giftcards" | "admin";
+type View = "overall" | "benefits" | "spending" | "myfinances" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
-  { k: "overall",   label: "Home",       icon: LayoutDashboard },
-  { k: "moneymap",  label: "Money Map",  icon: Compass         },
-  { k: "spending",  label: "Spending",   icon: PieChart        },
-  { k: "budget",    label: "Budget",     icon: Wallet          },
-  { k: "giftcards", label: "Gift Cards", icon: Gift            },
-  { k: "benefits",  label: "Benefits",   icon: Sparkles        },
+  { k: "overall",     label: "Home",               icon: LayoutDashboard },
+  { k: "moneymap",    label: "Money Map",          icon: Compass         },
+  { k: "spending",    label: "Spending",           icon: PieChart        },
+  { k: "myfinances",  label: "My Financial Picture", icon: Wallet        },
+  { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
+  { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "spending", "budget", "moneymap"];
+const MOBILE_PRIMARY: View[] = ["overall", "spending", "myfinances", "moneymap"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
@@ -144,9 +148,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "budget";
+  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "myfinances";
   const showLiveSpending = !effectiveDemo && hasItems === true  && view === "spending";
-  const showLiveBudget   = !effectiveDemo && hasItems === true  && view === "budget";
+  const showLiveFinances = !effectiveDemo && hasItems === true  && view === "myfinances";
   const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -240,7 +244,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending","budget"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending","myfinances"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -253,46 +257,77 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
         </nav>
 
-        {/* Bottom actions */}
+        {/* Bottom actions — Sync/Link/Add manually share one "+ Add" menu, and
+            Dark mode/Sign out live in the profile menu, so this block stays
+            short instead of crowding the nav list above it. */}
         <div className="px-2 py-3 border-t border-[hsl(var(--sidebar-border))] space-y-0.5">
-          {!effectiveDemo && hasItems === true && (
-            <button
-              onClick={() => setSyncTrigger(t => t + 1)}
-              disabled={syncing}
-              className="nav-item w-full"
-            >
-              <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-              {syncing ? "Syncing…" : "Sync data"}
-            </button>
-          )}
           {!effectiveDemo && (
-            <button onClick={() => setLinkOpen(true)} className="nav-item w-full">
-              <Plus className="h-4 w-4" />
-              Link account
-            </button>
-          )}
-          {!effectiveDemo && (
-            <button onClick={() => setManualOpen(true)} className="nav-item w-full">
-              <Plus className="h-4 w-4" />
-              Add manually
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="nav-item w-full">
+                  <Plus className="h-4 w-4" />
+                  Add
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-56 surface-elevated">
+                {hasItems === true && (
+                  <DropdownMenuItem onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing} className="text-[13.5px]">
+                    <RefreshCw className={cn("h-4 w-4 mr-2", syncing && "animate-spin")} />
+                    {syncing ? "Syncing…" : "Sync data"}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => setLinkOpen(true)} className="text-[13.5px]">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Link account
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setManualOpen(true)} className="text-[13.5px]">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add manually
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {user && (
             <button onClick={() => setShowInbox(true)} className="nav-item w-full">
               <Bell className="h-4 w-4" />
               Notifications
+              {unreadCount > 0 && (
+                <span className="ml-auto min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[10.5px] font-bold grid place-items-center leading-none">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </button>
           )}
-          {user && !guestDemo && (
-            <button onClick={() => setShowProfile(true)} className="nav-item w-full">
-              <Settings className="h-4 w-4" />
-              Profile &amp; settings
+          {user && !guestDemo ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="nav-item w-full">
+                  <Settings className="h-4 w-4" />
+                  Profile &amp; settings
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-56 surface-elevated">
+                <DropdownMenuItem onClick={() => setShowProfile(true)} className="text-[13.5px]">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Profile &amp; settings
+                </DropdownMenuItem>
+                <DropdownMenuCheckboxItem checked={dark} onCheckedChange={toggleTheme} className="text-[13.5px]">
+                  {dark ? <Moon className="h-4 w-4 mr-2" /> : <Sun className="h-4 w-4 mr-2" />}
+                  Dark mode
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => signOut().then(() => navigate("/welcome"))} className="text-[13.5px] text-negative focus:text-negative">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button onClick={toggleTheme} className="nav-item w-full">
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {dark ? "Light mode" : "Dark mode"}
             </button>
           )}
-          <button onClick={toggleTheme} className="nav-item w-full">
-            {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            {dark ? "Light mode" : "Dark mode"}
-          </button>
           {demo && !guestDemo && (
             <button onClick={() => setDemo(false)} className="nav-item w-full text-warning">
               <Sparkles className="h-4 w-4" />
@@ -303,12 +338,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <button onClick={() => navigate("/auth")} className="nav-item w-full">
               <LogOut className="h-4 w-4" />
               Create free account
-            </button>
-          )}
-          {user && !guestDemo && (
-            <button onClick={() => signOut().then(() => navigate("/welcome"))} className="nav-item w-full">
-              <LogOut className="h-4 w-4" />
-              Sign out
             </button>
           )}
           <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/30 select-none">
@@ -471,12 +500,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
-          {/* Spending / Budget — full-bleed. These views skip the padded
+          {/* Spending / My Financial Picture — full-bleed. These views skip the padded
               container below, so they need their own loading + no-accounts
               states; previously both rendered a blank screen while the
               linked-account check was pending or when nothing was linked. */}
-          {(view === "spending" || view === "budget") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
-          {(view === "spending" || view === "budget") && showEmpty && (
+          {(view === "spending" || view === "myfinances") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
+          {(view === "spending" || view === "myfinances") && showEmpty && (
             <div className="content-max px-4 md:px-8 pt-6 pb-10">
               <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
             </div>
@@ -518,10 +547,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </>
           )}
 
-          {/* Budget — full-bleed, own BudgetPage component */}
-          {view === "budget" && (
+          {/* My Financial Picture — full-bleed, own MyFinancialPicture component */}
+          {view === "myfinances" && (
             <>
-              {showLiveBudget && (
+              {showLiveFinances && (
                 <LivePlaidDashboard
                   hasItems
                   onAddAccount={() => setLinkOpen(true)}
@@ -553,10 +582,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
 
           {/* All other views inside padded container */}
-          {view !== "spending" && view !== "budget" && (
+          {view !== "spending" && view !== "myfinances" && (
           <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
 
-            {/* Page header on desktop — Spending/Budget skip the title+date row
+            {/* Page header on desktop — Spending/My Financial Picture skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
                 covers it and the space is better spent on content. */}
             <div className="hidden md:flex items-center justify-between">
@@ -621,7 +650,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               SentryFi v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
-          )} {/* end: view !== spending/budget */}
+          )} {/* end: view !== spending/myfinances */}
         </main>
 
         {/* Mobile bottom tabs */}

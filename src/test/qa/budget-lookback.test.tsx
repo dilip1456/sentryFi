@@ -36,8 +36,14 @@ beforeAll(() => {
 afterAll(() => { vi.useRealTimers(); });
 
 describe("QA Budget 12-month lookback (rendered)", () => {
-  it("visits 12 distinct months on the 31st: a monthly paycheck reads '12 of last 12 months'", async () => {
-    const r = renderDashboard("budget");
+  // The Budget nav tab (and BudgetPage's recurring-income "N of last 12
+  // months" detector this test exercised) was removed in favor of My
+  // Financial Picture, which doesn't surface this figure. Skipped rather
+  // than deleted outright — this file can be removed once that's confirmed
+  // fine (the file can't be deleted by an agent sandboxed to this repo
+  // mount; it needs a manual `git rm`).
+  it.skip("visits 12 distinct months on the 31st: a monthly paycheck reads '12 of last 12 months'", async () => {
+    const r = renderDashboard("myfinances");
     await screen.findAllByText(/of last 12 months/);
     const counts = [...(r.container.textContent ?? "").matchAll(/(\d+) of last 12 months/g)].map(m => Number(m[1]));
     expect(counts.length).toBeGreaterThan(0);
