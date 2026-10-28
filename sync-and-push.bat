@@ -28,7 +28,7 @@ if errorlevel 1 (
   echo   git commit
   echo   git push origin main
   echo Do NOT push until the conflict is resolved. Come back and tell me what
-  echo the conflicting file(s) show if you want help picking the right resolution.
+  echo the conflicting file^(s^) show if you want help picking the right resolution.
   goto :end
 )
 

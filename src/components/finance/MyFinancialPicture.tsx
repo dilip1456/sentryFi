@@ -689,7 +689,7 @@ function BreakdownDialog({ entry, formatCat, accountsById, onClose, onOpenTxn }:
         {entry && (
           <>
             <DialogHeader>
-              <DialogTitle>{formatCat(entry.label)}</DialogTitle>
+              <DialogTitle className="font-display">{formatCat(entry.label)}</DialogTitle>
               <DialogDescription>{fmtUSD(entry.amount)} across {entry.txns.length} transaction{entry.txns.length === 1 ? "" : "s"}</DialogDescription>
             </DialogHeader>
             {cadence && desc && (
@@ -739,56 +739,63 @@ function OnboardingDialog({ open, initial, onClose, onSave }: {
   // aren't universally known — a native `title` tooltip stays a one-liner
   // on hover instead of adding permanent on-screen paragraph text.
   const fieldLabel = (label: string, hint?: string) => (
-    <span className="inline-flex items-center gap-1 text-[12px] text-foreground">
-      {label}
+    <span className="inline-flex items-center gap-1 text-[12px] text-foreground min-w-0 truncate">
+      <span className="truncate">{label}</span>
       {hint && (
-        <span title={hint} className="inline-flex shrink-0 cursor-help">
+        <span title={hint} className="inline-flex shrink-0 items-center cursor-help translate-y-[0.5px]">
           <Info aria-label={hint} className="h-3 w-3 text-muted-foreground/60" />
         </span>
       )}
     </span>
   );
 
-  const numberField = (label: string, key: "grossSalary" | "matchPct" | "hsaEmployer" | "espp" | "rsu", suffix: string, hint?: string) => (
-    <div className="flex items-center justify-between gap-3">
-      {fieldLabel(label, hint)}
-      <span className="relative inline-flex items-center w-24 shrink-0">
+  // Every row shares this grid so the label column and the control column
+  // line up at the same x position across all rows, regardless of the
+  // control type (input / select / button group) - a real two-column table
+  // rather than independently-sized flex rows.
+  const row = (label: React.ReactNode, control: React.ReactNode) => (
+    <div className="grid grid-cols-[1fr_104px] items-center gap-3">
+      {label}
+      <div className="flex justify-end">{control}</div>
+    </div>
+  );
+
+  const numberField = (label: string, key: "grossSalary" | "matchPct" | "hsaEmployer" | "espp" | "rsu", suffix: string, hint?: string) =>
+    row(fieldLabel(label, hint), (
+      <span className="relative inline-flex items-center w-full">
         <input type="number" value={form[key] || ""} placeholder="0"
           onChange={e => setForm(f => ({ ...f, [key]: parseFloat(e.target.value) || 0 }))}
           className="w-full h-8 rounded-md border border-border/60 bg-card pl-2 pr-7 text-[12.5px] font-semibold tabular text-right outline-none" />
         <span className="absolute right-2 text-[10.5px] text-muted-foreground pointer-events-none">{suffix}</span>
       </span>
-    </div>
-  );
+    ));
 
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Basic info</DialogTitle>
+          <DialogTitle className="font-display">Basic info</DialogTitle>
           <DialogDescription className="text-[11px]">All fields optional — improves accuracy.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <RowGroup label="Pay">
             {numberField("Gross annual salary", "grossSalary", "$/yr")}
-            <div className="flex items-center justify-between gap-3">
-              {fieldLabel("Filing status")}
-              <div className="flex rounded-lg border border-border/50 p-0.5 bg-muted/20 shrink-0">
+            {row(fieldLabel("Filing status"), (
+              <div className="flex w-full rounded-lg border border-border/50 p-0.5 bg-muted/20">
                 {(["single", "married_joint"] as const).map(fs => (
                   <button key={fs} type="button" onClick={() => setForm(f => ({ ...f, filingStatus: fs }))}
-                    className={cn("px-2 py-1 rounded-md text-[11px] font-medium", form.filingStatus === fs ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
+                    className={cn("flex-1 px-1 py-1 rounded-md text-[11px] font-medium whitespace-nowrap", form.filingStatus === fs ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
                     {fs === "single" ? "Single" : "Married"}
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              {fieldLabel("Pay frequency")}
+            ))}
+            {row(fieldLabel("Pay frequency"), (
               <select value={form.payFrequency} onChange={e => setForm(f => ({ ...f, payFrequency: Number(e.target.value) }))}
-                className="h-8 rounded-md border border-border/60 bg-card px-2 text-[12px] outline-none shrink-0">
+                className="w-full h-8 rounded-md border border-border/60 bg-card px-2 text-[12px] outline-none">
                 {PAY_FREQUENCIES.map((p, i) => <option key={p} value={i}>{p}</option>)}
               </select>
-            </div>
+            ))}
           </RowGroup>
           <RowGroup label="Employer benefits">
             {numberField("401(k) match", "matchPct", "%", "% of salary your employer adds to your retirement account")}
@@ -1330,7 +1337,7 @@ export function MyFinancialPicture({
     <div className="space-y-5 max-w-[1600px] mx-auto px-4 py-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-[18px] font-bold text-foreground">My Financial Picture</h1>
+          <h1 className="font-display text-[18px] font-semibold text-foreground">My Financial Picture</h1>
           <p className="text-[12px] text-muted-foreground">{range.label} · inferred from your linked accounts — click any number to see why, click the pencil to correct it</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1368,7 +1375,7 @@ export function MyFinancialPicture({
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
         <div className="space-y-4">
           <div>
-            <h2 className="text-[15px] font-bold text-foreground">Your Data</h2>
+            <h2 className="font-display text-[15px] font-semibold text-foreground">Your Data</h2>
             <p className="text-[11.5px] text-muted-foreground">
               {canEdit ? "Click the pencil next to any value to correct it." : isCurrentYear ? `${selectedYear} detected so far, projected to year end — switch to Monthly to edit.` : `${selectedYear} detected totals — switch to Monthly to edit.`}
             </p>
@@ -1548,7 +1555,7 @@ export function MyFinancialPicture({
 
         <div className="space-y-4">
           <div>
-            <h2 className="text-[15px] font-bold text-foreground">Insights</h2>
+            <h2 className="font-display text-[15px] font-semibold text-foreground">Insights</h2>
             <p className="text-[11.5px] text-muted-foreground">A snapshot of your financial health this {period === "monthly" ? "month" : "period"}.</p>
           </div>
 

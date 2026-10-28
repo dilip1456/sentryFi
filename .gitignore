@@ -59,3 +59,7 @@ blob-report/
 sentryfi-history-scrubbed/
 sentryFi-scrub/
 *.bfg-report/
+
+# Claude's local command-runner bridge (machine-specific automation, not app code)
+_shell/
+_trash/
