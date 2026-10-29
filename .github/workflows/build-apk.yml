@@ -11,6 +11,11 @@ on:
       - 'capacitor.config.ts'
       - 'vite.config.ts'
   workflow_dispatch:
+    inputs:
+      min_version_code:
+        description: "Optional minVersionCode for version.json (installed builds below it get a blocking update prompt). Overrides android/min-version-code.txt. Leave empty to use the file."
+        required: false
+        default: ""
 
 concurrency:
   group: apk-build
@@ -29,6 +34,9 @@ jobs:
     # so it must not be able to push to the repo.
     permissions:
       contents: read
+    outputs:
+      version_code: ${{ steps.version.outputs.code }}
+      version_name: ${{ steps.version.outputs.name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,6 +49,18 @@ jobs:
 
       - name: Install deps
         run: npm ci --ignore-scripts
+
+      # versionCode must strictly increase on every published build (the in-app updater
+      # compares it with the installed one). run_number only ever goes up for this workflow;
+      # the 1000 offset keeps it above the old hard-coded versionCode 2.
+      - name: Compute app version
+        id: version
+        run: |
+          CODE=$((1000 + GITHUB_RUN_NUMBER))
+          NAME=$(node -p "require('./package.json').version")
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "versionName=$NAME versionCode=$CODE"
 
       # The web bundle needs the Supabase URL + publishable key at BUILD time
       # (Vite inlines import.meta.env.VITE_*). They used to come from a committed
@@ -105,6 +125,8 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g -Dorg.gradle.daemon=false"
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           KEYSTORE_PATH: "sentryfi-release.keystore"
           KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
@@ -122,6 +144,24 @@ jobs:
           mkdir -p apk-out
           cp "$APK" apk-out/SentryFi.apk
 
+      # Fail loudly if the APK doesn't carry the versionCode we're about to publish.
+      - name: Verify APK version
+        env:
+          WANT_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          # `|| true`: under pipefail a missing build-tools dir would otherwise exit here silently.
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$AAPT2" ]; then
+            echo "::error::aapt2 not found under \$ANDROID_HOME/build-tools ($ANDROID_HOME); cannot verify the APK versionCode, refusing to publish an unverified APK"
+            exit 1
+          fi
+          LINE=$("$AAPT2" dump badging apk-out/SentryFi.apk | head -1)
+          echo "$LINE"
+          case "$LINE" in
+            *"versionCode='$WANT_CODE'"*) ;;
+            *) echo "::error::APK versionCode does not match $WANT_CODE"; exit 1 ;;
+          esac
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sentryfi-apk
@@ -130,7 +170,8 @@ jobs:
           retention-days: 7
 
   # Only this job can write to the repo, and it runs no third-party code:
-  # first-party checkout/download-artifact plus git.
+  # first-party checkout/download-artifact plus git and the runner's preinstalled node
+  # (an inline script below that writes version.json; no npm install).
   publish:
     needs: build
     if: github.ref == 'refs/heads/main'
@@ -145,17 +186,81 @@ jobs:
           name: sentryfi-apk
           path: apk-out
 
-      - name: Commit APK
+      # version.json is what the in-app updater reads (src/lib/app-update). sha256 and size
+      # are computed here, from the exact artifact being published.
+      - name: Write version.json
+        env:
+          VERSION_CODE: ${{ needs.build.outputs.version_code }}
+          VERSION_NAME: ${{ needs.build.outputs.version_name }}
+          MIN_VERSION_CODE_INPUT: ${{ inputs.min_version_code }}
         run: |
           mkdir -p public/downloads
           cp apk-out/SentryFi.apk public/downloads/SentryFi.apk
+          MIN="$MIN_VERSION_CODE_INPUT"
+          MIN_SRC="workflow_dispatch input min_version_code"
+          if [ -z "$MIN" ] && [ -f android/min-version-code.txt ]; then
+            # First line that is not blank or a # comment, surrounding whitespace trimmed.
+            MIN=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' android/min-version-code.txt | grep -vE '^(#|$)' | head -1 || true)
+            MIN_SRC="android/min-version-code.txt"
+          fi
+          MIN="${MIN:-0}"
+          # Digits only, at most 10 (keeps bash -gt and Number() exact; the versionCode check below bounds it further),
+          # so a huge value can no longer end up in version.json as 1e+20.
+          if ! [[ "$MIN" =~ ^[0-9]{1,10}$ ]]; then
+            echo "::error::minVersionCode from $MIN_SRC must be digits only (0-9) and at most 10 digits, got '$MIN'"; exit 1
+          fi
+          if [ "$MIN" -gt "$VERSION_CODE" ]; then
+            echo "::error::minVersionCode $MIN is above this build's versionCode $VERSION_CODE"; exit 1
+          fi
+          # One-line release notes: the commit subject, or the PR title for a merge commit.
+          SUBJECT=$(git log -1 --format=%s "$GITHUB_SHA")
+          if [[ "$SUBJECT" == "Merge pull request"* ]]; then
+            TITLE=$(git log -1 --format=%b "$GITHUB_SHA" | sed '/^\s*$/d' | head -1)
+            [ -n "$TITLE" ] && SUBJECT="$TITLE"
+          fi
+          # Assign, then export: `export X=$(cmd)` would hide a failing cmd.
+          if ! SHA256_LINE=$(sha256sum public/downloads/SentryFi.apk); then
+            echo "::error::sha256sum public/downloads/SentryFi.apk failed"; exit 1
+          fi
+          SHA256="${SHA256_LINE%% *}"
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::sha256 of public/downloads/SentryFi.apk is not 64 lowercase hex chars, got '$SHA256'"; exit 1
+          fi
+          if ! SIZE=$(stat -c%s public/downloads/SentryFi.apk); then
+            echo "::error::stat public/downloads/SentryFi.apk failed"; exit 1
+          fi
+          if ! [[ "$SIZE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::size of public/downloads/SentryFi.apk is not a positive integer, got '$SIZE'"; exit 1
+          fi
+          NOTES="$SUBJECT"
+          export SHA256 SIZE NOTES MIN
+          node -e '
+            const e = process.env;
+            const v = {
+              versionName: e.VERSION_NAME,
+              versionCode: Number(e.VERSION_CODE),
+              sha256: e.SHA256,
+              size: Number(e.SIZE),
+              releaseNotes: e.NOTES.replace(/\s+/g, " ").trim().slice(0, 300),
+              apkPath: "/downloads/SentryFi.apk",
+              publishedAt: new Date().toISOString(),
+            };
+            if (Number(e.MIN) > 0) v.minVersionCode = Number(e.MIN);
+            require("fs").writeFileSync("public/downloads/version.json", JSON.stringify(v, null, 2) + "\n");
+          '
+          cat public/downloads/version.json
+
+      - name: Commit APK
+        env:
+          VERSION_CODE: ${{ needs.build.outputs.version_code }}
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/downloads/SentryFi.apk
+          git add public/downloads/SentryFi.apk public/downloads/version.json
           if git diff --cached --quiet; then
             echo "APK unchanged"
           else
             VERSION=$(node -p "require('./package.json').version")
-            git commit -m "chore: APK v${VERSION} [skip ci]"
+            git commit -m "chore: APK v${VERSION} (build ${VERSION_CODE}) [skip ci]"
             git push
           fi
