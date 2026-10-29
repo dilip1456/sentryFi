@@ -28,8 +28,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
+import java.util.Collections;
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,10 +40,16 @@ import java.util.regex.Pattern;
  * In-app updater for the sideloaded APK.
  *
  * Downloads the APK from the one fixed origin, verifies its SHA-256 (from
- * version.json) and its package name and signing certificate against the
- * installed app, then hands it to the system PackageInstaller. Android shows
- * its own confirmation screen and enforces the "install unknown apps"
- * permission and signature continuity itself; nothing here bypasses either.
+ * version.json, compared in constant time) and its package name and signer set
+ * (must equal the installed app's) against the installed app, then hands it to
+ * the system PackageInstaller. Android shows its own confirmation screen and
+ * enforces the "install unknown apps" permission and signature continuity
+ * itself; nothing here bypasses either.
+ *
+ * Downloaded files live only in cache/updates/ and are removed before each new
+ * download, on any failure, once they have been copied into a PackageInstaller
+ * session, and on plugin load when the installed versionCode has caught up.
+ * Pure decision logic lives in {@link ApkUpdateChecks} (JVM unit-tested).
  *
  * Events: "downloadProgress" {bytes,total}, "installStatus" {status,code,message}.
  */
@@ -53,9 +59,12 @@ public class ApkUpdaterPlugin extends Plugin {
     // The only URLs this plugin will download from. Must match src/lib/app-update/config.ts.
     private static final Pattern ALLOWED_URL =
         Pattern.compile("^https://sentryfiapp\\.vercel\\.app/downloads/[A-Za-z0-9._-]+\\.apk(\\?v=[0-9]{1,12})?$");
-    private static final Pattern SHA256_HEX = Pattern.compile("^[0-9a-f]{64}$");
     private static final long MAX_BYTES = 200L * 1024 * 1024;
-    private static final String APK_FILE = "SentryFi-update.apk";
+    private static final String UPDATES_DIR = "updates";
+    // Both names start with ApkUpdateChecks.FILE_PREFIX, so cache cleanup recognises them.
+    private static final String APK_FILE = ApkUpdateChecks.FILE_PREFIX + ".apk";
+    private static final String PART_FILE = ApkUpdateChecks.FILE_PREFIX + ".apk.part";
+    private static final String SIGNATURE_MISMATCH_MSG = "This update is signed with a different key than the installed app";
     private static final String ACTION_INSTALL_STATUS = "com.sentryfi.app.APK_INSTALL_STATUS";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -76,6 +85,12 @@ public class ApkUpdaterPlugin extends Plugin {
             new IntentFilter(ACTION_INSTALL_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED
         );
+        // An update that installed successfully replaces this process before the success
+        // broadcast can delete the file, so tidy up here on the next start. Runs on the same
+        // single-thread executor as download/install, so it can't race them.
+        try {
+            executor.execute(this::cleanupStaleCache);
+        } catch (RuntimeException ignored) {}
     }
 
     @Override
@@ -121,13 +136,13 @@ public class ApkUpdaterPlugin extends Plugin {
     @PluginMethod
     public void download(PluginCall call) {
         final String url = call.getString("url", "");
-        final String expectedSha = call.getString("sha256", "").toLowerCase(Locale.ROOT);
+        final String expectedSha = call.getString("sha256", "");
         final long expectedSize = call.getLong("size", 0L);
         if (!ALLOWED_URL.matcher(url).matches()) {
             call.reject("Update URL is not allowed", "URL_NOT_ALLOWED");
             return;
         }
-        if (!SHA256_HEX.matcher(expectedSha).matches()) {
+        if (!ApkUpdateChecks.isValidSha256Hex(expectedSha)) {
             call.reject("Missing or invalid sha256", "INVALID_SHA256");
             return;
         }
@@ -136,26 +151,31 @@ public class ApkUpdaterPlugin extends Plugin {
             return;
         }
         executor.execute(() -> {
-            File out = apkFile();
+            File dir = updatesDir();
+            // Never keep an older download around: start every download from an empty folder.
+            ApkUpdateChecks.deleteOwnCacheFiles(dir);
+            File part = new File(dir, PART_FILE);
+            File out = new File(dir, APK_FILE);
             try {
-                String actual = downloadTo(url, out, expectedSize);
-                if (!actual.equals(expectedSha)) {
-                    deleteQuietly(out);
+                byte[] digest = downloadTo(url, part, expectedSize);
+                if (!ApkUpdateChecks.sha256Matches(expectedSha, digest)) {
+                    ApkUpdateChecks.deleteOwnCacheFiles(dir);
                     call.reject("Downloaded file failed the SHA-256 check", "SHA256_MISMATCH");
                     return;
                 }
+                if (!part.renameTo(out)) throw new IOException("Could not save the downloaded update");
                 JSObject ret = inspect(out);
                 String err = ret.getString("error");
                 if (err != null) {
-                    deleteQuietly(out);
+                    ApkUpdateChecks.deleteOwnCacheFiles(dir);
                     call.reject(ret.getString("message"), err);
                     return;
                 }
-                ret.put("sha256", actual);
+                ret.put("sha256", ApkUpdateChecks.hex(digest));
                 ret.put("size", out.length());
                 call.resolve(ret);
             } catch (Exception e) {
-                deleteQuietly(out);
+                ApkUpdateChecks.deleteOwnCacheFiles(dir);
                 String code = e instanceof SizeException ? "SIZE_MISMATCH" : "DOWNLOAD_FAILED";
                 call.reject(e.getMessage() != null ? e.getMessage() : "Download failed", code, e);
             } finally {
@@ -172,8 +192,8 @@ public class ApkUpdaterPlugin extends Plugin {
      */
     @PluginMethod
     public void install(PluginCall call) {
-        final String expectedSha = call.getString("sha256", "").toLowerCase(Locale.ROOT);
-        if (!SHA256_HEX.matcher(expectedSha).matches()) {
+        final String expectedSha = call.getString("sha256", "");
+        if (!ApkUpdateChecks.isValidSha256Hex(expectedSha)) {
             call.reject("Missing or invalid sha256", "INVALID_SHA256");
             return;
         }
@@ -186,26 +206,32 @@ public class ApkUpdaterPlugin extends Plugin {
             return;
         }
         executor.execute(() -> {
-            File apk = apkFile();
+            File dir = updatesDir();
+            File apk = new File(dir, APK_FILE);
             try {
                 if (!apk.isFile()) {
                     call.reject("Update file is missing; download it again", "FILE_MISSING");
                     return;
                 }
-                if (!sha256(apk).equals(expectedSha)) {
-                    deleteQuietly(apk);
+                if (!ApkUpdateChecks.sha256Matches(expectedSha, sha256(apk))) {
+                    ApkUpdateChecks.deleteOwnCacheFiles(dir);
                     call.reject("Update file failed the SHA-256 check", "SHA256_MISMATCH");
                     return;
                 }
                 JSObject info = inspect(apk);
                 if (info.getString("error") != null) {
-                    deleteQuietly(apk);
+                    ApkUpdateChecks.deleteOwnCacheFiles(dir);
                     call.reject(info.getString("message"), info.getString("error"));
                     return;
                 }
                 commitSession(apk);
+                // The bytes now live in the PackageInstaller session; the cached copy is no
+                // longer needed whatever the user picks on Android's confirmation screen (the
+                // JS flow always downloads again before installing again).
+                ApkUpdateChecks.deleteOwnCacheFiles(dir);
                 call.resolve();
             } catch (Exception e) {
+                ApkUpdateChecks.deleteOwnCacheFiles(dir);
                 call.reject(e.getMessage() != null ? e.getMessage() : "Install failed", "INSTALL_FAILED", e);
             } finally {
                 busy.set(false);
@@ -220,18 +246,60 @@ public class ApkUpdaterPlugin extends Plugin {
         return getContext().getPackageManager().canRequestPackageInstalls();
     }
 
-    private File apkFile() {
-        File dir = new File(getContext().getCacheDir(), "updates");
+    /** The plugin's own cache subfolder. Nothing outside it is ever written or deleted. */
+    private File updatesDir() {
+        File dir = new File(getContext().getCacheDir(), UPDATES_DIR);
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
-        return new File(dir, APK_FILE);
+        return dir;
+    }
+
+    /**
+     * Deletes leftover downloads: partial files always, and the downloaded APK when it can't be
+     * parsed or the installed app's versionCode is already >= the APK's.
+     */
+    private void cleanupStaleCache() {
+        try {
+            File dir = updatesDir();
+            long installedCode = installedVersionCode();
+            for (File f : ApkUpdateChecks.ownCacheFiles(dir)) {
+                Long cachedCode = APK_FILE.equals(f.getName()) ? archiveVersionCode(f) : null;
+                if (installedCode < 0 || ApkUpdateChecks.isCachedApkStale(installedCode, cachedCode)) {
+                    ApkUpdateChecks.deleteOwnCacheFiles(dir, Collections.singletonList(f));
+                }
+            }
+        } catch (Exception ignored) {
+            // Best effort: a leftover file only costs cache space and is replaced by the next download.
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private long installedVersionCode() {
+        try {
+            PackageInfo pi = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? pi.getLongVersionCode() : pi.versionCode;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private Long archiveVersionCode(File apk) {
+        try {
+            PackageInfo pi = getContext().getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), 0);
+            if (pi == null || !getContext().getPackageName().equals(pi.packageName)) return null;
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? pi.getLongVersionCode() : (long) pi.versionCode;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static class SizeException extends IOException {
         SizeException(String m) { super(m); }
     }
 
-    private String downloadTo(String url, File out, long expectedSize) throws Exception {
+    /** Streams {url} into {out}, enforcing size limits; returns the SHA-256 digest of the bytes. */
+    private byte[] downloadTo(String url, File out, long expectedSize) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setInstanceFollowRedirects(false); // stay on the pinned origin
         conn.setConnectTimeout(15000);
@@ -267,7 +335,7 @@ public class ApkUpdaterPlugin extends Plugin {
             }
             if (expectedSize > 0 && bytes != expectedSize) throw new SizeException("Download size mismatch");
             emitProgress(bytes, total > 0 ? total : bytes);
-            return hex(md.digest());
+            return md.digest();
         } finally {
             conn.disconnect();
         }
@@ -280,13 +348,19 @@ public class ApkUpdaterPlugin extends Plugin {
         notifyListeners("downloadProgress", p);
     }
 
-    /** Package name / version of the APK and whether its signer matches the installed app. */
+    /**
+     * Package name / version of the APK and whether its signer set equals the installed app's.
+     * Fails closed: unreadable or different signers reject with SIGNATURE_MISMATCH.
+     */
     @SuppressWarnings("deprecation")
     private JSObject inspect(File apk) {
         JSObject ret = new JSObject();
         PackageManager pm = getContext().getPackageManager();
+        // API 24-27: legacy GET_SIGNATURES. API 28+: GET_SIGNING_CERTIFICATES, plus GET_SIGNATURES
+        // so the legacy field is available as a fallback if signingInfo comes back null for
+        // the archive or the installed app.
         int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
-            ? PackageManager.GET_SIGNING_CERTIFICATES
+            ? (PackageManager.GET_SIGNING_CERTIFICATES | PackageManager.GET_SIGNATURES)
             : PackageManager.GET_SIGNATURES;
         PackageInfo archive = pm.getPackageArchiveInfo(apk.getAbsolutePath(), flags);
         if (archive == null) {
@@ -304,54 +378,54 @@ public class ApkUpdaterPlugin extends Plugin {
             ? archive.getLongVersionCode() : archive.versionCode;
         ret.put("versionCode", archiveCode);
         ret.put("versionName", archive.versionName);
+        Set<String> installedSigners;
+        Set<String> archiveSigners;
         try {
             PackageInfo installed = pm.getPackageInfo(self, flags);
-            Set<String> archiveSigners = signers(archive, false);
-            Set<String> installedSigners = signers(installed, true);
-            if (archiveSigners.isEmpty() || installedSigners.isEmpty()) {
-                // Could not read certificates on this Android build: leave the decision to the
-                // PackageInstaller, which always enforces signature continuity.
-                ret.put("signatureMatch", JSObject.NULL);
-            } else {
-                archiveSigners.retainAll(installedSigners);
-                if (archiveSigners.isEmpty()) {
-                    ret.put("error", "SIGNATURE_MISMATCH");
-                    ret.put("message", "This update is signed with a different key than the installed app");
-                    return ret;
-                }
-                ret.put("signatureMatch", true);
-            }
+            boolean modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                && installed.signingInfo != null && archive.signingInfo != null;
+            // Both sides are always read the same way, so the sets are comparable.
+            installedSigners = modern ? currentSigners(installed.signingInfo) : legacySigners(installed);
+            archiveSigners = modern ? currentSigners(archive.signingInfo) : legacySigners(archive);
         } catch (PackageManager.NameNotFoundException e) {
-            ret.put("signatureMatch", JSObject.NULL);
+            installedSigners = null;
+            archiveSigners = null;
         }
+        if (ApkUpdateChecks.compareSigners(installedSigners, archiveSigners) != ApkUpdateChecks.SignerVerdict.MATCH) {
+            ret.put("error", "SIGNATURE_MISMATCH");
+            ret.put("message", SIGNATURE_MISMATCH_MSG);
+            return ret;
+        }
+        ret.put("signatureMatch", true);
         return ret;
     }
 
-    /** SHA-256 digests of the signing certs. For the installed app, include rotated-out ancestors. */
+    /**
+     * SHA-256 digests of the certificates that currently sign the APK contents (one for a normal
+     * app, several for a multi-signer app). Rotated-out ancestors from the signing lineage are
+     * deliberately NOT included: an APK signed only with an old key must not pass.
+     */
+    private static Set<String> currentSigners(SigningInfo si) {
+        return digests(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? si.getApkContentsSigners() : null);
+    }
+
+    /** API 24-27 (and API 28+ fallback): the legacy PackageInfo.signatures field. */
     @SuppressWarnings("deprecation")
-    private static Set<String> signers(PackageInfo info, boolean includeHistory) {
+    private static Set<String> legacySigners(PackageInfo info) {
+        return digests(info.signatures);
+    }
+
+    private static Set<String> digests(Signature[] sigs) {
         Set<String> out = new HashSet<>();
-        Signature[] sigs = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            SigningInfo si = info.signingInfo;
-            if (si != null) {
-                if (si.hasMultipleSigners()) {
-                    sigs = si.getApkContentsSigners();
-                } else if (includeHistory) {
-                    sigs = si.getSigningCertificateHistory();
-                } else {
-                    Signature[] h = si.getSigningCertificateHistory();
-                    if (h != null && h.length > 0) sigs = new Signature[] { h[h.length - 1] };
-                }
-            }
-        } else {
-            sigs = info.signatures;
-        }
         if (sigs == null) return out;
         for (Signature s : sigs) {
+            if (s == null) continue;
             try {
-                out.add(hex(MessageDigest.getInstance("SHA-256").digest(s.toByteArray())));
-            } catch (Exception ignored) {}
+                out.add(ApkUpdateChecks.hex(MessageDigest.getInstance("SHA-256").digest(s.toByteArray())));
+            } catch (Exception e) {
+                // A certificate we can't hash makes the whole set untrustworthy: fail closed.
+                return new HashSet<>();
+            }
         }
         return out;
     }
@@ -413,7 +487,13 @@ public class ApkUpdaterPlugin extends Plugin {
         }
         // Signature mismatches surface as CONFLICT/INCOMPATIBLE with this message.
         if (message != null && message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE")) code = "SIGNATURE_MISMATCH";
-        if (status == PackageInstaller.STATUS_SUCCESS) deleteQuietly(apkFile());
+        // Any final outcome (success or failure): drop whatever is still cached. Normally the
+        // file was already removed right after the session was committed.
+        try {
+            executor.execute(() -> ApkUpdateChecks.deleteOwnCacheFiles(updatesDir()));
+        } catch (RuntimeException ignored) {
+            // Executor already shut down (plugin destroyed); load() cleans up on next start.
+        }
         emitStatus(status == PackageInstaller.STATUS_SUCCESS ? "success" : "failure", code, message);
     }
 
@@ -425,26 +505,13 @@ public class ApkUpdaterPlugin extends Plugin {
         notifyListeners("installStatus", s, true);
     }
 
-    private static String sha256(File f) throws Exception {
+    private static byte[] sha256(File f) throws Exception {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         try (InputStream in = new FileInputStream(f)) {
             byte[] buf = new byte[64 * 1024];
             int n;
             while ((n = in.read(buf)) != -1) md.update(buf, 0, n);
         }
-        return hex(md.digest());
-    }
-
-    private static String hex(byte[] b) {
-        StringBuilder sb = new StringBuilder(b.length * 2);
-        for (byte x : b) sb.append(String.format(Locale.ROOT, "%02x", x));
-        return sb.toString();
-    }
-
-    private static void deleteQuietly(File f) {
-        try {
-            //noinspection ResultOfMethodCallIgnored
-            f.delete();
-        } catch (Exception ignored) {}
+        return md.digest();
     }
 }
