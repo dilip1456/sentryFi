@@ -1,0 +1,5 @@
+0
+# minVersionCode written to public/downloads/version.json by build-apk.yml.
+# Installed builds with a lower versionCode get a blocking "Update required" prompt.
+# 0 = no minimum. The workflow_dispatch input min_version_code overrides this file.
+# versionCode of a CI build = 1000 + the workflow run number (see build-apk.yml).

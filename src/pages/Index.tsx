@@ -23,6 +23,8 @@ import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
+import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
+import { useAppUpdate } from "@/contexts/AppUpdateContext";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
@@ -76,6 +78,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [showInbox, setShowInbox] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [showAppUpdates, setShowAppUpdates] = useState(false);
+  const appUpdate = useAppUpdate();
+  const updateSupported = appUpdate.supported;
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
@@ -432,11 +437,22 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                       {theme === "dark" ? "Light mode" : "Dark mode"}
                     </button>
+                    {updateSupported ? (
+                      // Inside the APK: in-app update settings instead of a download link.
+                      <button onClick={() => { setHeaderMenuOpen(false); setShowAppUpdates(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                        <Download className="h-4 w-4 opacity-60" /> App updates
+                        {appUpdate.checkStatus === "available" && (
+                          <span className="ml-auto h-2 w-2 rounded-full bg-[hsl(var(--primary))]" aria-label="Update available" />
+                        )}
+                      </button>
+                    ) : (
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30"
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
+                    )}
                     {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-warning hover:bg-muted/50 border-t border-border/30">
@@ -716,6 +732,15 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
       <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
+      {updateSupported && (
+        <Dialog open={showAppUpdates} onOpenChange={setShowAppUpdates}>
+          <DialogContent className="max-w-md surface-elevated p-5">
+            <DialogTitle className="font-display text-base text-foreground">App updates</DialogTitle>
+            <DialogDescription className="sr-only">Check for and install SentryFi app updates.</DialogDescription>
+            <AppUpdateSettings />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <ManualAccountDialog
         open={manualOpen}

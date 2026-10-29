@@ -9,6 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { DemoProvider } from "@/contexts/DemoContext";
+import { AppUpdateProvider } from "@/contexts/AppUpdateContext";
+import { AppUpdatePrompt } from "@/components/app-update/AppUpdatePrompt";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -42,8 +44,10 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TooltipProvider>
+      <AppUpdateProvider>
         <Toaster />
         <Sonner />
+        <AppUpdatePrompt />
         <BrowserRouter>
           <AuthProvider>
             <DemoProvider>
@@ -64,6 +68,7 @@ const App = () => (
           </AuthProvider>
         </BrowserRouter>
         <SpeedInsights />
+      </AppUpdateProvider>
       </TooltipProvider>
     </ThemeProvider>
     <Analytics />
