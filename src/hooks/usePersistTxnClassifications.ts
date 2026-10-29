@@ -8,7 +8,7 @@ import { chunk, classificationDiff, type ClassificationRow } from "@/lib/timelin
 // generated Supabase types yet; use a narrow typed view like useTxnTypeOverrides.
 type Result<T> = Promise<{ data: T | null; error: { message: string; code?: string } | null }>;
 interface ClassTable {
-  select: (cols: string) => { eq: (c: string, v: string) => { range: (a: number, b: number) => Result<{ transaction_id: string; txn_type: string }[]> } };
+  select: (cols: string) => { eq: (c: string, v: string) => { order: (c: string, o: { ascending: boolean }) => { range: (a: number, b: number) => Result<{ transaction_id: string; txn_type: string }[]> } } };
   upsert: (rows: Record<string, unknown>[], opts: { onConflict: string }) => Result<unknown>;
 }
 const table = () => (supabase as unknown as { from: (t: string) => ClassTable }).from("txn_classifications");
@@ -30,7 +30,9 @@ export function usePersistTxnClassifications(
   const busy = useRef(false);
   const qc = useContext(QueryClientContext); // optional: some tests render the dashboard without a provider
 
-  useEffect(() => { stored.current = null; }, [userId]);
+  // a different user (sign-out → sign-in) starts fresh: their own stored rows, and a
+  // failure for the previous user (e.g. table missing then) no longer applies
+  useEffect(() => { stored.current = null; disabled.current = false; }, [userId]);
 
   useEffect(() => {
     if (!userId || disabled.current || !txns.length || !classes.size) return;
@@ -41,7 +43,9 @@ export function usePersistTxnClassifications(
         if (!stored.current) {
           const m = new Map<string, string>();
           for (let from = 0; from < 50000; from += 1000) {
-            const { data, error } = await table().select("transaction_id,txn_type").eq("user_id", userId).range(from, from + 999);
+            const { data, error } = await table().select("transaction_id,txn_type").eq("user_id", userId)
+              .order("transaction_id", { ascending: true }) // stable paging (PK suffix)
+              .range(from, from + 999);
             if (error) { disabled.current = true; console.warn("[txn_classifications] unavailable:", error.message); return; }
             for (const r of data ?? []) m.set(r.transaction_id, r.txn_type);
             if (!data || data.length < 1000) break;
