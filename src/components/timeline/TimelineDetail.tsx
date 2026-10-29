@@ -43,7 +43,7 @@ export function TimelineDetail({ e, accounts, history, today, onMarkSeen }: Prop
 
   const rows: [string, React.ReactNode][] = [
     ["When", e.upcoming ? `${dlong(e.occurred_on)} · expected` : hasTime(e) ? `${dlong(e.occurred_on)} · ${tfmt(e.occurred_at)}` : dlong(e.occurred_on)],
-    ["Account", accountLabel(e.account_id, accounts)],
+    ...(e.meta?.computed && !e.account_id ? [] : [["Account", accountLabel(e.account_id, accounts)] as [string, React.ReactNode]]),
     ["Type", <span key="t" className={cn("tl-tag", `k-${cat}`)}><Icon className="h-3.5 w-3.5" aria-hidden />{typeLabel}</span>],
     ["Status", <StatusBadge key="s" status={e.status} big className="inline-flex items-center gap-1.5 font-medium" />],
   ];
