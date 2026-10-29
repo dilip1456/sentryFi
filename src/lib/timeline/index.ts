@@ -8,3 +8,4 @@ export * from "./upcoming";
 export * from "./events";
 export * from "./persist";
 export * from "./demo";
+export * from "./paycheck";

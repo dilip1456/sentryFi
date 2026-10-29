@@ -5,12 +5,14 @@
  * milestones dated relative to today. Upcoming comes from running
  * src/lib/recurring detection over the demo history. No network.
  */
-import { classifyAll, type ClassifierAccount, type ClassifierTxn } from "@/lib/classify";
+import { classifyAll, type ClassifierAccount, type ClassifierTxn, type TxnType } from "@/lib/classify";
 import { demoAccounts, demoTransactions } from "@/lib/finance-data";
 import { addDays, todayLocal } from "@/lib/recurring/dates";
 import { detectRecurringSeries } from "@/lib/recurring/detect";
 import { toStreamRow } from "@/lib/recurring/rows";
+import { findPaycheckAnomalies, type PaycheckAnomaly } from "@/lib/paycheck-anomaly";
 import { eventsFromTransactions } from "./events";
+import { paycheckAlertEvent } from "./paycheck";
 import { paginateEvents } from "./paginate";
 import { buildUpcoming, type UpcomingAccount, type UpcomingStatement, type UpcomingMilestone } from "./upcoming";
 import type { TimelineCursor, TimelineEvent, TimelineFilters, TimelinePage } from "./types";
@@ -22,6 +24,8 @@ export interface DemoTimelineData {
   accounts: UpcomingAccount[];
   /** Oldest history day ("Start of history"). */
   oldest: string | null;
+  /** Paycheck anomalies (computed client-side, merged into history by the panel). */
+  paycheck: PaycheckAnomaly[];
 }
 
 const at = (day: string, hhmm: string) => (hhmm === "12:00" ? `${day}T12:00:00.000Z` : new Date(`${day}T${hhmm}:00-04:00`).toISOString());
@@ -88,10 +92,26 @@ export function demoTimeline(today = todayLocal()): DemoTimelineData {
     events,
     accounts: upAccounts,
     oldest: events.reduce<string | null>((m, e) => (!m || e.occurred_on < m ? e.occurred_on : m), null),
+    paycheck: demoPaycheck(txns.filter(t => t.date <= today), t => classes.get(t.id), today),
     upcoming: through => buildUpcoming({ today, through, streams, obligations, statements, milestones, accounts: upAccounts }),
   };
   cache = { key: today, data };
   return data;
+}
+
+/**
+ * The real detector over the demo history; when the regular demo paychecks
+ * give it nothing, an illustrative shortfall (like the other example
+ * alerts above) is shown instead so /demo has a paycheck alert to open.
+ */
+function demoPaycheck(txns: ClassifierTxn[], classOf: (t: ClassifierTxn) => { type: TxnType } | undefined, today: string): PaycheckAnomaly[] {
+  const now = new Date(`${today}T12:00:00`);
+  const found = findPaycheckAnomalies(txns, classOf, now);
+  if (found.length) return found;
+  const d = now.getDate() >= 20 ? now : new Date(now.getFullYear(), now.getMonth() - 1, 20);
+  const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return [{ kind: "paycheck_shortfall", month, found: 1, typical: 2, on: `${month}-20`,
+    text: "Usually ~2 paychecks land per month based on recent history — only 1 found so far this month. Worth checking for a missing or miscategorized deposit." }];
 }
 
 function nextMmdd(today: string, mmdd: string): string {
