@@ -20,6 +20,10 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import { bankHistory } from "@/lib/relink/history";
+import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
+import { paycheckAlerts } from "@/lib/paycheck-anomaly";
+import { setDerivedAlerts } from "@/lib/derived-alerts";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -158,6 +162,7 @@ type PItem = {
   item_id: string;
   institution_id: string | null;
   institution_name: string | null;
+  created_at?: string | null;
 };
 
 // Per-account metadata stored in localStorage
@@ -4534,6 +4539,28 @@ export const LivePlaidDashboard = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
+
+  // Days of history per connected bank (Financial Picture "Extend history" hint).
+  const bankHist = useMemo(() => bankHistory(items, accounts as { account_id: string; item_id?: string | null }[], txns, new Date()), [items, accounts, txns]);
+
+  // Paycheck anomalies → notification inbox Alerts (on-device, never pushed).
+  // Not in demo: the inbox belongs to the signed-in user.
+  useEffect(() => {
+    if (demo || guestDemo || loading) { setDerivedAlerts([]); return; }
+    setDerivedAlerts(paycheckAlerts(txns, classOf, new Date()));
+  }, [demo, guestDemo, loading, txns, classOf]);
+  useEffect(() => () => setDerivedAlerts([]), []);
+
+  // "Extend history": place edits whose transaction arrived after the re-link.
+  const relinkRetried = useRef(false);
+  useEffect(() => {
+    if (demo || guestDemo || !user || !settingsLoaded || loading || !txns.length || relinkRetried.current) return;
+    relinkRetried.current = true;
+    retryPendingCarryovers(supabase as unknown as RelinkDb, user.id, settings, next => S.update(next))
+      .then(r => { if (r.resolved) toast.success(`Moved ${r.resolved} more edit${r.resolved === 1 ? "" : "s"} to your re-linked bank`); })
+      .catch(e => console.warn("[relink] pending retry:", (e as Error)?.message));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per session, after the first full load
+  }, [demo, guestDemo, user, settingsLoaded, loading, txns.length]);
   // Everything that is NOT spending or income (internal transfers, card
   // payments, savings contributions, unreviewed transfers) — excluded from
   // every spend/income total. Kept under the historical name so existing
@@ -4660,7 +4687,7 @@ export const LivePlaidDashboard = ({
       const [accsRes, txnsData, itsRes, cdRes] = await Promise.all([
         supabase.from("plaid_accounts").select("*").eq("user_id",user.id).order("type"),
         fetchAllTransactions(user.id),
-        supabase.from("plaid_items").select("id,item_id,institution_id,institution_name").eq("user_id",user.id),
+        supabase.from("plaid_items").select("id,item_id,institution_id,institution_name,created_at").eq("user_id",user.id),
         supabase.from("plaid_credit_details").select("*").eq("user_id",user.id),
       ]);
       if (accsRes.error) console.error("[load] accounts:", accsRes.error.message);
@@ -6604,6 +6631,8 @@ export const LivePlaidDashboard = ({
         financialPicture={settings.financialPicture}
         onUpdate={S.update}
         demo={demo || guestDemo}
+        banks={bankHist}
+        dismissedInsights={settings.dismissedInsights}
       />
       {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}

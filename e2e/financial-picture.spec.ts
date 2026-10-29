@@ -259,3 +259,41 @@ test.describe("desktop (1440x900)", () => {
     expect(guard.consoleErrors).toEqual([]);
   });
 });
+
+// ── PR #28 follow-ups: history hint → Settings → Banks, state tax notes ─────
+for (const vp of [{ name: "390", width: 390, height: 844, mobile: true }, { name: "1440", width: 1440, height: 900, mobile: false }]) {
+  test.describe(`follow-ups at ${vp.name}`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
+    test.beforeEach(async ({ page }) => openPicture(page));
+
+    test("history hint links to Settings → Banks and can be dismissed", async ({ page, guard }) => {
+      const hint = page.getByTestId("history-hint");
+      await expect(hint).toBeVisible();
+      await expect(hint).toContainText(/less than 2 years of history|months of history/);
+      await hint.getByRole("button", { name: "Extend history" }).click();
+      const dlg = page.getByRole("dialog").filter({ hasText: "Settings" });
+      await expect(dlg).toBeVisible();
+      await expect(dlg.getByRole("button", { name: "Banks", pressed: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dlg).toBeHidden();
+      await hint.getByRole("button", { name: "Dismiss history hint" }).click();
+      await expect(hint).toBeHidden();
+      // Demo is a guest: settings live in memory, so the dismissal holds while the page does.
+      if (vp.mobile) {
+        await page.getByRole("button", { name: /^Income/ }).first().click();
+        await page.getByRole("button", { name: "Back" }).first().click();
+      }
+      await expect(page.getByTestId("history-hint")).toBeHidden();
+      expect(guard.consoleErrors).toEqual([]);
+    });
+
+    test("Tax Savers and Tax Bracket say state tax isn't included", async ({ page }) => {
+      const notes = page.getByTestId("state-tax-note");
+      await notes.first().scrollIntoViewIfNeeded();
+      await expect(notes.filter({ visible: true })).toHaveCount(2);
+      if (vp.mobile) await page.getByRole("button", { name: /^Tax Bracket/ }).click();
+      else await page.getByRole("button", { name: "Tax Bracket details" }).click();
+      await expect(page.getByRole("dialog", { name: "Tax Bracket" }).getByText(/State tax not included/)).toBeVisible();
+    });
+  });
+}

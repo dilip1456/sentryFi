@@ -139,6 +139,7 @@ export function TaxSaversCard() {
         <LimitBar label="401(k)" yearly={m.payroll.k401 * 12} limit={savers.k401Limit} />
       </div>
       <div className="mt-3 pt-3 border-t border-border"><MatchBlock compact /></div>
+      <p className="mini mt-2" data-testid="state-tax-note">State tax not included</p>
     </div>
   );
 }
@@ -191,6 +192,7 @@ export function BracketCard() {
           ))}
         </tbody>
       </table>
+      <p className="mini mt-2" data-testid="state-tax-note">State tax not included</p>
     </div>
   );
 }
@@ -302,6 +304,7 @@ export function InsightsMobile() {
           <span className="s">You save {fmt(savers.now)}/yr · <span className="text-positive font-semibold">+{fmt(savers.more)} if maxed</span></span>
           {!match.answered && <span className="s"><CircleHelp className="h-3.5 w-3.5 text-primary" aria-hidden="true" />Employer match? Tap to answer</span>}
           {match.answer === "yes" && <span className="s">{match.full ? "Getting the full 401(k) match" : `Missing ${fmt(match.missing)}/yr of match`}</span>}
+          <span className="s" data-testid="state-tax-note">State tax not included</span>
         </span>
         {chev}
       </button>
@@ -316,6 +319,7 @@ export function InsightsMobile() {
           <span className="t"><Percent className="h-4 w-4 text-primary" aria-hidden="true" />Tax Bracket</span>
           <span className="kpi text-[30px] text-primary">{Math.round(tax.rate * 100)}%</span>
           <span className="mini">{tax.toNext != null && tax.nextRate != null ? `${fmt(tax.toNext)} below ${Math.round(tax.nextRate * 100)}%` : "Top bracket"}</span>
+          <span className="mini" data-testid="state-tax-note">State tax not included</span>
         </button>
         <button type="button" className="tile" onClick={() => open("risk")}>
           <span className="t"><GaugeIcon className="h-4 w-4 text-primary" aria-hidden="true" />Risk Profile</span>

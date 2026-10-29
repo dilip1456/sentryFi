@@ -7,6 +7,7 @@ import {
 import { toast } from "sonner";
 import { fmtShortDate, fmtTimeAgo } from "@/lib/format-date";
 import { prepareInbox, isUnread as inboxUnread, dueLabel, allIds, type InboxAlert } from "@/lib/notifications";
+import { useDerivedAlerts, derivedInboxRows, markDerivedRead, isDerivedId } from "@/lib/derived-alerts";
 
 /** Fired after alerts are marked read so the bell badge refreshes at once. */
 export const ALERTS_READ_EVENT = "sentryfi:alerts-read";
@@ -43,6 +44,7 @@ const ALERT_ICON: Record<string, React.ElementType> = {
   insight:          Lightbulb,
   cc_payment_posted: CheckCheck,
   transfer:         ArrowLeftRight,
+  paycheck_anomaly: AlertTriangle,
 };
 
 const ALERT_COLOR: Record<string, string> = {
@@ -55,6 +57,7 @@ const ALERT_COLOR: Record<string, string> = {
   insight:          "text-[hsl(var(--primary))] bg-[hsl(var(--primary)/0.1)]",
   cc_payment_posted: "text-positive bg-positive/10",
   transfer:         "text-muted-foreground bg-muted",
+  paycheck_anomaly: "text-warning bg-warning/10",
 };
 
 const timeAgo = (dateStr: string) => fmtTimeAgo(dateStr);
@@ -89,9 +92,14 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
     loadAlerts();
   }, [open, loadAlerts]);
 
+  // Paycheck anomalies are worked out on this device (src/lib/derived-alerts)
+  // and listed beside the alert_log rows; their read state is local.
+  const derived = useDerivedAlerts();
+  const all = useMemo(() => [...alerts, ...(derivedInboxRows(userId, derived) as Alert[])], [alerts, derived, userId]);
+
   // Identical alerts collapse into one row; past-due reminders sink and
   // stop counting as unread.
-  const inbox = useMemo(() => prepareInbox(alerts), [alerts]);
+  const inbox = useMemo(() => prepareInbox(all), [all]);
 
   const notifyRead = () => window.dispatchEvent(new Event(ALERTS_READ_EVENT));
 
@@ -99,7 +107,10 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
     setAlerts(prev => prev.map(a => (ids === null || ids.has(a.id)) && (at === null || !a.read_at) ? { ...a, read_at: at } : a));
 
   const markRead = async (item: InboxAlert<Alert>) => {
-    const ids = allIds(item).filter(id => !alerts.find(a => a.id === id)?.read_at);
+    const unread = allIds(item).filter(id => !all.find(a => a.id === id)?.read_at);
+    const local = unread.filter(isDerivedId);
+    if (local.length) { markDerivedRead(userId, local); notifyRead(); }
+    const ids = unread.filter(id => !isDerivedId(id));
     if (!ids.length) return;
     const at = new Date().toISOString();
     setReadLocally(new Set(ids), at);
@@ -111,6 +122,8 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
   // Marks EVERY unread alert for the user read — not just the ones loaded
   // into this list — so the bell badge actually clears.
   const markAllRead = async () => {
+    const local = all.filter(a => isDerivedId(a.id) && !a.read_at).map(a => a.id);
+    if (local.length) markDerivedRead(userId, local);
     const before = alerts;
     const at = new Date().toISOString();
     setReadLocally(null, at);
@@ -131,7 +144,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
   const closeDetail = () => setSelected(null);
 
   const unreadCount = inbox.filter(inboxUnread).length;
-  const anyUnreadRows = alerts.some(a => !a.read_at);
+  const anyUnreadRows = all.some(a => !a.read_at);
 
   return (
     <>
@@ -167,7 +180,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                 <Bell className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
                 <div className="text-[13px] font-medium text-foreground">No notifications yet</div>
                 <div className="text-[11px] text-muted-foreground mt-1">
-                  Alerts for budgets, payments, deposits and insights will appear here
+                  Alerts for budgets, payments, deposits, paychecks and insights will appear here
                 </div>
               </div>
             ) : inbox.map(alert => {
@@ -275,6 +288,22 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                             View transaction <ChevronRight className="h-3.5 w-3.5" />
                           </button>
                         )}
+                      </>
+                    )}
+
+                    {/* Paycheck anomaly (on-device check, no push) */}
+                    {selected.alert_type === "paycheck_anomaly" && (
+                      <>
+                        {p.kind === "misclassified" && <Row label="Other income this month" value={fmtUSD(Number(p.amount ?? 0), { cents: true })} highlight="warning" />}
+                        {p.kind === "missing" && <>
+                          <Row label="Paychecks this month" value={p.found ?? "-"} highlight="warning" />
+                          <Row label="Usually" value={p.typical != null ? `~${p.typical}` : "-"} />
+                        </>}
+                        <div className="text-[11.5px] text-muted-foreground leading-relaxed">
+                          {p.kind === "misclassified"
+                            ? "If it is a paycheck, open the deposit in Spending and set its type to Paycheck."
+                            : "If a deposit landed under another category, open it in Spending and set its type to Paycheck."}
+                        </div>
                       </>
                     )}
 

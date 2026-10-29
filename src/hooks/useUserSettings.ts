@@ -216,7 +216,7 @@ const dedupeCustomCats = (list: CustomCategory[]): CustomCategory[] => {
   return Array.from(byKey.values());
 };
 
-const dbToSettings = (row: any): UserSettings => ({
+export const dbToSettings = (row: any): UserSettings => ({
   budgets:            row.budgets           ?? {},
   accountRoles:       row.account_roles     ?? {},
   catOverrides:       row.cat_overrides     ?? {},
@@ -250,7 +250,7 @@ const dbToSettings = (row: any): UserSettings => ({
     : { overrides: {}, fundingAccounts: {} },
 });
 
-const settingsToDb = (s: UserSettings) => ({
+export const settingsToDb = (s: UserSettings) => ({
   budgets:             s.budgets,
   account_roles:       s.accountRoles,
   cat_overrides:       s.catOverrides,

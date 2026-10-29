@@ -23,6 +23,7 @@ import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
+import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
@@ -75,6 +76,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<SettingsTab>("profile");
+  // Other screens open Settings on a tab (the Financial Picture history hint → Banks).
+  useEffect(() => {
+    const on = (e: Event) => { setProfileTab((e as CustomEvent<{ tab: SettingsTab }>).detail?.tab ?? "profile"); setShowProfile(true); };
+    window.addEventListener(OPEN_SETTINGS_EVENT, on);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, on);
+  }, []);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [hasItems, setHasItems] = useState<boolean | null>(guestDemo ? false : null);
   const [manualOpen, setManualOpen] = useState(false);
@@ -715,7 +723,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         onClose={() => { setShowInbox(false); refreshUnread(); }}
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
-      <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
+      <ProfileDialog open={showProfile} initialTab={profileTab} onOpenChange={o => { setShowProfile(o); if (!o) setProfileTab("profile"); }} />
 
       <ManualAccountDialog
         open={manualOpen}

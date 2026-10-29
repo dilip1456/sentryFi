@@ -189,3 +189,13 @@
 .fp select option { background:hsl(var(--popover)); color:hsl(var(--foreground)); }
 .fp .flow-bar { display:flex; height:12px; border-radius:9999px; overflow:hidden; gap:2px; }
 .fp .flow-bar span { display:block; height:100%; }
+
+/* "Extend history" hint (history-hint.tsx) */
+.fp .hist-hint { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:12px; border:1px solid hsl(var(--primary)/.35); background:hsl(var(--primary)/.06); margin:12px 0 4px; }
+.fp .hist-t { font-size:13.5px; font-weight:600; color:hsl(var(--foreground)); }
+@media (max-width:767px){
+  .fp .hist-hint { display:grid; grid-template-columns:auto 1fr auto; align-items:start; gap:4px 10px; padding:12px; }
+  .fp .hist-hint > svg { margin-top:3px; }
+  .fp .hist-hint .hist-go { grid-column:2 / 3; justify-self:start; margin-top:6px; }
+  .fp .hist-hint .hist-x { grid-column:3; grid-row:1; margin:-8px -6px 0 0; border:0; }
+}

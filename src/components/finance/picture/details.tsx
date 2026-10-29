@@ -359,7 +359,7 @@ function RowDetail({ g, r }: { g: ListGroup; r: PictureRow }) {
     </>;
   } else if (g === "taxes") {
     body = <p className="note mt-4">{r.id === "fedtax" || r.id === "fica"
-      ? `Estimated from your gross pay with ${pc.year} federal rates (${pc.m.filing === "single" ? "single" : "married filing jointly"}). State tax isn't included. Estimate, not tax advice.`
+      ? `Estimated from your gross pay with ${pc.year} federal rates (${pc.m.filing === "single" ? "single" : "married filing jointly"}). State tax not included. Estimate, not tax advice.`
       : `${r.label} paid ${r.sub ?? "from your accounts"}.`}</p>;
   }
   return (
@@ -551,7 +551,7 @@ function TaxDetail() {
   return (
     <>
       <div className="big-line">You save {fmt(savers.now)} a year in taxes. Max out to save <b>+{fmt(savers.more)}</b> more.</div>
-      <p className="note mt-1">Federal income tax + Social Security/Medicare, {Math.round(tax.rate * 100)}% bracket. Estimate, not tax advice.</p>
+      <p className="note mt-1">Federal income tax + Social Security/Medicare, {Math.round(tax.rate * 100)}% bracket. State tax not included. Estimate, not tax advice.</p>
       <div className="h4">Your tax-saving accounts</div>
       <div className="space-y-4">
         <LimitBar label="HSA" yearly={hY} limit={savers.hsaLimit} sub={`Saves ${fmt(savers.hsaSaves)}/yr · ${fmt(savers.hsaRoom)} room left`} />
@@ -622,7 +622,7 @@ function BracketDetail() {
       {tax.toNext != null && tax.nextRate != null && (
         <p className="note mt-3 flex gap-2"><Lightbulb className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />You're {fmt(tax.toNext)} below the next bracket. A raise or bonus above that is taxed at {Math.round(tax.nextRate * 100)}%; more 401(k) keeps you in {Math.round(tax.rate * 100)}%.</p>
       )}
-      <p className="note mt-2">{year} federal brackets and standard deduction from IRS Rev. Proc. 2025-32. State tax isn't included. Estimate, not tax advice.</p>
+      <p className="note mt-2">{year} federal brackets and standard deduction from IRS Rev. Proc. 2025-32. State tax not included. Estimate, not tax advice.</p>
     </>
   );
 }

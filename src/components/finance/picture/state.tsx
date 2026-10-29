@@ -9,6 +9,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import type { FinancialPictureData, FinancialPictureManualItem, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "@/lib/picture/keys";
+import type { BankHistory } from "@/lib/relink/history";
 import { buildPictureModel, type AcctInfo, type PAccount, type PClass, type PictureGroup, type PictureModel, type PictureRow, type PTxn, type CardInfo } from "@/lib/picture/model";
 import { taxSnapshot, taxSaverNumbers, matchStatus, type MatchStatus, type TaxSnapshot, type TaxSaverNumbers, type EmployerMatch } from "@/lib/picture/tax";
 import { savingsBreakdown, type SavingsBreakdown, type TierAccount } from "@/lib/picture/savings-breakdown";
@@ -23,6 +24,7 @@ export interface PictureSettingsPatch {
   budgets?: Record<string, number>;
   cardAutopayFrom?: Record<string, string>;
   savingsGoals?: SavingsGoal[];
+  dismissedInsights?: string[];
 }
 
 export interface MyFinancialPictureProps {
@@ -44,6 +46,10 @@ export interface MyFinancialPictureProps {
   demo?: boolean;
   /** For tests / screenshots. */
   today?: Date;
+  /** History per connected bank, for the "Extend history" hint. */
+  banks?: BankHistory[];
+  /** user_settings.dismissedInsights (the hint's dismissal is stored there). */
+  dismissedInsights?: string[];
 }
 
 export type ListGroup = Exclude<PictureGroup, "cards">;

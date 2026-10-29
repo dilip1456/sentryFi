@@ -16,6 +16,7 @@ import { OverlayProvider, useOverlay } from "./picture/overlays";
 import { DataDesktop, DataMobile } from "./picture/data-column";
 import { InsightsDesktop, InsightsMobile } from "./picture/insights";
 import { renderDetail } from "./picture/details";
+import { HistoryHint } from "./picture/history-hint";
 
 export type { MyFinancialPictureProps, PictureSettingsPatch } from "./picture/state";
 
@@ -40,6 +41,7 @@ function Page({ isMobile }: { isMobile: boolean }) {
       <div className="px-4 pt-3 pb-28">
         <PeriodSeg />
         <div className="flex items-center gap-2 mt-3">{pc.demo && <ExampleTag />}<span className="text-[12.5px] text-muted-foreground">{periodLabel}</span></div>
+        <HistoryHint />
         <section aria-labelledby="yd-h" className="mt-4"><DataMobile /></section>
         <section aria-labelledby="in-h" className="mt-6"><InsightsMobile /></section>
       </div>
@@ -55,6 +57,7 @@ function Page({ isMobile }: { isMobile: boolean }) {
         <div className="mx-auto"><PeriodSeg /></div>
         <button type="button" className="btn" onClick={() => open("cashflow")}><ChartNoAxesColumnDecreasing className="h-4 w-4" aria-hidden="true" />Where it goes</button>
       </div>
+      <HistoryHint />
       <div className="grid grid-cols-2 gap-6 xl:gap-8 items-start mt-2">
         <section aria-labelledby="yd-h"><DataDesktop /></section>
         <section aria-labelledby="in-h"><InsightsDesktop /></section>
