@@ -1,0 +1,9 @@
+{
+  "versionName": "1.1.0",
+  "versionCode": 1206,
+  "sha256": "2e73831d07e178f8b591797d9ffb62757b403fb698b95de6b9c4a1b84f50b262",
+  "size": 7105352,
+  "releaseNotes": "feat: one-tap in-app update for the sideloaded APK",
+  "apkPath": "/downloads/SentryFi.apk",
+  "publishedAt": "2026-10-29T00:59:51.282Z"
+}
