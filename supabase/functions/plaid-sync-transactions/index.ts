@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { syncItemTransactions } from '../_shared/plaid-sync.ts';
+import { plaidAccountRows, upsertPlaidAccounts } from '../_shared/plaid-accounts.ts';
 import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
@@ -79,22 +80,7 @@ async function syncAccounts(admin: any, itemRowId: string, userId: string, acces
     });
     const data = await res.json();
     if (!res.ok) { console.warn('accounts/get error:', plaidErrorSummary(data, res.status)); return; }
-    const rows = (data.accounts ?? []).map((a: any) => ({
-      user_id: userId,
-      item_id: itemRowId,
-      account_id: a.account_id,
-      name: a.name,
-      official_name: a.official_name,
-      mask: a.mask,
-      type: a.type,
-      subtype: a.subtype,
-      current_balance: a.balances?.current,
-      available_balance: a.balances?.available,
-      iso_currency_code: a.balances?.iso_currency_code,
-    }));
-    if (rows.length) {
-      await admin.from('plaid_accounts').upsert(rows, { onConflict: 'account_id' });
-    }
+    await upsertPlaidAccounts(admin, plaidAccountRows(userId, itemRowId, data.accounts)); // never throws
   } catch (e) {
     console.warn('syncAccounts failed:', e);
   }

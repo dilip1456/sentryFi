@@ -3,12 +3,35 @@
  * They are computed on the client (not rows in alert_log), so "Mark as seen"
  * is remembered per user in localStorage (see seenStore below).
  */
-import type { PaycheckAnomaly } from "@/lib/paycheck-anomaly";
+import { paycheckAlerts, type AnomalyTxn, type ClassOf } from "@/lib/paycheck-anomaly";
 import { compareEventsDesc } from "./cursor";
 import { historyCategories, matchesFilters } from "./filters";
 import type { TimelineEvent, TimelineFilters } from "./types";
 
 export const PAYCHECK_ALERT_PREFIX = "alert:paycheck-";
+
+/** One month's paycheck anomaly, shaped for the Timeline (day it belongs to, ids). */
+export type PaycheckAnomaly =
+  | { kind: "paycheck_misclassified"; month: string; amount: number; on: string; txnIds: string[]; text: string }
+  | { kind: "paycheck_shortfall"; month: string; found: number; typical: number; on: string; text: string };
+
+/**
+ * The inbox's checks (src/lib/paycheck-anomaly `paycheckAlerts`, the single
+ * source since #28) as Timeline items: same rules, same wording, at most one
+ * per month. The shortfall belongs to the 20th (when it can first fire); a
+ * likely misclassified paycheck to the day of the latest other-income deposit.
+ */
+export function findPaycheckAnomalies<T extends AnomalyTxn>(txns: T[], classOf: ClassOf<T>, now: Date): PaycheckAnomaly[] {
+  return paycheckAlerts(txns, classOf, now).map((a): PaycheckAnomaly => {
+    const { month } = a.payload;
+    if (a.payload.kind === "misclassified") {
+      const ids = a.payload.transaction_ids ?? [];
+      const on = txns.filter(t => ids.includes(t.id)).reduce((m, t) => (t.date > m ? t.date : m), `${month}-01`);
+      return { kind: "paycheck_misclassified", month, amount: Math.round((a.payload.amount ?? 0) * 100) / 100, on, txnIds: ids, text: a.body };
+    }
+    return { kind: "paycheck_shortfall", month, found: a.payload.found ?? 0, typical: a.payload.typical ?? 0, on: `${month}-20`, text: a.body };
+  });
+}
 
 export const isComputedAlert = (e: Pick<TimelineEvent, "id" | "meta">) => e.meta?.computed === true;
 

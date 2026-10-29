@@ -44,6 +44,7 @@ export default {
         negative: {
           DEFAULT: "hsl(var(--negative))",
           foreground: "hsl(var(--negative-foreground))",
+          text: "hsl(var(--negative-text))",
         },
         warning: {
           DEFAULT: "hsl(var(--warning))",

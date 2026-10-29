@@ -5,10 +5,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { isValidTimeZone } from "@/lib/timezone";
 import { z } from "zod";
-import { Loader2, Landmark, Trash2, Camera, User, X, RefreshCw } from "lucide-react";
+import { Loader2, Landmark, Trash2, Camera, User, X, RefreshCw, History } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { useExtendHistory } from "@/components/finance/ExtendHistory";
+import { bankHistory, historyLabel, type BankHistory } from "@/lib/relink/history";
+import type { SettingsTab } from "@/lib/settings-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { isUpdateSupported } from "@/lib/app-update/native";
 
@@ -20,7 +23,8 @@ const schema = z.object({
   avatar_url: z.string().trim().url("Must be a valid URL").max(500).optional().or(z.literal("")),
 });
 
-type PlaidItemRow = { id: string; institution_name: string | null; status: string; created_at: string };
+type PlaidItemRow = { id: string; institution_id: string | null; institution_name: string | null; status: string; created_at: string };
+
 
 // Live US phone formatting as the user types: 5551234567 -> (555) 123-4567
 const formatPhone = (raw: string): string => {
@@ -34,9 +38,26 @@ const formatPhone = (raw: string): string => {
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** tab shown when the dialog opens (default Profile) */
+  initialTab?: SettingsTab;
 }
 
-export const ProfileDialog = ({ open, onOpenChange }: Props) => {
+/** Oldest transaction per bank → "About 3 months of history". */
+async function loadHistory(userId: string, items: PlaidItemRow[]): Promise<Record<string, BankHistory>> {
+  const { data: accts } = await supabase.from("plaid_accounts").select("account_id, item_id").eq("user_id", userId);
+  const accounts = (accts ?? []) as { account_id: string; item_id: string | null }[];
+  const oldest = await Promise.all(items.map(async it => {
+    const ids = accounts.filter(a => a.item_id === it.id).map(a => a.account_id);
+    if (!ids.length) return null;
+    const { data } = await supabase.from("plaid_transactions").select("account_id, date").eq("user_id", userId)
+      .in("account_id", ids).order("date", { ascending: true }).limit(1);
+    return (data?.[0] ?? null) as { account_id: string; date: string } | null;
+  }));
+  const list = bankHistory(items, accounts, oldest.filter((t): t is { account_id: string; date: string } => !!t), new Date());
+  return Object.fromEntries(list.map(b => [b.itemId, b]));
+}
+
+export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Props) => {
   const { user, profile, refresh, signOut } = useAuth();
   const navigate = useNavigate();
   const [displayName, setDisplayName] = useState("");
@@ -56,23 +77,27 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "banks" | "notifications" | "app">("profile");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [history, setHistory] = useState<Record<string, BankHistory>>({});
+  const ext = useExtendHistory(user?.id);
 
   // "App" (update settings) only exists in the Android APK.
-  const settingsTabs: ReadonlyArray<readonly ["profile" | "banks" | "notifications" | "app", string]> = [
+  const settingsTabs: ReadonlyArray<readonly [SettingsTab, string]> = [
     ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"],
     ...(isUpdateSupported() ? [["app", "App"] as const] : []),
   ];
 
   const loadItems = async () => {
-    if (!user) return;
+    if (!user) { setItems([]); return; }
     const { data, error } = await supabase
       .from("plaid_items")
-      .select("id, institution_name, status, created_at")
+      .select("id, institution_id, institution_name, status, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) { toast.error("Couldn't load connected banks", { description: error.message }); return; }
-    setItems(data ?? []);
+    const rows = (data ?? []) as PlaidItemRow[];
+    setItems(rows);
+    loadHistory(user.id, rows).then(setHistory).catch(() => setHistory({}));
   };
 
   // Reset transient UI (active tab, delete confirmation) only when the dialog
@@ -82,7 +107,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
     if (open) {
       setShowDeleteAccount(false);
       setDeleteConfirmText("");
-      setActiveTab("profile");
+      setActiveTab(initialTab);
       loadItems();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,21 +231,22 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    <Dialog open={open && !ext.plaidActive} onOpenChange={onOpenChange}>
       {/* Fixed height so switching tabs doesn't make the modal jump. */}
-      <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
+      <DialogContent showClose={false} className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
         <DialogTitle className="sr-only">Profile</DialogTitle>
         <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
         <div className="relative p-5 border-b border-border/40 shrink-0">
-          <DialogClose aria-label="Close settings" title="Close"
-            className="absolute top-3.5 right-3.5 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <DialogClose aria-label="Close" title="Close settings"
+            className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <X className="h-4 w-4" />
           </DialogClose>
           <div className="font-display text-base text-foreground pr-10">Settings</div>
           <div className="text-[13px] text-muted-foreground mt-0.5">{user?.email}</div>
           <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[13px] w-fit">
             {settingsTabs.map(([tab, label]) => (
-              <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+              <button key={tab} type="button" aria-pressed={activeTab === tab} onClick={() => setActiveTab(tab)}
                 className={`${settingsTabs.length > 3 ? "px-3" : "px-4"} py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
                 {label}
               </button>
@@ -319,22 +345,39 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
               {items === null ? (
                 <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
               ) : items.length === 0 ? (
-                <div className="text-[13px] text-muted-foreground">No banks connected.</div>
+                <div className="text-[13px] text-muted-foreground">{user ? "No banks connected." : "Sign in and link a bank to extend its history."}</div>
               ) : (
                 <div className="space-y-2">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-2.5 surface-card px-3 py-2.5">
-                      <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
-                        <Landmark className="h-4 w-4 text-muted-foreground" />
+                  {items.map((item) => {
+                    const h = history[item.id];
+                    return (
+                    <div key={item.id} className="surface-card px-3 py-2.5" data-testid="bank-row">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
+                          <Landmark className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
+                          <div className="text-[12px] text-muted-foreground">
+                            <span className="capitalize">{item.status}</span>
+                            {h && <> · {h.settling ? "History still arriving" : historyLabel(h.days)}</>}
+                          </div>
+                        </div>
+                        <button onClick={() => setConfirmDisconnect(item)}
+                          className="min-h-[44px] px-1 text-[12.5px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13.5px] text-foreground font-medium truncate">{item.institution_name ?? "Connected bank"}</div>
-                        <div className="text-[12px] text-muted-foreground capitalize">{item.status}</div>
+                      <div className="mt-1.5 pl-[42px]">
+                        <button onClick={() => ext.start(item)} disabled={ext.busyId !== null}
+                          aria-label={`Extend history for ${item.institution_name ?? "this bank"}`}
+                          className="inline-flex items-center gap-1.5 min-h-[44px] text-[12.5px] font-medium text-foreground hover:underline disabled:opacity-50">
+                          {ext.busyId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                          {h?.short ? "Extend history to 2 years" : "Extend history (re-link)"}
+                        </button>
+                        <div className="text-[11.5px] text-muted-foreground" data-testid="relink-warning">Re-linking resets per-account settings</div>
                       </div>
-                      <button onClick={() => setConfirmDisconnect(item)}
-                        className="text-[12.5px] font-medium text-negative hover:underline shrink-0">Disconnect</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               <div className="text-[12px] text-muted-foreground mt-2">
@@ -378,6 +421,8 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
         </div>
       </DialogContent>
     </Dialog>
+    {ext.dialogs}
+    </>
   );
 };
 

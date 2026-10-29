@@ -1,11 +1,11 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { TxnType } from "@/lib/classify";
 import {
-  detectIncomeAnomaly, detectMisclassifiedPaycheck, findPaycheckAnomalies, monthIncomeBuckets, paycheckStats,
-  type PaycheckTxn,
+  detectIncomeAnomaly, detectMisclassifiedPaycheck, monthIncome, paycheckStats,
+  type AnomalyTxn as PaycheckTxn,
 } from "@/lib/paycheck-anomaly";
 import {
-  DEFAULT_FILTERS, demoTimeline, mergeComputedEvents, paycheckAlertEvent, seenStore,
+  DEFAULT_FILTERS, demoTimeline, findPaycheckAnomalies, mergeComputedEvents, paycheckAlertEvent, seenStore,
   type TimelineEvent, type TimelineFilters,
 } from "@/lib/timeline";
 
@@ -20,7 +20,8 @@ const classOf = (t: PaycheckTxn) => { const type = types.get(t.id); return type 
 const history = () => ["05", "06", "07", "08", "09"].flatMap(m => [tx(`2026-${m}-01`, -2500), tx(`2026-${m}-15`, -2500)]);
 const OCT25 = new Date(2026, 9, 25, 12);
 
-describe("paycheck anomaly detection (ported from MyFinancialPicture on main)", () => {
+// src/lib/paycheck-anomaly is #28's module (also feeds the inbox); the Timeline adapts it.
+describe("paycheck anomaly detection (shared module)", () => {
   it("computes typical vs found from trailing history", () => {
     expect(paycheckStats([...history(), tx("2026-10-01", -2500)], classOf, OCT25)).toEqual({ found: 1, typical: 2 });
   });
@@ -58,21 +59,21 @@ describe("paycheck anomaly detection (ported from MyFinancialPicture on main)", 
     expect(detectMisclassifiedPaycheck(b([2500], 0))).toBeNull();
   });
 
-  it("buckets this month's posted income; bonus pay is not a paycheck", () => {
-    const rows = [tx("2026-10-01", -2500), tx("2026-10-02", -9000, "income_salary", { name: "ACME Annual Bonus" }), tx("2026-10-03", -40, "income_interest"), tx("2026-10-04", -100, "income_other"), tx("2026-09-30", -2500)];
-    const m = monthIncomeBuckets(rows, classOf, OCT25);
+  it("buckets this month's posted salary and other income", () => {
+    const rows = [tx("2026-10-01", -2500), tx("2026-10-02", -900, "income_salary", { pending: true }), tx("2026-10-03", -40, "income_interest"), tx("2026-10-04", -100, "income_other"), tx("2026-09-30", -2500)];
+    const m = monthIncome(rows, classOf, OCT25);
     expect(m.salary.amount).toBe(2500);
     expect(m.salary.txns).toHaveLength(1);
     expect(m.other.amount).toBe(100);
   });
 
-  it("misclassified wins over the shortfall; at most one per month", () => {
+  it("Timeline adapter: misclassified wins over the shortfall; at most one per month; same wording as the inbox", () => {
     const other = tx("2026-10-15", -2450, "income_other");
     const rows = [...history(), tx("2026-10-01", -2500), other];
     const out = findPaycheckAnomalies(rows, classOf, OCT25);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ kind: "paycheck_misclassified", month: "2026-10", amount: 2450, on: "2026-10-15", txnIds: [other.id] });
-    expect(out[0].text).toBe("Other income ($2,450.00) is close to a typical paycheck — this might be a second paycheck filed under the wrong category.");
+    expect(out[0].text).toBe("Other income ($2,450) is close to a typical paycheck — this might be a second paycheck filed under the wrong category.");
     expect(findPaycheckAnomalies([...history(), tx("2026-10-01", -2500)], classOf, OCT25)).toMatchObject([{ kind: "paycheck_shortfall", found: 1, typical: 2, on: "2026-10-20" }]);
     expect(findPaycheckAnomalies([...history(), tx("2026-10-01", -2500), tx("2026-10-15", -2500)], classOf, OCT25)).toEqual([]);
   });

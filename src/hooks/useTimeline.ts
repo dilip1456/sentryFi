@@ -5,12 +5,12 @@ import type { ClassifierAccount, ClassifierTxn, TxnTypeOverride } from "@/lib/re
 import { addDays, DEFAULT_TIME_ZONE, todayLocal } from "@/lib/recurring/dates";
 import { detectRecurringSeries } from "@/lib/recurring/detect";
 import { toStreamRow } from "@/lib/recurring/rows";
-import { findPaycheckAnomalies, type PaycheckAnomaly, type PaycheckTxn } from "@/lib/paycheck-anomaly";
+import type { AnomalyTxn } from "@/lib/paycheck-anomaly";
 import type { TxnType } from "@/lib/classify";
 import {
-  buildUpcoming, cursorForJump, demoPage, demoTimeline, eventFromRow, filtersKey, historyCategories, mergeStreams,
+  buildUpcoming, cursorForJump, demoPage, demoTimeline, eventFromRow, filtersKey, findPaycheckAnomalies, historyCategories, mergeStreams,
   toPage, TIMELINE_PAGE_SIZE, UPCOMING_DAYS_EXTENDED,
-  type TimelineCursor, type TimelineEvent, type TimelineFilters, type TimelinePage, type UpcomingAccount,
+  type PaycheckAnomaly, type TimelineCursor, type TimelineEvent, type TimelineFilters, type TimelinePage, type UpcomingAccount,
   type UpcomingMilestone, type UpcomingObligation, type UpcomingStatement, type UpcomingStream,
 } from "@/lib/timeline";
 
@@ -185,7 +185,7 @@ export function useTimelinePaycheckAlerts({ userId, demo }: TimelineSourceOpts, 
       if (error) { console.warn("[timeline paycheck]", error.message); return []; }
       const rows = (data ?? []) as Record<string, unknown>[];
       const types = new Map<string, TxnType>();
-      const txns: PaycheckTxn[] = rows.map(r => {
+      const txns: AnomalyTxn[] = rows.map(r => {
         const id = String(r.source_id);
         types.set(id, r.txn_type as TxnType);
         return { id, date: String(r.occurred_on), amount: -Number(r.amount), pending: !!r.pending, merchant_name: (r.title as string) ?? null, name: (r.subtitle as string) ?? null };

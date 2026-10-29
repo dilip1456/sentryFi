@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
 import { syncItemTransactions } from '../_shared/plaid-sync.ts';
+import { plaidAccountRows, upsertPlaidAccounts } from '../_shared/plaid-accounts.ts';
 import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
@@ -83,20 +84,7 @@ Deno.serve(async (req) => {
     if (!accRes.ok) {
       console.error('accounts/get error', plaidErrorSummary(accData));
     } else if (accData.accounts) {
-      const rows = accData.accounts.map((a: any) => ({
-        user_id: user.id,
-        item_id: itemRow.id,
-        account_id: a.account_id,
-        name: a.name,
-        official_name: a.official_name,
-        mask: a.mask,
-        type: a.type,
-        subtype: a.subtype,
-        current_balance: a.balances?.current,
-        available_balance: a.balances?.available,
-        iso_currency_code: a.balances?.iso_currency_code,
-      }));
-      await admin.from('plaid_accounts').upsert(rows, { onConflict: 'account_id' });
+      await upsertPlaidAccounts(admin, plaidAccountRows(user.id, itemRow.id, accData.accounts)); // never throws
     }
 
     // Kick off initial transactions sync
