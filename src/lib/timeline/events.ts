@@ -47,6 +47,7 @@ export function eventFromRow(r: Record<string, unknown>): TimelineEvent {
     source_id: String(r.source_id ?? ""),
     occurred_on: String(r.occurred_on),
     occurred_at: new Date(String(r.occurred_at)).toISOString(),
+    at_exact: r.occurred_at == null ? undefined : String(r.occurred_at),
     category: r.category as TimelineEvent["category"],
     txn_type: (r.txn_type as TxnType | null) ?? null,
     is_internal: !!r.is_internal,

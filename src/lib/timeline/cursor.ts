@@ -11,8 +11,8 @@ export function compareEventsDesc(a: Pick<TimelineEvent, "occurred_on" | "occurr
 }
 
 /** Cursor pointing just past an event (the next page starts strictly after it). */
-export const cursorAfter = (e: Pick<TimelineEvent, "occurred_on" | "occurred_at" | "id">): TimelineCursor =>
-  ({ on: e.occurred_on, at: e.occurred_at, id: e.id });
+export const cursorAfter = (e: Pick<TimelineEvent, "occurred_on" | "occurred_at" | "id" | "at_exact">): TimelineCursor =>
+  ({ on: e.occurred_on, at: e.at_exact ?? e.occurred_at, id: e.id });
 
 /** Jump-to-date: everything on or before `at` (cursor = start of the next day). */
 export const cursorForJump = (at: string): TimelineCursor => ({ on: addDays(at, 1), at: null, id: null });

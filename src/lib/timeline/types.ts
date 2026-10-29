@@ -31,6 +31,12 @@ export interface TimelineEvent {
   occurred_on: string;
   /** ISO timestamp (date-only rows are 12:00 UTC on that day). */
   occurred_at: string;
+  /**
+   * The server's occurred_at text exactly as returned (microseconds). Used
+   * for the next-page cursor: occurred_at above is ms-precision and would
+   * skip rows sharing a millisecond.
+   */
+  at_exact?: string;
   category: TimelineCategory;
   txn_type: TxnType | null;
   is_internal: boolean;
