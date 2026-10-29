@@ -49,11 +49,11 @@ import {
 type View = "overall" | "benefits" | "spending" | "myfinances" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
-const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
+const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: string }[] = [
   { k: "overall",     label: "Home",               icon: LayoutDashboard },
   { k: "moneymap",    label: "Money Map",          icon: Compass         },
   { k: "spending",    label: "Spending",           icon: PieChart        },
-  { k: "myfinances",  label: "My Financial Picture", icon: Wallet        },
+  { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
   { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
@@ -674,7 +674,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 )}
                 <Icon className={cn("h-5 w-5 transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
                 <span className={cn("text-[11px] font-medium transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>
-                  {t.label}
+                  {t.mobileLabel ?? t.label}
                 </span>
               </button>
             );

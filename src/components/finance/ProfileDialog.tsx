@@ -198,7 +198,7 @@ export const ProfileDialog = ({ open, onOpenChange }: Props) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Fixed height so switching tabs doesn't make the modal jump. */}
-      <DialogContent className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
+      <DialogContent showClose={false} className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
         <DialogTitle className="sr-only">Profile</DialogTitle>
         <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
         <div className="relative p-5 border-b border-border/40 shrink-0">

@@ -1204,7 +1204,7 @@ const BudgetPanel = ({ category, current, onSave, onRemove, onClose }: {
   const save  = () => { const n=parseFloat(val); if(!isNaN(n)&&n>=0){onSave(n);onClose();} };
   return (
     <Dialog open onOpenChange={(o)=>{ if(!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">{formatCat(category)} budget</DialogTitle>
         <DialogDescription className="sr-only">Set a monthly spending limit for {formatCat(category)}.</DialogDescription>
         <div className="relative p-6 pb-4">
@@ -2931,7 +2931,7 @@ const AccountEditDialog = ({ account, meta, instUrl, onSave, onClose }: {
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
         <DialogTitle className="sr-only">Edit account</DialogTitle>
         <DialogDescription className="sr-only">Rename or add details to this account.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
@@ -3809,7 +3809,7 @@ const AccountDetailPanel = ({ a, txns, meta, credit, instName, instUrl, itemId, 
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col rounded-2xl">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col rounded-2xl">
         <DialogTitle className="sr-only">{displayName}</DialogTitle>
         <DialogDescription className="sr-only">Account details for {displayName}</DialogDescription>
 
@@ -4230,7 +4230,8 @@ export const LivePlaidDashboard = ({
   // Demo mode gets illustrative budgets so the budget bars, pace ring, and
   // "over budget" states actually have something to show — settings.budgets
   // is always empty in demo since there's no real user to persist them for.
-  const budgets = (demo || guestDemo) ? DEMO_BUDGETS : settings.budgets;
+  // Demo: seeds under any budgets added this session (Picture "Add a budget").
+  const budgets = useMemo(() => (demo || guestDemo) ? { ...DEMO_BUDGETS, ...settings.budgets } : settings.budgets, [demo, guestDemo, settings.budgets]);
   const setBudget = S.setBudget;
   const removeBudget = S.removeBudget;
   const roles = settings.accountRoles;
@@ -5592,7 +5593,7 @@ export const LivePlaidDashboard = ({
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
-        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+        <DialogContent showClose={false} className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
           <DialogTitle className="sr-only">{openInsight?.title ?? "Insight"}</DialogTitle>
           <DialogDescription className="sr-only">Financial insight details and recommended action.</DialogDescription>
           {openInsight && (()=>{
@@ -5741,7 +5742,7 @@ export const LivePlaidDashboard = ({
 
       {/* ── Action item detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openActionItem} onOpenChange={(o) => { if (!o) setOpenActionItem(null); }}>
-        <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+        <DialogContent showClose={false} className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
           <DialogTitle className="sr-only">{openActionItem?.title ?? "Action item"}</DialogTitle>
           <DialogDescription className="sr-only">Action item details.</DialogDescription>
           {openActionItem && (()=>{
@@ -5869,7 +5870,7 @@ export const LivePlaidDashboard = ({
         const shownTxns = catTxns.slice(0, displayCount);
         return (
           <Dialog open onOpenChange={(o)=>{ if(!o){setSpendingPopup(null);setSpendPopupLimit(5);} }}>
-            <DialogContent className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+            <DialogContent showClose={false} className="max-w-lg surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
               <DialogTitle className="sr-only">{formatCat(cat)}: current month</DialogTitle>
               <DialogDescription className="sr-only">Top charges in {formatCat(cat)} this month.</DialogDescription>
               <div className="relative p-5 pb-4 shrink-0">
@@ -6591,24 +6592,18 @@ export const LivePlaidDashboard = ({
       <MyFinancialPicture
         txns={txns}
         accounts={accounts}
-        getEffectiveCategory={t => getEffectiveCategory(t, overrides, getRuleCategory) ?? "Other"}
+        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
         formatCat={formatCat}
         catColor={catColor}
         classOf={classOf}
         manualIncome={manualIncome}
-        onOpenTxnDetail={t => { setDetailTxn(t); setDetailTxnOpenCat(false); }}
+        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
         budgets={budgets}
-        onSetBudget={setBudget}
-        onRemoveBudget={removeBudget}
         cardAutopayFrom={settings.cardAutopayFrom}
-        onSetCardAutopayFrom={S.setCardAutopayFrom}
-        onRemoveCardAutopayFrom={S.removeCardAutopayFrom}
+        savingsGoals={settings.savingsGoals}
         financialPicture={settings.financialPicture}
-        onSetOverride={S.setFinancialPictureOverride}
-        onClearOverride={S.clearFinancialPictureOverride}
-        onSetFundingAccount={S.setFinancialPictureFundingAccount}
-        onClearFundingAccount={S.clearFinancialPictureFundingAccount}
-        onSetRiskProfile={S.setRiskProfile}
+        onUpdate={S.update}
+        demo={demo || guestDemo}
       />
       {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}

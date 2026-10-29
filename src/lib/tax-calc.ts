@@ -6,45 +6,23 @@
  * "about how much did HSA/401k save me in tax" answer built entirely from
  * inferred transaction data, not a filing-accurate calculation.
  *
- * 2026 tax year figures (IRS Rev. Proc. 2025-32, published Oct 2025):
- *   https://www.irs.gov — brackets, standard deduction, SSA wage base.
+ * 2026 tax year figures live in src/lib/tax-tables.ts (sources noted there).
  */
 
-export type FilingStatus = "single" | "married_joint";
+import { taxTable, type Bracket, type FilingStatus } from "./tax-tables";
 
-interface Bracket { upTo: number; rate: number } // upTo = Infinity for the top bracket
+export type { FilingStatus } from "./tax-tables";
 
-// Taxable-income thresholds, 2026 tax year.
-const BRACKETS: Record<FilingStatus, Bracket[]> = {
-  single: [
-    { upTo: 12_400, rate: 0.10 },
-    { upTo: 50_400, rate: 0.12 },
-    { upTo: 105_700, rate: 0.22 },
-    { upTo: 201_775, rate: 0.24 },
-    { upTo: 256_225, rate: 0.32 },
-    { upTo: 640_600, rate: 0.35 },
-    { upTo: Infinity, rate: 0.37 },
-  ],
-  married_joint: [
-    { upTo: 24_800, rate: 0.10 },
-    { upTo: 100_800, rate: 0.12 },
-    { upTo: 211_400, rate: 0.22 },
-    { upTo: 403_550, rate: 0.24 },
-    { upTo: 512_450, rate: 0.32 },
-    { upTo: 768_700, rate: 0.35 },
-    { upTo: Infinity, rate: 0.37 },
-  ],
-};
+// All figures come from the year-keyed data file src/lib/tax-tables.ts.
+const T = taxTable(2026);
+const BRACKETS: Record<FilingStatus, Bracket[]> = T.brackets;
 
-export const STANDARD_DEDUCTION: Record<FilingStatus, number> = {
-  single: 16_100,
-  married_joint: 32_200,
-};
+export const STANDARD_DEDUCTION: Record<FilingStatus, number> = T.standardDeduction;
 
-// Payroll tax, 2026: 6.2% OASDI up to the wage base, 1.45% Medicare uncapped.
-const SS_WAGE_BASE_2026 = 184_500;
-const SS_RATE = 0.062;
-const MEDICARE_RATE = 0.0145;
+// Payroll tax: 6.2% OASDI up to the wage base, 1.45% Medicare uncapped.
+const SS_WAGE_BASE_2026 = T.ssWageBase;
+const SS_RATE = T.ssRate;
+const MEDICARE_RATE = T.medicareRate;
 
 /** Federal income tax owed on this much taxable income (post-deduction). */
 export function federalTaxOwed(taxableIncome: number, status: FilingStatus): number {
@@ -153,5 +131,5 @@ export const FEDERAL_BRACKETS_2026 = BRACKETS;
 // one automatically.
 // Sources: IRS Notice 2025-67 (401k) and Rev. Proc. 2025-19 (HSA), both for
 // tax year 2026.
-export const HSA_LIMIT_2026 = 4_400;
-export const K401_LIMIT_2026 = 24_500;
+export const HSA_LIMIT_2026 = T.hsaLimit.self;
+export const K401_LIMIT_2026 = T.k401Limit;

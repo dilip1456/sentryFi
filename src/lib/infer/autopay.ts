@@ -705,3 +705,9 @@ export function autopayMissedFinding(r: AutopayMissedResult): Finding {
     detectorVersion: INFER_DETECTOR_VERSION,
   };
 }
+
+/** Detector verdict only (unconfirmed): this bill series looks like it is on autopay.
+ *  Not for totals; stream rows use streamCountsAsAutopay. */
+export function detectedAsAutopay(r: Pick<BillAutopayResult, "autopay"> | null | undefined): boolean {
+  return r?.autopay === "auto";
+}
