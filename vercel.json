@@ -8,7 +8,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' https://cdn.plaid.com https://cdnjs.cloudflare.com https://va.vercel-scripts.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.plaid.com https://autocomplete.clearbit.com https://cdnjs.cloudflare.com https://va.vercel-scripts.com https://vitals.vercel-insights.com https://accounts.google.com; frame-src https://cdn.plaid.com https://accounts.google.com; manifest-src 'self'; media-src 'self'; upgrade-insecure-requests"
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://*.supabase.co https://accounts.google.com; script-src 'self' https://cdn.plaid.com https://cdnjs.cloudflare.com https://va.vercel-scripts.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://sentryfiapp.vercel.app https://*.supabase.co wss://*.supabase.co https://*.plaid.com https://autocomplete.clearbit.com https://cdnjs.cloudflare.com https://va.vercel-scripts.com https://vitals.vercel-insights.com https://accounts.google.com; frame-src https://cdn.plaid.com https://accounts.google.com; manifest-src 'self'; media-src 'self'; upgrade-insecure-requests"
         },
         {
           "key": "X-Frame-Options",
@@ -37,6 +37,19 @@
         {
           "key": "X-Permitted-Cross-Domain-Policies",
           "value": "none"
+        }
+      ]
+    },
+    {
+      "source": "/downloads/version.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
         }
       ]
     },

@@ -11,6 +11,8 @@ import { NotificationPreferences } from "@/components/NotificationPreferences";
 import { useExtendHistory } from "@/components/finance/ExtendHistory";
 import { bankHistory, historyLabel, type BankHistory } from "@/lib/relink/history";
 import type { SettingsTab } from "@/lib/settings-nav";
+import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
+import { isUpdateSupported } from "@/lib/app-update/native";
 
 const schema = z.object({
   display_name: z.string().trim().min(1, "Name required").max(80),
@@ -76,6 +78,12 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [history, setHistory] = useState<Record<string, BankHistory>>({});
   const ext = useExtendHistory(user?.id);
+
+  // "App" (update settings) only exists in the Android APK.
+  const settingsTabs: ReadonlyArray<readonly [SettingsTab, string]> = [
+    ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"],
+    ...(isUpdateSupported() ? [["app", "App"] as const] : []),
+  ];
 
   const loadItems = async () => {
     if (!user) { setItems([]); return; }
@@ -235,9 +243,9 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
           <div className="font-display text-base text-foreground pr-10">Settings</div>
           <div className="text-[13px] text-muted-foreground mt-0.5">{user?.email}</div>
           <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[13px] w-fit">
-            {([["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"]] as const).map(([tab, label]) => (
+            {settingsTabs.map(([tab, label]) => (
               <button key={tab} type="button" aria-pressed={activeTab === tab} onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
+                className={`${settingsTabs.length > 3 ? "px-3" : "px-4"} py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
                 {label}
               </button>
             ))}
@@ -246,6 +254,9 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
         <div className="overflow-y-auto flex-1">
           {activeTab === "notifications" && (
             <NotificationPreferences onClose={() => onOpenChange(false)} />
+          )}
+          {activeTab === "app" && (
+            <div className="p-5"><AppUpdateSettings /></div>
           )}
           {activeTab === "profile" && <>
           <div className="p-5 space-y-4">
