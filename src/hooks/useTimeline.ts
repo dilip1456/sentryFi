@@ -5,6 +5,8 @@ import type { ClassifierAccount, ClassifierTxn, TxnTypeOverride } from "@/lib/re
 import { addDays, todayLocal } from "@/lib/recurring/dates";
 import { detectRecurringSeries } from "@/lib/recurring/detect";
 import { toStreamRow } from "@/lib/recurring/rows";
+import { findPaycheckAnomalies, type PaycheckAnomaly, type PaycheckTxn } from "@/lib/paycheck-anomaly";
+import type { TxnType } from "@/lib/classify";
 import {
   buildUpcoming, cursorForJump, demoPage, demoTimeline, eventFromRow, filtersKey, historyCategories, mergeStreams,
   toPage, TIMELINE_PAGE_SIZE, UPCOMING_DAYS_EXTENDED,
@@ -154,6 +156,39 @@ export function useTimelineOldest({ userId, demo }: TimelineSourceOpts, enabled 
       if (demo) return demoTimeline().oldest;
       const { data } = await db.from("plaid_transactions").select("date").eq("user_id", userId).order("date", { ascending: true }).limit(1);
       return ((data ?? [])[0]?.date as string | undefined) ?? null;
+    },
+  });
+}
+
+/**
+ * Paycheck anomalies (shortfall / likely-miscategorized paycheck) computed
+ * on the client with the same rules the Picture used on main, from income
+ * rows of the timeline_events view (txn_type already resolves override >
+ * stored classification > PFC). No push alerts; shown as Timeline Alerts.
+ */
+export function useTimelinePaycheckAlerts({ userId, demo }: TimelineSourceOpts, enabled = true) {
+  const today = todayLocal();
+  return useQuery<PaycheckAnomaly[]>({
+    queryKey: ["timeline-paycheck", demo ? "demo" : userId, today],
+    enabled: enabled && (demo || !!userId),
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      if (demo) return demoTimeline(today).paycheck;
+      const { data, error } = await db.from("timeline_events")
+        .select("source_id,occurred_on,amount,pending,title,subtitle,txn_type")
+        .eq("user_id", userId).eq("source", "transaction")
+        .gte("occurred_on", addDays(today, -190)).lte("occurred_on", today)
+        .in("txn_type", ["income_salary", "income_interest", "income_other"])
+        .limit(2000);
+      if (error) { console.warn("[timeline paycheck]", error.message); return []; }
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const types = new Map<string, TxnType>();
+      const txns: PaycheckTxn[] = rows.map(r => {
+        const id = String(r.source_id);
+        types.set(id, r.txn_type as TxnType);
+        return { id, date: String(r.occurred_on), amount: -Number(r.amount), pending: !!r.pending, merchant_name: (r.title as string) ?? null, name: (r.subtitle as string) ?? null };
+      });
+      return findPaycheckAnomalies(txns, t => { const type = types.get(t.id); return type ? { type } : undefined; }, new Date(`${today}T12:00:00`));
     },
   });
 }

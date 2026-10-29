@@ -38,7 +38,7 @@ export const monthLabel = (m: string) => `${MO[Number(m.slice(5, 7)) - 1]} ${m.s
 export const monthShort = (d: string) => MO[Number(d.slice(5, 7)) - 1].slice(0, 3);
 export const tfmt = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 /** Date-only sources are stored at 12:00 UTC: no meaningful time of day. */
-export const hasTime = (e: TimelineEvent) => e.source === "alert" || e.source === "inference";
+export const hasTime = (e: TimelineEvent) => (e.source === "alert" && !e.meta?.computed) || e.source === "inference";
 
 export function eventCat(e: TimelineEvent): TimelineCategory { return e.is_internal ? "transfer" : e.category; }
 

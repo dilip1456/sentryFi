@@ -8,11 +8,13 @@ import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useHistoryLayer } from "@/hooks/useHistoryLayer";
 import {
-  markAlertSeen, useTimelineAccounts, useTimelineFeed, useTimelineOldest, useTimelineRealtime, useTimelineUpcoming,
+  markAlertSeen, useTimelineAccounts, useTimelineFeed, useTimelineOldest, useTimelinePaycheckAlerts, useTimelineRealtime,
+  useTimelineUpcoming,
 } from "@/hooks/useTimeline";
 import { addDays, todayLocal } from "@/lib/recurring/dates";
 import {
-  activeFilterCount, buildTimelineRows, DEFAULT_FILTERS, matchesUpcoming, showHistory, showUpcoming, TIMELINE_CHIPS,
+  activeFilterCount, buildTimelineRows, DEFAULT_FILTERS, isComputedAlert, matchesUpcoming, mergeComputedEvents,
+  paycheckAlertEvent, seenStore, showHistory, showUpcoming, TIMELINE_CHIPS,
   toggleChip, UPCOMING_DAYS, UPCOMING_DAYS_EXTENDED, visibleUpcoming,
   type TimelineEvent, type TimelineFilters, type TimelineRow,
 } from "@/lib/timeline";
@@ -111,11 +113,16 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
   const accountsQ = useTimelineAccounts(src);
   const oldestQ = useTimelineOldest(src, open);
   const realtime = useTimelineRealtime(src, open);
+  const paycheckQ = useTimelinePaycheckAlerts(src, open && wantHistory);
 
   const history = useMemo(() => {
-    const items = feed.data?.pages.flatMap(p => p.items) ?? [];
+    const paged = feed.data?.pages.flatMap(p => p.items) ?? [];
+    // paycheck anomalies are computed client-side; merge them into the loaded range
+    const stored = demo ? seen : new Set([...seen, ...seenStore.read(userId)]);
+    const computed = (paycheckQ.data ?? []).map(a => paycheckAlertEvent(a, stored));
+    const items = feed.data ? mergeComputedEvents(paged, computed, { filters, hasMore: !!feed.hasNextPage }) : paged;
     return seen.size ? items.map(e => (seen.has(e.id) ? { ...e, status: "seen" as const } : e)) : items;
-  }, [feed.data, seen]);
+  }, [feed.data, feed.hasNextPage, paycheckQ.data, filters, seen, demo, userId]);
 
   const upcomingAll = upcomingQ.data ?? [];
   const upDays = upAll ? UPCOMING_DAYS_EXTENDED : UPCOMING_DAYS;
@@ -158,7 +165,8 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
     else setPop(p => (p === k ? null : k));
   };
   const onMarkSeen = async (e: TimelineEvent) => {
-    if (!demo && !(await markAlertSeen(e.source_id))) return;
+    if (isComputedAlert(e)) { if (!demo) seenStore.add(userId, e.id); }
+    else if (!demo && !(await markAlertSeen(e.source_id))) return;
     setSeen(s => new Set(s).add(e.id));
     setDetail(d => (d && d.id === e.id ? { ...d, status: "seen" } : d));
     if (!demo) qc.invalidateQueries({ queryKey: ["timeline"] });

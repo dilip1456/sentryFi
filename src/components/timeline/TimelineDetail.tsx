@@ -11,7 +11,7 @@ function sourceLabel(e: TimelineEvent): string {
     return "Projected from a recurring stream";
   }
   switch (e.source) {
-    case "alert": return "SentryFi alert";
+    case "alert": return e.meta?.computed ? "SentryFi paycheck check" : "SentryFi alert";
     case "inference": return "SentryFi finding";
     case "tax_milestone": return "Tax milestone";
     case "occurrence": return "Recurring payment record";
@@ -52,6 +52,7 @@ export function TimelineDetail({ e, accounts, history, today, onMarkSeen }: Prop
       ? <span className="tl-tag k-income"><CircleCheck className="h-3.5 w-3.5" aria-hidden />{e.covered_by}</span>
       : <span className="tl-tag k-alerts"><TriangleAlert className="h-3.5 w-3.5" aria-hidden />Unassigned</span>]);
   }
+  if (e.meta?.alert_type === "paycheck_shortfall") rows.push(["Paychecks this month", `${e.meta.found} of usual ~${e.meta.typical}`]);
   if (e.repeats) rows.push(["Repeats", e.repeats]);
   if ((e.source === "transaction" || e.source === "occurrence") && e.subtitle && e.subtitle !== e.title) rows.push(["Description", e.subtitle]);
   rows.push(["Source", sourceLabel(e)]);
@@ -70,7 +71,9 @@ export function TimelineDetail({ e, accounts, history, today, onMarkSeen }: Prop
       {e.category === "alerts" && (e.status === "flag" || e.status === "review") && (
         <div className="tl-flags mt-4">
           <div className="font-semibold flex items-center gap-2 text-negative"><TriangleAlert className="h-4 w-4" aria-hidden />{e.title}</div>
-          {e.subtitle && <p className="tl-note mt-1 !text-foreground">{e.subtitle}.</p>}
+          {typeof e.meta?.detail === "string"
+            ? <p className="tl-note mt-1 !text-foreground">{e.meta.detail}</p>
+            : e.subtitle && <p className="tl-note mt-1 !text-foreground">{e.subtitle}.</p>}
         </div>
       )}
       {e.estimated && (
