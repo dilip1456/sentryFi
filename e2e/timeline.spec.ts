@@ -239,6 +239,62 @@ test.describe("Timeline · phone 390x844", () => {
     expect(guard.consoleErrors).toEqual([]);
   });
 
+  test("M22-M28 More menu closes on backdrop (top + just above it), Escape, Back, X; header Timeline >= 44px", async ({ page, guard }) => {
+    const more = page.getByRole("button", { name: "More", exact: true });
+    const menu = page.getByTestId("more-menu");
+    const layer = () => page.evaluate(() => (window.history.state as { sfLayer?: number } | null)?.sfLayer ?? 0);
+    const open = async () => {
+      await more.click();
+      await expect(menu).toBeVisible();
+      await expect.poll(layer).toBe(1); // owns one history entry
+    };
+    const closed = async (label: string) => {
+      await expect(menu, label).toBeHidden();
+      await expect.poll(layer, label).toBe(0); // entry removed again
+      await expect(more, label).toBeFocused();
+      expect(new URL(page.url()).pathname, label).toBe("/demo");
+    };
+    // the menu is portaled to <body>, so the backdrop covers the whole screen (not just the blurred nav)
+    await open();
+    expect(await menu.evaluate(el => el.parentElement === document.body)).toBe(true);
+    const bd = (await page.getByTestId("more-backdrop").boundingBox())!;
+    expect([bd.x, bd.y, bd.width, bd.height]).toEqual([0, 0, 390, 844]);
+    await page.mouse.click(195, 300); // M22 backdrop, top half
+    await closed("backdrop top");
+    await open();
+    const mb = (await menu.boundingBox())!;
+    await page.mouse.click(mb.x + mb.width / 2, mb.y - 8); // M23 backdrop just above the menu
+    await closed("backdrop above menu");
+    await open();
+    await page.keyboard.press("Escape"); // M24
+    await closed("escape");
+    await open();
+    await page.goBack(); // M25 Android/browser Back closes the menu, stays on /demo
+    await expect(menu).toBeHidden();
+    expect(new URL(page.url()).pathname).toBe("/demo");
+    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    await open();
+    const x = menu.getByRole("button", { name: "Close" });
+    const xb = (await x.boundingBox())!;
+    expect(Math.min(xb.width, xb.height)).toBeGreaterThanOrEqual(44);
+    await x.click(); // M26 X
+    await closed("x");
+    // M27 menu item still opens the Timeline (reusing the menu's history entry); Back closes only the Timeline
+    await open();
+    await menu.getByRole("button", { name: "Timeline", exact: true }).click();
+    await expect(panel(page)).toBeVisible();
+    await expect(menu).toBeHidden();
+    await expect.poll(layer).toBe(1);
+    await page.goBack();
+    await expect(panel(page)).toBeHidden();
+    expect(new URL(page.url()).pathname).toBe("/demo");
+    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    // M28 header Timeline tap target
+    const hb = (await page.locator("header").getByRole("button", { name: "Timeline" }).boundingBox())!;
+    expect(Math.min(hb.width, hb.height)).toBeGreaterThanOrEqual(44);
+    expect(guard.consoleErrors).toEqual([]);
+  });
+
   test("M5-M9 filter + jump sheets: chip, Done, transfers, Last month, Back to today; every close method", async ({ page }) => {
     await openFromMore(page);
     const filtersBtn = panel(page).getByRole("button", { name: "Filters" });
