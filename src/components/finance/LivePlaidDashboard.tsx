@@ -1655,7 +1655,8 @@ const RulesManager = ({
         <DialogDescription className="sr-only">Manage transaction rules</DialogDescription>
 
         {/* Header */}
-        <div className="px-5 py-4 border-b border-border/30 shrink-0 flex items-center justify-between gap-2">
+        {/* pr-14: the action buttons stay clear of DialogContent's close X */}
+        <div className="pl-5 pr-14 py-4 border-b border-border/30 shrink-0 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="font-display text-[15px] text-foreground font-semibold">Transaction Rules</div>
             <div className="text-[12.5px] text-muted-foreground mt-0.5">Rules apply automatically to every transaction, new and old</div>
@@ -2363,7 +2364,9 @@ const TxnDetailModal = ({
 
         {/* ── Header ── */}
         <div className="px-5 pt-5 pb-4 shrink-0">
-          <div className="flex items-start gap-3">
+          {/* pr-9 keeps the amount clear of DialogContent's close X (44px at
+              right-1.5/top-1.5); without it the X sat on the amount. */}
+          <div className="flex items-start gap-3 pr-9">
             {/* Category color dot */}
             <div className="h-10 w-10 rounded-xl shrink-0 flex items-center justify-center text-lg font-bold" style={{background:`${color}20`, color}}>
               {(merchant ?? "?").charAt(0).toUpperCase()}
@@ -2458,7 +2461,7 @@ const TxnDetailModal = ({
                     <label htmlFor={`txn-type-${txn.id}`} className="text-[12px] text-muted-foreground w-20 shrink-0">Counts as</label>
                     <select id={`txn-type-${txn.id}`} value={classification.type}
                       onChange={e => onSetTxnType(e.target.value as TxnType)}
-                      className="flex-1 bg-transparent text-[12.5px] text-foreground font-medium text-right outline-none cursor-pointer">
+                      className="flex-1 min-w-0 w-0 truncate bg-transparent text-[12.5px] text-foreground font-medium text-right outline-none cursor-pointer">
                       {TXN_TYPES.map(tp => <option key={tp} value={tp}>{TXN_TYPE_LABEL[tp]}</option>)}
                     </select>
                   </div>
@@ -4157,10 +4160,12 @@ const RoleBadgeSelect = ({
       {/* Role chips */}
       <div className="flex flex-wrap gap-1.5">
         {roles.map(r => {
-          const { Icon } = ROLE_OPTIONS.find(o => o.role === r) ?? { Icon: Landmark };
+          // ROLE_OPTIONS keys the component as `icon`; destructuring `Icon` gave
+          // undefined and crashed the Tag dialog (React #130).
+          const Icon = ROLE_OPTIONS.find(o => o.role === r)?.icon ?? Landmark;
           const isActive = current.role === r;
           return (
-            <button key={r} onClick={() => setRole(accountId, { role: r, label: current.label })}
+            <button key={r} type="button" aria-pressed={isActive} onClick={() => setRole(accountId, { role: r, label: current.label })}
               className={cn(
                 "flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[11px] font-medium transition-all",
                 isActive

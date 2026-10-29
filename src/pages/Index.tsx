@@ -90,6 +90,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, on);
   }, []);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  // The header menu is a hand-rolled popover (not Radix), so Escape is wired here.
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setHeaderMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [headerMenuOpen]);
   const [showAppUpdates, setShowAppUpdates] = useState(false);
   const appUpdate = useAppUpdate();
   const updateSupported = appUpdate.supported;
@@ -421,14 +428,22 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
-              <button onClick={() => setHeaderMenuOpen(o => !o)}
+              <button onClick={() => setHeaderMenuOpen(o => !o)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={headerMenuOpen}
                 className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Settings className="h-3.5 w-3.5" />
               </button>
               {headerMenuOpen && createPortal(
                 <>
                   <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border/30">
+                  <div role="dialog" aria-label="Menu" data-state="open" data-header-menu
+                    style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-top))] overflow-y-auto overscroll-contain rounded-xl shadow-2xl bg-[hsl(var(--popover))] border border-border/30">
+                    <div className="flex items-center justify-between pl-4 pr-0.5 h-11 border-b border-border/30">
+                      <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">Menu</span>
+                      <button type="button" aria-label="Close" onClick={() => setHeaderMenuOpen(false)}
+                        className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground">
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
                         className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">

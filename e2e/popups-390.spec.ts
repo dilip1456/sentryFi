@@ -2,10 +2,18 @@
  * App-wide popup audit at 390x844 (phone). On every tab of the demo, open
  * each control that declares a popup (aria-haspopup dialog/menu/listbox) and
  * check the popup fits the screen, scrolls instead of spilling off it, and
- * closes by Escape; dialogs (not alert dialogs or menus) must also show an X.
+ * closes by Escape; dialogs (not alert dialogs or menus) must also show an X
+ * that is a 44px target with nothing drawn under it, and must not scroll
+ * sideways.
+ *
+ * POPUP_WIDTHS=360,390,430 runs the same crawl at other phone widths.
  */
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+import { closeXProblems, overflowProblems } from "./popup-geometry";
+
+const HEIGHT: Record<number, number> = { 360: 780, 390: 844, 430: 932 };
+const WIDTHS = (process.env.POPUP_WIDTHS ?? "390").split(",").map(Number);
 
 const TABS: [string, string][] = [
   ["Home", "overall"], ["Money Map", "moneymap"], ["Spending", "spending"],
@@ -22,17 +30,19 @@ async function load(page: Page, view: string) {
 
 async function fits(page: Page, pop: Locator, label: string) {
   await page.waitForFunction(() => document.getAnimations().filter(a => a.playState === "running").length === 0);
+  const vp = page.viewportSize()!;
   const r = (await pop.boundingBox())!;
   expect(r.x, `${label}: left edge on screen`).toBeGreaterThanOrEqual(-1);
-  expect(r.x + r.width, `${label}: right edge on screen`).toBeLessThanOrEqual(391);
+  expect(r.x + r.width, `${label}: right edge on screen`).toBeLessThanOrEqual(vp.width + 1);
   expect(r.y, `${label}: top on screen`).toBeGreaterThanOrEqual(-1);
-  expect(r.y + r.height, `${label}: bottom on screen`).toBeLessThanOrEqual(845);
+  expect(r.y + r.height, `${label}: bottom on screen`).toBeLessThanOrEqual(vp.height + 1);
 }
 
-test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+for (const W of WIDTHS) test.describe(`${W}px`, () => {
+test.use({ viewport: { width: W, height: HEIGHT[W] ?? 844 }, isMobile: true, hasTouch: true });
 
 for (const [t, view] of TABS) {
-  test(`popups on ${t} fit 390px and close`, async ({ page, guard }) => {
+  test(`popups on ${t} fit ${W}px and close`, async ({ page, guard }) => {
     test.setTimeout(240_000);
     await load(page, view);
     // Every visible button in the page body is a candidate: most popups here
@@ -57,6 +67,10 @@ for (const [t, view] of TABS) {
       await fits(page, pop, `${t} / ${label}`);
       if (role === "dialog" && (await pop.getAttribute("data-fp-screen")) === null) {
         await expect(pop.getByRole("button", { name: /^(Close|Back)$/ }).first(), `${t} / ${label}: has an X`).toBeVisible();
+        expect.soft(await overflowProblems(pop), `${t} / ${label}: no sideways overflow`).toEqual([]);
+        if (await pop.locator("button[aria-label=Close]:visible").count()) {
+          expect.soft(await closeXProblems(pop), `${t} / ${label}: X is a clear 44px target`).toEqual([]);
+        }
       }
       await page.keyboard.press("Escape");
       await expect(page.locator(OPEN), `${t} / ${label}: Escape closes`).toHaveCount(0, { timeout: 3000 }).catch(async () => {
@@ -70,3 +84,4 @@ for (const [t, view] of TABS) {
     expect(guard.backendCalls).toEqual([]);
   });
 }
+});
