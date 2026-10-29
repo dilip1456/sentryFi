@@ -42,6 +42,8 @@
     /* Signal colors — muted for a sleek financial look in dark mode */
     --positive: 158 48% 52%;
     --negative: 6 55% 60%;
+    /* Text-on-tint variant of --negative so small status text passes AA (My Financial Picture). */
+    --negative-text: 6 70% 68%;
     --warning: 38 78% 58%;
     --info: 212 60% 64%;
 
@@ -111,6 +113,7 @@
 
     --positive: 158 55% 36%;
     --negative: 5 72% 46%;
+    --negative-text: 5 72% 40%;
     --warning: 32 88% 42%;
     --info: 212 72% 46%;
 

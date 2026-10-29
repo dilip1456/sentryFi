@@ -324,7 +324,7 @@ const CardDetailDialog = ({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
         <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
         <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
 
@@ -1122,7 +1122,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[88vh] flex flex-col">
         <DialogTitle className="sr-only">Add a gift card</DialogTitle>
         <DialogDescription className="sr-only">Choose a brand, then enter the card details.</DialogDescription>
 
@@ -1347,7 +1347,7 @@ const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCa
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">Log spend on {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Record how much you spent to update the tracked balance.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40">
@@ -1461,7 +1461,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
         <DialogTitle className="sr-only">Edit {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Edit balance and details for this gift card.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">

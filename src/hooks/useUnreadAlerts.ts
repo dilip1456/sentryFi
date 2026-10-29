@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useDerivedAlerts, derivedUnreadCount } from "@/lib/derived-alerts";
 
 // alert_log isn't in the generated Supabase types; describe just what we use.
 type CountResult = Promise<{ count: number | null; error: { message: string } | null }>;
@@ -64,5 +65,9 @@ export const useUnreadAlerts = (userId: string | undefined) => {
     };
   }, [userId, refresh]);
 
-  return { unreadCount: count, refreshUnread: refresh };
+  // Plus on-device alerts (paycheck anomalies) not yet read.
+  const derived = useDerivedAlerts();
+  const local = userId ? derivedUnreadCount(userId, derived) : 0;
+
+  return { unreadCount: count + local, refreshUnread: refresh };
 };

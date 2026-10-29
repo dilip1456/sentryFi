@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Drawer as DrawerPrimitive } from "vaul";
+import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -22,22 +23,31 @@ const DrawerOverlay = React.forwardRef<
 ));
 DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
+/** Bottom sheet: grab handle, a close X (44px), and capped at the screen height (content scrolls). */
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { showClose?: boolean; closeLabel?: string }
+>(({ className, children, showClose = true, closeLabel = "Close", ...props }, ref) => (
   <DrawerPortal>
     <DrawerOverlay />
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
+        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[calc(100dvh-2rem)] flex-col rounded-t-[10px] border bg-background pb-[env(safe-area-inset-bottom)]",
         className,
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
-      {children}
+      <div className="mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" aria-hidden="true" />
+      {showClose && (
+        <DrawerPrimitive.Close
+          aria-label={closeLabel}
+          className="absolute right-1.5 top-1.5 inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </DrawerPrimitive.Close>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
     </DrawerPrimitive.Content>
   </DrawerPortal>
 ));

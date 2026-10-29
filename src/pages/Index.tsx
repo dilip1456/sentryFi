@@ -23,6 +23,7 @@ import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
+import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
 import { Onboarding } from "@/components/Onboarding";
@@ -51,11 +52,11 @@ import {
 type View = "overall" | "benefits" | "spending" | "myfinances" | "moneymap" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
-const BASE_TABS: { k: View; label: string; icon: LucideIcon }[] = [
+const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: string }[] = [
   { k: "overall",     label: "Home",               icon: LayoutDashboard },
   { k: "moneymap",    label: "Money Map",          icon: Compass         },
   { k: "spending",    label: "Spending",           icon: PieChart        },
-  { k: "myfinances",  label: "My Financial Picture", icon: Wallet        },
+  { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
   { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
@@ -77,6 +78,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<SettingsTab>("profile");
+  // Other screens open Settings on a tab (the Financial Picture history hint → Banks).
+  useEffect(() => {
+    const on = (e: Event) => { setProfileTab((e as CustomEvent<{ tab: SettingsTab }>).detail?.tab ?? "profile"); setShowProfile(true); };
+    window.addEventListener(OPEN_SETTINGS_EVENT, on);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, on);
+  }, []);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showAppUpdates, setShowAppUpdates] = useState(false);
   const appUpdate = useAppUpdate();
@@ -690,7 +698,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 )}
                 <Icon className={cn("h-5 w-5 transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")} />
                 <span className={cn("text-[11px] font-medium transition-colors", active ? "text-[hsl(var(--primary))]" : "text-muted-foreground")}>
-                  {t.label}
+                  {t.mobileLabel ?? t.label}
                 </span>
               </button>
             );
@@ -731,7 +739,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         onClose={() => { setShowInbox(false); refreshUnread(); }}
       />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
-      <ProfileDialog open={showProfile} onOpenChange={setShowProfile} />
+      <ProfileDialog open={showProfile} initialTab={profileTab} onOpenChange={o => { setShowProfile(o); if (!o) setProfileTab("profile"); }} />
       {updateSupported && (
         <Dialog open={showAppUpdates} onOpenChange={setShowAppUpdates}>
           <DialogContent className="max-w-md surface-elevated p-5">

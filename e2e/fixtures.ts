@@ -54,7 +54,7 @@ export const test = base.extend<{ guard: Guard }>({
 });
 export { expect };
 
-export const VIEWS = ["Home", "Money Map", "Spending", "Budget", "Gift Cards", "Benefits"] as const;
+export const VIEWS = ["Home", "Money Map", "Spending", "My Financial Picture", "Gift Cards", "Benefits"] as const;
 export type ViewName = (typeof VIEWS)[number];
 
 export async function openDemo(page: Page) {

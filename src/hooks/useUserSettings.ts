@@ -9,6 +9,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { CategoryRule } from "./useCategoryRules";
 import type { SmartRule } from "@/lib/txn-rules";
+import {
+  readMigrationState, planBudgetMigration, isMigrationConfirmed, finishBudgetMigration,
+} from "@/lib/budgets-migration";
 
 export interface AccountRoleInfo {
   role: "spending" | "buffer" | "reserve" | "savings_goal" | "investment" | "debt" | "unassigned";
@@ -52,6 +55,10 @@ export interface SavingsGoal {
   kind?: "transfer" | "category" | "yearly" | "obligation";
   category?: string;         // set when kind === "category"
   obligationId?: string;     // set when kind === "obligation"
+  // My Financial Picture "Savings" goals (all optional, older goals lack them).
+  targetAmount?: number;     // goal total, for "about N months to go"
+  targetDate?: string;       // "YYYY-MM-DD" the goal should be reached by
+  fromAccountId?: string;    // account the monthly transfer comes from
 }
 
 // A named "recurring budget entry" — e.g. "Mortgage Payment" or "Netflix" —
@@ -84,9 +91,34 @@ export type RiskProfile = "conservative" | "moderate" | "aggressive";
 // rows without another migration every time.
 export interface FinancialPictureData {
   overrides: Record<string, number>;
-  fundingAccounts: Record<string, string>; // field id -> plaid account_id
+  // field id -> plaid account_id, or FP_UNASSIGNED when the person chose
+  // "Leave unassigned" (so a detected account doesn't come back).
+  fundingAccounts: Record<string, string>;
   riskProfile?: RiskProfile;
+  // Everything below is optional and was added for the redesigned page; it
+  // lives in the same financial_picture jsonb column (no migration needed).
+  // Asked once ("Does your employer match?"), then stored.
+  employerMatch?: { answer: "yes" | "no" | "unsure"; pct?: number; upToPct?: number; at?: string };
+  // Optional two-letter state code. Shown for context only; state tax is not estimated.
+  state?: string;
+  // Company shares: none of this posts to a bank account, so it's typed in.
+  shares?: { esppValue?: number; esppMonthly?: number; esppNextBuy?: string; rsuValue?: number; rsuNextVest?: string; rsuNextVestShares?: number; ticker?: string };
+  // "Looks right" / "Not right" answers on detected rows, keyed by row id.
+  confirmations?: Record<string, "yes" | "no">;
+  // Bills and loans added by hand ("Add one") that don't show up in transactions.
+  manualItems?: FinancialPictureManualItem[];
 }
+
+export interface FinancialPictureManualItem {
+  id: string;
+  group: "obligations" | "fixed";
+  label: string;
+  monthly: number;
+  dueDay?: number;
+  createdAt: string;
+}
+
+export { FP_UNASSIGNED } from "@/lib/picture/keys";
 
 export interface UserSettings {
   budgets: Record<string, number>;
@@ -184,7 +216,7 @@ const dedupeCustomCats = (list: CustomCategory[]): CustomCategory[] => {
   return Array.from(byKey.values());
 };
 
-const dbToSettings = (row: any): UserSettings => ({
+export const dbToSettings = (row: any): UserSettings => ({
   budgets:            row.budgets           ?? {},
   accountRoles:       row.account_roles     ?? {},
   catOverrides:       row.cat_overrides     ?? {},
@@ -218,7 +250,7 @@ const dbToSettings = (row: any): UserSettings => ({
     : { overrides: {}, fundingAccounts: {} },
 });
 
-const settingsToDb = (s: UserSettings) => ({
+export const settingsToDb = (s: UserSettings) => ({
   budgets:             s.budgets,
   account_roles:       s.accountRoles,
   cat_overrides:       s.catOverrides,
@@ -250,6 +282,14 @@ const settingsToDb = (s: UserSettings) => ({
   financial_picture:   s.financialPicture,
 });
 
+/** Narrow typed view of user_settings.budgets for the one-time budget upload. */
+type BudgetsRow = { budgets: Record<string, number> | null };
+interface BudgetsTable {
+  update(v: { budgets: Record<string, number> }): { eq(c: "user_id", v: string): PromiseLike<{ error: { message: string } | null }> };
+  select(c: "budgets"): { eq(c: "user_id", v: string): { maybeSingle(): PromiseLike<{ data: BudgetsRow | null }> } };
+}
+const budgetsTable = () => (supabase as unknown as { from: (t: "user_settings") => BudgetsTable }).from("user_settings");
+
 export const useUserSettings = (userId: string | undefined) => {
   const [settings, setSettingsState] = useState<UserSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
@@ -278,13 +318,37 @@ export const useUserSettings = (userId: string | undefined) => {
             setTimeout(() => doLoad(1), 1000);
             return;
           }
-          // Give up — use defaults so app still loads
+          // Give up — use defaults so app still loads, but show any local
+          // budgets as a fallback rather than an empty Budgets list.
+          const fallback = readMigrationState(typeof window !== "undefined" ? window.localStorage : undefined, userId).local;
+          if (Object.keys(fallback).length > 0) {
+            const s = { ...DEFAULTS, budgets: fallback };
+            latestSettings.current = s;
+            setSettingsState(s);
+          }
           setLoaded(true);
           return;
         }
 
         if (data) {
-          const s = dbToSettings(data);
+          let s = dbToSettings(data);
+          // One-time upload of legacy localStorage budgets the server doesn't
+          // have yet (server wins; local copy kept until a read-back confirms).
+          const store = typeof window !== "undefined" ? window.localStorage : undefined;
+          const mig = readMigrationState(store, userId);
+          const plan = planBudgetMigration(mig.local, s.budgets, mig.migrated);
+          if (plan.needsUpload) {
+            s = { ...s, budgets: plan.merged };
+            void (async () => {
+              const { error: upErr } = await budgetsTable().update({ budgets: plan.merged }).eq("user_id", userId);
+              if (upErr) return; // keep the local copy; retried next load
+              const { data: back } = await budgetsTable().select("budgets").eq("user_id", userId).maybeSingle();
+              if (store && back && isMigrationConfirmed(plan.toUpload, back.budgets ?? {})) finishBudgetMigration(store, userId);
+            })().catch(e => console.warn("[settings] budget upload failed:", e));
+          } else if (store && !mig.migrated && Object.keys(mig.local).length > 0) {
+            // Everything local is already on the server.
+            finishBudgetMigration(store, userId);
+          }
           latestSettings.current = s;
           setSettingsState(s);
         } else {
@@ -295,11 +359,19 @@ export const useUserSettings = (userId: string | undefined) => {
           const migrated = hasExistingData ? { ...DEFAULTS, ...ls } : DEFAULTS;
           latestSettings.current = migrated;
           setSettingsState(migrated);
-          // Don't await — let it fail silently if auth not ready yet
-          supabase.from("user_settings").insert({
-            user_id: userId,
-            ...settingsToDb(migrated),
-          }).catch(e => console.warn("[settings] insert failed:", e));
+          // Don't await — let it fail silently if auth not ready yet. Local
+          // budgets are only cleared once a read-back shows they landed.
+          const store = typeof window !== "undefined" ? window.localStorage : undefined;
+          void (async () => {
+            const { error: insErr } = await supabase.from("user_settings").insert({
+              user_id: userId,
+              ...settingsToDb(migrated),
+            });
+            if (insErr) { console.warn("[settings] insert failed:", insErr.message); return; }
+            if (!store || Object.keys(migrated.budgets).length === 0) return;
+            const { data: back } = await budgetsTable().select("budgets").eq("user_id", userId).maybeSingle();
+            if (back && isMigrationConfirmed(migrated.budgets, back.budgets ?? {})) finishBudgetMigration(store, userId);
+          })().catch(e => console.warn("[settings] insert failed:", e));
         }
       } catch (e) {
         console.warn("[settings] unexpected error:", e);
@@ -612,6 +684,9 @@ export const useUserSettings = (userId: string | undefined) => {
   };
   const setRiskProfile = (profile: RiskProfile) =>
     update({ financialPicture: { ...latestSettings.current.financialPicture, riskProfile: profile } });
+  // Shallow-merge any of the optional My Financial Picture fields.
+  const patchFinancialPicture = (patch: Partial<FinancialPictureData>) =>
+    update({ financialPicture: { ...latestSettings.current.financialPicture, ...patch } });
 
   return {
     settings, loaded,
@@ -644,6 +719,6 @@ export const useUserSettings = (userId: string | undefined) => {
     setCardAutopayFrom, removeCardAutopayFrom,
     setFinancialPictureOverride, clearFinancialPictureOverride,
     setFinancialPictureFundingAccount, clearFinancialPictureFundingAccount,
-    setRiskProfile,
+    setRiskProfile, patchFinancialPicture,
   };
 };
