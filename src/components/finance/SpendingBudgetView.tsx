@@ -2157,7 +2157,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   <div className="fixed inset-0 z-[998] max-md:bg-black/40 max-md:animate-in max-md:fade-in-0" onClick={filtersMenu.close}/>
                   {/* Desktop: popover under the button. Phones: a bottom sheet
                       (full width, thumb-reachable, clear of the home indicator). */}
-                  <div role="dialog" aria-label="Filters"
+                  <div role="dialog" aria-label="Filters" data-state="open"
                     className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3
                       max-md:!top-auto max-md:!bottom-0 max-md:!left-0 max-md:!right-0 max-md:w-full max-md:max-w-none max-md:!max-h-[85dvh] max-md:rounded-b-none max-md:rounded-t-2xl max-md:px-4 max-md:pt-2 max-md:pb-0
                       max-md:animate-in max-md:slide-in-from-bottom-full max-md:duration-200"
@@ -2166,7 +2166,13 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <span className="h-1 w-10 rounded-full bg-border" aria-hidden/>
                       <div className="w-full flex items-center justify-between">
                         <span className="text-[15px] font-semibold text-foreground">Filters</span>
-                        {hasActiveFilters && <button onClick={clearFilters} className="h-9 px-2 text-[13px] font-medium text-[hsl(var(--primary))]">Clear all</button>}
+                        <div className="flex items-center -mr-2">
+                          {hasActiveFilters && <button onClick={clearFilters} className="h-11 px-2 text-[13px] font-medium text-[hsl(var(--primary))]">Clear all</button>}
+                          <button type="button" onClick={filtersMenu.close} aria-label="Close"
+                            className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted">
+                            <X className="h-4 w-4" aria-hidden="true"/>
+                          </button>
+                        </div>
                       </div>
                     </div>
 

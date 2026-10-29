@@ -1587,7 +1587,7 @@ export function BudgetPage({
 
                           <Dialog open={categoryPopup === c.cat} onOpenChange={o => { if (!o) { setCategoryPopup(null); setEditingBudgetCat(null); } }}>
                             <DialogContent className="max-w-md p-0 gap-0 overflow-hidden max-h-[85vh] flex flex-col">
-                              <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/40 space-y-1 shrink-0 text-left">
+                              <DialogHeader className="pl-5 pr-12 pt-5 pb-3 border-b border-border/40 space-y-1 shrink-0 text-left">
                                 <DialogTitle className="font-display text-[15px]">{formatCat(c.cat)}</DialogTitle>
                                 <DialogDescription className="text-[12px]">
                                   {fmtUSD(c.spend)} this month{budget != null ? ` of ${fmtUSD(budget)} budgeted` : ""} · {catTxns.length} transaction{catTxns.length!==1?"s":""}

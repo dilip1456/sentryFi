@@ -155,7 +155,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
           <DialogDescription className="sr-only">Your financial alerts and notifications</DialogDescription>
 
           {/* Header */}
-          <div className="flex items-center gap-3 px-5 py-4 border-b border-border/30 shrink-0">
+          <div className="flex items-center gap-3 pl-5 pr-14 py-4 border-b border-border/30 shrink-0">
             <Bell className="h-4 w-4 text-[hsl(var(--primary))]" />
             <span className="text-[15px] font-semibold text-foreground flex-1">Notifications</span>
             {unreadCount > 0 && (

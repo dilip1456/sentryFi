@@ -328,26 +328,16 @@ const CardDetailDialog = ({
         <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
         <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
 
-        <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-white/80 hover:text-white hover:bg-black/20 transition-colors z-10">
-          <X className="h-4 w-4" />
-        </button>
-        {cards.length > 1 && (
-          <>
-            <button onClick={() => { if (index > 0) { onIndexChange(index - 1); setReveal(false); } }} disabled={index === 0}
-              aria-label="Previous card"
-              className="absolute left-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button onClick={() => { if (index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); } }} disabled={index === cards.length - 1}
-              aria-label="Next card"
-              className="absolute right-2 top-[4.5rem] -translate-y-1/2 h-7 w-7 grid place-items-center rounded-full bg-black/25 text-white disabled:opacity-30 transition-colors z-10">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </>
-        )}
+        {/* The X gets its own row so it never sits on the card art (it used
+            to float over the tile's "GIFT CARD" label). */}
+        <div className="flex justify-end pr-1 pt-1 -mb-2 shrink-0">
+          <button onClick={onClose} aria-label="Close" className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
 
         {/* Swipeable card visual - fixed height container prevents resize */}
-        <div className="shrink-0 overflow-hidden" style={{ touchAction: "none" }}>
+        <div className="relative shrink-0 overflow-hidden" style={{ touchAction: "none" }}>
           <div className="p-4 select-none"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -360,6 +350,20 @@ const CardDetailDialog = ({
             }}>
             <GiftCardTile card={card} />
           </div>
+          {cards.length > 1 && (
+            <>
+              <button onClick={() => { if (index > 0) { onIndexChange(index - 1); setReveal(false); } }} disabled={index === 0}
+                aria-label="Previous card"
+                className="absolute left-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-white disabled:opacity-30 transition-colors z-10">
+                <span className="h-7 w-7 grid place-items-center rounded-full bg-black/25"><ChevronLeft className="h-4 w-4" /></span>
+              </button>
+              <button onClick={() => { if (index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); } }} disabled={index === cards.length - 1}
+                aria-label="Next card"
+                className="absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-white disabled:opacity-30 transition-colors z-10">
+                <span className="h-7 w-7 grid place-items-center rounded-full bg-black/25"><ChevronRight className="h-4 w-4" /></span>
+              </button>
+            </>
+          )}
         </div>
         {cards.length > 1 && (
           <div className="text-center text-[12px] text-muted-foreground pb-1 shrink-0">{index + 1} of {cards.length}</div>
