@@ -20,6 +20,7 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -4533,6 +4534,8 @@ export const LivePlaidDashboard = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
+  // Timeline: persist the verdicts so timeline_events can hide internal transfers (live only).
+  usePersistTxnClassifications((demo || guestDemo) ? undefined : user?.id, txns, txnClasses);
   // Everything that is NOT spending or income (internal transfers, card
   // payments, savings contributions, unreviewed transfers) — excluded from
   // every spend/income total. Kept under the historical name so existing
