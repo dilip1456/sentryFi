@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1208,
-  "sha256": "ad26c1a9f04e7341079744f2d27ab3db85ca0d2e77464870bf36af2a1f97fcb6",
-  "size": 7175405,
-  "releaseNotes": "feat: Timeline sidebar (unified timeline_events view, infinite scroll, filters, jump-to-date, Today/Upcoming)",
+  "versionCode": 1209,
+  "sha256": "de4b929d82eab3ddec55b43c59965ee911917116a801cea271314d1f8042ae6b",
+  "size": 7175409,
+  "releaseNotes": "fix(android): harden ApkUpdaterPlugin — constant-time sha256, exact signer match, cache cleanup",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-29T03:39:12.454Z"
+  "publishedAt": "2026-10-29T04:10:00.019Z"
 }
