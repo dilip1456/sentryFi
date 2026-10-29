@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { ClassifierAccount, ClassifierTxn, TxnTypeOverride } from "@/lib/recurring/classifier";
-import { addDays, todayLocal } from "@/lib/recurring/dates";
+import { addDays, DEFAULT_TIME_ZONE, todayLocal } from "@/lib/recurring/dates";
 import { detectRecurringSeries } from "@/lib/recurring/detect";
 import { toStreamRow } from "@/lib/recurring/rows";
 import { findPaycheckAnomalies, type PaycheckAnomaly, type PaycheckTxn } from "@/lib/paycheck-anomaly";
@@ -44,6 +44,8 @@ export function useTimelineFeed({ userId, demo }: TimelineSourceOpts, filters: T
         p_types: historyCategories(filters),
         p_include_internal: filters.includeInternal,
         p_limit: TIMELINE_PAGE_SIZE + 1,
+        // the app's "today" zone: alert/finding days and past-due milestones match Upcoming
+        p_tz: DEFAULT_TIME_ZONE,
       });
       if (error) throw new Error(error.message);
       return toPage((data ?? []).map(eventFromRow), TIMELINE_PAGE_SIZE);

@@ -13,6 +13,15 @@
 --   * public.timeline_page(...)  — keyset-paginated read of the view,
 --     SECURITY INVOKER, ordered (occurred_on desc, occurred_at desc, id desc).
 --
+-- Time zone: alert / finding days and "past due" for tax milestones use ONE
+-- zone, the app's "today" zone (src/lib/recurring/dates DEFAULT_TIME_ZONE,
+-- America/New_York). timeline_page(p_tz) can pass another zone; it is
+-- validated (timeline_safe_tz) so a bad name falls back instead of failing
+-- with 22023. profiles.timezone (free text) is not used here.
+--
+-- Privileges: revoke-then-grant like the 2610210x migrations. anon gets
+-- nothing; authenticated gets only what the app uses.
+--
 -- Idempotent: safe to run repeatedly.
 
 -- ── txn_classifications ─────────────────────────────────────────────────────
@@ -48,7 +57,10 @@ drop policy if exists "Users delete own txn classifications" on public.txn_class
 create policy "Users delete own txn classifications" on public.txn_classifications
   for delete using (auth.uid() = user_id);
 
-grant select, insert, update, delete on public.txn_classifications to authenticated;
+-- the app reads and upserts its own verdicts (insert + update); no delete/truncate
+revoke all on public.txn_classifications from anon;
+revoke all on public.txn_classifications from authenticated;
+grant select, insert, update on public.txn_classifications to authenticated;
 grant all on public.txn_classifications to service_role;
 
 -- ── tax_milestones ──────────────────────────────────────────────────────────
@@ -82,7 +94,10 @@ drop policy if exists "Users manage own tax milestones" on public.tax_milestones
 create policy "Users manage own tax milestones" on public.tax_milestones
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
-grant select, insert, update, delete on public.tax_milestones to authenticated;
+-- read-only for the app for now (nothing in the client writes milestones yet)
+revoke all on public.tax_milestones from anon;
+revoke all on public.tax_milestones from authenticated;
+grant select on public.tax_milestones to authenticated;
 grant all on public.tax_milestones to service_role;
 
 create index if not exists tax_milestones_user_due_idx
@@ -157,10 +172,35 @@ as $$
   end;
 $$;
 
+-- A time zone name Postgres knows (pg_timezone_names), else the app's zone.
+-- Free-text names such as 'Eastern Time' would otherwise raise 22023.
+create or replace function public.timeline_safe_tz(p_tz text)
+returns text
+language sql
+stable
+set search_path = public, pg_catalog
+as $$
+  select coalesce(
+    (select n.name from pg_catalog.pg_timezone_names n where n.name = nullif(btrim(p_tz), '') limit 1),
+    'America/New_York');
+$$;
+
+-- The zone the view dates alerts / findings in: set (already validated) by
+-- timeline_page for its own transaction, else the app's default zone.
+create or replace function public.timeline_tz()
+returns text
+language sql
+stable
+set search_path = public, pg_catalog
+as $$
+  select coalesce(nullif(current_setting('sentryfi.timeline_tz', true), ''), 'America/New_York');
+$$;
+
 -- ── the view ────────────────────────────────────────────────────────────────
 -- amount: signed from the user's point of view (+ money in, − money out).
 -- occurred_at for date-only rows is 12:00 UTC on that date.
 drop function if exists public.timeline_page(date, timestamptz, text, text[], boolean, integer);
+drop function if exists public.timeline_page(date, timestamptz, text, text[], boolean, integer, text);
 drop view if exists public.timeline_events;
 
 create view public.timeline_events
@@ -245,7 +285,7 @@ select
   a.user_id,
   'alert',
   a.id::text,
-  (a.sent_at at time zone coalesce(p.timezone, 'America/New_York'))::date,
+  (a.sent_at at time zone public.timeline_tz())::date,
   a.sent_at,
   'alerts',
   null,
@@ -259,7 +299,6 @@ select
   false,
   jsonb_build_object('alert_type', a.alert_type, 'payload', a.payload)
 from public.alert_log a
-left join public.profiles p on p.user_id = a.user_id
 
 union all
 -- 4. inferences the user can act on (suggested) or has confirmed
@@ -269,7 +308,7 @@ select
   'inference',
   i.id::text,
   (coalesce(case when i.status = 'confirmed' then i.decided_at end, i.created_at)
-     at time zone coalesce(p.timezone, 'America/New_York'))::date,
+     at time zone public.timeline_tz())::date,
   coalesce(case when i.status = 'confirmed' then i.decided_at end, i.created_at),
   'alerts',
   null,
@@ -297,7 +336,6 @@ select
   jsonb_build_object('kind', i.kind, 'subject_type', i.subject_type, 'subject_ref', i.subject_ref,
                      'inference_status', i.status, 'payload', i.payload)
 from public.inferences i
-left join public.profiles p on p.user_id = i.user_id
 where i.status in ('suggested', 'confirmed')
   and i.kind in ('bill_autopay', 'card_autopay', 'card_autopay_source', 'autopay_missed',
                  'salary_change', 'yearly_bill', 'set_aside_status', 'low_balance',
@@ -324,13 +362,16 @@ select
   false,
   jsonb_build_object('kind', m.kind, 'milestone_status', m.status)
 from public.tax_milestones m
-where m.status <> 'upcoming' or m.due_date < current_date;
+-- "past due" against the same zone as the client's Upcoming (no overlap at night)
+where m.status <> 'upcoming' or m.due_date < (now() at time zone public.timeline_tz())::date;
 
 comment on view public.timeline_events is
   'Timeline sidebar feed. security_invoker: RLS of every source table applies to the caller.';
 
 revoke all on public.timeline_events from anon;
-grant select on public.timeline_events to authenticated, service_role;
+revoke all on public.timeline_events from authenticated;
+grant select on public.timeline_events to authenticated;
+grant select on public.timeline_events to service_role;
 
 -- ── keyset page ─────────────────────────────────────────────────────────────
 -- Returns rows strictly older than the cursor (occurred_on, occurred_at, id),
@@ -351,17 +392,19 @@ create or replace function public.timeline_page(
   p_before_id        text,
   p_types            text[] default '{}',
   p_include_internal boolean default false,
-  p_limit            integer default 25
+  p_limit            integer default 25,
+  p_tz               text    default null
 )
 returns setof public.timeline_events
 language plpgsql
-stable
+volatile -- sets the transaction-local sentryfi.timeline_tz read by the view
 security invoker
 set search_path = public
 as $$
 declare
   v_limit  integer := least(greatest(coalesce(p_limit, 25), 1), 101);
-  v_top    date    := coalesce(p_before_on, current_date + 1);
+  v_tz     text    := public.timeline_safe_tz(p_tz);
+  v_top    date;
   v_span   integer := 45;
   v_lo     date;
   v_n      integer;
@@ -371,6 +414,8 @@ begin
   if v_uid is null then
     return;
   end if;
+  perform set_config('sentryfi.timeline_tz', v_tz, true);
+  v_top := coalesce(p_before_on, (now() at time zone v_tz)::date + 1);
   loop
     v_lo := case when v_span is null then null else v_top - v_span end;
     if v_lo is not null then
@@ -411,5 +456,19 @@ begin
 end;
 $$;
 
-revoke all on function public.timeline_page(date, timestamptz, text, text[], boolean, integer) from public, anon;
-grant execute on function public.timeline_page(date, timestamptz, text, text[], boolean, integer) to authenticated, service_role;
+-- functions: EXECUTE is granted to PUBLIC by default; revoke, then grant only
+-- to authenticated (the security_invoker view calls the helpers as the user)
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'public.timeline_pfc_type(text, text, numeric)',
+    'public.timeline_category(text)',
+    'public.timeline_safe_tz(text)',
+    'public.timeline_tz()',
+    'public.timeline_page(date, timestamptz, text, text[], boolean, integer, text)'
+  ] loop
+    execute format('revoke all on function %s from public, anon, authenticated', f);
+    execute format('grant execute on function %s to authenticated, service_role', f);
+  end loop;
+end $$;
