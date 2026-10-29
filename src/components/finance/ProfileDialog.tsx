@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } fr
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { isValidTimeZone } from "@/lib/timezone";
 import { z } from "zod";
 import { Loader2, Landmark, Trash2, Camera, User, X, RefreshCw, History } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +18,8 @@ import { isUpdateSupported } from "@/lib/app-update/native";
 const schema = z.object({
   display_name: z.string().trim().min(1, "Name required").max(80),
   phone: z.string().trim().max(30).optional().or(z.literal("")),
-  timezone: z.string().trim().max(60).optional().or(z.literal("")),
+  timezone: z.string().trim().max(60)
+    .refine(isValidTimeZone, "Use a time zone name like America/New_York").optional().or(z.literal("")),
   avatar_url: z.string().trim().url("Must be a valid URL").max(500).optional().or(z.literal("")),
 });
 

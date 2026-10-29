@@ -20,6 +20,7 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
 import { paycheckAlerts } from "@/lib/paycheck-anomaly";
@@ -4539,6 +4540,8 @@ export const LivePlaidDashboard = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
+  // Timeline: persist the verdicts so timeline_events can hide internal transfers (live only).
+  usePersistTxnClassifications((demo || guestDemo) ? undefined : user?.id, txns, txnClasses);
 
   // Days of history per connected bank (Financial Picture "Extend history" hint).
   const bankHist = useMemo(() => bankHistory(items, accounts as { account_id: string; item_id?: string | null }[], txns, new Date()), [items, accounts, txns]);

@@ -23,6 +23,8 @@ import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
+import { TimelinePanel } from "@/components/timeline/TimelinePanel";
+import { MobileMoreMenu } from "@/components/nav/MobileMoreMenu";
 import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
@@ -45,7 +47,7 @@ import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
   LayoutDashboard, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History,
   type LucideIcon,
 } from "lucide-react";
 
@@ -76,6 +78,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
   const [showInbox, setShowInbox] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [profileTab, setProfileTab] = useState<SettingsTab>("profile");
@@ -255,6 +259,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <span>Home</span>
           </button>
           {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open
+            className={cn("nav-item w-full text-left", timelineOpen && "active")}>
+            <History className="h-4 w-4 flex-shrink-0" />
+            <span>Timeline</span>
+          </button>
 
           <div className="section-label">Money</div>
           {TABS.filter(t => ["spending","myfinances"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -386,6 +395,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 Sign in
               </button>
             )}
+            <button onClick={() => setTimelineOpen(true)} aria-label="Timeline" data-tl-open
+              className="-m-1.5 h-11 w-11 grid place-items-center rounded-full text-muted-foreground">
+              <span className="h-8 w-8 rounded-full border border-border grid place-items-center"><History className="h-3.5 w-3.5" /></span>
+            </button>
             {/* Notifications */}
             {user && (
               <button onClick={() => setShowInbox(true)}
@@ -705,15 +718,17 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           })}
           {/* More button */}
           <div className="relative">
-            <button onClick={() => setMoreOpen(m => !m)}
+            <button onClick={() => setMoreOpen(m => !m)} aria-expanded={moreOpen} aria-haspopup="menu"
               className="w-full flex flex-col items-center gap-0.5 py-2 px-1">
               <MoreHorizontal className="h-5 w-5 text-muted-foreground" />
               <span className="text-[11px] font-medium text-muted-foreground">More</span>
             </button>
-            {moreOpen && (
-              <>
-                <button className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-                <div style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }} className="fixed right-2 z-[101] w-52 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border">
+            <MobileMoreMenu open={moreOpen} onClose={closeMore}>
+                  <button onClick={() => { setMoreOpen(false); setTimelineOpen(true); }} data-tl-open
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors">
+                    <History className="h-4 w-4 opacity-60" />
+                    Timeline
+                  </button>
                   {mobileOverflow.map(t => {
                     const Icon = t.icon;
                     return (
@@ -725,9 +740,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     );
                   })}
-                </div>
-              </>
-            )}
+            </MobileMoreMenu>
           </div>
         </nav>
       </div>
@@ -738,6 +751,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         open={showInbox && !!user}
         onClose={() => { setShowInbox(false); refreshUnread(); }}
       />
+      <TimelinePanel open={timelineOpen} onOpenChange={setTimelineOpen} userId={user?.id ?? null} demo={effectiveDemo} />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
       <ProfileDialog open={showProfile} initialTab={profileTab} onOpenChange={o => { setShowProfile(o); if (!o) setProfileTab("profile"); }} />
       {updateSupported && (
