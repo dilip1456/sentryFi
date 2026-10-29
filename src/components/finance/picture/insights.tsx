@@ -55,7 +55,7 @@ export function MatchBlock({ compact }: { compact: boolean }) {
   if (match.answer === "yes") {
     return (
       <>
-        <div className="flex items-center gap-3 min-h-[44px] flex-wrap">
+        <div className="flex items-center gap-3 !min-h-[44px] flex-wrap">
           <span className="text-[14px] w-[92px] shrink-0">Employer match</span>
           <span className={`st ${match.full ? "st-ok" : "st-warn"}`}>
             {match.full ? <CircleCheck className="h-4 w-4" aria-hidden="true" /> : <TriangleAlert className="h-4 w-4" aria-hidden="true" />}
@@ -67,7 +67,7 @@ export function MatchBlock({ compact }: { compact: boolean }) {
           <>
             <p className="note">
               You put in {match.yourPct.toFixed(1)}% of pay; the match needs {match.upToPct}%.{!match.full && match.missing > 0 ? ` You're leaving about ${fmt(match.missing)}/yr on the table.` : ""}{" "}
-              <button type="button" className="text-primary font-semibold underline-offset-2 hover:underline min-h-[44px]" onClick={() => act.setMatch(undefined)}>Change answer</button>
+              <button type="button" className="text-primary font-semibold underline-offset-2 hover:underline !min-h-[44px]" onClick={() => act.setMatch(undefined)}>Change answer</button>
             </p>
             <div className="grid grid-cols-2 gap-3 mt-2">
               <label className="block text-[13px]">
@@ -89,10 +89,10 @@ export function MatchBlock({ compact }: { compact: boolean }) {
   if (match.answer === "unsure") {
     return (
       <p className="note"><Info className="h-3.5 w-3.5 inline -mt-0.5 mr-1" aria-hidden="true" />Check your benefits portal for "401(k) match". Most matches need 3–6% of pay.{" "}
-        <button type="button" className="text-primary font-semibold min-h-[44px]" onClick={() => act.setMatch(undefined)}>Answer now</button></p>
+        <button type="button" className="text-primary font-semibold !min-h-[44px]" onClick={() => act.setMatch(undefined)}>Answer now</button></p>
     );
   }
-  return <p className="note">No employer match. <button type="button" className="text-primary font-semibold min-h-[44px]" onClick={() => act.setMatch(undefined)}>Change</button></p>;
+  return <p className="note">No employer match. <button type="button" className="text-primary font-semibold !min-h-[44px]" onClick={() => act.setMatch(undefined)}>Change</button></p>;
 }
 
 export function CoverageCard() {

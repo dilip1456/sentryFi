@@ -5,7 +5,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
-  ArrowRight, Check, CircleAlert, CircleCheck, Info, Lightbulb, Network, PiggyBank, Plus, Repeat, CreditCard,
+  ArrowRight, Check, ChevronRight, CircleAlert, CircleCheck, Info, Lightbulb, Network, PiggyBank, Plus, Repeat, CreditCard,
   SlidersHorizontal, Trash2, TriangleAlert,
 } from "lucide-react";
 import { usePicture, type ListGroup, type PictureState } from "./state";
@@ -42,9 +42,11 @@ function EvList({ txns, pc }: { txns: PTxn[]; pc: PictureState }) {
       {txns.map(t => {
         const inner = (
           <>
-            <span className="w-[86px] text-muted-foreground text-[13px] shrink-0">{shortDate(t.date)}, {t.date.slice(0, 4)}</span>
-            <span className="grow text-[13px] text-left">{pc.acct(t.account_id)?.label ?? t.name}</span>
-            <b className="tabular">{fmt(Math.abs(Number(t.amount)))}</b>
+            <span className="grow text-left">
+              <span className="block truncate text-[13.5px]">{pc.acct(t.account_id)?.label ?? t.name}</span>
+              <small>{shortDate(t.date)}, {t.date.slice(0, 4)}</small>
+            </span>
+            <b className="amt">{fmt(Math.abs(Number(t.amount)))}</b>
           </>
         );
         return open
@@ -90,10 +92,11 @@ function MRow({ g, r }: { g: ListGroup; r: PictureRow }) {
   return (
     <button type="button" className="li w-full" onClick={() => open(`row:${g}:${r.id}`)} aria-label={`${r.label}, ${fmt(r.monthly * pc.P)} ${pc.perWord}, details`}>
       <span className="grow text-left">
-        <span className="block font-medium">{r.label}</span>
-        {right && <span className="flex flex-wrap gap-1.5 mt-1">{right}</span>}
+        <span className="block font-medium truncate">{r.label}</span>
+        {right && <span className="chips">{right}</span>}
       </span>
-      <span className="font-semibold tabular whitespace-nowrap">{fmt(r.monthly * pc.P)}<span className="text-muted-foreground font-normal text-[12px]">{pc.per}</span></span>
+      <span className="amt">{fmt(r.monthly * pc.P)}<span>{pc.per}</span></span>
+      <ChevronRight className="chev" aria-hidden="true" />
     </button>
   );
 }
@@ -103,8 +106,8 @@ function CardChain({ c }: { c: CardInfo }) {
   const items = [...pc.m.rows.obligations, ...pc.m.rows.fixed, ...pc.m.rows.budgets].filter(r => r.coverId === c.id);
   return (
     <div className={`map-acct${c.payoffId ? "" : " bad"} mb-2`}>
-      <div className="flex flex-wrap items-center gap-2 text-[13px]">
-        <CovChip acct={pc.acct(c.id)} /><ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+      <div className="chain">
+        <CovChip acct={pc.acct(c.id)} /><ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
         <CovChip acct={pc.acct(c.payoffId)} text="No payoff account" />
       </div>
       <div className="map-items">
@@ -122,14 +125,24 @@ function SecDetail({ g }: { g: PictureGroup }) {
     return (
       <>
         <div className="mb-4"><KV cols={2} items={[{ k: "Cards", v: cards.length }, { k: "Payoff set", v: `${cards.filter(c => c.payoffId).length} of ${cards.length}` }]} /></div>
-        <div className="lst">
-          {cards.map(c => (
-            <button type="button" key={c.id} className="li w-full" onClick={() => open(`row:cards:${c.id}`)} aria-label={`${c.name} details`}>
-              <span className="grow text-left"><span className="block font-medium">{c.name}</span>
-                <span className="flex flex-wrap gap-1.5 mt-1"><CovChip acct={pc.acct(c.payoffId)} text="No payoff account" /></span></span>
-              <span className="text-[13px] text-muted-foreground tabular">{c.mask ? `••${c.mask}` : ""}</span>
-            </button>
-          ))}
+        <div className="card-stack">
+          {cards.map(c => {
+            const charged = [...pc.m.rows.obligations, ...pc.m.rows.fixed, ...pc.m.rows.budgets].filter(r => r.coverId === c.id);
+            const sum = charged.reduce((t, r) => t + r.monthly, 0);
+            return (
+              <button type="button" key={c.id} className={`card-item${c.payoffId ? "" : " bad"}`} onClick={() => open(`row:cards:${c.id}`)} aria-label={`${c.name} details`}>
+                <span className="ci-top">
+                  <CreditCard className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                  <span className="ci-name">{c.name}</span>
+                  {c.mask && <span className="ci-mask">••{c.mask}</span>}
+                  <ChevronRight className="chev" aria-hidden="true" />
+                </span>
+                <span className="ci-row"><span className="ci-k">Paid by</span><CovChip acct={pc.acct(c.payoffId)} text="No payoff account" /></span>
+                <span className="ci-row"><span className="ci-k">Charged here</span>
+                  <span className="ci-v">{charged.length ? <>{charged.length} item{charged.length === 1 ? "" : "s"} · {fmt(sum)}<span>/mo</span></> : "Nothing yet"}</span></span>
+              </button>
+            );
+          })}
           {!cards.length && <p className="mini">No credit cards linked.</p>}
         </div>
         {cards.length > 0 && (
@@ -161,8 +174,8 @@ function SecDetail({ g }: { g: PictureGroup }) {
           <div className="lst">
             {due.map(r => (
               <div key={r.id} className="li !min-h-[44px]">
-                <span className="w-[64px] text-[13px] text-muted-foreground shrink-0">{pc.m.nextMonthLabel.slice(0, 3)} {r.dueDay}</span>
-                <span className="grow text-[14px]">{r.label}</span>
+                <span className="w-[56px] text-[13px] text-muted-foreground shrink-0 tabular">{pc.m.nextMonthLabel.slice(0, 3)} {r.dueDay}</span>
+                <span className="grow text-[14px] truncate">{r.label}</span>
                 {r.coverId
                   ? <span className="text-[12.5px] flex items-center gap-1 text-positive"><CircleCheck className="h-3.5 w-3.5" aria-hidden="true" />Covered</span>
                   : <span className="text-[12.5px] flex items-center gap-1" style={NEG}><CircleAlert className="h-3.5 w-3.5" aria-hidden="true" />Not covered</span>}
@@ -210,9 +223,10 @@ function CardRowDetail({ c }: { c: CardInfo }) {
   return (
     <>
       <KV items={[
-        { k: "Paid by", v: <span className="!text-[14px]">{payer.name}</span> },
         { k: "Autopay", v: <span className="!text-[14px]">{c.payments.length >= 2 ? "Seen monthly" : "Not sure"}</span> },
         { k: "Due", v: <span className="!text-[14px]">{c.dueDay ? `~${ORDINAL(c.dueDay)}` : "—"}</span> },
+        // last so the phone's 2-column grid gives the account name a full row
+        { k: "Paid by", v: <span className="!text-[14px]">{payer.name}</span> },
       ]} />
       <div className="h4">Charged to this card</div>
       <div className="flex flex-wrap gap-2">{charged.length ? charged.map(r => <span key={r.group + r.id} className="map-item">{r.label}</span>) : <span className="mini">Nothing assigned yet</span>}</div>
@@ -347,7 +361,7 @@ function RowDetail({ g, r }: { g: ListGroup; r: PictureRow }) {
       {r.id === "salary" && (
         <div className="note mt-3">
           Gross pay {pc.m.gross.estimated ? "estimate" : ""}: {fmt(pc.m.gross.annual)}/yr (used for taxes).{" "}
-          {!grossEdit ? <button type="button" className="text-primary font-semibold min-h-[44px]" onClick={() => setGrossEdit(true)}>Edit</button> : (
+          {!grossEdit ? <button type="button" className="text-primary font-semibold inline-flex items-center justify-center !min-h-[44px] !min-w-[44px] px-1" onClick={() => setGrossEdit(true)}>Edit</button> : (
             <form className="flex items-end gap-2 mt-2" onSubmit={e => { e.preventDefault(); const n = parseAmt(gross); if (n > 0) { pc.act.setGross(n); setGrossEdit(false); saved(); } }}>
               <span className="amt-in !h-11 flex-1"><span>$</span><input inputMode="decimal" value={gross} onChange={e => setGross(e.target.value)} aria-label="Gross pay per year" /></span>
               <button type="submit" className="btn !min-h-[44px]">Save</button>
@@ -493,7 +507,7 @@ function CovDetail() {
               <button type="button" key={f.key} className="li w-full" onClick={() => open(f.key)}>
                 <CircleAlert className="h-4 w-4 shrink-0" style={NEG} aria-hidden="true" />
                 <span className="grow font-medium text-left">{f.text}</span>
-                <span className="text-primary text-[13px] font-semibold">Fix</span>
+                <span className="text-primary text-[13px] font-semibold shrink-0">Fix</span>
               </button>
             ))}
           </div>
@@ -581,7 +595,7 @@ function BreakdownDetail() {
           <p className="note -mt-1 mb-1">{t.s}</p>
           <div className="lst">
             {bd.accounts[t.k].map(({ account: a, balance }) => (
-              <div key={a.account_id} className="li !min-h-[44px]"><span className="grow">{a.name} {a.mask && <span className="text-muted-foreground text-[12.5px]">••{a.mask}</span>}</span><b className="tabular">{fmt(balance)}</b></div>
+              <div key={a.account_id} className="li !min-h-[44px]"><span className="grow truncate">{a.name} {a.mask && <span className="text-muted-foreground text-[12.5px]">••{a.mask}</span>}</span><b className="amt">{fmt(balance)}</b></div>
             ))}
             {!bd.accounts[t.k].length && <p className="mini">Nothing here yet.</p>}
           </div>
@@ -754,7 +768,7 @@ function EditBody() {
                     <span className="grow font-medium">{r.label}</span>
                     <AmountInput g={g} row={r} className="!h-11" />
                     {(COVER_GROUPS.has(g) || g === "savings") && (
-                      <button type="button" className="w-full flex items-center justify-between min-h-[44px] text-[13px]" onClick={() => open(`pick:${g}:${r.id}:edit`)} aria-label={`${r.label} ${g === "savings" ? "from" : "covered by"}`}>
+                      <button type="button" className="w-full flex items-center justify-between !min-h-[44px] text-[13px]" onClick={() => open(`pick:${g}:${r.id}:edit`)} aria-label={`${r.label} ${g === "savings" ? "from" : "covered by"}`}>
                         <span className="text-muted-foreground">{g === "savings" ? "From" : "Covered by"}</span><CovChip acct={pc.acct(covId)} />
                       </button>
                     )}

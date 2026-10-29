@@ -135,7 +135,7 @@ function EmptyRows({ g }: { g: PictureGroup }) {
     <div className="flex items-center justify-between gap-3 py-2">
       <p className="mini">{text[g]}</p>
       {(g === "obligations" || g === "fixed" || g === "budgets" || g === "savings") && (
-        <button type="button" className="btn !min-h-[40px]" onClick={() => open(`add:${g}`)}>Add {g === "savings" ? "a goal" : g === "budgets" ? "a budget" : "one"}</button>
+        <button type="button" className="btn" onClick={() => open(`add:${g}`)}>Add {g === "savings" ? "a goal" : g === "budgets" ? "a budget" : "one"}</button>
       )}
     </div>
   );

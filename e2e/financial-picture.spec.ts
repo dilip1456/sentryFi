@@ -128,7 +128,7 @@ test.describe("phone (390x844)", () => {
   test("card sheet and pick sheet", async ({ page }) => {
     await page.locator("button.sum-card").filter({ hasText: "Cards & Payoff Accounts" }).click();
     const screen = page.getByRole("dialog", { name: "Cards & Payoff Accounts" });
-    const cards = screen.locator(".lst button.li");
+    const cards = screen.locator("button.card-item");
     const n = await cards.count();
     expect(n).toBeGreaterThan(0);
     for (let i = 0; i < n; i++) {

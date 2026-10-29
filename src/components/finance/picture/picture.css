@@ -154,7 +154,11 @@
 .fp .lst .li .grow { flex:1; min-width:0; } .fp .lst .li small { display:block; font-size:12px; color:hsl(var(--muted-foreground)); }
 .fp .h4 { font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:hsl(var(--muted-foreground)); margin:18px 0 8px; }
 .fp .h4:first-child { margin-top:0; }
-.fp .note { font-size:12.5px; color:hsl(var(--muted-foreground)); line-height:1.5; }
+/* A group wrapper (Edit, Savings Breakdown) starts with its own .h4; only the body's very first header loses its gap. */
+.fp :is(.ov-b, .scr-b) > div:not(:first-child) > .h4:first-child { margin-top:18px; }
+.fp .note { font-size:12.5px; color:hsl(var(--muted-foreground)); line-height:1.6; }
+/* Chips inside running text sit on the text line instead of stretching it. */
+.fp .note .cov, .fp .note .tag { padding-top:0; padding-bottom:0; vertical-align:baseline; line-height:1.6; }
 .fp .radio { display:flex; align-items:center; gap:12px; min-height:52px; padding:6px 12px; border:1px solid hsl(var(--border)); border-radius:10px; width:100%; text-align:left; font-size:14px; }
 .fp .radio + .radio { margin-top:8px; }
 .fp .radio[aria-checked="true"] { border-color:hsl(var(--primary)); background:hsl(var(--primary)/.08); }
@@ -198,4 +202,63 @@
   .fp .hist-hint > svg { margin-top:3px; }
   .fp .hist-hint .hist-go { grid-column:2 / 3; justify-self:start; margin-top:6px; }
   .fp .hist-hint .hist-x { grid-column:3; grid-row:1; margin:-8px -6px 0 0; border:0; }
+}
+
+/* ── Rows shared by section screens, sheets and dialogs ──────────────────────
+ * Label (truncates) with chips on their own line, amount right in tabular
+ * figures, optional chevron in a fixed slot. */
+.fp .lst .li .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.fp .lst .li .amt { font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; flex-shrink:0; }
+.fp .lst .li .amt span { font-weight:400; color:hsl(var(--muted-foreground)); font-size:12px; }
+.fp .lst .li .chev { height:16px; width:16px; color:hsl(var(--muted-foreground)); flex-shrink:0; margin-left:-4px; }
+.fp .chain { display:flex; align-items:center; gap:8px; min-width:0; font-size:13px; }
+.fp .chain .cov { min-width:0; flex:0 1 auto; }
+
+/* Cards & Payoff Accounts: one stacked card per credit card (no table). */
+.fp .card-stack { display:flex; flex-direction:column; gap:10px; }
+.fp .card-item { display:flex; flex-direction:column; gap:8px; width:100%; padding:12px 14px; text-align:left; border:1px solid hsl(var(--border)); border-radius:12px; background:hsl(var(--card)); }
+.fp .card-item.bad { border-color:hsl(var(--negative)/.5); background:hsl(var(--negative)/.06); }
+.fp .card-item:active { background:hsl(var(--surface-hover)); }
+.fp .ci-top { display:flex; align-items:center; gap:8px; min-width:0; }
+.fp .ci-name { font-weight:600; font-size:14.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fp .ci-mask { font-size:12.5px; color:hsl(var(--muted-foreground)); font-variant-numeric:tabular-nums; margin-left:auto; flex-shrink:0; }
+.fp .ci-top .chev { height:16px; width:16px; color:hsl(var(--muted-foreground)); flex-shrink:0; }
+.fp .ci-name + .chev { margin-left:auto; }
+.fp .ci-row { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; font-size:13px; }
+.fp .ci-k { color:hsl(var(--muted-foreground)); flex-shrink:0; }
+.fp .ci-v { font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.fp .ci-v span { font-weight:400; color:hsl(var(--muted-foreground)); }
+.fp .ci-row .cov { min-width:0; }
+
+/* ── Phone layout (≤767px) ───────────────────────────────────────────────────
+ * Spacing scale: 4 · 8 · 12 · 16 · 24. Page and sheet bodies 16px, cards 12–14px,
+ * stacked cards 10px apart, section headers 24px above / 8px below. */
+@media (max-width:767px){
+  /* index.css gives every coarse-pointer <button> min-height:40px and a
+   * min-width:40px with a (0,2,1) selector that outranks ".fp .btn"; doubling
+   * .fp wins it back. Tailwind sizes on other buttons need the ! prefix. */
+  .fp.fp .btn, .fp.fp .btn-gold, .fp.fp .chipbtn { min-height:44px; min-width:44px; }
+  .fp .amt-in { height:44px; }
+  .fp .cov-sel { height:44px; }
+
+  .fp .h4 { margin:24px 0 8px; }
+  .fp .h4:first-child { margin-top:0; }
+  .fp :is(.ov-b, .scr-b) > div:not(:first-child) > .h4:first-child { margin-top:24px; }
+
+  /* A 2-column KV with an odd count: the last cell takes the full row instead of leaving a hole. */
+  .fp .kv > div:last-child:nth-child(odd) { grid-column:1 / -1; }
+
+  .fp.fp-sheet .ov-h { padding:6px 12px 10px 16px; }
+  .fp.fp-sheet .ov-b { padding:16px 16px calc(24px + env(safe-area-inset-bottom)); }
+  .fp.fp-screen .scr-h { padding-top:max(6px, env(safe-area-inset-top)); }
+
+  /* Summary cards: one-line titles at 360px, amounts in a fixed right column. */
+  .fp .sum-card { gap:10px; padding:12px 10px 12px 12px; }
+  .fp .sum-card .sec-ico { height:34px; width:34px; }
+  .fp .sum-card .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fp .sum-card .v { min-width:64px; }
+}
+@media (max-width:380px){
+  .fp .sum-card .t { font-size:14px; letter-spacing:-.01em; }
+  .fp .sum-card .v { font-size:14.5px; }
 }
