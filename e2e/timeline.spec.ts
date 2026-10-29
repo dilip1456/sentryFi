@@ -10,6 +10,8 @@ import { test, expect, openDemo, QA_NOW } from "./fixtures";
 const panel = (p: Page) => p.getByTestId("tl-panel");
 const events = (p: Page) => panel(p).locator("[data-tl-ev]");
 const history = (p: Page) => panel(p).locator(".tl-ev:not(.ghost)");
+/** Server-paged rows only (computed paycheck alerts are merged in on top of the 25-row pages). */
+const paged = (p: Page) => panel(p).locator('.tl-ev:not(.ghost):not([data-tl-ev^="alert:paycheck-"])');
 const ghosts = (p: Page) => panel(p).locator(".tl-ev.ghost");
 const cats = async (p: Page) => [...new Set(await history(p).evaluateAll(els => els.map(e => (e as HTMLElement).dataset.cat)))];
 
@@ -68,7 +70,7 @@ test.describe("Timeline · desktop 1440x900", () => {
     expect((await panel(page).boundingBox())!.width).toBe(400);
     await expect(navBtn(page)).toHaveAttribute("aria-expanded", "true"); // D3
     await waitLoaded(page);
-    expect(await history(page).count()).toBe(25); // D4
+    expect(await paged(page).count()).toBe(25); // D4
     expect(await ghosts(page).count()).toBeGreaterThan(0);
     const order = await panel(page).evaluate(el => {
       const lastGhost = [...el.querySelectorAll(".tl-ev.ghost")].pop()!;
@@ -321,7 +323,7 @@ test.describe("Timeline · phone 390x844", () => {
 
   test("M18-M20 next-page skeletons, append 25, tap targets >= 44px", async ({ page }) => {
     await openFromMore(page);
-    expect(await history(page).count()).toBe(25);
+    expect(await paged(page).count()).toBe(25);
     await page.getByTestId("tl-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
     await expect(page.getByTestId("tl-skeleton")).toBeVisible(); // M18
     await waitLoaded(page);
