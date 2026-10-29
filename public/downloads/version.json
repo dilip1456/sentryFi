@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1206,
-  "sha256": "2e73831d07e178f8b591797d9ffb62757b403fb698b95de6b9c4a1b84f50b262",
-  "size": 7105352,
-  "releaseNotes": "feat: one-tap in-app update for the sideloaded APK",
+  "versionCode": 1207,
+  "sha256": "26ac41ddac7fa3eb7c31b9f1ad6e55de51d6cd2ae4cdf95dd872da037e2aea0f",
+  "size": 7153965,
+  "releaseNotes": "My Financial Picture redesign (Your Data + Insights, mobile Picture tab) + re-link carry-over",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-29T00:59:51.282Z"
+  "publishedAt": "2026-10-29T02:18:47.134Z"
 }
