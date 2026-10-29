@@ -255,8 +255,11 @@ test.describe("Timeline · phone 390x844", () => {
       expect(new URL(page.url()).pathname, label).toBe("/demo");
     };
     // the menu is portaled to <body>, so the backdrop covers the whole screen (not just the blurred nav)
+    // bottom nav keeps #28's Picture tab; More lists Timeline + the overflow tabs (same as main)
+    await expect(page.locator("nav").getByRole("button", { name: "Picture", exact: true })).toBeVisible();
     await open();
     expect(await menu.evaluate(el => el.parentElement === document.body)).toBe(true);
+    expect(await menu.locator(":scope > button").allInnerTexts()).toEqual(["Timeline", "Gift Cards", "Benefits"]);
     const bd = (await page.getByTestId("more-backdrop").boundingBox())!;
     expect([bd.x, bd.y, bd.width, bd.height]).toEqual([0, 0, 390, 844]);
     await page.mouse.click(195, 300); // M22 backdrop, top half
