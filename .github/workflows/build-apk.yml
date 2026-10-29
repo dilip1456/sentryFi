@@ -149,10 +149,11 @@ jobs:
         env:
           WANT_CODE: ${{ steps.version.outputs.code }}
         run: |
-          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -1)
+          # `|| true`: under pipefail a missing build-tools dir would otherwise exit here silently.
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -1 || true)
           if [ -z "$AAPT2" ]; then
-            echo "::warning::aapt2 not found; skipping APK versionCode check"
-            exit 0
+            echo "::error::aapt2 not found under \$ANDROID_HOME/build-tools ($ANDROID_HOME); cannot verify the APK versionCode, refusing to publish an unverified APK"
+            exit 1
           fi
           LINE=$("$AAPT2" dump badging apk-out/SentryFi.apk | head -1)
           echo "$LINE"
@@ -196,11 +197,18 @@ jobs:
           mkdir -p public/downloads
           cp apk-out/SentryFi.apk public/downloads/SentryFi.apk
           MIN="$MIN_VERSION_CODE_INPUT"
+          MIN_SRC="workflow_dispatch input min_version_code"
           if [ -z "$MIN" ] && [ -f android/min-version-code.txt ]; then
-            MIN=$(grep -oE '^[0-9]+' android/min-version-code.txt | head -1)
+            # First line that is not blank or a # comment, surrounding whitespace trimmed.
+            MIN=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' android/min-version-code.txt | grep -vE '^(#|$)' | head -1 || true)
+            MIN_SRC="android/min-version-code.txt"
           fi
           MIN="${MIN:-0}"
-          if ! [[ "$MIN" =~ ^[0-9]+$ ]]; then echo "::error::min_version_code must be an integer"; exit 1; fi
+          # Digits only, at most 10 (keeps bash -gt and Number() exact; the versionCode check below bounds it further),
+          # so a huge value can no longer end up in version.json as 1e+20.
+          if ! [[ "$MIN" =~ ^[0-9]{1,10}$ ]]; then
+            echo "::error::minVersionCode from $MIN_SRC must be digits only (0-9) and at most 10 digits, got '$MIN'"; exit 1
+          fi
           if [ "$MIN" -gt "$VERSION_CODE" ]; then
             echo "::error::minVersionCode $MIN is above this build's versionCode $VERSION_CODE"; exit 1
           fi
@@ -210,9 +218,22 @@ jobs:
             TITLE=$(git log -1 --format=%b "$GITHUB_SHA" | sed '/^\s*$/d' | head -1)
             [ -n "$TITLE" ] && SUBJECT="$TITLE"
           fi
-          export SHA256=$(sha256sum public/downloads/SentryFi.apk | cut -d' ' -f1)
-          export SIZE=$(stat -c%s public/downloads/SentryFi.apk)
-          export NOTES="$SUBJECT" MIN
+          # Assign, then export: `export X=$(cmd)` would hide a failing cmd.
+          if ! SHA256_LINE=$(sha256sum public/downloads/SentryFi.apk); then
+            echo "::error::sha256sum public/downloads/SentryFi.apk failed"; exit 1
+          fi
+          SHA256="${SHA256_LINE%% *}"
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::sha256 of public/downloads/SentryFi.apk is not 64 lowercase hex chars, got '$SHA256'"; exit 1
+          fi
+          if ! SIZE=$(stat -c%s public/downloads/SentryFi.apk); then
+            echo "::error::stat public/downloads/SentryFi.apk failed"; exit 1
+          fi
+          if ! [[ "$SIZE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::size of public/downloads/SentryFi.apk is not a positive integer, got '$SIZE'"; exit 1
+          fi
+          NOTES="$SUBJECT"
+          export SHA256 SIZE NOTES MIN
           node -e '
             const e = process.env;
             const v = {
