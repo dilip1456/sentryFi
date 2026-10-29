@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1207,
-  "sha256": "26ac41ddac7fa3eb7c31b9f1ad6e55de51d6cd2ae4cdf95dd872da037e2aea0f",
-  "size": 7153965,
-  "releaseNotes": "My Financial Picture redesign (Your Data + Insights, mobile Picture tab) + re-link carry-over",
+  "versionCode": 1208,
+  "sha256": "ad26c1a9f04e7341079744f2d27ab3db85ca0d2e77464870bf36af2a1f97fcb6",
+  "size": 7175405,
+  "releaseNotes": "feat: Timeline sidebar (unified timeline_events view, infinite scroll, filters, jump-to-date, Today/Upcoming)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-29T02:18:47.134Z"
+  "publishedAt": "2026-10-29T03:39:12.454Z"
 }
