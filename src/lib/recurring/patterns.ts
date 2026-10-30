@@ -16,6 +16,14 @@ const STOPWORDS = new Set([
  * Stable, normalised key for "the same payee". Strips trace numbers, ACH
  * boilerplate and payroll words so "ACME CORP PAYROLL PPD ID: 99123" and
  * "ACME CORP DIR DEP 0415" both become "acme".
+ *
+ * Each word is also capped to 6 characters before joining. Banks don't always
+ * spell a payee's name the same way on every statement cycle - "PROVIDENT
+ * FUNDING" one month, "PROVIDENT FUNDIN" (descriptor field truncated by the
+ * bank) the next - which otherwise splits one recurring bill into two
+ * separate, each-below-threshold entries. Capping the word length makes both
+ * spellings collapse to the same key ("fundin") without needing to compare
+ * against other transactions.
  */
 export function merchantKey(name: string | null | undefined, merchant?: string | null): string {
   const raw = (merchant || name || "").toLowerCase();
@@ -28,7 +36,7 @@ export function merchantKey(name: string | null | undefined, merchant?: string |
     .replace(/[^a-z&\s]/g, " ")
     .split(/\s+/)
     .filter(w => w && !STOPWORDS.has(w));
-  const key = cleaned.slice(0, 3).join(" ");
+  const key = cleaned.slice(0, 3).map(w => w.slice(0, 6)).join(" ");
   return key || raw.replace(/\s+/g, " ").trim() || "unknown";
 }
 
