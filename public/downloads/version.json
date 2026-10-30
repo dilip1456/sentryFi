@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1210,
-  "sha256": "7ba42aef3dab5af97fffa1823805decec5c6d650ad7114ce443a44db00271a6d",
-  "size": 7175737,
-  "releaseNotes": "fix: popup close-X overlaps, Money Map Tag crash, header menu & filters close",
+  "versionCode": 1216,
+  "sha256": "6d37e88893fae8ebf37bf6e93b5f9386e398bc0987f1f7cd5e1f640710df09ed",
+  "size": 7181473,
+  "releaseNotes": "Polish spending screen and persist financial profile",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-29T05:32:57.140Z"
+  "publishedAt": "2026-10-30T04:52:38.530Z"
 }
