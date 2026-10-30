@@ -65,9 +65,9 @@ const Auth = () => {
       <div className="min-h-screen grid place-items-center bg-background cursor-pointer" onClick={() => setShowSplash(false)}>
         <div className="flex flex-col items-center gap-3 animate-pop-in">
           <div className="shield-glow-wrap h-20 w-20 mb-1">
-            <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-16 w-16 rounded-2xl" />
+            <img src="/logo.png" alt="Sentry Finance" className="shield-glow-img h-16 w-16 rounded-2xl" />
           </div>
-          <div className="font-display text-xl text-foreground">SentryFi</div>
+          <div className="font-display text-xl text-foreground">Sentry Finance</div>
           <div className="text-[13px] text-muted-foreground">Personal finance intelligence</div>
           <div className="text-[12px] text-muted-foreground/50 mt-2">v{APP_VERSION} · Build {formatBuildTime()}</div>
         </div>
@@ -131,7 +131,7 @@ const Auth = () => {
       {showBanner && (
         <div className="w-full max-w-sm bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.25)] rounded-xl px-4 py-3 flex items-center gap-2.5">
           <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-          <span className="text-[13px] text-foreground flex-1">Get the SentryFi app for the best experience.</span>
+          <span className="text-[13px] text-foreground flex-1">Get the Sentry Finance app for the best experience.</span>
           <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
             className="text-[13px] font-medium px-2.5 py-1 rounded-full bg-[hsl(var(--primary))] text-background shrink-0 no-min-h">
             Download
@@ -144,9 +144,9 @@ const Auth = () => {
 
       <div className="w-full max-w-sm surface-elevated rounded-2xl p-6 border border-border/60 animate-fade-up">
         <div className="flex items-center gap-2 mb-5">
-          <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
+          <img src="/logo.png" alt="Sentry Finance" className="h-9 w-9 rounded-lg" />
           <div>
-            <div className="font-display text-base text-foreground">SentryFi</div>
+            <div className="font-display text-base text-foreground">Sentry Finance</div>
             <div className="text-[12.5px] text-muted-foreground">Personal finance intelligence</div>
           </div>
         </div>

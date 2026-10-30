@@ -387,7 +387,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 open={confirmDisconnect !== null}
                 onOpenChange={o => { if (!o) setConfirmDisconnect(null); }}
                 title={`Disconnect ${confirmDisconnect?.institution_name ?? "this bank"}?`}
-                description="SentryFi will revoke its access with the bank and stop syncing these accounts. You can link it again later."
+                description="Sentry Finance will revoke its access with the bank and stop syncing these accounts. You can link it again later."
                 confirmLabel="Disconnect"
                 busy={disconnectingId !== null}
                 onConfirm={() => { if (confirmDisconnect) return disconnectBank(confirmDisconnect); }} />
@@ -411,7 +411,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 open={confirmFullResync}
                 onOpenChange={o => { if (!o && !fullResyncing) setConfirmFullResync(false); }}
                 title="Run a full resync?"
-                description="SentryFi will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
+                description="Sentry Finance will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
                 confirmLabel="Full resync"
                 destructive={false}
                 busy={fullResyncing}

@@ -7,7 +7,7 @@ const Terms = () => (
     <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/70 border-b border-border/60">
       <div className="max-w-[760px] mx-auto px-4 md:px-8 h-14 flex items-center justify-between">
         <Link to="/welcome" className="inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to SentryFi
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Sentry Finance
         </Link>
         <div className="font-display text-sm text-foreground">Terms of Service</div>
       </div>
@@ -21,26 +21,26 @@ const Terms = () => (
       </div>
 
       <h1 className="font-display text-3xl md:text-4xl mb-2">Terms of Service</h1>
-      <p className="text-[13px] text-muted-foreground mb-10">Last updated: August 16, 2026 · SentryFi v{APP_VERSION}</p>
+      <p className="text-[13px] text-muted-foreground mb-10">Last updated: August 16, 2026 · Sentry Finance v{APP_VERSION}</p>
 
       <div className="space-y-7 text-[14.5px] leading-[1.7] text-foreground/90">
         <section>
           <h2 className="text-[15px] font-semibold mb-2">1. Acceptance of terms</h2>
-          <p>By creating an account or using SentryFi ("the Service"), you agree to these Terms of Service.
+          <p>By creating an account or using Sentry Finance ("the Service"), you agree to these Terms of Service.
           If you don't agree, don't use the Service.</p>
         </section>
 
         <section>
-          <h2 className="text-[15px] font-semibold mb-2">2. What SentryFi does</h2>
-          <p>SentryFi connects to your financial accounts through Plaid on a read-only basis and
+          <h2 className="text-[15px] font-semibold mb-2">2. What Sentry Finance does</h2>
+          <p>Sentry Finance connects to your financial accounts through Plaid on a read-only basis and
           calculates budgeting and net-worth figures (such as "True Available Funds") from that data.
-          SentryFi cannot move money, initiate payments, or make any changes to your linked accounts.</p>
+          Sentry Finance cannot move money, initiate payments, or make any changes to your linked accounts.</p>
         </section>
 
         <section>
           <h2 className="text-[15px] font-semibold mb-2">3. Not financial advice</h2>
-          <p>SentryFi is a budgeting and tracking tool. Nothing in the Service is investment, tax, or
-          financial advice, and SentryFi is not a licensed financial advisor. Decisions you make based on
+          <p>Sentry Finance is a budgeting and tracking tool. Nothing in the Service is investment, tax, or
+          financial advice, and Sentry Finance is not a licensed financial advisor. Decisions you make based on
           information shown in the app are your responsibility.</p>
         </section>
 
@@ -72,7 +72,7 @@ const Terms = () => (
 
         <section>
           <h2 className="text-[15px] font-semibold mb-2">8. Disclaimers and limitation of liability</h2>
-          <p>The Service is provided "as is" without warranties of any kind. SentryFi is not liable for
+          <p>The Service is provided "as is" without warranties of any kind. Sentry Finance is not liable for
           financial decisions made using the app, or for interruptions, inaccuracies, or delays in data
           synced from third parties such as Plaid or your financial institutions.</p>
         </section>

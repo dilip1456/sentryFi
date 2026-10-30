@@ -7,7 +7,7 @@ const Privacy = () => (
     <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/70 border-b border-border/60">
       <div className="max-w-[760px] mx-auto px-4 md:px-8 h-14 flex items-center justify-between">
         <Link to="/welcome" className="inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to SentryFi
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Sentry Finance
         </Link>
         <div className="font-display text-sm text-foreground">Privacy Policy</div>
       </div>
@@ -21,7 +21,7 @@ const Privacy = () => (
       </div>
 
       <h1 className="font-display text-3xl md:text-4xl mb-2">Privacy Policy</h1>
-      <p className="text-[13px] text-muted-foreground mb-10">Last updated: August 16, 2026 · SentryFi v{APP_VERSION}</p>
+      <p className="text-[13px] text-muted-foreground mb-10">Last updated: August 16, 2026 · Sentry Finance v{APP_VERSION}</p>
 
       <div className="space-y-7 text-[14.5px] leading-[1.7] text-foreground/90">
         <section>
@@ -34,7 +34,7 @@ const Privacy = () => (
 
         <section>
           <h2 className="text-[15px] font-semibold mb-2">2. What we don't do</h2>
-          <p>SentryFi cannot initiate transfers, payments, or any changes to your linked accounts.
+          <p>Sentry Finance cannot initiate transfers, payments, or any changes to your linked accounts.
           Plaid access is read-only. We don't sell your financial data to third parties.</p>
         </section>
 
@@ -67,7 +67,7 @@ const Privacy = () => (
         <section>
           <h2 className="text-[15px] font-semibold mb-2">7. Security</h2>
           <p>Data is encrypted in transit. Your bank credentials are never entered into or stored by
-          SentryFi. Plaid's secure flow handles authentication with your institution directly.</p>
+          Sentry Finance. Plaid's secure flow handles authentication with your institution directly.</p>
         </section>
 
         <section>

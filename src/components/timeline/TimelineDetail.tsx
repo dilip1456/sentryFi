@@ -11,8 +11,8 @@ function sourceLabel(e: TimelineEvent): string {
     return "Projected from a recurring stream";
   }
   switch (e.source) {
-    case "alert": return e.meta?.computed ? "SentryFi paycheck check" : "SentryFi alert";
-    case "inference": return "SentryFi finding";
+    case "alert": return e.meta?.computed ? "Sentry Finance paycheck check" : "Sentry Finance alert";
+    case "inference": return "Sentry Finance finding";
     case "tax_milestone": return "Tax milestone";
     case "occurrence": return "Recurring payment record";
     default: return "Linked account transaction";

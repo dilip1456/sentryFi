@@ -78,7 +78,7 @@ export function useExtendHistory(userId: string | undefined) {
         open={phase === "confirm" || (phase === "preparing" && !token)}
         onOpenChange={o => { if (!o) reset(); }}
         title={`Extend ${bank}'s history?`}
-        description={<>You'll sign in to {bank} again through Plaid. SentryFi links it as a new connection with up to 2 years of transactions, moves your edits to it, then removes the old connection. Re-linking resets per-account settings for any account that can't be matched.</>}
+        description={<>You'll sign in to {bank} again through Plaid. Sentry Finance links it as a new connection with up to 2 years of transactions, moves your edits to it, then removes the old connection. Re-linking resets per-account settings for any account that can't be matched.</>}
         confirmLabel="Continue to Plaid"
         destructive={false}
         busy={phase === "preparing"}

@@ -42,7 +42,7 @@ export const AppUpdatePrompt = () => {
                 {blocking ? "Update required" : "Update available"}
               </div>
               <div className="text-[12.5px] text-muted-foreground mt-0.5">
-                SentryFi {u.info.versionName} (build {u.info.versionCode}) · {fmtMB(u.info.size)}
+                Sentry Finance {u.info.versionName} (build {u.info.versionCode}) · {fmtMB(u.info.size)}
                 {u.installed && <> · you have build {u.installed.versionCode}</>}
               </div>
             </div>
@@ -56,7 +56,7 @@ export const AppUpdatePrompt = () => {
 
           {blocking && (
             <p className="mt-3 text-[13px] text-foreground">
-              This version of SentryFi is no longer supported. Update to keep using the app.
+              This version of Sentry Finance is no longer supported. Update to keep using the app.
             </p>
           )}
           {u.info.releaseNotes && (
@@ -84,7 +84,7 @@ export const AppUpdatePrompt = () => {
           )}
           {u.phase === "permission" && (
             <div className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-[12.5px] text-foreground" role="status">
-              Android needs your OK to let SentryFi install updates. Tap <b>Allow installs</b>, turn on
+              Android needs your OK to let Sentry Finance install updates. Tap <b>Allow installs</b>, turn on
               <i> Allow from this source</i>, then come back. The update continues automatically.
             </div>
           )}

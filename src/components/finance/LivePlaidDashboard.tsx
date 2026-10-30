@@ -6521,7 +6521,7 @@ export const LivePlaidDashboard = ({
                   </div>
                   <h3 className="font-display text-lg text-foreground">Remove {removingAccount.name ?? "account"}?</h3>
                   <p className="mt-2 text-[13px] text-muted-foreground leading-relaxed">
-                    This will delete the account and all its synced transactions from SentryFi.
+                    This will delete the account and all its synced transactions from Sentry Finance.
                     Your actual bank account is not affected.
                   </p>
                   {removingAccount.mask && (

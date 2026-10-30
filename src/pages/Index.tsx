@@ -252,10 +252,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         <button onClick={() => go("overall")}
           className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))] w-full text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors">
           <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-            <img src="/logo.png" alt="SentryFi" className="h-6 w-6 object-contain" />
+            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
           </div>
           <div>
-            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">SentryFi</div>
+            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
             {guestDemo && <div className="text-[12px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
           </div>
         </button>
@@ -275,7 +275,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </button>
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending","myfinances"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending","myfinances","myfinances-redesign"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -394,7 +394,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
               {/* Always the current page's name; demo mode is already signalled by the banner below. */}
-              {view === "overall" ? "SentryFi" : (TABS.find(t => t.k === view)?.label ?? "SentryFi")}
+              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
           </button>
           <div className="flex items-center gap-1.5">
@@ -521,7 +521,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {!isNative() && showAppBanner && (
           <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.20)] px-4 py-2.5 flex items-center gap-3">
             <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[13px] text-foreground flex-1 font-medium">Get the SentryFi Android app</span>
+            <span className="text-[13px] text-foreground flex-1 font-medium">Get the Sentry Finance Android app</span>
             <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
               className="shrink-0 text-[12.5px] font-bold px-3 py-1.5 rounded-full bg-gold">
               Download
@@ -701,7 +701,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
             <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
-              SentryFi v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
+              Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
             </div>
           </div>
           )} {/* end: view !== spending/myfinances */}
@@ -775,7 +775,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         <Dialog open={showAppUpdates} onOpenChange={setShowAppUpdates}>
           <DialogContent className="max-w-md surface-elevated p-5">
             <DialogTitle className="font-display text-base text-foreground">App updates</DialogTitle>
-            <DialogDescription className="sr-only">Check for and install SentryFi app updates.</DialogDescription>
+            <DialogDescription className="sr-only">Check for and install Sentry Finance app updates.</DialogDescription>
             <AppUpdateSettings />
           </DialogContent>
         </Dialog>
