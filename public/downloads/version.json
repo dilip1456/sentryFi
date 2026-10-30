@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1216,
-  "sha256": "6d37e88893fae8ebf37bf6e93b5f9386e398bc0987f1f7cd5e1f640710df09ed",
-  "size": 7181473,
-  "releaseNotes": "Polish spending screen and persist financial profile",
+  "versionCode": 1217,
+  "sha256": "99384f3e10f7d7210598ceab4f35d01638c152d1b19a461d4ed6c7a699adfc67",
+  "size": 7165025,
+  "releaseNotes": "Restore spending insights sidebar and compact period bars",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-30T04:52:38.530Z"
+  "publishedAt": "2026-10-30T17:25:12.319Z"
 }
