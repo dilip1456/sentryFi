@@ -40,7 +40,7 @@ export function CoverSelect({ g, id, label, current }: { g: PictureGroup; id: st
 
 const editableAmount = (g: PictureGroup, r: PictureRow) => g !== "taxes" && !(g === "income" && r.id.startsWith("manual-"));
 
-function DataRow({ g, r }: { g: ListGroup; r: PictureRow }) {
+export function DataRow({ g, r }: { g: ListGroup; r: PictureRow }) {
   const pc = usePicture();
   const { open } = useOverlay();
   const editing = pc.editing && !pc.full;
@@ -141,18 +141,18 @@ function EmptyRows({ g }: { g: PictureGroup }) {
   );
 }
 
-export function DataDesktop() {
+export function DataDesktop({ title = "Your Data", subtitle, showEditAction = true }: { title?: string; subtitle?: string; showEditAction?: boolean } = {}) {
   const pc = usePicture();
   const editing = pc.editing && !pc.full;
   return (
     <>
       <div className="col-h">
-        <div><h2 id="yd-h">Your Data</h2><p>{pc.full ? `Your whole year, ${pc.year}. Includes taxes.` : "Your money this month. Everything here is editable."}</p></div>
+        <div><h2 id="yd-h">{title}</h2><p>{subtitle ?? (pc.full ? `Your whole year, ${pc.year}. Includes taxes.` : "Your money this month. Everything here is editable.")}</p></div>
         {pc.full
           ? <span className="text-[12.5px] text-muted-foreground flex items-center gap-1.5"><Info className="h-3.5 w-3.5" aria-hidden="true" />Switch to Monthly to edit</span>
           : editing
             ? <div className="flex gap-2"><button type="button" className="btn" onClick={pc.cancelEdit}>Cancel</button><button type="button" className="btn-gold" onClick={pc.saveEdit}><Check className="h-4 w-4" aria-hidden="true" />Done</button></div>
-            : <button type="button" className="btn" onClick={pc.startEdit}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</button>}
+            : showEditAction && <button type="button" className="btn" onClick={pc.startEdit}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</button>}
       </div>
       {editing && (
         <div className="edit-banner"><Pencil className="h-4 w-4 text-primary" aria-hidden="true" /><span>Editing: change any amount or where it's <b>covered by</b>. Your changes override what we detected.</span></div>

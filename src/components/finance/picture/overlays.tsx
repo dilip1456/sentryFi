@@ -20,6 +20,7 @@ import { ArrowLeft, X } from "lucide-react";
 export interface DetailView {
   title: string;
   wide?: boolean;
+  compact?: boolean;
   body: ReactNode;
   /** Sticky footer (mobile edit screen's Cancel / Save). */
   footer?: ReactNode;
@@ -146,7 +147,7 @@ function DesktopDialog({ entry, lastEntry, onClose, render }: {
         {v && (
           <DialogPrimitive.Content
             aria-describedby={undefined}
-            className={`fp fp-dlg ${v.wide ? "wide" : ""} fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-popover text-foreground shadow-2xl outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`}
+            className={`fp fp-dlg ${v.wide ? "wide" : ""} ${v.compact ? "compact" : ""} fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-popover text-foreground shadow-2xl outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`}
           >
             <div className="ov-h">
               <DialogPrimitive.Title asChild><h3>{v.title}</h3></DialogPrimitive.Title>
@@ -166,7 +167,7 @@ function Sheet({ open, onClose, view }: { open: boolean; onClose: () => void; vi
     <DrawerPrimitive.Root open={open} onOpenChange={o => { if (!o && open) onClose(); }} shouldScaleBackground={false}>
       <DrawerPrimitive.Portal>
         <DrawerPrimitive.Overlay className="fixed inset-0 z-50 bg-[hsl(222_40%_3%/.66)]" />
-        <DrawerPrimitive.Content aria-describedby={undefined} className="fp fp-sheet fixed inset-x-0 bottom-0 z-50 border-t border-border bg-popover text-foreground outline-none" data-fp-sheet="">
+        <DrawerPrimitive.Content aria-describedby={undefined} className={`fp fp-sheet ${view.compact ? "compact" : ""} fixed inset-x-0 bottom-0 z-50 border-t border-border bg-popover text-foreground outline-none`} data-fp-sheet="">
           <div className="grab" aria-hidden="true"><span /></div>
           <div className="ov-h">
             <DrawerPrimitive.Title asChild><h3>{view.title}</h3></DrawerPrimitive.Title>

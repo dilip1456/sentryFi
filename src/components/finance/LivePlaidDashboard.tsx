@@ -6653,6 +6653,9 @@ export const LivePlaidDashboard = ({
   }
 
   if (view === "myfinances" || view === "myfinances-redesign") {
+    // Keep profile-backed editors closed until Supabase has supplied the
+    // saved values; otherwise defaults can overwrite the user's first edit.
+    if (!settingsLoaded) return null;
     const PictureScreen = view === "myfinances-redesign" ? MyFinancialPictureRedesign : MyFinancialPicture;
     return (
       <>

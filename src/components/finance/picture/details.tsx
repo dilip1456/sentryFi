@@ -66,12 +66,12 @@ function AcctPicker({ label, pool, value, onChange }: { label: string; pool: Acc
 }
 
 /** One-field amount editor (row details), writes immediately. */
-function AmountEditor({ g, r }: { g: ListGroup; r: PictureRow }) {
+function AmountEditor({ g, r, className = "" }: { g: ListGroup; r: PictureRow; className?: string }) {
   const pc = usePicture();
   const [v, setV] = useState(String(Math.round(r.monthly)));
   const n = parseAmt(v);
   return (
-    <form className="flex items-end gap-2 mt-4" onSubmit={e => { e.preventDefault(); if (Number.isFinite(n) && n >= 0) { pc.act.setAmount(g, r.id, n); saved(); } }}>
+    <form className={`flex items-end gap-2 mt-4 ${className}`} onSubmit={e => { e.preventDefault(); if (Number.isFinite(n) && n >= 0) { pc.act.setAmount(g, r.id, n); saved(); } }}>
       <label className="flex-1 text-[13px]">
         <span className="text-muted-foreground">Amount per month</span>
         <span className="amt-in mt-1 !w-full !h-11"><span>$</span><input inputMode="decimal" value={v} onChange={e => setV(e.target.value)} aria-label={`${r.label} amount per month`} /></span>
@@ -307,6 +307,7 @@ function RowDetail({ g, r }: { g: ListGroup; r: PictureRow }) {
     : g === "income" ? <span className="text-[14px]">{pc.acct(r.coverId ?? r.txns[0]?.account_id)?.label ?? "—"}</span>
     : <CovChip acct={pc.acct(r.coverId)} />;
   const head = <div className="mb-1"><KV items={[{ k: "Amount", v: fmt(r.monthly * pc.P), sub: pc.perWord }, third, { k: coverK, v: <div className="mt-1">{coverV}</div> }]} /></div>;
+  const salary = g === "income" && r.id === "salary";
   let body: ReactNode = null;
   const canEdit = !pc.full && g !== "taxes" && !(g === "income" && r.id.startsWith("manual-"));
   if (g === "obligations" || g === "fixed") {
@@ -357,19 +358,20 @@ function RowDetail({ g, r }: { g: ListGroup; r: PictureRow }) {
     </>;
   } else if (g === "income") {
     body = <>
-      <div className="h4">Deposits</div><EvList txns={r.txns} pc={pc} />
-      {r.id === "salary" && (
-        <div className="note mt-3">
-          Gross pay {pc.m.gross.estimated ? "estimate" : ""}: {fmt(pc.m.gross.annual)}/yr (used for taxes).{" "}
-          {!grossEdit ? <button type="button" className="text-primary font-semibold inline-flex items-center justify-center !min-h-[44px] !min-w-[44px] px-1" onClick={() => setGrossEdit(true)}>Edit</button> : (
-            <form className="flex items-end gap-2 mt-2" onSubmit={e => { e.preventDefault(); const n = parseAmt(gross); if (n > 0) { pc.act.setGross(n); setGrossEdit(false); saved(); } }}>
-              <span className="amt-in !h-11 flex-1"><span>$</span><input inputMode="decimal" value={gross} onChange={e => setGross(e.target.value)} aria-label="Gross pay per year" /></span>
-              <button type="submit" className="btn !min-h-[44px]">Save</button>
-              {!pc.m.gross.estimated && <button type="button" className="btn !min-h-[44px]" onClick={() => { pc.act.setGross(null); setGrossEdit(false); saved(); }}>Use estimate</button>}
-            </form>
-          )}
-        </div>
-      )}
+      {salary && <div className="fp-salary-gross">
+        <span>Gross pay {pc.m.gross.estimated ? "estimate" : "set"}: <b>{fmt(pc.m.gross.annual)}/yr</b><small> Used for tax estimates.</small></span>
+        {!grossEdit ? <button type="button" className="fp-salary-edit" onClick={() => setGrossEdit(true)}>Edit</button> : (
+          <form className="fp-salary-gross-form" onSubmit={e => { e.preventDefault(); const n = parseAmt(gross); if (n > 0) { pc.act.setGross(n); setGrossEdit(false); saved(); } }}>
+            <span className="amt-in !h-10 flex-1"><span>$</span><input inputMode="decimal" value={gross} onChange={e => setGross(e.target.value)} aria-label="Gross pay per year" /></span>
+            <button type="submit" className="btn !min-h-10">Save</button>
+            {!pc.m.gross.estimated && <button type="button" className="btn !min-h-10" onClick={() => { pc.act.setGross(null); setGrossEdit(false); saved(); }}>Use estimate</button>}
+          </form>
+        )}
+      </div>}
+      <section className={salary ? "fp-salary-deposits" : ""} aria-label={salary ? "Recent salary deposits" : "Deposits"}>
+        <div className="h4">{salary ? "Recent deposits" : "Deposits"}<span>{r.txns.length}</span></div>
+        <div className={salary ? "fp-deposit-scroll" : ""}><EvList txns={r.txns} pc={pc} /></div>
+      </section>
     </>;
   } else if (g === "taxes") {
     body = <p className="note mt-4">{r.id === "fedtax" || r.id === "fica"
@@ -379,8 +381,9 @@ function RowDetail({ g, r }: { g: ListGroup; r: PictureRow }) {
   return (
     <>
       {head}
+      {salary && canEdit && <AmountEditor g={g} r={r} className="fp-salary-amount" />}
       {body}
-      {canEdit && <AmountEditor g={g} r={r} />}
+      {canEdit && !salary && <AmountEditor g={g} r={r} />}
       {r.manualId && (g === "obligations" || g === "fixed") && (
         <button type="button" className="btn w-full mt-3" onClick={() => { pc.act.removeManualItem(r.manualId!); toast("Removed."); close(); }}><Trash2 className="h-4 w-4" aria-hidden="true" />Remove {r.label}</button>
       )}
@@ -804,7 +807,7 @@ export function renderDetail(key: string, pc: PictureState): DetailView | null {
   if (a === "row") {
     if (b === "cards") { const card = pc.m.cards.find(x => x.id === c); return card ? { title: card.name, body: <CardRowDetail key={c} c={card} /> } : null; }
     const r = pc.rowsFor(b as ListGroup)?.find(x => x.id === c);
-    return r ? { title: r.label, body: <RowDetail key={key} g={b as ListGroup} r={r} /> } : null;
+    return r ? { title: r.label, compact: b === "income" && r.id === "salary", body: <RowDetail key={key} g={b as ListGroup} r={r} /> } : null;
   }
   if (a === "pick") {
     const r = pc.findRow(b, c);

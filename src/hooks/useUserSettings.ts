@@ -6,6 +6,7 @@
  * Falls back to localStorage values on first load for zero-friction migration.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { CategoryRule } from "./useCategoryRules";
 import type { SmartRule } from "@/lib/txn-rules";
@@ -352,26 +353,35 @@ export const useUserSettings = (userId: string | undefined) => {
           latestSettings.current = s;
           setSettingsState(s);
         } else {
-          // First time user — start with defaults, save in background
+          // First time user — create the profile row before exposing settings.
+          // Otherwise a screen can save an edit while this insert is in flight,
+          // and the defaults insert can win the race and erase that edit.
           const ls = migrateFromLocalStorage();
           const hasExistingData = Object.keys(ls.accountRoles ?? {}).length > 0
             || Object.keys(ls.budgets ?? {}).length > 0;
           const migrated = hasExistingData ? { ...DEFAULTS, ...ls } : DEFAULTS;
           latestSettings.current = migrated;
           setSettingsState(migrated);
-          // Don't await — let it fail silently if auth not ready yet. Local
-          // budgets are only cleared once a read-back shows they landed.
           const store = typeof window !== "undefined" ? window.localStorage : undefined;
-          void (async () => {
-            const { error: insErr } = await supabase.from("user_settings").insert({
+          const { error: insErr } = await supabase.from("user_settings").insert({
               user_id: userId,
               ...settingsToDb(migrated),
             });
-            if (insErr) { console.warn("[settings] insert failed:", insErr.message); return; }
-            if (!store || Object.keys(migrated.budgets).length === 0) return;
+          if (insErr) {
+            // Another session may have created the row after our initial read.
+            // In that case use the persisted values rather than stale defaults.
+            const { data: latest, error: readErr } = await supabase.from("user_settings")
+              .select("*").eq("user_id", userId).maybeSingle();
+            if (readErr || !latest) throw new Error(insErr.message);
+            const loadedSettings = dbToSettings(latest);
+            latestSettings.current = loadedSettings;
+            setSettingsState(loadedSettings);
+            return;
+          }
+          if (store && Object.keys(migrated.budgets).length > 0) {
             const { data: back } = await budgetsTable().select("budgets").eq("user_id", userId).maybeSingle();
             if (back && isMigrationConfirmed(migrated.budgets, back.budgets ?? {})) finishBudgetMigration(store, userId);
-          })().catch(e => console.warn("[settings] insert failed:", e));
+          }
         }
       } catch (e) {
         console.warn("[settings] unexpected error:", e);
@@ -390,10 +400,22 @@ export const useUserSettings = (userId: string | undefined) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       if (!userId) return;
-      await supabase.from("user_settings").upsert({
-        user_id: userId,
-        ...settingsToDb(latestSettings.current),
-      }, { onConflict: "user_id" });
+      let failure = "Unknown save error";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { error } = await supabase.from("user_settings").upsert({
+            user_id: userId,
+            ...settingsToDb(latestSettings.current),
+          }, { onConflict: "user_id" });
+          if (!error) return;
+          failure = error.message;
+        } catch (e) {
+          failure = e instanceof Error ? e.message : String(e);
+        }
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+      }
+      console.error("[settings] save failed after retries:", failure);
+      toast.error("Couldn't save your profile changes", { description: "Check your connection and try again." });
     }, 600);
   }, [userId]);
 

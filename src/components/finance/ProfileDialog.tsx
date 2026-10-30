@@ -85,7 +85,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
 
   // "App" (update settings) only exists in the Android APK.
   const settingsTabs: ReadonlyArray<readonly [SettingsTab, string]> = [
-    ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"],
+    ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"], ["data", "Data"],
     ...(isUpdateSupported() ? [["app", "App"] as const] : []),
   ];
 
@@ -418,22 +418,24 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 confirmLabel="Disconnect"
                 busy={disconnectingId !== null}
                 onConfirm={() => { if (confirmDisconnect) return disconnectBank(confirmDisconnect); }} />
+            </div>
+          )}
 
-              {items !== null && items.length > 0 && (
-                <div className="mt-5">
-                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Full resync</div>
-                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
-                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
-                      Re-download all transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories and notes are kept.
-                    </div>
-                    <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing}
-                      aria-label="Full resync of all banks"
-                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
-                      <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
-                    </button>
+          {activeTab === "data" && (
+            <div className="p-5 space-y-5">
+              <div>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Resync &mdash; keeps your data</div>
+                <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
+                  <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                    Re-download transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories, tags, notes and smart rules are kept exactly as they are.
                   </div>
+                  <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing || !items?.length}
+                    aria-label="Full resync of all banks"
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
+                    <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
+                  </button>
                 </div>
-              )}
+              </div>
               <ConfirmDialog
                 open={confirmFullResync}
                 onOpenChange={o => { if (!o && !fullResyncing) setConfirmFullResync(false); }}
@@ -444,21 +446,19 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 busy={fullResyncing}
                 onConfirm={fullResync} />
 
-              {items !== null && items.length > 0 && (
-                <div className="mt-5">
-                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Reload transactions data</div>
-                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5 border border-negative/20">
-                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
-                      Deletes every transaction, category tag/note and smart rule, then re-pulls your full history fresh from Plaid. Your bank connections stay linked. Irreversible.
-                    </div>
-                    <button onClick={() => setConfirmWipeReload(true)} disabled={wipeReloading}
-                      aria-label="Delete and reload all transactions data"
-                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-negative hover:underline shrink-0 disabled:opacity-50">
-                      <Trash2 className={`h-3.5 w-3.5 ${wipeReloading ? "animate-pulse" : ""}`} /> Reload Txns Data
-                    </button>
+              <div>
+                <div className="text-[12.5px] uppercase tracking-wider text-negative/80 mb-2">Reset &mdash; deletes your data first</div>
+                <div className="flex items-center gap-2.5 surface-card px-3 py-2.5 border border-negative/20">
+                  <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                    Deletes every transaction, category override, tag, note, smart rule and recurring dismissal, then re-pulls your full history fresh from Plaid with none of that reapplied. Bank connections stay linked. Irreversible.
                   </div>
+                  <button onClick={() => setConfirmWipeReload(true)} disabled={wipeReloading || !items?.length}
+                    aria-label="Delete and reload all transactions data"
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-negative hover:underline shrink-0 disabled:opacity-50">
+                    <Trash2 className={`h-3.5 w-3.5 ${wipeReloading ? "animate-pulse" : ""}`} /> Reload Txns Data
+                  </button>
                 </div>
-              )}
+              </div>
               <ConfirmDialog
                 open={confirmWipeReload}
                 onOpenChange={o => { if (!o && !wipeReloading) setConfirmWipeReload(false); }}

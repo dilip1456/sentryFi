@@ -11,15 +11,15 @@ import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
 import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
 import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
-  ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
+  ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
   Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter, MoreHorizontal,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:any; }
-interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; mask:string|null; type:string|null; subtype:string|null; current_balance:number|null; [k:string]:any; }
+interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:unknown; }
+interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; mask:string|null; type:string|null; subtype:string|null; current_balance:number|null; [k:string]:unknown; }
 
 export interface SpendingBudgetViewProps {
   txns:PTxn[]; accounts:PAccount[]; budgets:Record<string,number>;
@@ -403,11 +403,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const live = liveSearch.trim();
     return live && !searchTerms.some(t => t.toLowerCase() === live.toLowerCase()) ? [...searchTerms, live] : searchTerms;
   }, [searchTerms, liveSearch]);
-  // Mobile-only layout state; the period/spend-pulse card and burn-runway
-  // chart are collapsed behind a toggle below `md` so the transaction list
-  // itself is what fills the screen; the mobile search field is likewise a
-  // slide-down reveal instead of permanent toolbar space.
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  // Keep the primary transaction search visible on both desktop and mobile.
   const commitSearchDraft = () => {
     const q = searchDraft.trim();
     if (!q) return;
@@ -840,6 +836,25 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [r.merchant.toLowerCase(), r.frequency])), [recurring]);
 
   const todayStr = todayISO(now);
+  const previewCounts = useMemo(() => {
+    const today = new Date(`${todayStr}T00:00:00`);
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1));
+    const weekStart = localISODate(monday);
+    const monthStart = `${todayStr.slice(0, 7)}-01`;
+    const yearStart = `${todayStr.slice(0, 4)}-01-01`;
+    const count = (start: string, end = todayStr) => txns.reduce((n, t) =>
+      n + (!internalTxnIds.has(t.id) && t.date >= start && t.date <= end ? 1 : 0), 0);
+    return { day: count(todayStr), week: count(weekStart), month: count(monthStart), year: count(yearStart) };
+  }, [txns, internalTxnIds, todayStr]);
+  const jumpToPreviewPeriod = (period: "day" | "week" | "month" | "year") => {
+    setGranularity(period);
+    if (period === "day") setDayOffset(0);
+    else if (period === "week") setWeekOffset(0);
+    else if (period === "month") setMonthOffset(0);
+    else setYearOffset(0);
+    setDateMode("none");
+  };
   const in30 = addDaysISO(todayStr, 30);
   const next30Recurring = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
   const committedNext30 = next30Recurring.reduce((s,r)=>s+r.avgAmount,0);
@@ -966,7 +981,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Whichever of the three row-lists matches the active tab; used by the
   // mobile pill row, which (unlike the desktop card list) renders all three
   // tabs' rows through one shared, simpler pill template.
-  const activeCatTabRows = catTab === "ignored" ? ignoredCatRows : catTab === "income" ? incomeCatRows : expenseCatRows;
 
   // Feeds the "View Budget" dialog's two columns: categories you've actually
   // spent in this period but haven't budgeted yet (left), and every category
@@ -1410,7 +1424,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
       {/* ═══ 1. Header; same title/date treatment as Home, plus the period
           controls (granularity + month switcher) in one clean row ═══ */}
-      <header className="content-max px-4 md:px-8 pt-3 md:pt-6 pb-4">
+      <header className="content-max px-4 md:px-8 pt-3 md:pt-5 pb-2">
         <div className="flex items-start justify-between gap-3">
           {/* Phones show the title in the app's top bar (Index.tsx); repeating
               it here pushed the content down for no information. */}
@@ -1420,16 +1434,37 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
           {headerActions && <div className="hidden md:flex items-center gap-2">{headerActions}</div>}
         </div>
-        <div className="md:mt-4 flex flex-wrap items-center gap-2">
-          <div className="flex bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
-            {(["day","week","month","year","all"] as const).map(g => (
-              <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
-                className={cn("px-3 py-1.5 rounded-lg text-[12.5px] font-semibold capitalize transition-all",
-                  granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/60")}>
-                {g === "all" ? "All time" : g}
+        <div className="mt-2 flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
+            <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+              onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") setSearchDraft(""); }}
+              placeholder="Search transactions" aria-label="Search transactions" title="Filters as you type; press Enter to pin the search"
+              className="w-full h-11 md:h-10 pl-10 pr-20 rounded-xl bg-card border border-border/70 text-[14px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.55)] focus:ring-2 focus:ring-[hsl(var(--primary)/0.12)] [&::-webkit-search-cancel-button]:hidden" />
+            {activeSearchTerms.length > 0 && <span className="absolute right-10 top-1/2 -translate-y-1/2 text-[11px] tabular text-muted-foreground" aria-live="polite">{filteredSpendingTxns.length} found</span>}
+            {searchDraft && <button type="button" onClick={()=>{ setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); }} aria-label="Clear transaction search"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>}
+          </div>
+          <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter transactions" title="Filter transactions"
+            className={cn("h-11 md:h-10 px-3 rounded-xl border flex items-center gap-2 text-[12.5px] font-semibold transition-colors shrink-0",
+              hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))]" : "border-border/70 bg-card text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+            <Filter className="h-4 w-4" /><span className="hidden sm:inline">Filters</span>
+            {hasActiveFilters && <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />}
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="grid min-w-0 flex-1 grid-cols-4 overflow-hidden rounded-xl border border-border/60 bg-card" role="tablist" aria-label="Transactions by period">
+            {(["day","week","month","year"] as const).map(g => (
+              <button key={g} role="tab" aria-selected={granularity===g} onClick={() => jumpToPreviewPeriod(g)}
+                className={cn("min-w-0 border-r border-border/50 px-1.5 py-1.5 text-center transition-colors last:border-r-0 sm:px-2",
+                  granularity===g && activeRange.isCurrent ? "bg-[hsl(var(--primary)/0.1)] text-foreground" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground")}>
+                <span className="block text-[9px] font-semibold uppercase tracking-wide sm:text-[10px]">{g}</span>
+                <span className="block text-[13px] font-semibold tabular leading-tight sm:text-[14px]">{previewCounts[g]}</span>
               </button>
             ))}
           </div>
+          <button role="tab" aria-selected={granularity==="all"} onClick={()=>setGranularity("all")}
+            className={cn("shrink-0 rounded-lg px-2.5 py-2 text-[11px] font-semibold transition-colors", granularity==="all" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground")}>All</button>
           {granularity !== "all" && (() => {
             // One prev/next switcher for every granularity (it used to exist
             // for months only, so day/week/year had no way to go back).
@@ -1470,6 +1505,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       <div className="content-max px-4 md:px-8 pb-10 space-y-4 flex flex-col">
 
         {granularity === "month" ? (
+          <details className="surface-card rounded-xl overflow-hidden">
+            <summary className="cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+              Detailed spending insights <span className="ml-1 text-[10.5px] font-normal text-muted-foreground/70">charts, merchants, and flags</span>
+            </summary>
+            <div className="border-t border-border/40 p-2 md:p-3">
           <SpendingOverview
             monthName={monthName} prevMonthShort={prevMonthShort}
             monthEndLabel={fmtShortDate(sel.end)}
@@ -1484,7 +1524,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             onOpenFlagged={id => { const t = txns.find(x => x.id === id); if (t) onOpenDetail(t); }}
             catColor={catColor} categoryIcon={categoryIcon} formatCat={formatCat}
           />
+            </div>
+          </details>
         ) : (
+        <details className="surface-card rounded-xl overflow-hidden">
+          <summary className="cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+            Period overview <span className="ml-1 text-[10.5px] font-normal text-muted-foreground/70">spending trend and totals</span>
+          </summary>
+          <div className="border-t border-border/40 p-2 md:p-3">
         <div className="space-y-3.5">
         <div className={cn("surface-card p-4 md:p-5 shrink-0", granularity==="all" && "inline-flex")}>
           <div className={cn(
@@ -1563,8 +1610,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             </div>
           </div>
         </div>
-        {/* Stat tiles (Safe to spend / Committed next 30 days) now live in the
-            fixed Insights panel to the right, alongside Top spending categories. */}
+        {/* Period summary remains inside the collapsed overview so the
+            transaction list stays at the top of the page. */}
 
         {/* ═══ 3. Burn runway; swipeable: last 30 days ⇄ next 15 days ═════════ */}
         {SHOW_BURN_RUNWAY && (
@@ -1747,53 +1794,18 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </div>
         )}
         </div>
+          </div>
+        </details>
         )}
 
         {/* ═══ 4. Categories + transactions ═══════════════════════════════ */}
-        <section className="flex flex-col gap-3 min-w-0 pt-2" aria-label="Transactions">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className="text-[16px] font-semibold text-foreground">Transactions</h2>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                {activeRange.label} · totals include pending charges · confirmed transfers are hidden
-              </p>
-            </div>
+        <section className="flex flex-col gap-2 min-w-0" aria-label="Transactions">
+          <div className="flex items-center justify-end">
             <button onClick={()=>setBudgetDialogOpen(true)}
               className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[hsl(var(--primary))] hover:opacity-80">
               <Wallet className="h-3.5 w-3.5"/> Manage budgets
             </button>
           </div>
-
-          {/* Mobile: category filter as a horizontal pill row instead of the
-              taller vertical box below; tap a pill to filter the list,
-              same catSel state the desktop sidebar and table use. */}
-          {(expenseCatRows.length > 0 || incomeCatRows.length > 0 || ignoredCatRows.length > 0) && (
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap shrink-0">
-              {CAT_TABS.map(tab => (
-                <button key={tab.key} onClick={()=>setCatTab(tab.key)} title={tab.title}
-                  className={cn("shrink-0 px-2.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors",
-                    catTab === tab.key ? "bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))]" : "bg-muted/50 text-muted-foreground")}>
-                  {tab.label}
-                </button>
-              ))}
-              <button onClick={()=>setCatSel(null)}
-                className={cn("shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors",
-                  !catSel ? "bg-foreground text-background" : "bg-muted/50 text-muted-foreground")}>
-                All
-              </button>
-              {activeCatTabRows.map(c => {
-                const active = catSel === c.cat;
-                const col = catColor(c.cat);
-                return (
-                  <button key={c.cat} onClick={()=>setCatSel(active ? null : c.cat)}
-                    style={active ? { backgroundColor: col, color: "white" } : { backgroundColor: withAlpha(col, 0.14), color: vivid(col) }}
-                    className="shrink-0 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors">
-                    {formatCat(c.cat)}
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* Categories; colorful cards, vertically scrollable. Each card
               shows its budget progress if one's set, or a "Set budget" pill
@@ -1957,57 +1969,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 </div>
               ) : (
               <>
-              {/* Mobile: three icon buttons instead of the full desktop
-                  toolbar; search slides open inline, filter/sort reuse the
-                  exact same popovers the desktop buttons open. */}
-              <div className="md:hidden flex items-center gap-1.5">
-                <button onClick={()=>setMobileSearchOpen(v=>!v)} aria-label="Search" aria-expanded={mobileSearchOpen}
-                  className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
-                    mobileSearchOpen || activeSearchTerms.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                  <Search className="h-4 w-4"/>
+              <div className="md:hidden flex items-center justify-end">
+                <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort transactions"
+                  className={cn("h-10 px-3 flex items-center gap-2 rounded-lg border text-[12px] font-medium",
+                    hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
+                  <ArrowUpDown className="h-4 w-4"/> Sort
                 </button>
-                {mobileSearchOpen && (
-                  <div className="relative flex-1 min-w-0">
-                    <input autoFocus type="search" enterKeyHint="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                      onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setMobileSearchOpen(false); } }}
-                      placeholder="Search transactions" aria-label="Search transactions"
-                      className="w-full h-11 pl-3 pr-10 rounded-xl bg-muted/40 border border-border/60 text-[15px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
-                    <button onClick={()=>{ if (searchDraft) { setSearchDraft(""); setLiveSearch(""); } else setMobileSearchOpen(false); }}
-                      aria-label={searchDraft ? "Clear search" : "Close search"}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground">
-                      <X className="h-4 w-4"/>
-                    </button>
-                  </div>
-                )}
-                <div className={cn("flex items-center gap-1.5 ml-auto", mobileSearchOpen && "hidden")}>
-                  <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort"
-                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
-                      hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <ArrowUpDown className="h-4 w-4"/>
-                  </button>
-                  <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter"
-                    className={cn("h-11 w-11 grid place-items-center rounded-xl border shrink-0",
-                      hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                    <Filter className="h-4 w-4"/>
-                  </button>
-                </div>
               </div>
 
               <div className="hidden md:flex items-center gap-1.5 flex-wrap">
-                <div className="relative w-56 shrink-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none"/>
-                  <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") setSearchDraft(""); }}
-                    placeholder="Search transactions" aria-label="Search transactions" title="Filters as you type; press Enter to pin the term"
-                    className="w-full h-8 pl-8 pr-8 rounded-xl bg-muted/40 border border-border/60 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
-                  {searchDraft && (
-                    <button onClick={()=>{ setSearchDraft(""); setLiveSearch(""); }} aria-label="Clear search"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 grid place-items-center rounded-md text-muted-foreground hover:text-foreground">
-                      <X className="h-3.5 w-3.5"/>
-                    </button>
-                  )}
-                </div>
-
                 <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
                   className={cn("h-7 pl-2.5 pr-2 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0 max-w-[170px]",
                     accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
@@ -2034,11 +2004,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   </button>
                 )}
 
-                <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle}
-                  className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
-                    hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Search className="h-3 w-3"/> Filter by
-                </button>
                 <button ref={sortMenu.btnRef} onClick={sortMenu.toggle}
                   className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
@@ -2076,79 +2041,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   document.body
                 )}
               </div>
-
-              {/* Active filter/sort/group chips; their own row below the
-                  search/toolbar row so the search box and buttons above never
-                  resize or wrap as chips are added or removed. Each is
-                  individually removable. */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {groupBy!=="none" && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
-                    Group: {GROUP_OPTIONS.find(g=>g.key===groupBy)?.label}
-                    <button onClick={()=>setGroupBy("none")} aria-label="Clear grouping" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {hasActiveSort && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-[hsl(var(--primary)/0.12)] border border-[hsl(var(--primary)/0.3)] text-[11.5px] font-medium text-[hsl(var(--primary))] shrink-0">
-                    Sort: {SORT_LABELS[sortBy]} {sortDesc ? "↓" : "↑"}
-                    <button onClick={clearSort} aria-label="Clear sort" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-[hsl(var(--primary)/0.25)]"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {searchTerms.map(term => (
-                  <span key={term} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    "{term}"
-                    <button onClick={()=>removeSearchTerm(term)} aria-label={`Clear search filter ${term}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                ))}
-                {accountFilters.length > 0 && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {accountFilters.length === 1 ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "Account") : `${accountFilters.length} accounts`}
-                    <button onClick={()=>setAccountFilters([])} aria-label="Clear account filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {amountMode==="range" ? (minAmount || maxAmount) && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    ${minAmount||"0"} – ${maxAmount||"∞"}
-                    <button onClick={()=>{setMinAmount("");setMaxAmount("");}} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                ) : fixedAmount && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    = ${fixedAmount}
-                    <button onClick={()=>setFixedAmount("")} aria-label="Clear amount filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {typeFilter!=="all" && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {typeFilter==="in" ? "Incoming" : "Outgoing"}
-                    <button onClick={()=>setTypeFilter("all")} aria-label="Clear type filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {tagFilter.map(tag => (
-                  <span key={tag} className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    #{tag}
-                    <button onClick={()=>toggleTagFilter(tag)} aria-label={`Clear tag ${tag}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                ))}
-                {dateMode!=="none" && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    {dateMode==="range" ? `${dateFrom||"…"} – ${dateTo||"…"}` : dateMode==="lastN" ? `Last ${lastNDays}d` : (filterYear ? `Year ${filterYear}` : "All years")}
-                    <button onClick={()=>setDateMode("none")} aria-label="Clear date filter" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-                {granularity==="year" && (
-                  <span className="inline-flex items-center gap-1 h-6 pl-2.5 pr-1.5 rounded-full bg-muted/60 border border-border/60 text-[11.5px] font-medium text-foreground shrink-0">
-                    Year: {yearBuckets[selYearIdx]?.label}
-                    <button onClick={()=>{ setGranularity("all"); setYearOffset(0); }} aria-label="Clear year view" className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                  </span>
-                )}
-
-                {(hasActiveFilters || catSel) && (
-                  <button onClick={()=>{ clearFilters(); setCatSel(null); }}
-                    className="ml-auto flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-negative/10 border border-negative/30 text-[11.5px] text-negative font-semibold hover:bg-negative/15 transition-colors shrink-0">
-                    <X className="h-3 w-3"/> Clear all filters
-                  </button>
-                )}
-              </div>
+              {(hasActiveFilters || hasActiveSort || groupBy !== "none" || catSel) && (
+                <div className="flex items-center justify-between gap-3 border-t border-border/30 pt-2 text-[11px] text-muted-foreground">
+                  <span>{[hasActiveFilters && "Filters active", hasActiveSort && "Custom sort", groupBy !== "none" && "Grouped", catSel && formatCat(catSel)].filter(Boolean).join(" · ")}</span>
+                  <button onClick={()=>{ clearFilters(); clearSort(); setGroupBy("none"); setCatSel(null); }} className="shrink-0 font-semibold text-[hsl(var(--primary))] hover:underline">Clear</button>
+                </div>
+              )}
               </>
               )}
 
