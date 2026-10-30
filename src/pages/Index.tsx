@@ -47,18 +47,20 @@ import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
   LayoutDashboard, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "benefits" | "spending" | "myfinances" | "moneymap" | "giftcards" | "admin";
+type View = "overall" | "benefits" | "spending" | "myfinances" | "myfinances-redesign" | "moneymap" | "accounts" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: string }[] = [
   { k: "overall",     label: "Home",               icon: LayoutDashboard },
   { k: "moneymap",    label: "Money Map",          icon: Compass         },
   { k: "spending",    label: "Spending",           icon: PieChart        },
+  { k: "accounts",    label: "Accounts",           icon: Landmark        },
   { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
+  { k: "myfinances-redesign", label: "Picture Preview", icon: Compass, mobileLabel: "Preview" },
   { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
@@ -172,9 +174,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "myfinances";
+  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "myfinances" && view !== "myfinances-redesign";
   const showLiveSpending = !effectiveDemo && hasItems === true  && view === "spending";
-  const showLiveFinances = !effectiveDemo && hasItems === true  && view === "myfinances";
+  const showLiveFinances = !effectiveDemo && hasItems === true  && (view === "myfinances" || view === "myfinances-redesign");
   const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -556,8 +558,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               container below, so they need their own loading + no-accounts
               states; previously both rendered a blank screen while the
               linked-account check was pending or when nothing was linked. */}
-          {(view === "spending" || view === "myfinances") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
-          {(view === "spending" || view === "myfinances") && showEmpty && (
+          {(view === "spending" || view === "myfinances" || view === "myfinances-redesign") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
+          {(view === "spending" || view === "myfinances" || view === "myfinances-redesign") && showEmpty && (
             <div className="content-max px-4 md:px-8 pt-6 pb-10">
               <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
             </div>
@@ -600,7 +602,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
 
           {/* My Financial Picture — full-bleed, own MyFinancialPicture component */}
-          {view === "myfinances" && (
+          {(view === "myfinances" || view === "myfinances-redesign") && (
             <>
               {showLiveFinances && (
                 <LivePlaidDashboard
@@ -634,7 +636,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
 
           {/* All other views inside padded container */}
-          {view !== "spending" && view !== "myfinances" && (
+          {view !== "spending" && view !== "myfinances" && view !== "myfinances-redesign" && (
           <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
 
             {/* Page header on desktop — Spending/My Financial Picture skip the title+date row

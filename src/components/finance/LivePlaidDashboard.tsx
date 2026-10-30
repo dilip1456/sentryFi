@@ -20,6 +20,7 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import { MyFinancialPictureRedesign } from "@/components/finance/MyFinancialPictureRedesign";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
@@ -642,17 +643,35 @@ const detectRecurring = (
   ];
 
   // Categories that are never truly recurring (variable/one-off spend) — checked first
-  // since category data from Plaid is reliable when present. Parking is included: it
-  // is pay-per-use, not a subscription.
-  const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|gas station|fuel|atm|withdrawal|parking/i;
+  // since category data from Plaid is reliable when present. Parking/gas/transit/tolls
+  // are pay-per-use, not subscriptions, even though their underlying PFC primary
+  // bucket (TRANSPORTATION) also covers things that can look cadence-like.
+  const NON_RECURRING_CAT = /food|dining|restaurant|groceries|grocery|supermarket|\bgas\b|fuel|atm|withdrawal|parking|public transit|rideshare|taxi|tolls/i;
   // Credit card/loan payments are the user paying down their own debt, not a merchant
   // charge to anticipate — Obligations already tracks statement due dates for these.
   // Including them here made already-made card payments resurface as a projected
   // "upcoming charge" a month out, which reads as showing a past payment as upcoming.
   const PAYMENT_LIKE_CAT = /transfer|credit card payment|loan payment/i;
+  // PFC detailed values that mean the same pay-per-use transportation spend as
+  // NON_RECURRING_CAT above, checked directly rather than through the app's mapped
+  // category string — this is what actually catches it for transactions whose
+  // `category` column was set before the TRANSPORTATION_* split (or for anyone
+  // whose Plaid Item still resolves to the old generic "Transportation" label).
+  // See src/lib/classify/pfc.ts - matching by category name alone is fragile
+  // (it depends on the app's own label text, not Plaid's stable enum), and matching
+  // by merchant name is worse (an unbounded list of gas station chains to maintain
+  // by hand) - this is the authoritative signal Plaid itself sends.
+  const NON_RECURRING_PFC_DETAILED = new Set([
+    "TRANSPORTATION_GAS", "TRANSPORTATION_PARKING",
+    "TRANSPORTATION_PUBLIC_TRANSIT_SERVICES", "TRANSPORTATION_TAXIS_AND_RIDE_SHARES",
+    "TRANSPORTATION_TOLLS_AND_FEES",
+  ]);
   // Merchant name patterns that indicate one-off or variable spend even when category data
-  // is missing/generic — covers delivery apps, grocery/gas chains, restaurants, and parking.
-  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|shell|exxon|chevron|bp |sunoco|wawa|speedway|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b|parking|parkmobile|paybyphone|spothero|garage\b|meter\b/i;
+  // is missing/generic — covers delivery apps, grocery chains, restaurants, and parking.
+  // Deliberately NOT used for gas stations anymore: that's handled by category/PFC above,
+  // since a hand-maintained list of gas brand names is exactly the kind of fragile,
+  // always-one-chain-behind matching this is meant to avoid.
+  const NON_RECURRING_MERCHANT = /doordash|uber eats|grubhub|instacart|postmates|seamless|caviar|amazon fresh|whole foods|trader joe|kroger|safeway|publix|walmart|target|costco|restaurant|cafe|coffee|bistro|grill|kitchen|diner|pizz|sushi|taco|bbq|bar\b|pub\b|brewery|bakery|deli\b|parking|parkmobile|paybyphone|spothero|garage\b|meter\b/i;
   // Statement-descriptor patterns for card/loan payments when category data is missing —
   // "Payment - Thank You" style descriptors Plaid's own category rarely labels precisely.
   const PAYMENT_LIKE_MERCHANT = /payment\s*-?\s*thank\s*you|autopay|auto-pay|card payment|loan payment|statement credit|epayment|online payment/i;
@@ -664,6 +683,7 @@ const detectRecurring = (
     if (Number(t.amount) <= 0 || t.pending) return false;
     if (internalIds.has(t.id)) return false; // app-detected internal transfers
     if (new Date(t.date) < twelveMonthsAgo) return false;
+    if (NON_RECURRING_PFC_DETAILED.has((t.pfc_detailed ?? "").toUpperCase())) return false;
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
     if (NON_RECURRING_CAT.test(cat0) || NON_RECURRING_CAT.test(cat1)) return false;
@@ -4932,6 +4952,14 @@ export const LivePlaidDashboard = ({
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories, classOf);
   const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
+  // "N hidden" should only count dismissals that are actually hiding something right
+  // now — not every merchant ever dismissed. Re-run unsuppressed and intersect with
+  // the active suppress sets so a stale dismissal (merchant no longer recurring,
+  // aged out of the window, etc.) stops inflating the badge forever.
+  const recurringChargesUnsuppressed = detectRecurring(txns, internalTxnIds);
+  const activelyHiddenRecurringCount = recurringChargesUnsuppressed.filter(
+    r => suppressRecurringMerchants.has(r.merchantKey) || suppressRecurringCategories.has(r.category)
+  ).length;
 
   // Filtered + sorted txns for the spending-tab explorer
   const acctById = useMemo(() => {
@@ -5192,85 +5220,6 @@ export const LivePlaidDashboard = ({
         );
       })()}
 
-      {/* Account detail right panel */}
-      {detailAccount && (
-        <AccountDetailPanel
-          a={detailAccount}
-          txns={txns.filter(t => t.account_id === detailAccount.account_id)}
-          meta={accountMeta[detailAccount.id] ?? {}}
-          credit={creditDetails.find(c => c.account_id === detailAccount.account_id)}
-          instName={items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? ""}
-          instUrl={getInstitutionUrl(
-            items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
-            accountMeta[detailAccount.id]?.customUrl
-          )}
-          itemId={(detailAccount as unknown as Record<string,unknown>).item_id as string ?? null}
-          onEdit={() => { setEditingAccount(detailAccount); setDetailAccount(null); }}
-          onRemove={() => { setRemovingAccount(detailAccount); setDetailAccount(null); }}
-          onClose={() => setDetailAccount(null)}
-          onGranted={() => { load(); }}
-        />
-      )}
-
-      {/* Account edit dialog */}
-      {editingAccount && (
-        <AccountEditDialog
-          account={editingAccount}
-          meta={accountMeta[editingAccount.id] ?? {}}
-          instUrl={getInstitutionUrl(
-            items.find(it => it.id === (editingAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
-            accountMeta[editingAccount.id]?.customUrl
-          )}
-          onSave={m => { saveMeta(editingAccount.id, m); }}
-          onClose={() => setEditingAccount(null)}
-        />
-      )}
-
-      {/* Remove account confirmation dialog */}
-      <Dialog open={!!removingAccount} onOpenChange={o => { if (!o) setRemovingAccount(null); }}>
-        <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
-          <DialogTitle className="sr-only">Remove account</DialogTitle>
-          <DialogDescription className="sr-only">Confirm removing this account and its transactions.</DialogDescription>
-          {removingAccount && (
-            <>
-              <div className="p-6 pb-4">
-                <div className="h-10 w-10 rounded-xl bg-negative/10 grid place-items-center mb-4">
-                  <Unlink className="h-5 w-5 text-negative" />
-                </div>
-                <h3 className="font-display text-lg text-foreground">Remove {removingAccount.name ?? "account"}?</h3>
-                <p className="mt-2 text-[13px] text-muted-foreground leading-relaxed">
-                  This will delete the account and all its synced transactions from SentryFi.
-                  Your actual bank account is not affected.
-                </p>
-                {removingAccount.mask && (
-                  <div className="mt-3 surface-card p-3 flex items-center gap-2">
-                    {(() => { const Icon = mapIcon(removingAccount.type, removingAccount.subtype); return <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />; })()}
-                    <span className="text-[13px] text-foreground">{removingAccount.name}</span>
-                    <span className="text-[12.5px] text-muted-foreground">··{removingAccount.mask}</span>
-                  </div>
-                )}
-              </div>
-              <div className="hairline p-4 flex gap-2">
-                <button
-                  onClick={() => doRemoveAccount(removingAccount)}
-                  disabled={removeConfirming}
-                  className="flex-1 h-10 rounded-lg bg-negative text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-                >
-                  {removeConfirming ? "Removing…" : "Yes, remove"}
-                </button>
-                <button
-                  onClick={() => setRemovingAccount(null)}
-                  disabled={removeConfirming}
-                  className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* ── Suggested transfers: confirmed from the Budget "Cover overages" picker.
           These are things the user still needs to actually go do — not auto-executed. ── */}
       {(() => {
@@ -5447,9 +5396,9 @@ export const LivePlaidDashboard = ({
                         Next 15 days · {recurringCharges.length} recurring
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
-                      {suppressRecurringMerchants.size > 0 && (
+                      {activelyHiddenRecurringCount > 0 && (
                         <button onClick={restoreAllRecurring} title="Show hidden charges again" className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors whitespace-nowrap">
-                          {suppressRecurringMerchants.size} hidden · restore
+                          {activelyHiddenRecurringCount} hidden · restore
                         </button>
                       )}
                     </div>
@@ -5591,40 +5540,6 @@ export const LivePlaidDashboard = ({
       )}
 
       </div>{/* end insights */}
-
-      {/* ── Accounts — full-width section below insights ── */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
-          <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-base text-primary">Accounts</h2>
-            {lastSyncedAt && (
-              <span className="text-[12px] text-muted-foreground/50">
-                synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
-              </span>
-            )}
-          </div>
-          <button onClick={onAddAccount} className="text-[12.5px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0">
-            <Plus className="h-3 w-3" />Add account
-          </button>
-        </div>
-        {accounts.length === 0 && manualAccounts.length === 0 ? (
-          <div className="surface-card p-6 text-center text-[13px] text-muted-foreground">
-            No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
-          </div>
-        ) : (
-          <AccountsPanel
-            accounts={accounts}
-            manualAccounts={manualAccounts ?? []}
-            accountMeta={accountMeta}
-            items={items}
-            txns={txns}
-            onSelect={a => setDetailAccount(a)}
-            onAddAccount={onAddAccount}
-            onEditManual={onEditManual}
-            onDeleteManual={onDeleteManual}
-          />
-        )}
-      </section>
 
       {/* ── Insight detail dialog (centered, matches demo) ── */}
       <Dialog open={!!openInsight} onOpenChange={(o) => { if (!o) setOpenInsight(null); }}>
@@ -6525,6 +6440,122 @@ export const LivePlaidDashboard = ({
     );
   };
 
+  if (view === "accounts") {
+    return (
+      <div className="space-y-3 animate-fade-up">
+        <section className="space-y-2">
+          <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
+            <div className="flex items-baseline gap-2">
+              <h2 className="font-display text-base text-primary">Accounts</h2>
+              {lastSyncedAt && (
+                <span className="text-[12px] text-muted-foreground/50">
+                  synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
+                </span>
+              )}
+            </div>
+            <button onClick={onAddAccount} className="text-[12.5px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0">
+              <Plus className="h-3 w-3" />Add account
+            </button>
+          </div>
+          {accounts.length === 0 && manualAccounts.length === 0 ? (
+            <div className="surface-card p-6 text-center text-[13px] text-muted-foreground">
+              No accounts yet. <button onClick={onAddAccount} className="text-gold underline">Link a bank</button>.
+            </div>
+          ) : (
+            <AccountsPanel
+              accounts={accounts}
+              manualAccounts={manualAccounts ?? []}
+              accountMeta={accountMeta}
+              items={items}
+              txns={txns}
+              onSelect={a => setDetailAccount(a)}
+              onAddAccount={onAddAccount}
+              onEditManual={onEditManual}
+              onDeleteManual={onDeleteManual}
+            />
+          )}
+        </section>
+
+        {/* Tap an account above for interest earned, APY, utilization and HYSA detail. */}
+        {detailAccount && (
+          <AccountDetailPanel
+            a={detailAccount}
+            txns={txns.filter(t => t.account_id === detailAccount.account_id)}
+            meta={accountMeta[detailAccount.id] ?? {}}
+            credit={creditDetails.find(c => c.account_id === detailAccount.account_id)}
+            instName={items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? ""}
+            instUrl={getInstitutionUrl(
+              items.find(it => it.id === (detailAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
+              accountMeta[detailAccount.id]?.customUrl
+            )}
+            itemId={(detailAccount as unknown as Record<string,unknown>).item_id as string ?? null}
+            onEdit={() => { setEditingAccount(detailAccount); setDetailAccount(null); }}
+            onRemove={() => { setRemovingAccount(detailAccount); setDetailAccount(null); }}
+            onClose={() => setDetailAccount(null)}
+            onGranted={() => { load(); }}
+          />
+        )}
+
+        {editingAccount && (
+          <AccountEditDialog
+            account={editingAccount}
+            meta={accountMeta[editingAccount.id] ?? {}}
+            instUrl={getInstitutionUrl(
+              items.find(it => it.id === (editingAccount as unknown as Record<string,unknown>).item_id as string)?.institution_name ?? null,
+              accountMeta[editingAccount.id]?.customUrl
+            )}
+            onSave={m => { saveMeta(editingAccount.id, m); }}
+            onClose={() => setEditingAccount(null)}
+          />
+        )}
+
+        <Dialog open={!!removingAccount} onOpenChange={o => { if (!o) setRemovingAccount(null); }}>
+          <DialogContent className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
+            <DialogTitle className="sr-only">Remove account</DialogTitle>
+            <DialogDescription className="sr-only">Confirm removing this account and its transactions.</DialogDescription>
+            {removingAccount && (
+              <>
+                <div className="p-6 pb-4">
+                  <div className="h-10 w-10 rounded-xl bg-negative/10 grid place-items-center mb-4">
+                    <Unlink className="h-5 w-5 text-negative" />
+                  </div>
+                  <h3 className="font-display text-lg text-foreground">Remove {removingAccount.name ?? "account"}?</h3>
+                  <p className="mt-2 text-[13px] text-muted-foreground leading-relaxed">
+                    This will delete the account and all its synced transactions from SentryFi.
+                    Your actual bank account is not affected.
+                  </p>
+                  {removingAccount.mask && (
+                    <div className="mt-3 surface-card p-3 flex items-center gap-2">
+                      {(() => { const Icon = mapIcon(removingAccount.type, removingAccount.subtype); return <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />; })()}
+                      <span className="text-[13px] text-foreground">{removingAccount.name}</span>
+                      <span className="text-[12.5px] text-muted-foreground">··{removingAccount.mask}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="hairline p-4 flex gap-2">
+                  <button
+                    onClick={() => doRemoveAccount(removingAccount)}
+                    disabled={removeConfirming}
+                    className="flex-1 h-10 rounded-lg bg-negative text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    {removeConfirming ? "Removing…" : "Yes, remove"}
+                  </button>
+                  <button
+                    onClick={() => setRemovingAccount(null)}
+                    disabled={removeConfirming}
+                    className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
   if (view==="spending") {
     return (
       <>
@@ -6621,10 +6652,11 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  if (view==="myfinances") {
+  if (view === "myfinances" || view === "myfinances-redesign") {
+    const PictureScreen = view === "myfinances-redesign" ? MyFinancialPictureRedesign : MyFinancialPicture;
     return (
       <>
-      <MyFinancialPicture
+      <PictureScreen
         txns={txns}
         accounts={accounts}
         getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
