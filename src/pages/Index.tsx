@@ -551,7 +551,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
         {/* Main scroll area */}
         <main
-          className="flex-1 overflow-y-auto"
+          className={cn("flex-1 overflow-y-auto", view === "spending" && "flex min-h-0 flex-col overflow-hidden")}
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
           {/* Spending / My Financial Picture — full-bleed. These views skip the padded

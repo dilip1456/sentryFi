@@ -11,7 +11,7 @@ import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
 import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
 import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
 import {
-  ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingDown,
+  ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
   Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter, MoreHorizontal,
 } from "lucide-react";
@@ -248,8 +248,8 @@ function yearBucketsList(count: number) {
   return out;
 }
 
-// Shared bar-scrubber used by the month/week/year granularities in the header;
-// bars are bolder gold when selected so the active period reads clearly at a glance.
+// Compact vertical bar chart for the selected day, week, month, or year range.
+// The active period is highlighted in gold for a clear at-a-glance cue.
 function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
   buckets: { key:string; label:string }[]; totals:number[]; selIdx:number; onSelect:(i:number)=>void; maxWidth?:number;
 }) {
@@ -382,6 +382,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [showBulkTagInput, setShowBulkTagInput] = useState(false);
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
   // Category name currently shown in the details/rename dialog; separate
   // from catSel (which drives the transaction-feed filter) so opening details
   // never disturbs whatever filter is already active.
@@ -403,6 +404,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const live = liveSearch.trim();
     return live && !searchTerms.some(t => t.toLowerCase() === live.toLowerCase()) ? [...searchTerms, live] : searchTerms;
   }, [searchTerms, liveSearch]);
+  useEffect(() => {
+    if (!insightsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setInsightsOpen(false); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [insightsOpen]);
   // Keep the primary transaction search visible on both desktop and mobile.
   const commitSearchDraft = () => {
     const q = searchDraft.trim();
@@ -836,25 +843,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [r.merchant.toLowerCase(), r.frequency])), [recurring]);
 
   const todayStr = todayISO(now);
-  const previewCounts = useMemo(() => {
-    const today = new Date(`${todayStr}T00:00:00`);
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1));
-    const weekStart = localISODate(monday);
-    const monthStart = `${todayStr.slice(0, 7)}-01`;
-    const yearStart = `${todayStr.slice(0, 4)}-01-01`;
-    const count = (start: string, end = todayStr) => txns.reduce((n, t) =>
-      n + (!internalTxnIds.has(t.id) && t.date >= start && t.date <= end ? 1 : 0), 0);
-    return { day: count(todayStr), week: count(weekStart), month: count(monthStart), year: count(yearStart) };
-  }, [txns, internalTxnIds, todayStr]);
-  const jumpToPreviewPeriod = (period: "day" | "week" | "month" | "year") => {
-    setGranularity(period);
-    if (period === "day") setDayOffset(0);
-    else if (period === "week") setWeekOffset(0);
-    else if (period === "month") setMonthOffset(0);
-    else setYearOffset(0);
-    setDateMode("none");
-  };
   const in30 = addDaysISO(todayStr, 30);
   const next30Recurring = recurring.filter(r => r.nextDate >= todayStr && r.nextDate <= in30);
   const committedNext30 = next30Recurring.reduce((s,r)=>s+r.avgAmount,0);
@@ -1420,11 +1408,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     : "";
 
   return (
-    <div className="flex flex-col bg-background spending-v2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background spending-v2">
 
       {/* ═══ 1. Header; same title/date treatment as Home, plus the period
           controls (granularity + month switcher) in one clean row ═══ */}
-      <header className="content-max px-4 md:px-8 pt-3 md:pt-5 pb-2">
+      <header className="content-max shrink-0 px-4 md:px-8 pt-3 md:pt-5 pb-2">
         <div className="flex items-start justify-between gap-3">
           {/* Phones show the title in the app's top bar (Index.tsx); repeating
               it here pushed the content down for no information. */}
@@ -1434,37 +1422,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           </div>
           {headerActions && <div className="hidden md:flex items-center gap-2">{headerActions}</div>}
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
-            <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
-              onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") setSearchDraft(""); }}
-              placeholder="Search transactions" aria-label="Search transactions" title="Filters as you type; press Enter to pin the search"
-              className="w-full h-11 md:h-10 pl-10 pr-20 rounded-xl bg-card border border-border/70 text-[14px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.55)] focus:ring-2 focus:ring-[hsl(var(--primary)/0.12)] [&::-webkit-search-cancel-button]:hidden" />
-            {activeSearchTerms.length > 0 && <span className="absolute right-10 top-1/2 -translate-y-1/2 text-[11px] tabular text-muted-foreground" aria-live="polite">{filteredSpendingTxns.length} found</span>}
-            {searchDraft && <button type="button" onClick={()=>{ setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); }} aria-label="Clear transaction search"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>}
-          </div>
-          <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter transactions" title="Filter transactions"
-            className={cn("h-11 md:h-10 px-3 rounded-xl border flex items-center gap-2 text-[12.5px] font-semibold transition-colors shrink-0",
-              hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))]" : "border-border/70 bg-card text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
-            <Filter className="h-4 w-4" /><span className="hidden sm:inline">Filters</span>
-            {hasActiveFilters && <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]" />}
-          </button>
-        </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <div className="grid min-w-0 flex-1 grid-cols-4 overflow-hidden rounded-xl border border-border/60 bg-card" role="tablist" aria-label="Transactions by period">
-            {(["day","week","month","year"] as const).map(g => (
-              <button key={g} role="tab" aria-selected={granularity===g} onClick={() => jumpToPreviewPeriod(g)}
-                className={cn("min-w-0 border-r border-border/50 px-1.5 py-1.5 text-center transition-colors last:border-r-0 sm:px-2",
-                  granularity===g && activeRange.isCurrent ? "bg-[hsl(var(--primary)/0.1)] text-foreground" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground")}>
-                <span className="block text-[9px] font-semibold uppercase tracking-wide sm:text-[10px]">{g}</span>
-                <span className="block text-[13px] font-semibold tabular leading-tight sm:text-[14px]">{previewCounts[g]}</span>
+          <div className="flex bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
+            {(["day","week","month","year","all"] as const).map(g => (
+              <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
+                className={cn("px-3 py-1.5 rounded-lg text-[12.5px] font-semibold capitalize transition-all",
+                  granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/60")}>
+                {g === "all" ? "All time" : g}
               </button>
             ))}
           </div>
-          <button role="tab" aria-selected={granularity==="all"} onClick={()=>setGranularity("all")}
-            className={cn("shrink-0 rounded-lg px-2.5 py-2 text-[11px] font-semibold transition-colors", granularity==="all" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground")}>All</button>
           {granularity !== "all" && (() => {
             // One prev/next switcher for every granularity (it used to exist
             // for months only, so day/week/year had no way to go back).
@@ -1499,308 +1466,94 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {granularity==="month" ? "This month" : granularity==="week" ? "This week" : granularity==="year" ? "This year" : "Today"}
             </button>
           )}
+          <button type="button" onClick={() => setInsightsOpen(true)} aria-label="Open spending insights" title="Insights"
+            className="ml-auto h-9 px-2.5 rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-2 text-[12px] font-semibold transition-colors shrink-0">
+            <TrendingUp className="h-4 w-4" /><span className="hidden sm:inline">Insights</span>
+          </button>
         </div>
       </header>
 
-      <div className="content-max px-4 md:px-8 pb-10 space-y-4 flex flex-col">
-
-        {granularity === "month" ? (
-          <details className="surface-card rounded-xl overflow-hidden">
-            <summary className="cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-              Detailed spending insights <span className="ml-1 text-[10.5px] font-normal text-muted-foreground/70">charts, merchants, and flags</span>
-            </summary>
-            <div className="border-t border-border/40 p-2 md:p-3">
-          <SpendingOverview
-            monthName={monthName} prevMonthShort={prevMonthShort}
-            monthEndLabel={fmtShortDate(sel.end)}
-            isCurrentMonth={isCurrentMonth} dayOfMonth={dayOfMonth} daysInMonth={daysInSelMonth}
-            spent={overview.spent} pendingSpent={overview.pendingSpent} pendingCount={overview.pendingCount}
-            earned={totalEarned} prevSameDay={overview.prevSameDay} prevTotal={overview.prevTotal}
-            budgetTotal={spendBudgetTotal} projected={overview.projected} movement={overview.movement}
-            onShowIgnored={()=>setCatTab("ignored")}
-            days={overview.days} categories={overview.categories} merchants={overview.merchants} flagged={overview.flagged}
-            selectedCat={catTab === "expenses" ? catSel : null} onSelectCat={selectOverviewCat}
-            onCategoryDetails={setDetailsCat} onManageBudgets={()=>setBudgetDialogOpen(true)}
-            onOpenFlagged={id => { const t = txns.find(x => x.id === id); if (t) onOpenDetail(t); }}
-            catColor={catColor} categoryIcon={categoryIcon} formatCat={formatCat}
-          />
-            </div>
-          </details>
-        ) : (
-        <details className="surface-card rounded-xl overflow-hidden">
-          <summary className="cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-            Period overview <span className="ml-1 text-[10.5px] font-normal text-muted-foreground/70">spending trend and totals</span>
-          </summary>
-          <div className="border-t border-border/40 p-2 md:p-3">
-        <div className="space-y-3.5">
-        <div className={cn("surface-card p-4 md:p-5 shrink-0", granularity==="all" && "inline-flex")}>
-          <div className={cn(
-            granularity==="all"
-              // Nothing to bucket into a scrubber for "all time" — a full
-              // stretched grid just leaves a wide empty gap between the label
-              // and the stats. Sit them together, compact, on one side instead.
-              ? "flex flex-wrap items-center gap-5"
-              : "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 lg:gap-7 items-stretch w-full",
-          )}>
-
-            {/* Left: duration toggle + spend bar spikes */}
-            <div className="min-w-0">
-              {granularity==="all" ? (
-                /* No scrubber to bucket "all time" into; just a plain label,
-                   same vertical footprint as the other tabs so switching
-                   between them doesn't reflow the header. */
-                <div className="h-8 flex items-center text-[11px] text-muted-foreground/70 whitespace-nowrap">
-                  Every transaction on record, across every account and year.
-                </div>
-              ) : granularity==="day" ? (
-                /* 14-day scrubber; same bar format as the other granularities
-                   so the header never changes height when switching tabs. */
-                <div>
-                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{dayCtxLabel}</div>
-                  <PeriodBars buckets={dayBuckets} totals={overallDaily} selIdx={selDayIdx}
-                    onSelect={(i) => setDayOffset(i-(DAY_COUNT-1))} maxWidth={560}/>
-                </div>
-              ) : granularity==="week" ? (
-                /* 12-week scrubber, same bar format as months */
-                <div>
-                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{weekYearLabel}</div>
-                  <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
-                    onSelect={(i) => setWeekOffset(i-(WEEK_COUNT-1))} maxWidth={640}/>
-                </div>
-              ) : granularity==="year" ? (
-                /* 6-year scrubber; each bar is one calendar year */
-                <div>
-                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">&nbsp;</div>
-                  <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
-                    onSelect={(i) => setYearOffset(i-(YEAR_COUNT-1))} maxWidth={400}/>
-                </div>
-              ) : (
-                /* 12-month scrubber; capped width so bars stay a sensible size on wide screens.
-                   Year label above clarifies which calendar year(s) the months belong to. */
-                <div>
-                  <div className="text-[11px] font-semibold text-muted-foreground/70 mb-1">{monthYearLabel}</div>
-                  <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
-                    onSelect={(i) => setMonthOffset(i-lastIdx)} maxWidth={560}/>
-                </div>
-              )}
-            </div>
-
-            {/* Right: period summary; always just Total earned / Total spent
-                for the selected range, so the panel's height and shape never
-                change across day/week/month/year (no month-only budget block). */}
-            <div className={cn(
-              "shrink-0 border-border/50",
-              granularity==="all"
-                ? "border-l pl-5"
-                : "w-full lg:w-[240px] lg:border-l lg:pl-6 pt-3 lg:pt-0 border-t lg:border-t-0",
-            )}>
-              <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                {activeRange.label}
-              </div>
-              <div className={cn(granularity==="all" ? "flex items-center gap-5" : "space-y-2")}>
-                <div className={cn("flex items-center gap-3", granularity==="all" ? "flex-col items-start" : "justify-between")}>
-                  <span className="text-[12px] text-muted-foreground">Total earned</span>
-                  <span className="text-[15px] font-semibold tabular text-positive">{fmtUSD(totalEarned)}</span>
-                </div>
-                <div className={cn("flex items-center gap-3", granularity==="all" ? "flex-col items-start" : "justify-between")}>
-                  <span className="text-[12px] text-muted-foreground">Total spent</span>
-                  <span className="text-[15px] font-semibold tabular text-foreground">{fmtUSD(animatedTotal)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Period summary remains inside the collapsed overview so the
-            transaction list stays at the top of the page. */}
-
-        {/* ═══ 3. Burn runway; swipeable: last 30 days ⇄ next 15 days ═════════ */}
-        {SHOW_BURN_RUNWAY && (
-        <div className="surface-card p-4 md:p-5 overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
+      <Dialog open={insightsOpen} onOpenChange={setInsightsOpen}>
+        <DialogContent showClose={false} className="spending-v2 spending-insights-panel flex flex-col gap-0 overflow-hidden border-border/70 bg-card p-0 shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b border-border/50 px-5 py-4">
             <div>
-              <div className="text-[13px] font-semibold text-foreground">Burn runway</div>
-              <div className="text-[11.5px] text-muted-foreground">
-                {runwayIdx===0 ? `${new Date(sel.year,sel.monthIdx,1).toLocaleDateString("en-US",{month:"long",year:"numeric"})}, cumulative spend` : "Next 15 days, anticipated charges"}
+              <DialogTitle className="font-display text-[19px] font-semibold text-foreground">Spending insights</DialogTitle>
+              <DialogDescription className="mt-1 text-[12px] text-muted-foreground">A quick view of trends and your top categories.</DialogDescription>
+            </div>
+            <button type="button" onClick={() => setInsightsOpen(false)} aria-label="Close spending insights"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                <div className="text-[11px] text-muted-foreground">Spent · {activeRange.label}</div>
+                <div className="mt-1 text-[19px] font-semibold tabular text-foreground">{fmtUSD(totalSpent)}</div>
+              </div>
+              <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
+                <div className="text-[11px] text-muted-foreground">Transactions</div>
+                <div className="mt-1 text-[19px] font-semibold tabular text-foreground">{periodTxnsAllCats.filter(t => !internalTxnIds.has(t.id)).length}</div>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {runwayIdx===0 && scrubDay !== null && rolling30[scrubDay] && (
-                <div className="text-right mr-1">
-                  <div className="text-[13px] font-bold text-foreground tabular">{fmtUSD(rolling30[scrubDay].cum)}</div>
-                  <div className="text-[11px] text-muted-foreground">{new Date(rolling30[scrubDay].date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                </div>
-              )}
-              <button onClick={()=>setRunwayIdx(0)} aria-label="Show this month's cumulative spend" className={cn("h-1.5 w-1.5 rounded-full transition-all", runwayIdx===0?"bg-[hsl(var(--primary))] w-4":"bg-border")}/>
-              <button onClick={()=>setRunwayIdx(1)} aria-label="Show next 15 days' anticipated charges" className={cn("h-1.5 w-1.5 rounded-full transition-all", runwayIdx===1?"bg-[hsl(var(--primary))] w-4":"bg-border")}/>
+            <section>
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-foreground">Spend by month</h3><span className="text-[10px] text-muted-foreground">12 months</span></div>
+              <div className="flex h-28 items-end gap-1 rounded-xl border border-border/50 bg-muted/15 px-2 pt-3" role="group" aria-label="Monthly spending trend">
+                {monthBuckets.map((bucket, i) => {
+                  const value = overallMonthly[i] ?? 0;
+                  const max = Math.max(...overallMonthly, 1);
+                  const height = Math.max(value > 0 ? 8 : 3, Math.round(value / max * 100));
+                  const selected = granularity === "month" && selIdx === i;
+                  const label = new Date(bucket.year, bucket.monthIdx, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+                  return <button key={bucket.start} type="button" onClick={() => { setGranularity("month"); setMonthOffset(i - lastIdx); setDateMode("none"); }}
+                    aria-label={`${label}: ${fmtUSD(value)} spent`} aria-pressed={selected} title={`${label} · ${fmtUSD(value)}`}
+                    className="group flex h-full min-w-0 flex-1 items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]">
+                    <span className={cn("w-full max-w-5 rounded-t-sm transition-colors", selected ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--primary)/0.35)] group-hover:bg-[hsl(var(--primary)/0.7)]")} style={{ height: `${height}%` }} />
+                  </button>;
+                })}
+              </div>
+            </section>
+            <section>
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-foreground">Top categories</h3><span className="text-[10px] text-muted-foreground">{activeRange.label}</span></div>
+              <div className="divide-y divide-border/40 rounded-xl border border-border/50 px-3">
+                {expenseCatRows.slice(0, 6).map(row => <button key={row.cat} type="button" onClick={() => { selectOverviewCat(row.cat); setInsightsOpen(false); }}
+                  className="flex min-h-11 w-full items-center gap-2.5 text-left hover:bg-muted/20">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: catColor(row.cat) }} />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{formatCat(row.cat)}</span>
+                  <span className="text-[12px] font-semibold tabular text-foreground">{fmtUSD(row.spend)}</span>
+                </button>)}
+                {!expenseCatRows.length && <p className="py-4 text-[12px] text-muted-foreground">No spending in this period yet.</p>}
+              </div>
+            </section>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="content-max flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 md:px-8">
+        <section className="surface-card shrink-0 rounded-xl px-3 py-2.5" aria-label="Spending by period">
+          <div className="mb-1.5 flex items-baseline justify-between gap-3">
+            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{activeRange.label}</span>
+            <div className="flex shrink-0 items-center gap-3 text-[11px] tabular">
+              <span className="text-positive">In {fmtUSD(totalEarned)}</span>
+              <span className="text-foreground">Out {fmtUSD(totalSpent)}</span>
             </div>
           </div>
-
-          <div className="relative overflow-hidden"
-            onPointerDown={runwayOnDown} onPointerMove={runwayOnMove} onPointerUp={runwayEndDrag} onPointerCancel={runwayEndDrag}>
-            <div className="flex transition-transform duration-300 ease-out"
-              style={{transform:`translateX(calc(${-runwayIdx*100}% + ${runwayDragging.current?runwayDragX:0}px))`}}>
-
-              {/* ── Card 1: last 30 days ── */}
-              <div className="w-full shrink-0">
-                <div ref={chartRef} onMouseMove={onChartMove} onMouseLeave={()=>setScrubDay(null)} className="relative h-32 w-full cursor-crosshair">
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
-                    <defs>
-                      <linearGradient id="burnFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.35"/>
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0"/>
-                      </linearGradient>
-                    </defs>
-                    {past30BudgetY !== null && (
-                      <line x1="0" y1={past30BudgetY} x2="100" y2={past30BudgetY} stroke="hsl(var(--negative))" strokeWidth="0.6" strokeDasharray="2,2" vectorEffect="non-scaling-stroke"/>
-                    )}
-                    {past30Area && <path d={past30Area} fill="url(#burnFill)" stroke="none"/>}
-                    {past30Path && (
-                      <path d={past30Path} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.4" vectorEffect="non-scaling-stroke"
-                        strokeDasharray="500" strokeDashoffset="0" className="burn-draw-in"/>
-                    )}
-                    {scrubDay !== null && (
-                      <line x1={xForPast(scrubDay)} y1="0" x2={xForPast(scrubDay)} y2="100"
-                        stroke="hsl(var(--foreground))" strokeWidth="0.4" strokeOpacity="0.3" vectorEffect="non-scaling-stroke"/>
-                    )}
-                  </svg>
-
-                  {/* Marker dots + tooltips; HTML overlay positioned by percentage
-                      so they stay perfectly round instead of being stretched into
-                      ellipses by the chart's non-uniform SVG scaling. */}
-                  {rolling30.map((d,i) => {
-                    if (d.txns.length === 0) return null;
-                    const key = `p${i}`;
-                    const left = xForPast(i), top = (yForPast(d.cum)/CH)*100;
-                    const hovered = hoveredDot===key;
-                    const content = (
-                      <>
-                        <div className="text-[11px] text-muted-foreground">{new Date(d.date+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</div>
-                        {d.txns.map((t,ti) => (
-                          <div key={ti} className="text-[11.5px] font-medium text-foreground flex items-center justify-between gap-2">
-                            <span className="truncate">{t.merchant}</span>
-                            <span className="tabular shrink-0">{fmtUSD(t.amount)}</span>
-                          </div>
-                        ))}
-                      </>
-                    );
-                    return (
-                      <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
-                        onMouseEnter={e=>showDotTooltip(key,e,content)} onMouseLeave={()=>hideDotTooltip(key)}>
-                        <div className={cn("rounded-full bg-[hsl(var(--primary))] ring-2 ring-card transition-all cursor-pointer",
-                          hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* Date axis; day 1 through the last day of the selected month */}
-                <div className="relative h-4 mt-1">
-                  {past30Ticks.map(d => (
-                    <span key={d} className="absolute -translate-x-1/2 text-[11px] text-muted-foreground/60 tabular"
-                      style={{left:`${xForPast(d-1)}%`}}>
-                      {d}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary))] inline-block"/>Cumulative spend</span>
-                  {past30BudgetY !== null && <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-negative/60 inline-block"/>Budget ceiling</span>}
-                  <span className="ml-auto">Swipe or tap dot to see next 15 days →</span>
-                </div>
-              </div>
-
-              {/* ── Card 2: next 15 days ── */}
-              <div className="w-full shrink-0">
-                <div className="relative h-32 w-full">
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
-                    <defs>
-                      <linearGradient id="futureFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.25"/>
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0"/>
-                      </linearGradient>
-                    </defs>
-                    {future15Path && (
-                      <path d={future15Path} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.2" strokeDasharray="1.5,1.5" strokeOpacity="0.85" vectorEffect="non-scaling-stroke"/>
-                    )}
-                  </svg>
-                  {future15.length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center text-[12.5px] text-muted-foreground">
-                      No recurring charges detected in the next {PROJECTION_DAYS} days
-                    </div>
-                  )}
-                  {future15.map((f,i) => {
-                    const key = `f${i}`;
-                    const days = daysFromToday(f.nextDate);
-                    const left = (xForFuture(days)/CW)*100, top = (yForFuture(f.cum)/CH)*100;
-                    const hovered = hoveredDot===key;
-                    const content = (
-                      <>
-                        <div className="text-[11px] text-muted-foreground">{new Date(f.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · {f.frequency}{f.insufficient?" · insufficient funds":""}</div>
-                        <div className={cn("text-[11.5px] font-medium flex items-center justify-between gap-2", f.insufficient?"text-negative":"text-foreground")}>
-                          <span className="truncate">{f.merchant}</span>
-                          <span className="tabular shrink-0">{fmtUSD(f.avgAmount)}</span>
-                        </div>
-                        {f.balanceAfter !== null && (
-                          <div className={cn("text-[11px] tabular", f.insufficient?"text-negative":"text-muted-foreground")}>{fmtUSD(f.balanceAfter)} left in {f.accountName}</div>
-                        )}
-                      </>
-                    );
-                    return (
-                      <div key={key} className="absolute -translate-x-1/2 -translate-y-1/2 z-10" style={{left:`${left}%`,top:`${top}%`}}
-                        onMouseEnter={e=>showDotTooltip(key,e,content)} onMouseLeave={()=>hideDotTooltip(key)}>
-                        <div className={cn("rounded-full ring-2 ring-card transition-all cursor-pointer",
-                          f.insufficient ? "bg-[hsl(var(--negative))]" : "bg-[hsl(var(--primary))]",
-                          hovered ? "h-2.5 w-2.5" : "h-1.5 w-1.5")}/>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center gap-4 mt-2 text-[11px] text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1"><span className="h-0.5 w-3 rounded-full bg-[hsl(var(--primary)/0.6)] inline-block" style={{backgroundImage:"repeating-linear-gradient(90deg, hsl(var(--primary)) 0 2px, transparent 2px 4px)"}}/>Anticipated spend</span>
-                  <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-negative inline-block"/>Low balance risk</span>
-                  <span className="ml-auto">← Swipe back for last 30 days</span>
-                </div>
-
-                {/* Upcoming charges; compact horizontal rail (also shown as
-                    markers on the graph above) */}
-                {upcomingCharges.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-border/15">
-                    <div className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Upcoming charges</div>
-                    <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-                      {upcomingCharges.map(r => {
-                        const days = daysBetweenISO(todayStr, r.nextDate);
-                        return (
-                          <div key={r.merchant} className={cn("shrink-0 w-[150px] rounded-xl border p-3",
-                            r.insufficient ? "border-negative/40 bg-negative/5" : "border-border/40 bg-muted/20")}>
-                            <div className="text-[12.5px] font-semibold text-foreground truncate">{r.merchant}</div>
-                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">{r.accountName} · {r.frequency}</div>
-                            <div className="text-[14px] font-bold text-foreground tabular mt-1">{fmtUSD(r.avgAmount)}</div>
-                            <div className="text-[11px] text-[hsl(var(--primary))] font-medium mt-0.5">
-                              {new Date(r.nextDate+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})} · in {Math.max(days,0)}d
-                            </div>
-                            {r.insufficient ? (
-                              <div className="text-[11px] font-bold text-negative mt-1">Insufficient funds</div>
-                            ) : r.balanceAfter !== null && (
-                              <div className="text-[11px] text-muted-foreground mt-1 tabular">{fmtUSD(r.balanceAfter)} after</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        )}
-        </div>
-          </div>
-        </details>
-        )}
+          {granularity === "day" ? (
+            <PeriodBars buckets={dayBuckets} totals={overallDaily} selIdx={selDayIdx}
+              onSelect={i => setDayOffset(i - (DAY_COUNT - 1))} maxWidth={560}/>
+          ) : granularity === "week" ? (
+            <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
+              onSelect={i => setWeekOffset(i - (WEEK_COUNT - 1))} maxWidth={640}/>
+          ) : granularity === "year" || granularity === "all" ? (
+            <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
+              onSelect={i => { setGranularity("year"); setYearOffset(i - (YEAR_COUNT - 1)); }} maxWidth={480}/>
+          ) : (
+            <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
+              onSelect={i => setMonthOffset(i - lastIdx)} maxWidth={560}/>
+          )}
+        </section>
 
         {/* ═══ 4. Categories + transactions ═══════════════════════════════ */}
-        <section className="flex flex-col gap-2 min-w-0" aria-label="Transactions">
-          <div className="flex items-center justify-end">
+        <section className="flex min-h-0 flex-1 flex-col gap-2 min-w-0" aria-label="Transactions">
+          <div className="flex shrink-0 items-center justify-end">
             <button onClick={()=>setBudgetDialogOpen(true)}
               className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[hsl(var(--primary))] hover:opacity-80">
               <Wallet className="h-3.5 w-3.5"/> Manage budgets
@@ -1922,11 +1675,37 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           {/* Transaction feed. Fixed-height card with its own internal scroll
               (header stays put, list scrolls beneath it) instead of growing
               the whole page. */}
-          <div className="surface-card min-w-0 flex flex-col md:overflow-hidden md:h-[640px]">
-            {/* Phones: one scroll (the page). The toolbar sticks to the top of
-                the scroll area and the date headings stick right below it,
-                instead of a 480px box scrolling inside a scrolling page. */}
-            <div ref={toolbarRef} className="px-4 py-3 border-b border-border/20 shrink-0 bg-card/95 max-md:bg-card backdrop-blur-sm space-y-2 max-md:sticky max-md:top-0 max-md:z-20 max-md:rounded-t-[var(--radius)]">
+          <div className="surface-card min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
+            {/* Search and filters stay attached to the transaction list while
+                only the rows below scroll, on both phone and desktop. */}
+            <div ref={toolbarRef} className="px-3 py-2 border-b border-border/20 shrink-0 bg-card/95 backdrop-blur-sm space-y-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
+                  className={cn("h-9 shrink-0 max-w-[112px] sm:max-w-[150px] rounded-lg border px-2 text-[11px] sm:text-[11.5px] font-medium flex items-center gap-1.5 transition-colors",
+                    accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Landmark className="h-3 w-3 shrink-0"/>
+                  <span className="truncate">{accountFilters.length===0 ? "All accounts" : accountFilters.length===1 ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "1 account") : `${accountFilters.length} accounts`}</span>
+                </button>
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true"/>
+                  <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
+                    onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); } }}
+                    placeholder="Search transactions" aria-label="Search transactions"
+                    className="h-9 w-full rounded-lg border border-border/60 bg-muted/40 pl-8 pr-8 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                  {searchDraft && <button type="button" onClick={()=>{ setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); }} aria-label="Clear search"
+                    className="absolute right-0.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5"/></button>}
+                </div>
+                <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter transactions" title="Filters"
+                  className={cn("relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors",
+                    hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
+                  <Filter className="h-4 w-4"/>{hasActiveFilters && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]"/>}
+                </button>
+                <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort transactions" title="Sort transactions"
+                  className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors",
+                    hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
+                  <ArrowUpDown className="h-4 w-4"/>
+                </button>
+              </div>
               {selectedIds.size > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 [&_button]:max-md:h-10">
                   <span className="text-[12.5px] font-semibold text-foreground shrink-0">{selectedIds.size} selected</span>
@@ -1969,28 +1748,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 </div>
               ) : (
               <>
-              <div className="md:hidden flex items-center justify-end">
-                <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort transactions"
-                  className={cn("h-10 px-3 flex items-center gap-2 rounded-lg border text-[12px] font-medium",
-                    hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground")}>
-                  <ArrowUpDown className="h-4 w-4"/> Sort
-                </button>
-              </div>
-
               <div className="hidden md:flex items-center gap-1.5 flex-wrap">
-                <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
-                  className={cn("h-7 pl-2.5 pr-2 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0 max-w-[170px]",
-                    accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Landmark className="h-3 w-3 shrink-0"/>
-                  <span className="truncate">
-                    {accountFilters.length===0
-                      ? "All accounts"
-                      : accountFilters.length===1
-                        ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "1 account")
-                        : `${accountFilters.length} accounts`}
-                  </span>
-                </button>
-
                 <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
                   className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
                     groupBy!=="none" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
@@ -2004,11 +1762,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   </button>
                 )}
 
-                <button ref={sortMenu.btnRef} onClick={sortMenu.toggle}
-                  className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
-                    hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <ArrowUpDown className="h-3 w-3"/> Sort
-                </button>
                 {/* Secondary tools (Columns / Rules / Import) live behind one
                     "More" button instead of three unlabeled icon buttons. The
                     Columns picker anchors to this same button. */}
@@ -2223,7 +1976,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 low-priority columns that don't fit), so it normally never
                 scrolls sideways; overflow-x-auto is only a safety net so a
                 column can never be silently clipped. */}
-            <div ref={tableWrapRef} className="md:overflow-y-auto md:overflow-x-auto scrollbar-none flex-1">
+            <div ref={tableWrapRef} className="min-h-0 flex-1 overflow-auto scrollbar-none">
               {visibleTxns.length === 0 ? (
                 <div className="py-14 px-6 text-center space-y-3">
                   {(hasActiveFilters || catSel) ? (

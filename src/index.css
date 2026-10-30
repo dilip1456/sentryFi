@@ -182,6 +182,26 @@
     font-family: 'Manrope', 'Inter', sans-serif;
   }
 
+  .spending-insights-panel {
+    position: fixed !important;
+    inset: 0 0 0 auto !important;
+    width: min(380px, calc(100vw - 16px)) !important;
+    height: 100dvh !important;
+    max-width: none !important;
+    max-height: 100dvh !important;
+    transform: none !important;
+    border-radius: 16px 0 0 16px !important;
+  }
+  @media (max-width: 767px) {
+    .spending-insights-panel {
+      inset: auto 0 0 !important;
+      width: 100vw !important;
+      height: min(78dvh, 720px) !important;
+      max-height: min(78dvh, 720px) !important;
+      border-radius: 20px 20px 0 0 !important;
+    }
+  }
+
   @keyframes burn-draw-in {
     from { stroke-dashoffset: 500; }
     to   { stroke-dashoffset: 0; }
