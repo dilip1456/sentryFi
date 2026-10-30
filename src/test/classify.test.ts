@@ -97,12 +97,12 @@ describe("internal transfer matcher", () => {
 
 describe("self-payee, brokerage and savings", () => {
   it("Zelle to the user is an internal transfer, even when memo says Salary", () => {
-    const t = tx({ amount: 3074.13, name: 'Zelle Recurring payment to DILIP NAIK for "Salary"; Conf# bqyboj6hx', category: ["Salary"] });
+    const t = tx({ amount: 3074.13, name: 'Zelle Recurring payment to JOHN DOE for "Salary"; Conf# bqyboj6hx', category: ["Salary"] });
     expect(classifyOne(t, ctx()).type).toBe("transfer_internal");
   });
 
   it("payroll carrying the user's name is still salary", () => {
-    const t = tx({ amount: -3036.07, name: "Cgi Technologies Des:Payroll Id Indn:Naik,Dilip Co Id Ppd" });
+    const t = tx({ amount: -3036.07, name: "Acme Corp Des:Payroll Id Indn:Doe,John Co Id Ppd" });
     expect(classifyOne(t, ctx()).type).toBe("income_salary");
   });
 
