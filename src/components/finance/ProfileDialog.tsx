@@ -73,6 +73,8 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
   const [confirmDisconnect, setConfirmDisconnect] = useState<PlaidItemRow | null>(null);
   const [confirmFullResync, setConfirmFullResync] = useState(false);
   const [fullResyncing, setFullResyncing] = useState(false);
+  const [confirmWipeReload, setConfirmWipeReload] = useState(false);
+  const [wipeReloading, setWipeReloading] = useState(false);
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -213,6 +215,31 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
       toast.error("Full resync failed", { description: (e as Error).message });
     } finally {
       setFullResyncing(false);
+    }
+  };
+
+  // Deletes every transaction, category/name override, tag, note, smart rule
+  // and recurring dismissal, then re-pulls each linked bank's full history
+  // from Plaid with nothing left to reapply. Does not touch the bank
+  // connections themselves, or unrelated app preferences (budgets, goals,
+  // panel layout, custom categories). Irreversible.
+  const wipeAndReload = async () => {
+    setWipeReloading(true);
+    try {
+      const { data: wipeData, error: wipeError } = await supabase.functions.invoke("wipe-transactions-data", { body: {} });
+      if (wipeError || wipeData?.error) throw new Error(wipeData?.error ?? wipeError?.message ?? "Wipe failed");
+      const { data, error } = await supabase.functions.invoke("plaid-sync-transactions", {
+        body: { full_resync: true },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Repull from Plaid failed");
+      const synced = data?.synced ?? 0;
+      toast.success(`Reloaded ${synced} transaction${synced !== 1 ? "s" : ""} from scratch`);
+      setConfirmWipeReload(false);
+      window.location.reload();
+    } catch (e) {
+      toast.error("Reload failed", { description: (e as Error).message });
+    } finally {
+      setWipeReloading(false);
     }
   };
 
@@ -416,6 +443,31 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 destructive={false}
                 busy={fullResyncing}
                 onConfirm={fullResync} />
+
+              {items !== null && items.length > 0 && (
+                <div className="mt-5">
+                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Reload transactions data</div>
+                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5 border border-negative/20">
+                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                      Deletes every transaction, category tag/note and smart rule, then re-pulls your full history fresh from Plaid. Your bank connections stay linked. Irreversible.
+                    </div>
+                    <button onClick={() => setConfirmWipeReload(true)} disabled={wipeReloading}
+                      aria-label="Delete and reload all transactions data"
+                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-negative hover:underline shrink-0 disabled:opacity-50">
+                      <Trash2 className={`h-3.5 w-3.5 ${wipeReloading ? "animate-pulse" : ""}`} /> Reload Txns Data
+                    </button>
+                  </div>
+                </div>
+              )}
+              <ConfirmDialog
+                open={confirmWipeReload}
+                onOpenChange={o => { if (!o && !wipeReloading) setConfirmWipeReload(false); }}
+                title="Delete all transactions and reload from Plaid?"
+                description="This permanently deletes every transaction, category override, tag, note, smart rule and recurring dismissal, then re-downloads your full history fresh from each connected bank with nothing re-applied. Your bank connections are not affected. This cannot be undone."
+                confirmLabel="Delete and reload"
+                destructive
+                busy={wipeReloading}
+                onConfirm={wipeAndReload} />
             </div>
           )}
         </div>
