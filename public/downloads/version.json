@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1217,
-  "sha256": "99384f3e10f7d7210598ceab4f35d01638c152d1b19a461d4ed6c7a699adfc67",
-  "size": 7165025,
-  "releaseNotes": "Restore spending insights sidebar and compact period bars",
+  "versionCode": 1219,
+  "sha256": "134bc326d61b8724cc1cb81dabb5b6d1fa3eb71d90b58f98ed406130e2305b4b",
+  "size": 7163353,
+  "releaseNotes": "chore(deps): bump the capacitor group across 1 directory with 5 updates",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-30T17:25:12.319Z"
+  "publishedAt": "2026-11-03T16:39:03.108Z"
 }
