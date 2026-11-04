@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { SectionHeader } from "@/components/ui/headers";
 import { GIFT_CARD_BRANDS, logoUrlForDomain, clearbitLogoUrl, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
 import { isMissingColumnError, isMissingTableError } from "@/lib/supabase-errors";
@@ -654,25 +655,20 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between px-1">
-        <div>
-          <h2 className="font-display text-base md:text-lg text-primary">Gift cards</h2>
-          {cards && cards.length > 0 && (
-            <div className="text-[13px] text-muted-foreground mt-0.5">
-              {cards.length} card{cards.length !== 1 ? "s" : ""} · {fmtUSD(totalBalance)} total balance
-            </div>
-          )}
-        </div>
+        {/* The top bar / page header already says "Gift Cards"; this header names the list. */}
+        <SectionHeader className="mb-0 min-w-0" title="Your cards"
+          subtitle={cards && cards.length > 0 ? <>{cards.length} card{cards.length !== 1 ? "s" : ""} · {fmtUSD(totalBalance)} total balance</> : undefined} />
         <div className="flex items-center gap-2">
           {/* Cards/Table toggle only matters on mobile — desktop always shows
               the table + detail-panel layout below, so the toggle is noise there. */}
           {cards && cards.length > 0 && (
             <div className="md:hidden inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
               <button onClick={() => setViewMode("cards")}
-                className={cn("px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                aria-pressed={viewMode === "cards"} className={cn("tap-44 px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 Cards
               </button>
               <button onClick={() => setViewMode("table")}
-                className={cn("px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                aria-pressed={viewMode === "table"} className={cn("tap-44 px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 Table
               </button>
             </div>
