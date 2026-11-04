@@ -222,3 +222,20 @@ describe("decisions", () => {
     expect(it).toMatchObject({ status: "confirmed", missed: true, monthly: 40 });
   });
 });
+
+describe("stored decisions (recurring_streams, source 'picture')", () => {
+  it("round-trips a decision and keeps Picture rows out of the timeline", async () => {
+    const { decisionToRow, rowToDecision, isPictureDecisionRow } = await import("@/lib/recurring");
+    const b = base();
+    b.series("card", monthly("2025-10", 14), 15.49, "NETFLIX.COM", { pfc: "ENTERTAINMENT", pfcd: "ENTERTAINMENT_TV_AND_MOVIES", merchant_name: "Netflix" });
+    const it = find(review(b).review.items, /netflix/i)!;
+    const d = decisionFor(it, { status: "confirmed", amount: 17.99, cadence: "monthly", group: "bills", coverAccountId: "chk" }, "2026-10-29T12:00:00Z");
+    const row = decisionToRow("u1", d);
+    expect(row).toMatchObject({ series_key: `picture:${it.key}`, source: "picture", status: "confirmed", txn_type: "obligation_bill", kind: "subscription", user_amount: 17.99, user_cover_account_id: "chk", review_group: "bills" });
+    expect((row.matched_transaction_ids as string[]).length).toBe(13);
+    expect(rowToDecision(row)).toEqual({ ...d, snapshot: { ...d.snapshot, direction: "outflow" } });
+    expect(isPictureDecisionRow(row)).toBe(true);
+    expect(isPictureDecisionRow({ series_key: "outflow|netflix", source: "detector" })).toBe(false);
+    expect(rowToDecision({ series_key: "outflow|netflix", source: "detector", status: "confirmed" })).toBeNull();
+  });
+});
