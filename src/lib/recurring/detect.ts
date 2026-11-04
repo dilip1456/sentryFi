@@ -117,6 +117,12 @@ export interface DetectOptions {
   overrides?: TxnTypeOverride[];
   /** Credit card payments have their own due-date flow; excluded by default. */
   includeCardPayments?: boolean;
+  /**
+   * Keep the sending leg of a matched transfer into the user's own savings /
+   * investment account (savings_contribution) so a repeating one can be a
+   * savings goal. Excluded by default: it is internal movement, not spend.
+   */
+  includeSavingsTransfers?: boolean;
   /** History window (default ~25 months so a yearly item is seen twice). */
   lookbackDays?: number;
   loanDetails?: LoanDetail[];
@@ -153,7 +159,7 @@ interface Member {
 export function isRecurringEligible(
   t: ClassifierTxn,
   c: TxnClassification,
-  opts: Pick<DetectOptions, "includeCardPayments"> = {},
+  opts: Pick<DetectOptions, "includeCardPayments" | "includeSavingsTransfers"> = {},
   account?: ClassifierAccount,
 ): boolean {
   if (t.pending) return false;
@@ -170,7 +176,12 @@ export function isRecurringEligible(
   // (savings sweeps, card payments, account-to-account) even when the
   // classifier upgrades its type. The one exception is a payment to the user's
   // own linked LOAN account: that is still a must-pay obligation.
-  if (c.pairId && c.txnType !== "obligation_loan" && !(opts.includeCardPayments && c.txnType === "credit_card_payment")) return false;
+  if (
+    c.pairId &&
+    c.txnType !== "obligation_loan" &&
+    !(opts.includeCardPayments && c.txnType === "credit_card_payment") &&
+    !(opts.includeSavingsTransfers && c.txnType === "savings_contribution" && t.amount > 0)
+  ) return false;
   const out = t.amount > 0;
   if (out && !OUTFLOW_TYPES.has(c.txnType)) return false;
   if (!out && !INCOME_TYPES.has(c.txnType)) return false;

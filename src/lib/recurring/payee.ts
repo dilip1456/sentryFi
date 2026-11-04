@@ -8,8 +8,8 @@
  * (and its seriesKeys are persisted, so it can't change). The picture groups
  * by these keys instead, so one payee shows once.
  */
-import { merchantKey } from "@/lib/recurring";
-import { P2P_RE } from "@/lib/classify/patterns";
+import { merchantKey } from "./patterns";
+import { P2P_RE } from "../classify/patterns";
 
 /** Payroll processors that appear instead of the employer's name. */
 export const PAYROLL_PROCESSOR_RE =
