@@ -15,12 +15,20 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // SentryFi house styles (docs/ui-style.md): gold CTA, quiet outline, danger.
+        gold: "bg-gold rounded-[10px] font-semibold",
+        quiet: "rounded-[10px] border border-border-strong text-foreground font-semibold hover:bg-surface-hover/60",
+        danger: "rounded-[10px] border border-negative/40 text-negative-text font-semibold hover:bg-negative/10",
       },
       size: {
         default: "h-10 px-4 py-2",
         sm: "h-9 rounded-md px-3",
         lg: "h-11 rounded-md px-8",
         icon: "h-10 w-10",
+        // 44px on phones, 40px (touch) / 36px (compact) from md up.
+        touch: "min-h-11 md:min-h-10 px-4 text-[14px] md:text-[13.5px]",
+        compact: "min-h-11 md:min-h-9 px-3 text-[13.5px] md:text-[13px]",
+        "icon-touch": "h-11 w-11 md:h-10 md:w-10 rounded-full",
       },
     },
     defaultVariants: {

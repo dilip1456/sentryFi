@@ -501,7 +501,7 @@ main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 /* ── Reduce motion ──────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up, .animate-fade-in, .animate-count-in, .animate-pop-in,
-  .shield-glow-img, .shield-glow-wrap::before, .shield-glow-wrap::after {
+  .shield-glow-img, .shield-glow-wrap::before, .shield-glow-wrap::after, .skeleton {
     animation: none;
   }
 }
