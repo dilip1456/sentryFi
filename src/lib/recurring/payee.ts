@@ -52,11 +52,14 @@ function merchantKeyTokens(raw: string): string[] {
 }
 
 const P2P_APP_ONLY_RE = /^(venmo|zelle|cash\s?app|square\s+cash|paypal|apple\s+cash)$/i;
+/** merchant_name is only the P2P app (Plaid labels Apple Cash transfers merchant "Apple"). */
+const isAppOnlyMerchant = (m: string, name: string | null) =>
+  P2P_APP_ONLY_RE.test(m) || (/^apple$/i.test(m) && /\bapple\s+cash\b/i.test(name ?? ""));
 
 /** The text that names the payee: merchant_name unless it's just the P2P app or a payroll processor. */
 export function payeeText(t: { name: string | null; merchant_name: string | null }): string {
   const m = (t.merchant_name ?? "").trim();
-  if (m && !P2P_APP_ONLY_RE.test(m) && !PAYROLL_PROCESSOR_RE.test(m)) return m;
+  if (m && !isAppOnlyMerchant(m, t.name) && !PAYROLL_PROCESSOR_RE.test(m)) return m;
   return t.name ?? m ?? "";
 }
 
@@ -80,7 +83,7 @@ export function payeeBrand(t: { name: string | null; merchant_name: string | nul
 export function employerKey(t: { name: string | null; merchant_name: string | null }): string {
   const strip = (s: string) => s.replace(new RegExp(PAYROLL_PROCESSOR_RE.source, "gi"), " ");
   const m = (t.merchant_name ?? "").trim();
-  const useName = !m || PAYROLL_PROCESSOR_RE.test(m) || P2P_APP_ONLY_RE.test(m);
+  const useName = !m || PAYROLL_PROCESSOR_RE.test(m) || isAppOnlyMerchant(m, t.name);
   const tk = tokens(strip(useName ? t.name ?? "" : m));
   if (tk.length) return tk[0];
   // Only the processor is named (e.g. "ADP"): that's the best we have.

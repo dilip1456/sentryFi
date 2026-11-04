@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { Builder, everyNDays, monthly, semimonthly, picture } from "./fixtures/picture-scenarios";
+import { payeeKey } from "@/lib/recurring/payee";
 import { decisionFor, patternLabel, type RecurringDecision, type ReviewItem } from "@/lib/recurring";
 
 const base = () => new Builder()
@@ -237,5 +238,24 @@ describe("stored decisions (recurring_streams, source 'picture')", () => {
     expect(isPictureDecisionRow(row)).toBe(true);
     expect(isPictureDecisionRow({ series_key: "outflow|netflix", source: "detector" })).toBe(false);
     expect(rowToDecision({ series_key: "outflow|netflix", source: "detector", status: "confirmed" })).toBeNull();
+  });
+});
+
+describe("P2P payees", () => {
+  it("PayPal to an email, Zelle with a name in merchant_name, Apple Cash with merchant 'Apple' key by person", () => {
+    expect(payeeKey({ name: "PAYPAL INST XFER TO jane.doe@gmail.com", merchant_name: "PayPal" })).toBe("jane doe");
+    expect(payeeKey({ name: "Zelle payment to Maria Lopez", merchant_name: "Maria Lopez" })).toBe("maria lopez");
+    expect(payeeKey({ name: "APPLE CASH SENT MONEY TO JOHN SMITH", merchant_name: "Apple" })).toBe("john smith");
+    expect(payeeKey({ name: "APPLE CASH SENT MONEY TO ANN LEE", merchant_name: "Apple" })).toBe("ann lee");
+    // Apple's own billing is still Apple.
+    expect(payeeKey({ name: "APPLE.COM/BILL", merchant_name: "Apple" })).toBe("apple");
+  });
+  it("two monthly Apple Cash payments to different people stay two items", () => {
+    const b = base();
+    const p2p = { merchant_name: "Apple", pfc: "TRANSFER_OUT", pfcd: "TRANSFER_OUT_ACCOUNT_TRANSFER" };
+    b.series("chk", monthly("2026-01", 5, "after"), 400, "APPLE CASH SENT MONEY TO JOHN SMITH", p2p);
+    b.series("chk", monthly("2026-01", 12, "after"), 150, "APPLE CASH SENT MONEY TO ANN LEE", p2p);
+    const items = review(b).review.items;
+    expect(items.map(i => i.key).sort()).toEqual(["outflow|ann lee", "outflow|john smith"]);
   });
 });
