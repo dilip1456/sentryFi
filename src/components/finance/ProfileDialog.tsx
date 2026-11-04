@@ -73,6 +73,8 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
   const [confirmDisconnect, setConfirmDisconnect] = useState<PlaidItemRow | null>(null);
   const [confirmFullResync, setConfirmFullResync] = useState(false);
   const [fullResyncing, setFullResyncing] = useState(false);
+  const [confirmWipeReload, setConfirmWipeReload] = useState(false);
+  const [wipeReloading, setWipeReloading] = useState(false);
 
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -83,7 +85,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
 
   // "App" (update settings) only exists in the Android APK.
   const settingsTabs: ReadonlyArray<readonly [SettingsTab, string]> = [
-    ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"],
+    ["profile", "Profile"], ["banks", "Banks"], ["notifications", "Notifications"], ["data", "Data"],
     ...(isUpdateSupported() ? [["app", "App"] as const] : []),
   ];
 
@@ -213,6 +215,31 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
       toast.error("Full resync failed", { description: (e as Error).message });
     } finally {
       setFullResyncing(false);
+    }
+  };
+
+  // Deletes every transaction, category/name override, tag, note, smart rule
+  // and recurring dismissal, then re-pulls each linked bank's full history
+  // from Plaid with nothing left to reapply. Does not touch the bank
+  // connections themselves, or unrelated app preferences (budgets, goals,
+  // panel layout, custom categories). Irreversible.
+  const wipeAndReload = async () => {
+    setWipeReloading(true);
+    try {
+      const { data: wipeData, error: wipeError } = await supabase.functions.invoke("wipe-transactions-data", { body: {} });
+      if (wipeError || wipeData?.error) throw new Error(wipeData?.error ?? wipeError?.message ?? "Wipe failed");
+      const { data, error } = await supabase.functions.invoke("plaid-sync-transactions", {
+        body: { full_resync: true },
+      });
+      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Repull from Plaid failed");
+      const synced = data?.synced ?? 0;
+      toast.success(`Reloaded ${synced} transaction${synced !== 1 ? "s" : ""} from scratch`);
+      setConfirmWipeReload(false);
+      window.location.reload();
+    } catch (e) {
+      toast.error("Reload failed", { description: (e as Error).message });
+    } finally {
+      setWipeReloading(false);
     }
   };
 
@@ -387,35 +414,60 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 open={confirmDisconnect !== null}
                 onOpenChange={o => { if (!o) setConfirmDisconnect(null); }}
                 title={`Disconnect ${confirmDisconnect?.institution_name ?? "this bank"}?`}
-                description="SentryFi will revoke its access with the bank and stop syncing these accounts. You can link it again later."
+                description="Sentry Finance will revoke its access with the bank and stop syncing these accounts. You can link it again later."
                 confirmLabel="Disconnect"
                 busy={disconnectingId !== null}
                 onConfirm={() => { if (confirmDisconnect) return disconnectBank(confirmDisconnect); }} />
+            </div>
+          )}
 
-              {items !== null && items.length > 0 && (
-                <div className="mt-5">
-                  <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Full resync</div>
-                  <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
-                    <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
-                      Re-download all transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories and notes are kept.
-                    </div>
-                    <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing}
-                      aria-label="Full resync of all banks"
-                      className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
-                      <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
-                    </button>
+          {activeTab === "data" && (
+            <div className="p-5 space-y-5">
+              <div>
+                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Resync &mdash; keeps your data</div>
+                <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
+                  <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                    Re-download transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories, tags, notes and smart rules are kept exactly as they are.
                   </div>
+                  <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing || !items?.length}
+                    aria-label="Full resync of all banks"
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
+                    <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
+                  </button>
                 </div>
-              )}
+              </div>
               <ConfirmDialog
                 open={confirmFullResync}
                 onOpenChange={o => { if (!o && !fullResyncing) setConfirmFullResync(false); }}
                 title="Run a full resync?"
-                description="SentryFi will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
+                description="Sentry Finance will re-download your full transaction history from every connected bank. This can take a minute. Nothing is deleted."
                 confirmLabel="Full resync"
                 destructive={false}
                 busy={fullResyncing}
                 onConfirm={fullResync} />
+
+              <div>
+                <div className="text-[12.5px] uppercase tracking-wider text-negative/80 mb-2">Reset &mdash; deletes your data first</div>
+                <div className="flex items-center gap-2.5 surface-card px-3 py-2.5 border border-negative/20">
+                  <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
+                    Deletes every transaction, category override, tag, note, smart rule and recurring dismissal, then re-pulls your full history fresh from Plaid with none of that reapplied. Bank connections stay linked. Irreversible.
+                  </div>
+                  <button onClick={() => setConfirmWipeReload(true)} disabled={wipeReloading || !items?.length}
+                    aria-label="Delete and reload all transactions data"
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-negative hover:underline shrink-0 disabled:opacity-50">
+                    <Trash2 className={`h-3.5 w-3.5 ${wipeReloading ? "animate-pulse" : ""}`} /> Reload Txns Data
+                  </button>
+                </div>
+              </div>
+              <ConfirmDialog
+                open={confirmWipeReload}
+                onOpenChange={o => { if (!o && !wipeReloading) setConfirmWipeReload(false); }}
+                title="Delete all transactions and reload from Plaid?"
+                description="This permanently deletes every transaction, category override, tag, note, smart rule and recurring dismissal, then re-downloads your full history fresh from each connected bank with nothing re-applied. Your bank connections are not affected. This cannot be undone."
+                confirmLabel="Delete and reload"
+                destructive
+                busy={wipeReloading}
+                onConfirm={wipeAndReload} />
             </div>
           )}
         </div>

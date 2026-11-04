@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1210,
-  "sha256": "7ba42aef3dab5af97fffa1823805decec5c6d650ad7114ce443a44db00271a6d",
-  "size": 7175737,
-  "releaseNotes": "fix: popup close-X overlaps, Money Map Tag crash, header menu & filters close",
+  "versionCode": 1221,
+  "sha256": "37fe09a887eead3e78c1d39fa490e14fe10a55de8ef6516a0345f0756dee0105",
+  "size": 7163529,
+  "releaseNotes": "chore(deps): bump @tanstack/react-query from 5.83.0 to 5.104.3",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-29T05:32:57.140Z"
+  "publishedAt": "2026-11-03T23:08:29.874Z"
 }

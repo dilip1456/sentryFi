@@ -168,6 +168,15 @@ const OBLIGATION_BILL_RE = /\brent\b|insurance|bills? ?& ?utilities|bill payment
 const SAVINGS_CATEGORY_RE = /invest|saving|retirement|brokerage|\b401k\b|\bira\b|\bhsa\b/i;
 export const BONUS_RE = /\bbonus\b/i;
 const P2P_RE = /\bzelle\b|\bvenmo\b|\bcash ?app\b|\bpaypal\b/i;
+const P2P_APP_NAME_RE = /^(zelle|venmo|cash\s?app|square\s+cash|paypal|apple\s+cash)$/i;
+
+/** For recurring P2P inflows, require the same identifiable sender each time. */
+function p2pCounterparty(t: PTxn): string | null {
+  const merchant = (t.merchant_name ?? "").trim();
+  if (merchant && !P2P_APP_NAME_RE.test(merchant)) return merchant.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const match = (t.name ?? "").match(/\bfrom\s+(.+?)(?:\s+(?:conf(?:irmation)?|ref|trace|id)\b.*)?$/i);
+  return match?.[1]?.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim() || null;
+}
 
 export type Bucket = "income" | "obligation_loan" | "obligation_tax" | "obligation_bill" | "credit_card_payment" | "expense" | "savings" | "p2p_out" | null;
 
@@ -325,7 +334,9 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
 
   // ── Income ──
   const since365 = daysAgo(today, 365), since90 = daysAgo(today, 90);
-  const salarySeries = series.filter(s => s.kind === "salary" && s.active && !BONUS_RE.test(s.displayName)).sort((a, b) => b.amount.median * PER_YEAR[b.cadence] - a.amount.median * PER_YEAR[a.cadence]);
+  // Only project pay when the recurring detector found a real, active cadence.
+  // A single recent deposit is not enough evidence to turn it into monthly income.
+  const salarySeries = series.filter(s => s.kind === "salary" && s.direction === "inflow" && s.active && s.occurrenceCount >= 2 && s.confidence >= 0.7 && !BONUS_RE.test(s.displayName)).sort((a, b) => b.amount.median * PER_YEAR[b.cadence] - a.amount.median * PER_YEAR[a.cadence]);
   const salaryTxns: PTxn[] = [], bonusTxns: PTxn[] = [], otherTxns: PTxn[] = [];
   for (const t of posted) {
     if (t.date < since365) continue;
@@ -333,7 +344,6 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
     if (!c || bucketOf.get(t.id) !== "income" || num(t.amount) >= 0) continue;
     const desc = `${t.merchant_name ?? ""} ${t.name ?? ""}`;
     if (c.type === "income_salary") (BONUS_RE.test(desc) ? bonusTxns : salaryTxns).push(t);
-    else if (t.date >= since90) otherTxns.push(t);
   }
   const newestFirst = (a: PTxn, b: PTxn) => b.date.localeCompare(a.date);
   salaryTxns.sort(newestFirst); bonusTxns.sort(newestFirst); otherTxns.sort(newestFirst);
@@ -341,12 +351,41 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   if (salarySeries.length) {
     for (const s of salarySeries) salaryMonthly += (s.amount.median * PER_YEAR[s.cadence]) / 12;
     payCadence = salarySeries[0].cadence; perPaycheck = salarySeries[0].amount.median;
-  } else {
-    const recent = salaryTxns.filter(t => t.date >= since90);
-    salaryMonthly = recent.reduce((s, t) => s - num(t.amount), 0) / 3;
   }
   const bonusMonthly = bonusTxns.reduce((s, t) => s - num(t.amount), 0) / 12;
-  const otherMonthly = otherTxns.reduce((s, t) => s - num(t.amount), 0) / 3;
+
+  // Recurring, non-payroll inflows are income too (for example pension, side
+  // work, or a regular contribution from another person). Keep them out of the
+  // monthly projection until the detector has enough evidence for an active
+  // pattern. Never count known account transfers, investment withdrawals, or
+  // borrowed funds as new income.
+  const INTERNAL_INFLOW_SUBTYPES = new Set(["account_transfer", "from_savings", "from_investments", "loan_proceeds"]);
+  const INTERNAL_INFLOW_RE = /\b(internal|account)\s+(transfer|xfer)\b|\bonline\s+(transfer|xfer)\b|\btransfer\s+between\s+accounts\b|\bfrom\s+(checking|chk|savings|sav|brokerage|investment)\b|\b(cash\s+advance|loan\s+proceeds)\b/i;
+  const recurringIncomeSeries = series.filter(s => {
+    if (s.direction !== "inflow" || !s.active || s.occurrenceCount < 2 || s.confidence < 0.7) return false;
+    if (s.txnType === "income_salary") return false; // already counted above
+    if (s.kind !== "income" && s.kind !== "interest") return false;
+    if (s.txnType !== "transfer_in") return s.txnType === "income_other" || s.txnType === "income_interest";
+    if (s.subtype && INTERNAL_INFLOW_SUBTYPES.has(s.subtype)) return false;
+    // P2P deposits from someone else can be genuine recurring income. Require
+    // a stable sender so unrelated Zelle/Venmo payments cannot form a pattern.
+    if (s.subtype === "p2p") {
+      const senders = s.transactionIds.map(id => {
+        const t = byId.get(id);
+        return t ? p2pCounterparty(t) : null;
+      });
+      return senders.length >= 2 && senders.every(Boolean) && new Set(senders).size === 1;
+    }
+    return !INTERNAL_INFLOW_RE.test(s.displayName);
+  });
+  const recurringIncomeTxnIds = new Set(recurringIncomeSeries.flatMap(s => s.transactionIds));
+  for (const id of recurringIncomeTxnIds) {
+    const t = byId.get(id);
+    if (t && t.date >= since365) otherTxns.push(t);
+  }
+  otherTxns.sort(newestFirst);
+  const otherDetectedMonthly = recurringIncomeSeries.reduce((sum, s) => sum + (s.amount.median * PER_YEAR[s.cadence]) / 12, 0);
+  const otherMonthly = otherDetectedMonthly;
   const perMonth = payCadence ? PER_YEAR[payCadence] / 12 : 0;
   const employer = salarySeries[0]?.displayName ?? (salaryTxns[0] ? displayName(salaryTxns[0].merchant_name || salaryTxns[0].name) : null);
   const primaryDeposit = majorityAccount(salaryTxns.slice(0, 12), 0.5);
@@ -355,7 +394,7 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const income: PictureRow[] = [];
   const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence] : null;
   income.push({
-    group: "income", id: "salary", label: "Salary", sub: payWord ? `Take-home · ${payWord}` : "Take-home pay",
+    group: "income", id: "salary", label: "Salary", sub: payWord ? `Take-home · ${payWord}` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
     coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryTxns.slice(0, 6),
   });
@@ -370,9 +409,9 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   }
   if (otherMonthly > 0 || "income.other" in overrides) {
     income.push({
-      group: "income", id: "other", label: "Other income", sub: "Interest, refunds and money received, last 3 months averaged",
+      group: "income", id: "other", label: "Other recurring income", sub: recurringIncomeSeries.length ? `${recurringIncomeSeries.length} recurring deposit pattern${recurringIncomeSeries.length === 1 ? "" : "s"} · one-time deposits excluded` : "User adjustment",
       monthly: eff("income.other", otherMonthly), detected: otherMonthly, overrideKey: "income.other", edited: "income.other" in overrides,
-      coverId: null, coverSource: "none", txns: otherTxns.slice(0, 6),
+      coverId: majorityAccount(otherTxns, 0.5), coverSource: otherTxns.length ? "detected" : "none", txns: otherTxns.slice(0, 6),
     });
   }
   for (const m of inp.manualIncome ?? []) {

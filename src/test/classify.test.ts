@@ -19,7 +19,7 @@ const accounts: ClassifierAccount[] = [
   { account_id: "rh", item_id: "rh", type: "investment", subtype: "brokerage", mask: "5555", name: "Robinhood individual" },
 ];
 const ctx = (extra: Partial<ClassifierContext> = {}): ClassifierContext => ({
-  accounts, selfNames: ["Dilip Naik"], plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name), ...extra,
+  accounts, selfNames: ["John Doe"], plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name), ...extra,
 });
 const typeOf = (txns: ClassifierTxn[], id: string, c = ctx()) => classifyAll(txns, c).get(id)!.type;
 
@@ -97,12 +97,12 @@ describe("internal transfer matcher", () => {
 
 describe("self-payee, brokerage and savings", () => {
   it("Zelle to the user is an internal transfer, even when memo says Salary", () => {
-    const t = tx({ amount: 3074.13, name: 'Zelle Recurring payment to DILIP NAIK for "Salary"; Conf# bqyboj6hx', category: ["Salary"] });
+    const t = tx({ amount: 3074.13, name: 'Zelle Recurring payment to JOHN DOE for "Salary"; Conf# bqyboj6hx', category: ["Salary"] });
     expect(classifyOne(t, ctx()).type).toBe("transfer_internal");
   });
 
   it("payroll carrying the user's name is still salary", () => {
-    const t = tx({ amount: -3036.07, name: "Cgi Technologies Des:Payroll Id Indn:Naik,Dilip Co Id Ppd" });
+    const t = tx({ amount: -3036.07, name: "Acme Corp Des:Payroll Id Indn:Doe,John Co Id Ppd" });
     expect(classifyOne(t, ctx()).type).toBe("income_salary");
   });
 
@@ -305,8 +305,8 @@ describe("P2P with other people is a transfer, not spending or income", () => {
   });
 
   it("P2P to or from the user's own name stays internal", () => {
-    expect(classifyOne(tx({ amount: 3074.13, name: "Zelle payment to DILIP NAIK" }), spendCtx).type).toBe("transfer_internal");
-    expect(classifyOne(tx({ amount: -250, name: "Zelle payment from DILIP NAIK" }), spendCtx).type).toBe("transfer_internal");
+    expect(classifyOne(tx({ amount: 3074.13, name: "Zelle payment to JOHN DOE" }), spendCtx).type).toBe("transfer_internal");
+    expect(classifyOne(tx({ amount: -250, name: "Zelle payment from JOHN DOE" }), spendCtx).type).toBe("transfer_internal");
   });
 
   it("a Zelle between two of the user's linked accounts is transfer_internal", () => {
@@ -373,7 +373,7 @@ describe("P2P precision: merchant purchases through P2P apps stay spending", () 
   });
 
   it("payments to your own name and between linked accounts stay internal", () => {
-    expect(classifyOne(tx({ amount: 500, name: "Zelle payment to DILIP NAIK", pfc_primary: "TRANSFER_OUT", pfc_detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), c).type).toBe("transfer_internal");
+    expect(classifyOne(tx({ amount: 500, name: "Zelle payment to JOHN DOE", pfc_primary: "TRANSFER_OUT", pfc_detailed: "TRANSFER_OUT_ACCOUNT_TRANSFER", pfc_confidence: "HIGH" }), c).type).toBe("transfer_internal");
     const out = tx({ id: "vo", account_id: "chk", amount: 250, name: "VENMO CASHOUT TO SAVINGS" });
     const inn = tx({ id: "vi", account_id: "sav", amount: -250, name: "VENMO TRANSFER FROM CHK" });
     const m = classifyAll([out, inn], ctx({ accounts: accounts.map(a => a.account_id === "sav" ? { ...a, subtype: "checking" } : a) }));
