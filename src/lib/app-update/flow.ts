@@ -70,14 +70,14 @@ export const progressPct = (p: DownloadProgressEvent | null): number | null =>
   p && p.total > 0 ? Math.max(0, Math.min(100, Math.round((p.bytes / p.total) * 100))) : null;
 
 const SIGNATURE_MSG =
-  "This update is signed with a different key than the SentryFi app on your phone, so Android won't install it over it. " +
-  "Your current app is unchanged. To switch, uninstall SentryFi and install the latest app from sentryfiapp.vercel.app, then sign in again.";
+  "This update is signed with a different key than the Sentry Finance app on your phone, so Android won't install it over it. " +
+  "Your current app is unchanged. To switch, uninstall Sentry Finance and install the latest app from sentryfiapp.vercel.app, then sign in again.";
 
 /** User-facing text for an error code from the flow or from ApkUpdaterPlugin. */
 export const updateErrorMessage = (code: string | undefined): string => {
   switch (code) {
     case "INSTALL_PERMISSION_REQUIRED":
-      return "Allow SentryFi to install apps (Settings → Install unknown apps), then tap Update now again.";
+      return "Allow Sentry Finance to install apps (Settings → Install unknown apps), then tap Update now again.";
     case "SHA256_MISMATCH":
     case "SIZE_MISMATCH":
       return "The download didn't match the published update, so it was deleted and not installed. Try again in a few minutes.";
@@ -87,7 +87,7 @@ export const updateErrorMessage = (code: string | undefined): string => {
     case "PACKAGE_MISMATCH":
     case "INVALID_APK":
     case "INVALID":
-      return "The downloaded file isn't a valid SentryFi update, so it was not installed.";
+      return "The downloaded file isn't a valid Sentry Finance update, so it was not installed.";
     case "NOT_NEWER":
       return "The downloaded build isn't newer than the one you have.";
     case "INCOMPATIBLE":

@@ -22,7 +22,7 @@ const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   {
     icon: Sparkles,
     title: "Smart Suggestions",
-    desc: "Overspent on travel this month? SentryFi finds your Travel savings account and suggests moving the exact amount over to cover it.",
+    desc: "Overspent on travel this month? Sentry Finance finds your Travel savings account and suggests moving the exact amount over to cover it.",
   },
   {
     icon: CalendarClock,
@@ -47,13 +47,13 @@ const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   {
     icon: Landmark,
     title: "Real Bank Data via Plaid",
-    desc: "Connect any US bank, credit card, loan, or investment account securely. Read-only access. SentryFi can never move or touch your money.",
+    desc: "Connect any US bank, credit card, loan, or investment account securely. Read-only access. Sentry Finance can never move or touch your money.",
   },
 ];
 
 const HOW = [
   { step: "01", title: "Connect your accounts", body: "Link your banks, cards, and investments in under 2 minutes through Plaid's secure flow. Read-only: we can see, never touch." },
-  { step: "02", title: "Tag your accounts", body: "Tell SentryFi what each account is for: Spending, Emergency Buffer, Reserve, or Investment. Takes 30 seconds." },
+  { step: "02", title: "Tag your accounts", body: "Tell Sentry Finance what each account is for: Spending, Emergency Buffer, Reserve, or Investment. Takes 30 seconds." },
   { step: "03", title: "Know your real number", body: "Your True Available balance is calculated instantly and updated every time you sync." },
 ];
 
@@ -81,9 +81,9 @@ export default function Welcome() {
       <nav className="sticky top-0 z-50 border-b border-border bg-[hsl(var(--background)/0.92)] [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)]">
         <div className="max-w-[1100px] mx-auto px-5 h-[60px] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="SentryFi" className="h-9 w-9 rounded-lg" />
+            <img src="/logo.png" alt="Sentry Finance" className="h-9 w-9 rounded-lg" />
             <div>
-              <div className="font-bold text-[15px] tracking-[-0.01em]">SentryFi</div>
+              <div className="font-bold text-[15px] tracking-[-0.01em]">Sentry Finance</div>
               <div className="text-[10px] text-muted-foreground -mt-0.5">Personal finance intelligence</div>
             </div>
           </div>
@@ -102,7 +102,7 @@ export default function Welcome() {
       <section className="max-w-[780px] mx-auto px-6 pt-20 pb-16 text-center">
         {/* Shield with glow */}
         <div className="shield-glow-wrap h-24 w-24 mx-auto mb-8">
-          <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-20 w-20 rounded-[18px]" />
+          <img src="/logo.png" alt="Sentry Finance" className="shield-glow-img h-20 w-20 rounded-[18px]" />
         </div>
 
         <div className="inline-block text-[11px] font-semibold tracking-[0.12em] text-primary uppercase mb-[18px] px-3 py-1 border border-[hsl(var(--primary)/0.35)] rounded-full">
@@ -115,7 +115,7 @@ export default function Welcome() {
         </h1>
 
         <p className="text-[clamp(15px,2.2vw,18px)] text-muted-foreground leading-[1.65] max-w-[560px] mx-auto mb-9">
-          Your bank shows you a balance. SentryFi shows you what that balance{" "}
+          Your bank shows you a balance. Sentry Finance shows you what that balance{" "}
           <em>actually means</em>: after your emergency fund, reserved savings, and upcoming expenses are accounted for.
         </p>
 
@@ -148,7 +148,7 @@ export default function Welcome() {
           </div>
           <div className="flex items-center justify-center text-[32px] text-[hsl(var(--muted-foreground)/0.7)]">→</div>
           <div>
-            <div className="text-[11px] text-primary font-semibold tracking-[0.1em] uppercase mb-3.5">What SentryFi shows you</div>
+            <div className="text-[11px] text-primary font-semibold tracking-[0.1em] uppercase mb-3.5">What Sentry Finance shows you</div>
             <div className="text-[38px] font-extrabold text-primary tracking-[-0.02em] mb-2.5">$1,980</div>
             <p className="text-sm text-muted-foreground leading-[1.6]">
               Your True Available balance: what's actually in your Spending accounts, with buffers and reserves excluded on purpose. This is what you can actually use.
@@ -204,7 +204,7 @@ export default function Welcome() {
         <div className="text-4xl mb-5">🔒</div>
         <h2 className="text-[clamp(24px,3.5vw,36px)] font-extrabold tracking-[-0.025em] mb-4">Your data stays yours</h2>
         <p className="text-[15px] text-muted-foreground leading-[1.7] mb-9">
-          Bank connections are powered by Plaid, the same infrastructure used by Venmo, Robinhood, and thousands of financial apps. Access is strictly read-only: SentryFi can see your transactions and balances but cannot initiate transfers, payments, or any account changes. Your credentials never touch our servers.
+          Bank connections are powered by Plaid, the same infrastructure used by Venmo, Robinhood, and thousands of financial apps. Access is strictly read-only: Sentry Finance can see your transactions and balances but cannot initiate transfers, payments, or any account changes. Your credentials never touch our servers.
         </p>
         <div className="flex justify-center gap-7 flex-wrap">
           {["Read-only access", "Encrypted in transit", "No credential storage", "Powered by Plaid"].map(t => (
@@ -219,7 +219,7 @@ export default function Welcome() {
       <section className="bg-gradient-to-br from-[hsl(var(--surface-elevated))] to-background border-t border-[hsl(var(--primary)/0.2)]">
         <div className="max-w-[700px] mx-auto px-6 py-[72px] text-center">
           <div className="shield-glow-wrap h-[72px] w-[72px] mx-auto mb-7">
-            <img src="/logo.png" alt="SentryFi" className="shield-glow-img h-[60px] w-[60px] rounded-[14px]" />
+            <img src="/logo.png" alt="Sentry Finance" className="shield-glow-img h-[60px] w-[60px] rounded-[14px]" />
           </div>
           <h2 className="text-[clamp(26px,4vw,42px)] font-extrabold tracking-[-0.025em] mb-4">
             Start knowing your real number.
@@ -248,7 +248,7 @@ export default function Welcome() {
       {/* ── Footer ── */}
       <footer className="border-t border-border px-6 py-7">
         <div className="max-w-[1100px] mx-auto flex items-center justify-between flex-wrap gap-3">
-          <div className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)]">© 2026 SentryFi · v{APP_VERSION}</div>
+          <div className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)]">© 2026 Sentry Finance · v{APP_VERSION}</div>
           <div className="flex gap-5">
             <Link to="/auth" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Sign in</Link>
             <Link to="/pricing" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Pricing</Link>

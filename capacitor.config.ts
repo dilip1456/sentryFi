@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.sentryfi.app',
-  appName: 'SentryFi',
+  appName: 'Sentry Finance',
   webDir: 'dist',
   android: {
     // Everything the app loads is HTTPS; never let the WebView mix in http://.

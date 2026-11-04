@@ -15,7 +15,7 @@ export const EmptyDashboard = ({ onLink, onAddManual }: Props) => {
         </div>
 
         <h1 className="mt-4 font-display text-2xl sm:text-3xl text-foreground">
-          Welcome to <span className="text-gold">SentryFi</span>
+          Welcome to <span className="text-gold">Sentry Finance</span>
         </h1>
         <p className="mt-2 text-[14px] sm:text-[15px] text-muted-foreground">
           Your accounts, cards, and investments in one place.

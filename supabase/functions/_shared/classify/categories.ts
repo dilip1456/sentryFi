@@ -119,6 +119,8 @@ export const KNOWN_SPEND = new Set([
   "entertainment", "healthcare", "education", "personal care", "financial services",
   "bank fees", "business", "charitable giving", "refund / reimbursement",
   "subscriptions", "auto & transport", "gambling", "cash & atm",
+  // Split out of the generic "transportation" bucket - see pfc.ts TRANSPORTATION_* mappings.
+  "gas", "parking", "public transit", "rideshare & taxi", "tolls & fees",
 ]);
 
 /** Display category to show for a type when the stored category disagrees. */
