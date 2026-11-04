@@ -5111,7 +5111,7 @@ export const LivePlaidDashboard = ({
             <div className="flex items-center gap-0.5 mt-2.5 flex-wrap">
               {PERIODS.map(p=>(
                 <button key={p} onClick={()=>setPeriod(p)}
-                  className={cn("px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
+                  className={cn("tap-44 px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
                     period===p?"bg-gold text-foreground":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
                   {p}
                 </button>
@@ -5263,7 +5263,7 @@ export const LivePlaidDashboard = ({
             const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <h3 className="text-[14px] font-semibold text-foreground flex-1">Action items</h3>
@@ -5305,7 +5305,7 @@ export const LivePlaidDashboard = ({
             const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <h3 className="text-[14px] font-semibold text-foreground flex-1">Saving opportunities</h3>
@@ -5316,7 +5316,7 @@ export const LivePlaidDashboard = ({
                   )}
                   <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
                     title="Refresh AI suggestions" aria-label="Refresh AI suggestions"
-                    className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
+                    className="tap-44 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", insightsLoading && "animate-spin")} />
                   </button>
                 </div>
@@ -5377,7 +5377,7 @@ export const LivePlaidDashboard = ({
                 {/* select-none: dragging the grip used to leave the header text
                     (e.g. the "$9.35" total) with a blue selection highlight. */}
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2 select-none">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
@@ -5396,7 +5396,7 @@ export const LivePlaidDashboard = ({
                   </div>
                   <button onClick={refreshTxns} disabled={refreshingTxns}
                     aria-label={refreshingTxns ? "Refreshing transactions" : "Refresh transactions"}
-                    className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
+                    className="tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", refreshingTxns && "animate-spin")} />
                   </button>
                 </div>
@@ -5460,7 +5460,7 @@ export const LivePlaidDashboard = ({
                           </div>
                           <div className="relative shrink-0">
                             <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
-                              className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
+                              className={cn("tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
                                 recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}>
                               <X className="h-3.5 w-3.5" />
                             </button>

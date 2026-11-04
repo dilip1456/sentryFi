@@ -424,7 +424,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Sync */}
             {!effectiveDemo && hasItems === true && (
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
             </button>
             )}
@@ -432,7 +432,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={headerMenuOpen}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Settings className="h-3.5 w-3.5" />
               </button>
               {headerMenuOpen && createPortal(
@@ -544,7 +544,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               Create account
             </button>
             <button onClick={() => { setDemo(false); navigate("/welcome"); }}
-              className="text-[12.5px] text-muted-foreground shrink-0 underline underline-offset-2">
+              className="tap-44 text-[12.5px] text-muted-foreground shrink-0 underline underline-offset-2">
               Exit
             </button>
           </div>
