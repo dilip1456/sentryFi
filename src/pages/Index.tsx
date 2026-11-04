@@ -19,6 +19,7 @@ import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
+import { PageHeader } from "@/components/ui/headers";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
@@ -640,21 +641,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Page header on desktop — Spending/My Financial Picture skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
                 covers it and the space is better spent on content. */}
-            <div className="hidden md:flex items-center justify-between">
-              {(
-                <div>
-                  <h1 className="font-display text-2xl text-foreground">
-                    {view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Dashboard") : (TABS.find(t => t.k === view)?.label ?? "Dashboard")}
-                  </h1>
-                  <p className="text-[13px] text-muted-foreground mt-0.5">
-                    {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                  </p>
-                </div>
-              )}
-
-              {/* Top button bar */}
-              {topButtons}
-            </div>
+            {/* Shared PageHeader (docs/ui-style.md). "Home" matches the nav label
+                (was "Dashboard", a name used nowhere else). */}
+            <PageHeader className="hidden md:flex"
+              title={view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Home") : (TABS.find(t => t.k === view)?.label ?? "Home")}
+              subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              actions={topButtons}
+            />
 
             {/* Loading state */}
             {!effectiveDemo && hasItems === null && (
