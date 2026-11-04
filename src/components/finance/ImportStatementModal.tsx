@@ -22,6 +22,7 @@ import { Upload, FileText, X, AlertTriangle, Loader2, Trash2, Sparkles } from "l
 import { extractPdfLines, parseStatement, parseStatementWithAI, buildImportTransactionId, type ParsedStatementTxn } from "@/lib/statement-import";
 import { IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { fmtShortDate } from "@/lib/format-date";
+import { NativeSelect } from "@/components/ui/native-select";
 
 const IMPORT_TAG = "Imported";
 
@@ -369,16 +370,14 @@ export function ImportStatementModal({ open, onClose, accounts, userId, onAddTag
                             </span>
                           )}
                           <span className="text-[10.5px] text-muted-foreground/70 shrink-0 ml-auto">{groupRows.length} txns</span>
-                          <select value={g.accountId} onChange={e => setGroupAccount(g.groupId, e.target.value)}
-                            className={cn("h-7 max-w-[190px] rounded-lg border text-[11px] text-foreground px-1.5 outline-none shrink-0",
-                              !g.accountId ? "border-warning/50 bg-warning/10" : "border-border/60 bg-muted/40")}>
+                          <NativeSelect wrapperClassName="max-w-[190px] shrink-0" size="sm" aria-label="Which account?" className={cn(!g.accountId && "border-warning/50 bg-warning/10")} value={g.accountId} onChange={e => setGroupAccount(g.groupId, e.target.value)}>
                             <option value="">Which account?</option>
                             {accounts.map(a => (
                               <option key={a.account_id} value={a.account_id}>
                                 {a.name ?? a.official_name ?? "Account"}{a.mask ? ` ••${a.mask}` : ""}
                               </option>
                             ))}
-                          </select>
+                          </NativeSelect>
                           <button onClick={() => removeGroup(g.groupId)} aria-label={`Remove ${g.label}`}
                             className="h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-negative shrink-0"><X className="h-3 w-3"/></button>
                         </div>
