@@ -110,7 +110,7 @@ export function RecurringList() {
       <div className="h4 flex items-center justify-between"><span>Dismissed <span className="rcv-n">{dismissed.length}</span></span>
         {dismissed.length > 0 && <button type="button" className="sec-more !ml-0" onClick={() => setShowDismissed(v => !v)} aria-expanded={showDismissed}>{showDismissed ? "Hide" : "Show"}</button>}</div>
       {!dismissed.length && <p className="mini">Items you mark “Not recurring” go here, so you can restore them.</p>}
-      {showDismissed && <div className="rows">{dismissed.map(it => (
+      {showDismissed && <div className="rows mb-24">{dismissed.map(it => (
         <div className="rcv-row dismissed" key={it.key} data-testid="rcv-dismissed">
           <span className="rcv-main static"><span className="rcv-lbl"><b>{it.label}</b><small>{it.pattern || CADENCE_LABEL[it.cadence]} · {money(it.amount)}</small></span></span>
           <div className="rcv-acts"><button type="button" className="btn" onClick={() => a.restore(it)}><RotateCcw className="h-4 w-4" aria-hidden="true" />Restore</button></div>
