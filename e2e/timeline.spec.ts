@@ -217,7 +217,7 @@ test.describe("Timeline · phone 390x844", () => {
 
   async function openFromMore(page: Page) {
     await page.getByRole("button", { name: "More", exact: true }).click();
-    const item = page.getByRole("button", { name: "Timeline", exact: true }).last();
+    const item = page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true });
     await expect(item).toBeVisible(); // M1
     await item.click();
     await expect(panel(page)).toBeVisible();
@@ -259,7 +259,7 @@ test.describe("Timeline · phone 390x844", () => {
     await expect(page.locator("nav").getByRole("button", { name: "Picture", exact: true })).toBeVisible();
     await open();
     expect(await menu.evaluate(el => el.parentElement === document.body)).toBe(true);
-    expect(await menu.locator(":scope > button").allInnerTexts()).toEqual(["Timeline", "Gift Cards", "Benefits"]);
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(["Timeline", "Gift Cards", "Benefits"]);
     const bd = (await page.getByTestId("more-backdrop").boundingBox())!;
     expect([bd.x, bd.y, bd.width, bd.height]).toEqual([0, 0, 390, 844]);
     await page.mouse.click(195, 300); // M22 backdrop, top half
@@ -284,7 +284,7 @@ test.describe("Timeline · phone 390x844", () => {
     await closed("x");
     // M27 menu item still opens the Timeline (reusing the menu's history entry); Back closes only the Timeline
     await open();
-    await menu.getByRole("button", { name: "Timeline", exact: true }).click();
+    await menu.getByRole("menuitem", { name: "Timeline", exact: true }).click();
     await expect(panel(page)).toBeVisible();
     await expect(menu).toBeHidden();
     await expect.poll(layer).toBe(1);
