@@ -495,3 +495,5 @@
 
 /* Radix modals set pointer-events:none on <body>; keep toasts (Undo) clickable over an open layer. */
 [data-sonner-toast] { pointer-events:auto; }
+/* Detected recurring: "Review" / "Show" are primary taps on phones (44px). */
+@media (max-width:767px){ .fp .rcv-card .sec-more, .fp .rcv-list .sec-more, .fp [data-testid="rcv-list"] .sec-more { min-height:44px; } }
