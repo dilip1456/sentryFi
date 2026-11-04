@@ -174,7 +174,7 @@ export function buildUpcoming(input: UpcomingInput): TimelineEvent[] {
         subtitle: [s.category, accountLabel(accounts, s.account_id)].filter(Boolean).join(" · ") || null,
         amount: amt == null ? null : (outflow ? -1 : 1) * Math.abs(amt), estimated, txnType: s.txn_type as TxnType,
         account_id: s.account_id, status, covered_by: covered, repeats: repeatsLabel(s), source_id: s.id ?? s.series_key,
-        stream_id: s.id ?? null, meta: { kind: s.kind, series_key: s.series_key, stream_status: s.status },
+        stream_id: s.id ?? null, meta: { kind: s.kind, series_key: s.series_key, stream_status: s.status, counterpart_account_id: s.counterpart_account_id ?? null, nominal_date: d },
       }));
     }
   }
