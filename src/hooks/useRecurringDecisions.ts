@@ -12,7 +12,8 @@ import { decisionToRow, rowToDecision, PICTURE_KEY_PREFIX, PICTURE_SOURCE, type 
 
 type Res = PromiseLike<{ data: unknown; error: { message: string } | null }>;
 // recurring_streams' review columns are newer than the generated types.
-const db = supabase as unknown as { from: (t: string) => any };
+type Query = Res & { select: (c: string) => Query; eq: (c: string, v: unknown) => Query; delete: () => Query; upsert: (row: Record<string, unknown>, o: { onConflict: string }) => Query };
+const db = supabase as unknown as { from: (t: string) => Query };
 
 export function useRecurringDecisions(userId: string | null | undefined, demo: boolean) {
   const [decisions, setDecisions] = useState<RecurringDecision[]>([]);
