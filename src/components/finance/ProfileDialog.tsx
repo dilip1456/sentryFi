@@ -1,4 +1,7 @@
 import { useEffect, useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Eyebrow, OverlayHeader } from "@/components/ui/headers";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +30,9 @@ type PlaidItemRow = { id: string; institution_id: string | null; institution_nam
 
 
 // Live US phone formatting as the user types: 5551234567 -> (555) 123-4567
+/** Settings text field: 44px on phones, 40px desktop, 10px radius (docs/ui-style.md). */
+const fieldClass = "mt-1 w-full min-h-11 md:min-h-10 bg-surface/40 border border-border-strong rounded-[10px] px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40";
+
 const formatPhone = (raw: string): string => {
   const d = raw.replace(/\D/g, "").slice(0, 10);
   if (d.length === 0) return "";
@@ -262,19 +268,23 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
     <Dialog open={open && !ext.plaidActive} onOpenChange={onOpenChange}>
       {/* Fixed height so switching tabs doesn't make the modal jump. */}
       <DialogContent showClose={false} className="max-w-md surface-elevated p-0 gap-0 overflow-hidden h-[min(640px,85vh)] flex flex-col">
-        <DialogTitle className="sr-only">Profile</DialogTitle>
-        <DialogDescription className="sr-only">Edit your profile, manage connected banks, or delete your account.</DialogDescription>
-        <div className="relative p-5 border-b border-border/40 shrink-0">
-          <DialogClose aria-label="Close" title="Close settings"
-            className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <X className="h-4 w-4" />
-          </DialogClose>
-          <div className="font-display text-base text-foreground pr-10">Settings</div>
-          <div className="text-[13px] text-muted-foreground mt-0.5">{user?.email}</div>
-          <div className="flex mt-3 p-0.5 rounded-full border border-border bg-surface/40 text-[13px] w-fit">
+        <DialogDescription className="sr-only">Edit your profile, manage connected banks, notifications and data, or delete your account.</DialogDescription>
+        <div className="shrink-0 border-b border-border">
+          <OverlayHeader divider={false} className="pb-1" title="Settings" titleAs={DialogTitle}
+            description={user?.email ? <span className="block truncate">{user.email}</span> : undefined}
+            trailing={
+              <DialogClose aria-label="Close" title="Close settings"
+                className="h-11 w-11 shrink-0 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <X className="h-4 w-4" aria-hidden="true" />
+              </DialogClose>
+            } />
+          {/* Tabs: 44px on phones; scrolls sideways instead of overflowing at 360px. */}
+          <div role="group" aria-label="Settings sections" data-testid="settings-tabs"
+            className="flex gap-1 overflow-x-auto scrollbar-none px-4 md:px-5 pb-3 pt-1">
             {settingsTabs.map(([tab, label]) => (
               <button key={tab} type="button" aria-pressed={activeTab === tab} onClick={() => setActiveTab(tab)}
-                className={`${settingsTabs.length > 3 ? "px-3" : "px-4"} py-1 rounded-full transition ${activeTab === tab ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}>
+                className={cn("shrink-0 min-h-11 md:min-h-9 rounded-full px-3.5 text-[13.5px] md:text-[13px] whitespace-nowrap transition-colors border",
+                  activeTab === tab ? "bg-foreground text-background font-semibold border-foreground" : "text-muted-foreground border-border hover:bg-surface-hover hover:text-foreground")}>
                 {label}
               </button>
             ))}
@@ -303,13 +313,13 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
               </button>
               <div className="min-w-0">
                 <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                  className="text-[13.5px] font-medium text-[hsl(var(--primary))] hover:underline disabled:opacity-50">
+                  className="min-h-11 md:min-h-0 text-[13.5px] font-medium text-[hsl(var(--primary))] hover:underline disabled:opacity-50">
                   {uploading ? "Uploading…" : avatarUrl ? "Change photo" : "Upload photo"}
                 </button>
                 <div className="text-[12.5px] text-muted-foreground mt-0.5">JPG or PNG, up to 5 MB</div>
                 {avatarUrl && (
                   <button type="button" onClick={() => setAvatarUrl("")}
-                    className="text-[12.5px] text-muted-foreground hover:text-negative mt-0.5">Remove</button>
+                    className="min-h-11 md:min-h-0 text-[12.5px] text-muted-foreground hover:text-negative">Remove</button>
                 )}
               </div>
               <input ref={fileRef} type="file" accept="image/*" className="hidden"
@@ -317,34 +327,33 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
             </div>
 
             {[
-              { label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
-              { label: "Timezone", value: timezone, set: setTimezone, ph: "America/Los_Angeles", max: 60 },
+              { id: "settings-name", label: "Display name", value: displayName, set: setDisplayName, ph: "Jordan Reeves", max: 80 },
+              { id: "settings-tz", label: "Timezone", value: timezone, set: setTimezone, ph: "America/Los_Angeles", max: 60 },
             ].map((f) => (
               <div key={f.label}>
-                <label className="text-[12.5px] text-muted-foreground">{f.label}</label>
-                <input value={f.value} onChange={(e) => f.set(e.target.value)} placeholder={f.ph} maxLength={f.max}
-                  className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+                <label htmlFor={f.id} className="text-[12.5px] text-muted-foreground">{f.label}</label>
+                <input id={f.id} value={f.value} onChange={(e) => f.set(e.target.value)} placeholder={f.ph} maxLength={f.max}
+                  className={fieldClass} />
               </div>
             ))}
             {/* Phone with live US formatting: (555) 123-4567 */}
             <div>
-              <label className="text-[12.5px] text-muted-foreground">Phone</label>
-              <input value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} placeholder="(555) 123-4567"
+              <label htmlFor="settings-phone" className="text-[12.5px] text-muted-foreground">Phone</label>
+              <input id="settings-phone" value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} placeholder="(555) 123-4567"
                 type="tel" inputMode="tel" maxLength={16}
-                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+                className={fieldClass} />
             </div>
-            <button onClick={save} disabled={busy}
-              className="mt-2 w-full py-2 rounded-md bg-foreground text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+            <Button onClick={save} disabled={busy} variant="gold" size="touch" className="mt-2 w-full gap-2">
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save changes
-            </button>
+            </Button>
           </div>
 
           {/* ── Danger zone: delete account ── */}
           <div className="px-5 pb-5">
             <div className="border-t border-negative/20 pt-4">
               <button onClick={() => { setDeleteConfirmText(""); setShowDeleteAccount(true); }}
-                className="inline-flex items-center gap-1.5 text-[13px] text-negative hover:underline">
+                className="inline-flex items-center gap-1.5 min-h-11 md:min-h-0 text-[13px] text-negative-text hover:underline">
                 <Trash2 className="h-3.5 w-3.5" /> Delete account
               </button>
               <ConfirmDialog
@@ -359,7 +368,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 <div>
                   <label htmlFor="delete-confirm" className="text-[12.5px] text-muted-foreground">Type <span className="font-semibold text-foreground">DELETE</span> to confirm</label>
                   <input id="delete-confirm" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} autoComplete="off"
-                    className="mt-1 w-full bg-surface/40 border border-negative/30 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-negative" />
+                    className="mt-1 w-full min-h-11 md:min-h-10 bg-surface/40 border border-negative/30 rounded-[10px] px-3 py-2 text-[14px] text-foreground outline-none focus:border-negative" />
                 </div>
               </ConfirmDialog>
             </div>
@@ -368,7 +377,7 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
 
           {activeTab === "banks" && (
             <div className="p-5">
-              <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Connected banks</div>
+              <Eyebrow className="mb-2">Connected banks</Eyebrow>
               {items === null ? (
                 <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
               ) : items.length === 0 ? (
@@ -424,14 +433,14 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
           {activeTab === "data" && (
             <div className="p-5 space-y-5">
               <div>
-                <div className="text-[12.5px] uppercase tracking-wider text-muted-foreground mb-2">Resync &mdash; keeps your data</div>
+                <Eyebrow className="mb-2">Resync &mdash; keeps your data</Eyebrow>
                 <div className="flex items-center gap-2.5 surface-card px-3 py-2.5">
                   <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
                     Re-download transaction history from your banks. Use it if older transactions look wrong or are missing. Your categories, tags, notes and smart rules are kept exactly as they are.
                   </div>
                   <button onClick={() => setConfirmFullResync(true)} disabled={fullResyncing || !items?.length}
                     aria-label="Full resync of all banks"
-                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
+                    className="inline-flex items-center gap-1.5 min-h-11 md:min-h-9 text-[12.5px] font-medium text-foreground hover:underline shrink-0 disabled:opacity-50">
                     <RefreshCw className={`h-3.5 w-3.5 ${fullResyncing ? "animate-spin" : ""}`} /> Full resync
                   </button>
                 </div>
@@ -447,14 +456,14 @@ export const ProfileDialog = ({ open, onOpenChange, initialTab = "profile" }: Pr
                 onConfirm={fullResync} />
 
               <div>
-                <div className="text-[12.5px] uppercase tracking-wider text-negative/80 mb-2">Reset &mdash; deletes your data first</div>
+                <Eyebrow className="mb-2 text-negative-text">Reset &mdash; deletes your data first</Eyebrow>
                 <div className="flex items-center gap-2.5 surface-card px-3 py-2.5 border border-negative/20">
                   <div className="flex-1 min-w-0 text-[12.5px] text-muted-foreground">
                     Deletes every transaction, category override, tag, note, smart rule and recurring dismissal, then re-pulls your full history fresh from Plaid with none of that reapplied. Bank connections stay linked. Irreversible.
                   </div>
                   <button onClick={() => setConfirmWipeReload(true)} disabled={wipeReloading || !items?.length}
                     aria-label="Delete and reload all transactions data"
-                    className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-negative hover:underline shrink-0 disabled:opacity-50">
+                    className="inline-flex items-center gap-1.5 min-h-11 md:min-h-9 text-[12.5px] font-medium text-negative-text hover:underline shrink-0 disabled:opacity-50">
                     <Trash2 className={`h-3.5 w-3.5 ${wipeReloading ? "animate-pulse" : ""}`} /> Reload Txns Data
                   </button>
                 </div>
