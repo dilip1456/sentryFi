@@ -121,6 +121,13 @@ export interface DetectOptions {
   lookbackDays?: number;
   loanDetails?: LoanDetail[];
   occurrenceOverrides?: OccurrenceOverride[];
+  /**
+   * Grouping key for a transaction (without the direction prefix). Defaults to
+   * `merchantKey(name, merchant_name)`, which is what persisted seriesKeys use;
+   * callers that don't persist (e.g. My Financial Picture) can pass a canonical
+   * payee key so "ROCKET MORTGAGE" and "ROCKET MTG ACH PMT" form one series.
+   */
+  keyOf?: (t: ClassifierTxn, c: TxnClassification) => string;
 }
 
 const INCOME_TYPES = new Set<TxnType>(["income_salary", "income_interest", "income_other", "transfer_in"]);
@@ -356,7 +363,7 @@ export function detectRecurringSeries(
     const c = classes.get(t.transaction_id);
     if (!c || !isRecurringEligible(t, c, opts, accountById.get(t.account_id))) continue;
     const direction: SeriesDirection = t.amount > 0 ? "outflow" : "inflow";
-    const key = `${direction}|${merchantKey(t.name, t.merchant_name)}`;
+    const key = `${direction}|${opts.keyOf ? opts.keyOf(t, c) : merchantKey(t.name, t.merchant_name)}`;
     (groups.get(key) ?? groups.set(key, []).get(key)!).push({ t, c, key, direction });
   }
 
