@@ -235,9 +235,10 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
     <div className="space-y-3 animate-fade-up">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-xl text-primary">Card Benefits</h2>
+        {/* Top bar / page header already says "Benefits" — name the content, not the screen. */}
+        <h2 className="text-[16px] font-semibold leading-tight text-foreground">Your card perks</h2>
         <button onClick={() => loadBenefits(true)} disabled={loading}
-          className="flex items-center gap-1.5 h-7 px-3 rounded-full border border-border text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40">
+          className="tap-44 flex items-center gap-1.5 h-7 px-3 rounded-full border border-border text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40">
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           {loading ? "Loading…" : "Refresh"}
         </button>
@@ -247,7 +248,7 @@ export const CardBenefitsView = ({ accounts, supabase, user, txns = [] }: Props)
       <div className="flex bg-muted/30 rounded-xl p-1 gap-0.5">
         {tabs.map(t => (
           <button key={t.k} onClick={() => setActiveTab(t.k)}
-            className={cn("flex-1 h-8 rounded-lg text-[12px] font-medium transition-all",
+            aria-pressed={activeTab === t.k} className={cn("tap-44 flex-1 h-8 rounded-lg text-[12px] font-medium transition-all",
               activeTab === t.k ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground")}>
             {t.label}
           </button>
