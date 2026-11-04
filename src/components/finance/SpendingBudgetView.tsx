@@ -15,6 +15,7 @@ import {
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
   Settings, ChevronsDownUp, ChevronsUpDown, Wand2, Upload, Filter, MoreHorizontal,
 } from "lucide-react";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2055,7 +2056,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 {moreMenu.open && moreMenu.pos && createPortal(
                   <>
                     <div className="fixed inset-0 z-[998]" onClick={moreMenu.close}/>
-                    <div role="menu" className="spending-v2 fixed z-[999] w-56 rounded-xl border border-border/60 bg-card shadow-2xl p-1"
+                    <div role="menu" className="spending-v2 fixed z-[999] w-56 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] p-1"
                       style={{ top: moreMenu.pos.top, bottom: moreMenu.pos.bottom, right: moreMenu.pos.right }}>
                       {([
                         { label: "Columns…", hint: "Show, hide or reset columns", Icon: Settings, run: () => colsMenu.toggle() },
@@ -2063,7 +2064,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                         ...(onOpenImport ? [{ label: "Import statement", hint: "Import a bank statement PDF", Icon: Upload, run: onOpenImport }] : []),
                       ]).map(({ label, hint, Icon, run }) => (
                         <button key={label} role="menuitem" onClick={() => { moreMenu.close(); run(); }}
-                          className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-muted/60">
+                          className="w-full min-h-11 md:min-h-9 flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none">
                           <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0"/>
                           <span className="min-w-0">
                             <span className="block text-[12.5px] font-medium text-foreground">{label}</span>
@@ -2158,7 +2159,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   {/* Desktop: popover under the button. Phones: a bottom sheet
                       (full width, thumb-reachable, clear of the home indicator). */}
                   <div role="dialog" aria-label="Filters" data-state="open"
-                    className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-2xl p-3 space-y-3
+                    className="spending-v2 fixed z-[999] w-80 max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] p-3 space-y-3
                       max-md:!top-auto max-md:!bottom-0 max-md:!left-0 max-md:!right-0 max-md:w-full max-md:max-w-none max-md:!max-h-[85dvh] max-md:rounded-b-none max-md:rounded-t-2xl max-md:px-4 max-md:pt-2 max-md:pb-0
                       max-md:animate-in max-md:slide-in-from-bottom-full max-md:duration-200"
                     style={{top:filtersMenu.pos.top, bottom:filtersMenu.pos.bottom, right:filtersMenu.pos.right, maxHeight:filtersMenu.pos.maxHeight}} onClick={e=>e.stopPropagation()}>
@@ -2178,11 +2179,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Category</div>
-                      <select value={catSel ?? ""} onChange={e=>setCatSel(e.target.value || null)}
-                        className="w-full h-8 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none">
+                      <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Category" value={catSel ?? ""} onChange={e=>setCatSel(e.target.value || null)}>
                         <option value="">All categories</option>
                         {categoriesInPeriod.map(c => <option key={c} value={c}>{formatCat(c)}</option>)}
-                      </select>
+                      </NativeSelect>
                     </div>
 
                     {tagsInPeriod.length > 0 && (
@@ -2305,7 +2305,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               {sortMenu.open && sortMenu.pos && createPortal(
                 <>
                   <div className="fixed inset-0 z-[998]" onClick={sortMenu.close}/>
-                  <div role="menu" aria-label="Sort transactions" className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5"
+                  <div role="menu" aria-label="Sort transactions" className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] p-1.5"
                     style={{top:sortMenu.pos.top, bottom:sortMenu.pos.bottom, right:sortMenu.pos.right}} onClick={e=>e.stopPropagation()}>
                     {(["date","amount"] as const).map(key => (
                       <button key={key} onClick={()=>{ handleSort(key); }}
@@ -2515,14 +2515,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {colsMenu.open && colsMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={colsMenu.close}/>
-          <div className="spending-v2 fixed z-[999] w-48 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
-            style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
+          <div className="spending-v2 fixed z-[999] w-48 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] overflow-y-auto p-1"
+            style={{ top: colsMenu.pos.top, bottom: colsMenu.pos.bottom, right: colsMenu.pos.right, maxHeight: colsMenu.pos.maxHeight }}>
             <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Show columns</div>
             {COLUMN_DEFS.map(c => {
               const checked = visibleCols.has(c.key);
               return (
                 <button key={c.key} onClick={()=>toggleCol(c.key)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px] text-foreground">
+                  className="w-full min-h-11 md:min-h-9 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none transition-colors text-[13px] text-foreground">
                   <div className={cn("h-4 w-4 rounded border grid place-items-center shrink-0 transition-colors",
                     checked ? "bg-[hsl(var(--primary))] border-[hsl(var(--primary))]" : "border-border-strong")}>
                     {checked && <Check className="h-3 w-3 text-primary-foreground"/>}
@@ -2538,7 +2538,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 a stacked card list instead), so this reset is desktop-only too. */}
             <div className="hidden md:block border-t border-border/40 mt-1 pt-1">
               <button onClick={()=>{ setColWidths(DEFAULT_COL_WIDTHS); colsMenu.close(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50 transition-colors text-[13px] text-foreground">
+                className="w-full min-h-11 md:min-h-9 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none transition-colors text-[13px] text-foreground">
                 <Maximize2 className="h-3.5 w-3.5 text-muted-foreground"/> Autofit columns
               </button>
             </div>
@@ -2551,8 +2551,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {groupMenu.open && groupMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={groupMenu.close}/>
-          <div className="spending-v2 fixed z-[999] w-44 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
-            style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
+          <div className="spending-v2 fixed z-[999] w-44 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] overflow-y-auto p-1"
+            style={{ top: groupMenu.pos.top, bottom: groupMenu.pos.bottom, right: groupMenu.pos.right, maxHeight: groupMenu.pos.maxHeight }}>
             <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</div>
             {GROUP_OPTIONS.map(g => (
               <button key={g.key} onClick={()=>{ setGroupBy(g.key); groupMenu.close(); }}
@@ -2575,8 +2575,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {accountsMenu.open && accountsMenu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={accountsMenu.close}/>
-          <div className="spending-v2 fixed z-[999] w-64 surface-elevated rounded-xl shadow-2xl overflow-y-auto py-1"
-            style={{ top: accountsMenu.pos.top, bottom: accountsMenu.pos.bottom, right: accountsMenu.pos.right, maxHeight: accountsMenu.pos.maxHeight, border: "1px solid var(--gold-border)" }}>
+          <div className="spending-v2 fixed z-[999] w-64 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] overflow-y-auto p-1"
+            style={{ top: accountsMenu.pos.top, bottom: accountsMenu.pos.bottom, right: accountsMenu.pos.right, maxHeight: accountsMenu.pos.maxHeight }}>
             <div className="flex items-center justify-between px-3 py-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Accounts</span>
               {accountFilters.length > 0 && (
@@ -3063,7 +3063,7 @@ export function CategoryPickerPopover({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[998]" onClick={onClose} />
-      <div className="spending-v2 fixed z-[999] w-64 max-w-[calc(100vw-16px)] flex flex-col rounded-xl border border-border/60 bg-card shadow-2xl overflow-hidden"
+      <div className="spending-v2 fixed z-[999] w-64 max-w-[calc(100vw-16px)] flex flex-col rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] overflow-hidden"
         style={{ top: pos.top, bottom: pos.bottom, right: pos.right, maxHeight: pos.maxHeight ?? 360 }} onClick={e=>e.stopPropagation()}>
         <div className="p-2 border-b border-border/30 shrink-0">
           {adding ? (
@@ -3072,11 +3072,10 @@ export function CategoryPickerPopover({
                 onKeyDown={e=>{ if(e.key==="Enter") submitAdd(); if(e.key==="Escape") setAdding(false); }}
                 className="w-full h-8 px-2.5 rounded-lg bg-muted/40 border border-border/60 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]"/>
               <div className="flex items-center gap-1.5">
-                <select value={draftType} onChange={e=>setDraftType(e.target.value as "expense"|"income")}
-                  className="h-8 flex-1 px-2 rounded-lg bg-muted/40 border border-border/60 text-[12px] text-foreground outline-none">
+                <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Category type" value={draftType} onChange={e=>setDraftType(e.target.value as "expense"|"income")}>
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
-                </select>
+                </NativeSelect>
                 <button onClick={submitAdd} className="h-8 px-3 rounded-lg bg-gold text-[12px] font-semibold shrink-0">Add</button>
                 <button onClick={()=>setAdding(false)} aria-label="Cancel" className="h-8 w-8 grid place-items-center rounded-lg text-muted-foreground hover:text-foreground shrink-0"><X className="h-3.5 w-3.5"/></button>
               </div>
@@ -3356,14 +3355,14 @@ function TypeControl({ t, txnType, edited, onChangeType, compact = false }: {
       {menu.open && menu.pos && createPortal(
         <>
           <div className="fixed inset-0 z-[998]" onClick={e => { e.stopPropagation(); menu.close(); }} />
-          <div role="menu" className="spending-v2 fixed z-[999] w-64 rounded-xl border border-border/60 bg-card shadow-2xl p-1.5 overflow-y-auto"
+          <div role="menu" className="spending-v2 fixed z-[999] w-64 rounded-xl border border-border bg-popover text-popover-foreground shadow-[var(--shadow-elevated)] p-1.5 overflow-y-auto"
             style={{ top: menu.pos.top, bottom: menu.pos.bottom, left, maxHeight: menu.pos.maxHeight }}
             onClick={e => e.stopPropagation()}>
             <div className="px-2 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Treat this transaction as</div>
             {TXN_TYPES.map(o => (
               <button key={o.key} role="menuitemradio" aria-checked={o.key === def.key}
                 onClick={() => { if (o.key !== def.key) onChangeType(t, o.key); menu.close(); }}
-                className={cn("w-full flex items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted/50 transition-colors", o.key === def.key && "bg-[hsl(var(--primary)/0.08)]")}>
+                className={cn("w-full min-h-11 md:min-h-9 flex items-start gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none transition-colors", o.key === def.key && "bg-[hsl(var(--primary)/0.08)]")}>
                 <span className="h-4 w-4 mt-0.5 grid place-items-center shrink-0">{o.key === def.key && <Check className="h-3.5 w-3.5 text-[hsl(var(--primary))]"/>}</span>
                 <span className="min-w-0">
                   <span className="block text-[12.5px] font-medium text-foreground">{o.label}</span>

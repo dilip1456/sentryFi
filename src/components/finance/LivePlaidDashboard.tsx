@@ -59,6 +59,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtDayDate, fmtShortDate } from "@/lib/format-date";
 
@@ -314,7 +315,7 @@ const EXPENSE_CATEGORIES_PICKER = EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGO
 const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 
 const priorityMeta = {
-  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative" },
+  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative-text" },
   soon:   { label: "Soon",   dot: "bg-warning",  text: "text-warning",  chip: "border-warning/30 bg-warning/10 text-warning" },
   info:   { label: "FYI",    dot: "bg-info",     text: "text-info",     chip: "border-info/30 bg-info/10 text-info" },
 };
@@ -1489,31 +1490,31 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
     const meta = FIELD_META[c.field];
     if (c.field === "account")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="">Select account…</option>
           {accounts.map(a => <option key={a.account_id} value={a.account_id}>{a.name}</option>)}
-        </select>
+        </NativeSelect>
       );
     if (c.field === "account_type")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account type" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="">Select type…</option>
           {acctTypes.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        </NativeSelect>
       );
     if (c.field === "flow")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Money flow" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="expense">Expense</option>
           <option value="income">Income</option>
-        </select>
+        </NativeSelect>
       );
     if (c.field === "pending")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Status" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="true">Pending</option>
           <option value="false">Posted</option>
-        </select>
+        </NativeSelect>
       );
     if (meta.kind === "number")
       return (
@@ -1565,14 +1566,12 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
       )}
       {set.conditions.map(c => (
         <div key={c.id} className="flex items-center gap-1.5">
-          <select value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}
-            className={cn(inputCls, "shrink-0", compact ? "w-[92px]" : "w-[110px]")}>
+          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[92px]" : "w-[110px]")} size="sm" aria-label="Condition field" className="pl-2.5 pr-7" value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}>
             {(Object.keys(FIELD_META) as TxnField[]).map(f => <option key={f} value={f}>{FIELD_META[f].label}</option>)}
-          </select>
-          <select value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}
-            className={cn(inputCls, "shrink-0", compact ? "w-[96px]" : "w-[120px]")}>
+          </NativeSelect>
+          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[96px]" : "w-[120px]")} size="sm" aria-label="Condition operator" className="pl-2.5 pr-7" value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}>
             {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
-          </select>
+          </NativeSelect>
           {renderValue(c)}
           <button type="button" onClick={() => removeRow(c.id)} aria-label="Remove condition" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
             <X className="h-3.5 w-3.5" />
@@ -1724,17 +1723,16 @@ const RulesManager = ({
                     <div className="text-[12px] uppercase tracking-wider text-muted-foreground font-semibold">Then do</div>
                     {draftRule.actions.map((a, i) => (
                       <div key={i} className="flex items-center gap-1.5">
-                        <select value={a.type} onChange={e => {
+                        <NativeSelect wrapperClassName="w-[130px] shrink-0" size="sm" aria-label="Action" value={a.type} onChange={e => {
                             const type = e.target.value as RuleAction["type"];
                             const next = [...draftRule.actions];
                             next[i] = type === "mark_internal" ? { type } : { type, value: "" } as RuleAction;
                             setDraftRule({ ...draftRule, actions: next });
-                          }}
-                          className="h-8 w-[130px] shrink-0 rounded-lg bg-secondary/40 border border-border/40 text-[13px] text-foreground px-2 outline-none">
+                          }}>
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
-                        </select>
+                        </NativeSelect>
                         {a.type !== "mark_internal" && (
                           <input list={a.type === "set_category" ? "smart-cats" : undefined}
                             value={a.value} onChange={e => {
@@ -1839,12 +1837,11 @@ const RulesManager = ({
                   <div className="text-[13px] font-semibold text-foreground">New category rule</div>
                   <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                     <span className="text-[12.5px] text-muted-foreground">When name</span>
-                    <select value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}
-                      className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                    <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}>
                       <option value="contains">contains</option>
                       <option value="starts_with">starts with</option>
                       <option value="exact">is exactly</option>
-                    </select>
+                    </NativeSelect>
                     <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                     <input value={newPattern} onChange={e => setNewPattern(e.target.value)} placeholder="e.g. Amazon, Starbucks…"
                       className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
@@ -1889,12 +1886,11 @@ const RulesManager = ({
                         <div className="text-[12.5px] font-semibold text-foreground mb-1">Edit rule</div>
                         <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                           <span className="text-[12.5px] text-muted-foreground">When name</span>
-                          <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
-                            className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                          <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}>
                             <option value="contains">contains</option>
                             <option value="starts_with">starts with</option>
                             <option value="exact">is exactly</option>
-                          </select>
+                          </NativeSelect>
                           <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                           <input value={editPattern} onChange={e => setEditPattern(e.target.value)}
                             className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
@@ -2281,11 +2277,10 @@ const TxnDetailModal = ({
             placeholder="New category name…"
             onKeyDown={e=>{ if (e.key==="Enter") confirmAddCategory(); if (e.key==="Escape") cancelCatEdit(); }}
             className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50"/>
-          <select value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}
-            className="bg-muted/40 border border-border/50 rounded-xl px-2 py-2.5 text-[13px] text-foreground outline-none shrink-0">
+          <NativeSelect wrapperClassName="shrink-0" aria-label="Category type" value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}>
             <option value="expense">Expense</option>
             <option value="income">Income</option>
-          </select>
+          </NativeSelect>
           <button onClick={confirmAddCategory} aria-label="Create category" className="h-10 w-10 grid place-items-center rounded-xl bg-gold shrink-0"><Check className="h-4 w-4"/></button>
           <button onClick={cancelCatEdit} aria-label="Cancel adding category" className="h-10 w-10 grid place-items-center rounded-xl text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4"/></button>
         </div>
@@ -2304,10 +2299,9 @@ const TxnDetailModal = ({
     }
     return (
       <div className="flex items-center gap-1.5">
-        <select
+        <NativeSelect wrapperClassName="flex-1 min-w-0" aria-label="Category"
           value={rawCat ?? "Other"}
-          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}
-          className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}>
           {/* Grouped the same way as the table's category picker — Expenses,
               Income, Ignored — via native <optgroup>s instead of one long
               flat list. Uses the full classification arrays (not the
@@ -2331,7 +2325,7 @@ const TxnDetailModal = ({
             ))}
           </optgroup>
           <option value="__add_new__">+ Add new category…</option>
-        </select>
+        </NativeSelect>
         {isCustomCat(rawCat) && onRenameCategory && (
           <button onClick={startRenameCategory} aria-label="Rename category" title="Rename category"
             className="h-10 w-10 grid place-items-center rounded-xl border border-border/50 text-muted-foreground hover:text-foreground shrink-0">
@@ -2660,11 +2654,10 @@ const TxnDetailModal = ({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">If</label>
-                    <select value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
-                      className="h-7 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none">
+                    <NativeSelect size="sm" aria-label="Match all or any conditions" value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}>
                       <option value="all">ALL match</option>
                       <option value="any">ANY match</option>
-                    </select>
+                    </NativeSelect>
                   </div>
                   <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}/>
                 </div>
@@ -2676,21 +2669,20 @@ const TxnDetailModal = ({
                   <div className="space-y-2">
                     {txnRuleActions.map((action, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <select value={action.type} onChange={e => {
+                        <NativeSelect wrapperClassName="shrink-0" size="sm" aria-label="Action" value={action.type} onChange={e => {
                           const type = e.target.value as RuleAction["type"];
                           const next = [...txnRuleActions];
                           if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
                           else next[i] = {type, value:""} as RuleAction;
                           setTxnRuleActions(next);
-                        }} className="h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none shrink-0">
+                        }}>
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
                           <option value="ignore">Ignore / hide</option>
-                        </select>
+                        </NativeSelect>
                         {action.type === "set_category" && (
-                          <select value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
-                            className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
+                          <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Category" value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}>
                             <option value="">Category...</option>
                             <optgroup label="Expenses">
                               {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
@@ -2701,7 +2693,7 @@ const TxnDetailModal = ({
                             <optgroup label="Ignored">
                               {IGNORED_CATEGORIES.map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
-                          </select>
+                          </NativeSelect>
                         )}
                         {action.type === "rename" && (
                           <input value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
@@ -2751,8 +2743,7 @@ const TxnDetailModal = ({
                     ? ` This will also fix ${otherMiscatTxns.length} other ${merchant ?? "matching"} transaction${otherMiscatTxns.length===1?"":"s"} still categorized the same way, and`
                     : " This will"} create a rule so future {merchant ?? "these"} charges are categorized correctly automatically.
                 </p>
-                <select value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}
-                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+                <NativeSelect wrapperClassName="w-full" aria-label="Correct category" value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}>
                   <option value="" disabled>Choose the correct category…</option>
                   <optgroup label="Expenses">
                     {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat => (
@@ -2769,7 +2760,7 @@ const TxnDetailModal = ({
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
-                </select>
+                </NativeSelect>
               </div>
               <div className="px-5 py-4 border-t border-border/30 shrink-0">
                 <button onClick={() => handleReportMiscategorized(reportMiscatDraft)}
@@ -4084,7 +4075,7 @@ const AccountTagStack = ({
     <div className="surface-card overflow-hidden">
       <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
         <div>
-          <h3 className="font-display text-[14px] text-primary">Quick-tag accounts</h3>
+          <h3 className="text-[14px] font-semibold text-foreground">Quick-tag accounts</h3>
           <div className="text-[12px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
         </div>
         <span className="text-[12px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
@@ -5281,7 +5272,7 @@ export const LivePlaidDashboard = ({
           <section className="surface-card overflow-hidden border border-[hsl(var(--primary)/0.25)]">
             <div className="px-5 py-3 border-b border-border/20 flex items-center gap-2">
               <ArrowRightLeft className="h-3.5 w-3.5 text-[hsl(var(--primary))]" />
-              <h2 className="font-display text-[15px] text-primary flex-1">Suggested transfers</h2>
+              <h2 className="text-[14px] font-semibold text-foreground flex-1">Suggested transfers</h2>
               <span className="text-[12px] text-muted-foreground">{pending.length} to do</span>
             </div>
             <div className="divide-y divide-border/15">
@@ -5315,7 +5306,7 @@ export const LivePlaidDashboard = ({
       {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
-            <h2 className="font-display text-lg md:text-xl text-primary">Insights into your spending</h2>
+            <h2 className="font-display text-[20px] md:text-[22px] font-semibold tracking-[-0.02em] text-foreground">Insights into your spending</h2>
           </div>
 
           {/* Sortable 2-col panel grid — drag the ⠿ handle to reorder */}
@@ -5323,10 +5314,10 @@ export const LivePlaidDashboard = ({
             const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
-                  <h3 className="font-display text-[14px] text-primary flex-1">Action items</h3>
+                  <h3 className="text-[14px] font-semibold text-foreground flex-1">Action items</h3>
                   {visibleActions.length>0 && <span className="text-[12px] text-muted-foreground tabular">{visibleActions.length} open</span>}
                 </div>
                 {visibleActions.length===0 ? (
@@ -5365,10 +5356,10 @@ export const LivePlaidDashboard = ({
             const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
-                  <h3 className="font-display text-[14px] text-primary flex-1">Saving opportunities</h3>
+                  <h3 className="text-[14px] font-semibold text-foreground flex-1">Saving opportunities</h3>
                   {!insightsLoading && visibleInsights.length>0 && (
                     <span className="text-[12px] font-semibold text-positive tabular bg-positive/10 px-2 py-0.5 rounded-full">
                       +{fmtUSDCompact(visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0))}/yr
@@ -5441,7 +5432,7 @@ export const LivePlaidDashboard = ({
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-display text-[14px] text-primary">Upcoming Charges</h3>
+                    <h3 className="text-[14px] font-semibold text-foreground">Upcoming charges</h3>
                     <div className="flex items-center gap-x-2 flex-wrap">
                       <div className="text-[12px] text-muted-foreground whitespace-nowrap">
                         Next 15 days · {recurringCharges.length} recurring
@@ -5596,7 +5587,7 @@ export const LivePlaidDashboard = ({
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3 px-1 flex-wrap">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-base text-primary">Accounts</h2>
+            <h2 className="font-display text-[20px] md:text-[22px] font-semibold tracking-[-0.02em] text-foreground">Accounts</h2>
             {lastSyncedAt && (
               <span className="text-[12px] text-muted-foreground/50">
                 synced {lastSyncedAt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
@@ -6237,13 +6228,12 @@ export const LivePlaidDashboard = ({
                   ) : (
                     <div className="ml-9 space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <select value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
-                          className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Cover the overage from" value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}>
                           <option value="">Cover from…</option>
                           {fundingAccounts.map(a => (
                             <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSDCompact(Number(a.current_balance) || 0)})</option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         {chosen && !confirmed && (
                           <button onClick={() => {
                               S.confirmOverageFunding({ category: c.category, month: budgetMonthKey, amount: over, fromAccountId: chosen.account_id, fromAccountName: chosen.name ?? chosen.official_name ?? "Account" });
@@ -6824,9 +6814,8 @@ export const LivePlaidDashboard = ({
 
     return (
       <div className="space-y-3 animate-fade-up">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-[18px] text-foreground">Money Map</h2>
-        </div>
+        {/* No in-page "Money Map" title: the page header (desktop) and the top
+            bar (phone) already name the screen (docs/ui-style.md › Headers). */}
 
         {/* ── The headline number ── */}
         <div className="surface-card p-5">
@@ -6866,7 +6855,7 @@ export const LivePlaidDashboard = ({
         <div className="surface-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
             <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <h3 className="font-display text-[14px] text-primary">Suggestions</h3>
+            <h3 className="text-[14px] font-semibold text-foreground">Suggestions</h3>
             <span className="text-[12px] text-muted-foreground ml-auto">{visibleSuggestions.length} active</span>
           </div>
           {visibleSuggestions.length === 0 ? (
@@ -6891,13 +6880,12 @@ export const LivePlaidDashboard = ({
                       const chosen = fundingAccounts.find(x => x.acc.account_id === chosenId);
                       return (
                         <div className="flex items-center gap-2 mt-2">
-                          <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}
-                            className="h-8 flex-1 max-w-[240px] rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                          <NativeSelect wrapperClassName="flex-1 min-w-0 max-w-[240px]" size="sm" aria-label="Cover the overage from" value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}>
                             <option value="">Cover from…</option>
                             {fundingAccounts.map(x => (
                               <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSDCompact(Number(x.acc.current_balance) || 0)})</option>
                             ))}
-                          </select>
+                          </NativeSelect>
                           {chosen && (
                             <span className="text-[12px] text-muted-foreground truncate">
                               Move {fmtUSD(s.amount)} from {chosen.acc.name ?? chosen.acc.official_name}
