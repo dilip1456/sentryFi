@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1222,
-  "sha256": "d67d038ee8d443b76e427fefcc4e758432e04f86121ece3347712166fa5576c0",
-  "size": 7164181,
-  "releaseNotes": "ui: shared design-system primitives + style guide (1/2, base of stack)",
+  "versionCode": 1223,
+  "sha256": "56daf31721e7d086704dd4e2b54b46df83477c1381c5ae10979de177ab2fed86",
+  "size": 7164185,
+  "releaseNotes": "fix(tests): make main's unit suite green (stale QA tests, merchantKey regression, timeline clock)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-04T06:48:55.678Z"
+  "publishedAt": "2026-11-04T07:42:50.536Z"
 }
