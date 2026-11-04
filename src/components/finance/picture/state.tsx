@@ -10,6 +10,8 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import type { FinancialPictureData, FinancialPictureManualItem, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "@/lib/picture/keys";
 import type { BankHistory } from "@/lib/relink/history";
+import { useRecurringDecisions } from "@/hooks/useRecurringDecisions";
+import { decisionFor, type RecurringDecision, type ReviewItem } from "@/lib/recurring";
 import { buildPictureModel, type AcctInfo, type PAccount, type PClass, type PictureGroup, type PictureModel, type PictureRow, type PTxn, type CardInfo } from "@/lib/picture/model";
 import { taxSnapshot, taxSaverNumbers, matchStatus, type MatchStatus, type TaxSnapshot, type TaxSaverNumbers, type EmployerMatch } from "@/lib/picture/tax";
 import { savingsBreakdown, type SavingsBreakdown, type TierAccount } from "@/lib/picture/savings-breakdown";
@@ -28,6 +30,8 @@ export interface PictureSettingsPatch {
 }
 
 export interface MyFinancialPictureProps {
+  /** Signed-in user (decisions on detected recurring items are stored per user). */
+  userId?: string | null;
   txns: PTxn[];
   accounts: PAccount[];
   getEffectiveCategory: (t: PTxn) => string;
@@ -126,6 +130,15 @@ export interface PictureState {
     removeGoal: (id: string) => void;
     setShares: (s: Shares) => void;
   };
+  // "Detected recurring" review
+  recurring: {
+    /** Confirm, edit or dismiss ("Not recurring"); returns the previous decision for undo. */
+    decide: (item: ReviewItem, patch: Partial<Omit<RecurringDecision, "key" | "snapshot">>) => RecurringDecision | undefined;
+    /** Put a previous decision back (undo), or forget it when there was none. */
+    revert: (key: string, prev: RecurringDecision | undefined) => void;
+    /** Back to "suggested" (from the Dismissed list). */
+    restore: (key: string) => void;
+  };
 }
 
 const Ctx = createContext<PictureState | null>(null);
@@ -168,11 +181,13 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const cardsFrom = useMemo(() => (demo ? { ...DEMO_CARD_FROM, ...props.cardAutopayFrom } : props.cardAutopayFrom ?? {}), [demo, props.cardAutopayFrom]);
   const budgets = useMemo(() => props.budgets ?? {}, [props.budgets]);
 
+  const rd = useRecurringDecisions(props.userId, !!demo);
   const today = useMemo(() => props.today ?? new Date(), [props.today]);
   const m = useMemo(() => buildPictureModel({
+    recurringDecisions: rd.decisions,
     txns: props.txns, accounts: props.accounts, classOf: props.classOf, getEffectiveCategory: props.getEffectiveCategory,
     formatCat: props.formatCat, manualIncome: props.manualIncome, budgets, cardAutopayFrom: cardsFrom, savingsGoals: goals, fp, today,
-  }), [props.txns, props.accounts, props.classOf, props.getEffectiveCategory, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today]);
+  }), [props.txns, props.accounts, props.classOf, props.getEffectiveCategory, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions]);
 
   const year = today.getFullYear();
   const P = full ? 12 : 1;
@@ -338,12 +353,23 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const setDraftAmt = useCallback((g: string, id: string, v: number) => setDraft(d => ({ ...d, [`amt:${g}:${id}`]: v })), []);
   const setDraftCov = useCallback((g: string, id: string, v: string | null) => setDraft(d => ({ ...d, [`cov:${g}:${id}`]: v ?? "" })), []);
 
+  const recurring = useMemo<PictureState["recurring"]>(() => ({
+    decide: (item, patch) => {
+      const prev = rd.decisions.find(d => d.key === item.key);
+      void rd.save(decisionFor(item, { status: item.status, cadence: prev?.cadence, amount: prev?.amount, group: prev?.group, coverAccountId: prev?.coverAccountId, ...patch }));
+      return prev;
+    },
+    revert: (key, prev) => { void (prev ? rd.save(prev) : rd.remove(key)); },
+    restore: key => { void rd.remove(key); },
+  }), [rd]);
+
   const value: PictureState = {
     demo: !!demo, today,
     props, m, fp, goals, full, setFull: v => { setFull(v); if (v) cancelEdit(); }, P, per, perWord, year,
     rowsFor, sumOf, findRow, acct, pool, tax, savers, match, bd, cov, map, flow, steps, risk, riskInfo,
     shares: { ...sharesRaw, total: sharesTotal, account: sharesAcct },
     editing, startEdit, resetDraft, cancelEdit, saveEdit, draftAmt, draftCov, setDraftAmt, setDraftCov, act,
+    recurring,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -117,10 +117,23 @@ export interface DetectOptions {
   overrides?: TxnTypeOverride[];
   /** Credit card payments have their own due-date flow; excluded by default. */
   includeCardPayments?: boolean;
+  /**
+   * Keep the sending leg of a matched transfer into the user's own savings /
+   * investment account (savings_contribution) so a repeating one can be a
+   * savings goal. Excluded by default: it is internal movement, not spend.
+   */
+  includeSavingsTransfers?: boolean;
   /** History window (default ~25 months so a yearly item is seen twice). */
   lookbackDays?: number;
   loanDetails?: LoanDetail[];
   occurrenceOverrides?: OccurrenceOverride[];
+  /**
+   * Grouping key for a transaction (without the direction prefix). Defaults to
+   * `merchantKey(name, merchant_name)`, which is what persisted seriesKeys use;
+   * callers that don't persist (e.g. My Financial Picture) can pass a canonical
+   * payee key so "ROCKET MORTGAGE" and "ROCKET MTG ACH PMT" form one series.
+   */
+  keyOf?: (t: ClassifierTxn, c: TxnClassification) => string;
 }
 
 const INCOME_TYPES = new Set<TxnType>(["income_salary", "income_interest", "income_other", "transfer_in"]);
@@ -146,7 +159,7 @@ interface Member {
 export function isRecurringEligible(
   t: ClassifierTxn,
   c: TxnClassification,
-  opts: Pick<DetectOptions, "includeCardPayments"> = {},
+  opts: Pick<DetectOptions, "includeCardPayments" | "includeSavingsTransfers"> = {},
   account?: ClassifierAccount,
 ): boolean {
   if (t.pending) return false;
@@ -163,7 +176,12 @@ export function isRecurringEligible(
   // (savings sweeps, card payments, account-to-account) even when the
   // classifier upgrades its type. The one exception is a payment to the user's
   // own linked LOAN account: that is still a must-pay obligation.
-  if (c.pairId && c.txnType !== "obligation_loan" && !(opts.includeCardPayments && c.txnType === "credit_card_payment")) return false;
+  if (
+    c.pairId &&
+    c.txnType !== "obligation_loan" &&
+    !(opts.includeCardPayments && c.txnType === "credit_card_payment") &&
+    !(opts.includeSavingsTransfers && c.txnType === "savings_contribution" && t.amount > 0)
+  ) return false;
   const out = t.amount > 0;
   if (out && !OUTFLOW_TYPES.has(c.txnType)) return false;
   if (!out && !INCOME_TYPES.has(c.txnType)) return false;
@@ -356,7 +374,7 @@ export function detectRecurringSeries(
     const c = classes.get(t.transaction_id);
     if (!c || !isRecurringEligible(t, c, opts, accountById.get(t.account_id))) continue;
     const direction: SeriesDirection = t.amount > 0 ? "outflow" : "inflow";
-    const key = `${direction}|${merchantKey(t.name, t.merchant_name)}`;
+    const key = `${direction}|${opts.keyOf ? opts.keyOf(t, c) : merchantKey(t.name, t.merchant_name)}`;
     (groups.get(key) ?? groups.set(key, []).get(key)!).push({ t, c, key, direction });
   }
 
