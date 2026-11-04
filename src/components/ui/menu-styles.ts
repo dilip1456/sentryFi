@@ -23,6 +23,9 @@ export const menuItemDanger = "text-negative-text hover:text-negative-text focus
 
 export const menuLabel = "px-2.5 pt-2 pb-1 text-[11.5px] font-bold uppercase tracking-[0.07em] text-muted-foreground";
 
+/** Hairline above a row that starts a new group (when a separate <div> separator is awkward). */
+export const menuItemGroupStart = "mt-1 before:absolute before:-top-0.5 before:inset-x-2 before:h-px before:bg-border";
+
 export const menuSeparator = "-mx-1 my-1 h-px bg-border";
 
 export const menuItemClass = (...extra: Array<string | false | null | undefined>) => cn(menuItem, ...extra);
