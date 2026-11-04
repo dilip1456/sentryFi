@@ -23,7 +23,9 @@ const STOPWORDS = new Set([
  * bank) the next - which otherwise splits one recurring bill into two
  * separate, each-below-threshold entries. Capping the word length makes both
  * spellings collapse to the same key ("fundin") without needing to compare
- * against other transactions.
+ * against other transactions. The FIRST word is kept whole: it is the
+ * brand ("netflix", "spotify") and capping it would rename existing series
+ * keys (e.g. "netflix" -> "netfli"); truncation drift hits trailing words.
  */
 export function merchantKey(name: string | null | undefined, merchant?: string | null): string {
   const raw = (merchant || name || "").toLowerCase();
@@ -36,7 +38,7 @@ export function merchantKey(name: string | null | undefined, merchant?: string |
     .replace(/[^a-z&\s]/g, " ")
     .split(/\s+/)
     .filter(w => w && !STOPWORDS.has(w));
-  const key = cleaned.slice(0, 3).map(w => w.slice(0, 6)).join(" ");
+  const key = cleaned.slice(0, 3).map((w, i) => (i === 0 ? w : w.slice(0, 6))).join(" ");
   return key || raw.replace(/\s+/g, " ").trim() || "unknown";
 }
 
