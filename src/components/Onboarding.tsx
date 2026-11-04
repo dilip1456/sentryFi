@@ -62,14 +62,14 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
           {step === "welcome" && (
             <div className="text-center space-y-5">
               <div className="mx-auto h-16 w-16 rounded-2xl bg-gold grid place-items-center shadow-[var(--shadow-glow)]">
-                <img src="/logo.png" alt="SentryFi" className="h-10 w-10 object-contain" />
+                <img src="/logo.png" alt="Sentry Finance" className="h-10 w-10 object-contain" />
               </div>
               <div>
                 <h1 className="font-display text-2xl text-foreground">
                   Welcome{firstName ? `, ${firstName}` : ""}!
                 </h1>
                 <p className="mt-2 text-[15px] text-muted-foreground leading-relaxed">
-                  SentryFi shows you what you can actually spend, not just your bank balance.
+                  Sentry Finance shows you what you can actually spend, not just your bank balance.
                   Let's get your accounts set up in 2 minutes.
                 </p>
               </div>

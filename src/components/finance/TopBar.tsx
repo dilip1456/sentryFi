@@ -128,10 +128,10 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
         <button onClick={() => onChange?.("overall")} className="flex items-center gap-2.5 hover:opacity-90 transition-opacity active:scale-95">
           <div className="relative h-10 w-10 shrink-0">
             <div className="absolute inset-[-20%] rounded-full bg-[radial-gradient(circle,hsl(var(--primary)/0.4)_0%,transparent_70%)] blur-[6px]" style={{ animation: "shield-pulse 3.4s ease-in-out infinite" }} />
-            <img src="/logo.png" alt="SentryFi" className="relative h-10 w-10 drop-shadow-[0_2px_8px_hsl(var(--primary)/0.4)]" />
+            <img src="/logo.png" alt="Sentry Finance" className="relative h-10 w-10 drop-shadow-[0_2px_8px_hsl(var(--primary)/0.4)]" />
           </div>
           <div>
-            <div className="font-display text-[16px] tracking-tight text-foreground leading-tight">SentryFi</div>
+            <div className="font-display text-[16px] tracking-tight text-foreground leading-tight">Sentry Finance</div>
             <div className="text-[12.5px] text-muted-foreground leading-tight">Personal Finance</div>
           </div>
         </button>
@@ -224,10 +224,10 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
         <button onClick={() => onChange?.("overall")} className="flex items-center gap-3 shrink-0 hover:opacity-90 transition-opacity group">
           <div className="relative h-14 w-14 shrink-0">
             <div className="absolute inset-[-20%] rounded-full bg-[radial-gradient(circle,hsl(var(--primary)/0.35)_0%,transparent_70%)] blur-[8px] transition-opacity group-hover:opacity-130" />
-            <img src="/logo.png" alt="SentryFi" className="relative h-14 w-14 drop-shadow-[0_3px_14px_hsl(var(--primary)/0.5)]" />
+            <img src="/logo.png" alt="Sentry Finance" className="relative h-14 w-14 drop-shadow-[0_3px_14px_hsl(var(--primary)/0.5)]" />
           </div>
           <div className="text-left">
-            <div className="font-display text-[18px] tracking-tight text-foreground leading-tight">SentryFi</div>
+            <div className="font-display text-[18px] tracking-tight text-foreground leading-tight">Sentry Finance</div>
             <div className="text-[12.5px] text-muted-foreground leading-tight">Personal Finance</div>
           </div>
         </button>

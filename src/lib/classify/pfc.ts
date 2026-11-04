@@ -68,6 +68,18 @@ const DETAILED: Record<string, PfcMapping> = {
   RENT_AND_UTILITIES_WATER: { type: "obligation_bill", category: "Bills & Utilities", subtype: "utility" },
   RENT_AND_UTILITIES_OTHER_UTILITIES: { type: "obligation_bill", category: "Bills & Utilities", subtype: "utility" },
   GENERAL_SERVICES_INSURANCE: { type: "obligation_bill", category: "Insurance", subtype: "insurance" },
+
+  // Split out of the generic TRANSPORTATION bucket so pay-per-use spend like
+  // gas isn't indistinguishable from recurring transportation costs (transit
+  // passes, car payments) - this is what the recurring-bill detector relies
+  // on to correctly exclude gas station purchases by category rather than by
+  // matching merchant names one at a time.
+  TRANSPORTATION_GAS: { type: "spend", category: "Gas", subtype: "gas" },
+  TRANSPORTATION_PARKING: { type: "spend", category: "Parking", subtype: "parking" },
+  TRANSPORTATION_PUBLIC_TRANSIT_SERVICES: { type: "spend", category: "Public Transit", subtype: "transit" },
+  TRANSPORTATION_TAXIS_AND_RIDE_SHARES: { type: "spend", category: "Rideshare & Taxi", subtype: "rideshare" },
+  TRANSPORTATION_TOLLS_AND_FEES: { type: "spend", category: "Tolls & Fees", subtype: "tolls" },
+  TRANSPORTATION_OTHER_TRANSPORTATION: { type: "spend", category: "Transportation" },
 };
 
 /**

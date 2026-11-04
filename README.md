@@ -1,3 +1,3 @@
-# SentryFi
+# Sentry Finance
 
 Personal finance intelligence — built with React, TypeScript, Supabase, and Plaid.
