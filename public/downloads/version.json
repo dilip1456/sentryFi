@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1221,
-  "sha256": "37fe09a887eead3e78c1d39fa490e14fe10a55de8ef6516a0345f0756dee0105",
-  "size": 7163529,
-  "releaseNotes": "chore(deps): bump @tanstack/react-query from 5.83.0 to 5.104.3",
+  "versionCode": 1222,
+  "sha256": "d67d038ee8d443b76e427fefcc4e758432e04f86121ece3347712166fa5576c0",
+  "size": 7164181,
+  "releaseNotes": "ui: shared design-system primitives + style guide (1/2, base of stack)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-03T23:08:29.874Z"
+  "publishedAt": "2026-11-04T06:48:55.678Z"
 }
