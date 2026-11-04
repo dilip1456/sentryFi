@@ -95,7 +95,7 @@ for (const width of [360, 390, 430, 1440]) {
         await list.getByRole("button", { name: "Show" }).click();
         const dis = list.getByTestId("rcv-dismissed").filter({ hasText: thirdLabel });
         // The frozen test clock keeps the last toast up; keep the row clear of it.
-        await dis.evaluate(n => { n.scrollIntoView({ block: "start" }); window.scrollBy(0, -120); });
+        await dis.getByRole("button", { name: "Restore" }).evaluate(n => n.scrollIntoView({ block: "center" }));
         await shot(page, `${tag}-06-dismissed`);
         await dis.getByRole("button", { name: "Restore" }).click();
         await expect(list.getByTestId("rcv-item")).toHaveCount(before);
