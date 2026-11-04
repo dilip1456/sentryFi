@@ -6,10 +6,9 @@ const Terms = () => (
   <div className="min-h-screen bg-background text-foreground">
     <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/70 border-b border-border/60">
       <div className="max-w-[760px] mx-auto px-4 md:px-8 h-14 flex items-center justify-between">
-        <Link to="/welcome" className="inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+        <Link to="/welcome" className="inline-flex min-h-[44px] items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to Sentry Finance
         </Link>
-        <div className="font-display text-sm text-foreground">Terms of Service</div>
       </div>
     </header>
 
