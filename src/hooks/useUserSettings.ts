@@ -107,6 +107,23 @@ export interface FinancialPictureData {
   confirmations?: Record<string, "yes" | "no">;
   // Bills and loans added by hand ("Add one") that don't show up in transactions.
   manualItems?: FinancialPictureManualItem[];
+  // Detected rows the person removed ("Not right"), keyed by the row's stable
+  // dismiss key (e.g. "obligations:loan-acct-abc", "income:pay:globex"). The
+  // row stays hidden after refresh and re-detection until they restore it.
+  // Only hides the detection: transactions and manual items are untouched.
+  dismissed?: Record<string, FinancialPictureDismissal>;
+}
+
+export interface FinancialPictureDismissal {
+  group: string;
+  label: string;
+  /** Monthly amount when it was removed (for the "Dismissed items" list). */
+  monthly: number;
+  at: string;
+  /** Default recurring seriesKeys ("outflow|rocket mortgage") so the Timeline hides them too. */
+  seriesKeys?: string[];
+  /** Canonical employer keys, so paycheck alerts ignore a removed income source. */
+  payees?: string[];
 }
 
 export interface FinancialPictureManualItem {
