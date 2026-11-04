@@ -13,12 +13,12 @@ import {
   type PaycheckAnomaly, type TimelineCursor, type TimelineEvent, type TimelineFilters, type TimelinePage, type UpcomingAccount,
   type UpcomingMilestone, type UpcomingObligation, type UpcomingStatement, type UpcomingStream,
 } from "@/lib/timeline";
+import { isPictureDecisionRow } from "@/lib/recurring/decisions";
 
 // Tables/RPC added by 20261029100000_timeline_events.sql (and a few older
 // ones) aren't in the generated types yet: narrow untyped access.
 type Res<T> = Promise<{ data: T | null; error: { message: string } | null }>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { isPictureDecisionRow } from "@/lib/recurring/decisions";
 const db = supabase as unknown as { from: (t: string) => any; rpc: (fn: string, args: Record<string, unknown>) => Res<Record<string, unknown>[]> };
 
 export interface TimelineSourceOpts { userId: string | null; demo: boolean }
