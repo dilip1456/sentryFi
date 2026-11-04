@@ -18,6 +18,7 @@ import {
 // ones) aren't in the generated types yet: narrow untyped access.
 type Res<T> = Promise<{ data: T | null; error: { message: string } | null }>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+import { isPictureDecisionRow } from "@/lib/recurring/decisions";
 const db = supabase as unknown as { from: (t: string) => any; rpc: (fn: string, args: Record<string, unknown>) => Res<Record<string, unknown>[]> };
 
 export interface TimelineSourceOpts { userId: string | null; demo: boolean }
@@ -120,7 +121,8 @@ export function useTimelineUpcoming({ userId, demo }: TimelineSourceOpts, enable
         { today, overrides: overrides as TxnTypeOverride[] },
       );
       const detected: UpcomingStream[] = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen }));
-      const streams = mergeStreams(stored as UpcomingStream[], detected);
+      // Picture review decisions share the table; they are not schedule rows.
+      const streams = mergeStreams((stored as UpcomingStream[]).filter(r => !isPictureDecisionRow(r as { source?: unknown; series_key?: unknown })), detected);
       return buildUpcoming({ today, through, streams, obligations: obligations as UpcomingObligation[], statements: statements as UpcomingStatement[], milestones: milestones as UpcomingMilestone[], accounts });
     },
   });
