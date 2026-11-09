@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useEffect, useState, useCallback } from "react";
 import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { supabase } from "@/integrations/supabase/client";
+import { useMachine } from "@/lib/machine";
 
 interface Props {
   open: boolean;
@@ -19,43 +20,52 @@ const SUPPORTED = [
   { icon: TrendingUp, label: "Brokerage & Retirement", note: "Fidelity, Vanguard, Schwab, 401(k), HSA" },
 ];
 
+type Phase = "idle" | "preparing" | "ready" | "plaid" | "exchanging";
+type Event = "OPEN" | "TOKEN_READY" | "TOKEN_FAILED" | "CONNECT" | "PLAID_EXIT" | "EXCHANGE_START" | "EXCHANGE_DONE" | "EXCHANGE_FAIL" | "CLOSE";
+
+const transitions: Record<Phase, Partial<Record<Event, Phase>>> = {
+  idle: { OPEN: "preparing", CLOSE: "idle" },
+  preparing: { TOKEN_READY: "ready", TOKEN_FAILED: "idle", CLOSE: "idle" },
+  ready: { CONNECT: "plaid", CLOSE: "idle" },
+  plaid: { PLAID_EXIT: "ready", EXCHANGE_START: "exchanging", CLOSE: "idle" },
+  exchanging: { EXCHANGE_DONE: "idle", EXCHANGE_FAIL: "ready", CLOSE: "idle" },
+};
+
 export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
   const { setDemo } = useDemo();
   const [linkToken, setLinkToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [exchanging, setExchanging] = useState(false);
-  // Hide our dialog (and its overlay) while Plaid's own UI is active,
-  // but keep this component mounted so usePlaidLink stays alive.
-  const [plaidOpen, setPlaidOpen] = useState(false);
+  const [phase, send] = useMachine<Phase, Event>("idle", transitions);
 
-  // Reset token whenever dialog closes so next open always gets a fresh one.
-  // Plaid link tokens are single-use — reusing a consumed token does nothing.
+  // Reset when dialog closes
   useEffect(() => {
     if (!open) {
       setLinkToken(null);
-      setPlaidOpen(false);
+      send("CLOSE");
+    } else if (phase === "idle") {
+      send("OPEN");
     }
-  }, [open]);
+  }, [open, phase, send]);
 
+  // Fetch link token when preparing
   useEffect(() => {
-    if (!open || linkToken) return;
+    if (phase !== "preparing" || linkToken) return;
     let cancelled = false;
     (async () => {
-      setLoading(true);
       const { data, error } = await supabase.functions.invoke("plaid-create-link-token");
       if (cancelled) return;
-      setLoading(false);
       if (error || !data?.link_token) {
         toast.error("Couldn't initialize Plaid", { description: error?.message ?? data?.error });
+        send("TOKEN_FAILED");
         return;
       }
       setLinkToken(data.link_token);
+      send("TOKEN_READY");
     })();
     return () => { cancelled = true; };
-  }, [open, linkToken]);
+  }, [phase, linkToken, send]);
 
   const onSuccess = useCallback(async (public_token: string, metadata: PlaidLinkOnSuccessMetadata) => {
-    setExchanging(true);
+    send("EXCHANGE_START");
     const { data, error } = await supabase.functions.invoke("plaid-exchange-token", {
       body: {
         public_token,
@@ -65,32 +75,30 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
         },
       },
     });
-    setExchanging(false);
     if (error || data?.error) {
       toast.error("Failed to link account", { description: error?.message ?? data?.error });
+      send("EXCHANGE_FAIL");
       return;
     }
     toast.success("Account linked. Syncing transactions…");
     setDemo(false);
     onOpenChange(false);
     onLinked?.();
-  }, [onOpenChange, onLinked, setDemo]);
+    send("EXCHANGE_DONE");
+  }, [onOpenChange, onLinked, setDemo, send]);
 
   const { open: openPlaid, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
-    onExit: () => setPlaidOpen(false),
+    onExit: () => send("PLAID_EXIT"),
   });
 
   const connect = () => {
-    if (!ready || !linkToken) {
+    if (phase !== "ready" || !ready || !linkToken) {
       toast.info("Preparing secure connection…");
       return;
     }
-    setPlaidOpen(true);
-    // Wait for our Dialog's close animation + Radix's modal lock (inert/aria-hidden
-    // on siblings) to fully release before Plaid injects its iframe — otherwise the
-    // iframe can get caught by the lock and end up unclickable.
+    send("CONNECT");
     setTimeout(() => openPlaid(), 250);
   };
 
@@ -99,6 +107,9 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
     onOpenChange(false);
     toast.success("Demo mode enabled. Showing sample portfolio.");
   };
+
+  const busy = phase === "preparing" || phase === "exchanging";
+  const plaidOpen = phase === "plaid";
 
   return (
     <Dialog open={open && !plaidOpen} onOpenChange={onOpenChange}>
@@ -143,11 +154,11 @@ export const LinkAccountDialog = ({ open, onOpenChange, onLinked }: Props) => {
         <div className="p-4 pt-0 space-y-2">
           <button
             onClick={connect}
-            disabled={loading || exchanging || !ready}
+            disabled={busy || !ready}
             className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-md bg-gold text-[14px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
           >
-            {loading || exchanging ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> {exchanging ? "Linking…" : "Preparing…"}</>
+            {busy ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> {phase === "exchanging" ? "Linking…" : "Preparing…"}</>
             ) : (
               <><ShieldCheck className="h-4 w-4" /> Connect with Plaid <ArrowRight className="h-3.5 w-3.5" /></>
             )}
