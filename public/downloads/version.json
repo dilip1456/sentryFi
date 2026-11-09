@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1227,
-  "sha256": "7322d8aba189e45f66e21101742ee6e8ad89fd81c00a8a623545dc020f453874",
-  "size": 7187545,
-  "releaseNotes": "ui(giftcards/benefits): single screen title, shared header, 44px toggles",
+  "versionCode": 1228,
+  "sha256": "019d182c183b8da84f0739596362f4b99bf8f37477b539593e0a0e70c637d54e",
+  "size": 7188113,
+  "releaseNotes": "ui: apply primitives to Home, Spending, Money Map (2/2, stacked on ui/primitives)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-09T14:43:54.683Z"
+  "publishedAt": "2026-11-09T14:48:55.236Z"
 }
