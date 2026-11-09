@@ -82,7 +82,7 @@ test.describe("Timeline paycheck alerts · phone 390x844", () => {
 
   test("P7-P9 Alerts chip in the filter sheet, detail sheet, Mark as seen, close methods", async ({ page, guard }) => {
     await page.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("button", { name: "Timeline", exact: true }).last().click();
+    await page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true }).click();
     await toHistory(page);
     await expect(panel(page)).toBeVisible(); await waitLoaded(page);
     await panel(page).getByRole("button", { name: "Filters" }).click();

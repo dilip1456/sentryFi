@@ -86,7 +86,7 @@ test.describe("phone 390x844", () => {
     await openDemo(page);
     await page.getByRole("button", { name: "More", exact: true }).click(); await settle(page);
     await shot(page, "timeline-mobile-more-sheet-390x844");
-    await page.getByRole("button", { name: "Timeline", exact: true }).last().click();
+    await page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true }).click();
     await toHistory(page);
     await expect(page.getByTestId("tl-skeleton").first()).toBeVisible();
     await shot(page, "timeline-mobile-skeleton-390x844");

@@ -2,6 +2,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useHistoryLayer } from "@/hooks/useHistoryLayer";
+import { menuSurface } from "@/components/ui/menu-styles";
+import { cn } from "@/lib/utils";
 
 /**
  * The phone "More" menu. Rendered in a portal on <body>: the bottom nav has
@@ -21,8 +23,8 @@ export function MobileMoreMenu({ open, onClose, children }: { open: boolean; onC
     if (!open) return;
     opener.current = document.activeElement as HTMLElement | null;
     const menu = menuRef.current;
-    menu?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); closeRef.current(); } };
+    (menu?.querySelector<HTMLElement>("[role=menuitem]") ?? menu?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); closeRef.current(); } };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
@@ -39,9 +41,9 @@ export function MobileMoreMenu({ open, onClose, children }: { open: boolean; onC
         className="fixed inset-0 z-[100] cursor-default bg-black/20 md:hidden" onClick={onClose} />
       <div ref={menuRef} role="menu" aria-label="More" data-testid="more-menu"
         style={{ bottom: "calc(4rem + env(safe-area-inset-bottom))" }}
-        className="fixed right-2 z-[101] w-56 rounded-xl shadow-2xl overflow-hidden bg-[hsl(var(--popover))] border border-border md:hidden">
-        <div className="flex items-center justify-between pl-4 pr-1 border-b border-border/50">
-          <span className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">More</span>
+        className={cn(menuSurface, "fixed right-2 z-[101] w-56 shadow-2xl md:hidden")}>
+        <div className="flex items-center justify-between pl-2.5 -mr-0.5 -mt-0.5 mb-1 border-b border-border/50">
+          <span className="text-[11.5px] font-bold uppercase tracking-[0.07em] text-muted-foreground">More</span>
           <button type="button" onClick={onClose} aria-label="Close"
             className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:bg-muted/50">
             <X className="h-4 w-4" aria-hidden />

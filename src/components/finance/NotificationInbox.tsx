@@ -13,7 +13,11 @@ import { useDerivedAlerts, derivedInboxRows, markDerivedRead, isDerivedId } from
 export const ALERTS_READ_EVENT = "sentryfi:alerts-read";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { OverlayHeader } from "@/components/ui/headers";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Alert {
   id: string;
@@ -150,39 +154,38 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
     <>
       {/* Inbox panel */}
       <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-md p-0 gap-0 max-h-[85dvh] flex flex-col surface-elevated border-border">
-          <DialogTitle className="sr-only">Notifications</DialogTitle>
+        <DialogContent showClose={false} className="max-w-md p-0 gap-0 max-h-[85dvh] flex flex-col surface-elevated border-border">
           <DialogDescription className="sr-only">Your financial alerts and notifications</DialogDescription>
 
-          {/* Header */}
-          <div className="flex items-center gap-3 pl-5 pr-14 py-4 border-b border-border/30 shrink-0">
-            <Bell className="h-4 w-4 text-[hsl(var(--primary))]" />
-            <span className="text-[15px] font-semibold text-foreground flex-1">Notifications</span>
-            {unreadCount > 0 && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[hsl(var(--primary))] text-background">
-                {unreadCount} new
-              </span>
-            )}
-            {anyUnreadRows && (
-              <button onClick={markAllRead}
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
-                <CheckCheck className="h-3.5 w-3.5" /> Mark all read
-              </button>
-            )}
-          </div>
+          {/* Header: one visible title (= the dialog's name), unread count, Mark all read, 44px X */}
+          <OverlayHeader className="shrink-0" title="Notifications" titleAs={DialogTitle}
+            description={unreadCount > 0 ? <span data-testid="inbox-unread">{unreadCount} new</span> : undefined}
+            trailing={<>
+              {anyUnreadRows && (
+                <Button variant="ghost" size="compact" onClick={markAllRead} className="gap-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground">
+                  <CheckCheck className="h-4 w-4" aria-hidden="true" /> Mark all read
+                </Button>
+              )}
+              <DialogClose aria-label="Close"
+                className="h-11 w-11 shrink-0 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <X className="h-4 w-4" aria-hidden="true" />
+              </DialogClose>
+            </>} />
 
           {/* List */}
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              <div className="p-10 text-center text-[12px] text-muted-foreground">Loading…</div>
-            ) : inbox.length === 0 ? (
-              <div className="p-10 text-center">
-                <Bell className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
-                <div className="text-[13px] font-medium text-foreground">No notifications yet</div>
-                <div className="text-[11px] text-muted-foreground mt-1">
-                  Alerts for budgets, payments, deposits, paychecks and insights will appear here
-                </div>
+              <div className="p-5 space-y-4" role="status" aria-label="Loading notifications">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="flex items-start gap-3">
+                    <Skeleton className="h-8 w-8 rounded-lg" />
+                    <div className="flex-1 space-y-2"><Skeleton className="h-3.5 w-3/4" /><Skeleton className="h-3 w-full" /></div>
+                  </div>
+                ))}
               </div>
+            ) : inbox.length === 0 ? (
+              <EmptyState className="py-10" icon={<Bell />} title="No notifications yet"
+                description="Alerts for budgets, payments, deposits, paychecks and insights will appear here." />
             ) : inbox.map(alert => {
               const Icon = ALERT_ICON[alert.alert_type] ?? Bell;
               const color = ALERT_COLOR[alert.alert_type] ?? "text-muted-foreground bg-muted";
@@ -238,7 +241,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                     <div className={cn("h-11 w-11 rounded-xl grid place-items-center mb-3", color)}>
                       <Icon className="h-5 w-5" />
                     </div>
-                    <div className="font-display text-[16px] text-foreground leading-snug">{displayTitle(selected)}</div>
+                    <div className="font-display text-[20px] font-semibold tracking-[-0.02em] text-foreground leading-snug pr-8">{displayTitle(selected)}</div>
                     <div className="text-[12.5px] text-muted-foreground mt-1">{selected.body}</div>
                     <div className="text-[10px] text-muted-foreground/40 mt-2">{timeAgo(selected.created_at)}</div>
                   </div>
@@ -284,7 +287,7 @@ export const NotificationInbox = ({ supabase, userId, open, onClose, onOpenTrans
                         {p.category && <Row label="Category" value={p.category} />}
                         {onOpenTransaction && p.transaction_id && (
                           <button onClick={() => { closeDetail(); onOpenTransaction(p.transaction_id); }}
-                            className="w-full flex items-center justify-center gap-2 h-9 rounded-lg bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] text-[12.5px] font-medium mt-2">
+                            className="w-full flex items-center justify-center gap-2 min-h-11 md:min-h-10 rounded-[10px] bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] text-[13px] font-semibold mt-2">
                             View transaction <ChevronRight className="h-3.5 w-3.5" />
                           </button>
                         )}

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -26,6 +25,8 @@ import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
 import { MobileMoreMenu } from "@/components/nav/MobileMoreMenu";
+import { HeaderMenu } from "@/components/nav/HeaderMenu";
+import { menuItem, menuItemActive, menuItemGroupStart as rowSep } from "@/components/ui/menu-styles";
 import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
@@ -93,13 +94,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, on);
   }, []);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // The header menu is a hand-rolled popover (not Radix), so Escape is wired here.
-  useEffect(() => {
-    if (!headerMenuOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setHeaderMenuOpen(false); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [headerMenuOpen]);
+  const closeHeaderMenu = useCallback(() => setHeaderMenuOpen(false), []);
   const [showAppUpdates, setShowAppUpdates] = useState(false);
   const appUpdate = useAppUpdate();
   const updateSupported = appUpdate.supported;
@@ -432,54 +427,43 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={headerMenuOpen}
-                className="tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
-                <Settings className="h-3.5 w-3.5" />
+                className="h-11 w-11 -mr-1 rounded-full grid place-items-center text-muted-foreground hover:bg-surface-hover no-min-h">
+                <span className="h-8 w-8 rounded-full border border-border grid place-items-center"><Settings className="h-3.5 w-3.5" /></span>
               </button>
-              {headerMenuOpen && createPortal(
-                <>
-                  <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div role="dialog" aria-label="Menu" data-state="open" data-header-menu
-                    style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-top))] overflow-y-auto overscroll-contain rounded-xl shadow-2xl bg-[hsl(var(--popover))] border border-border/30">
-                    <div className="flex items-center justify-between pl-4 pr-0.5 h-11 border-b border-border/30">
-                      <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">Menu</span>
-                      <button type="button" aria-label="Close" onClick={() => setHeaderMenuOpen(false)}
-                        className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground">
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </div>
+              <HeaderMenu open={headerMenuOpen} onClose={closeHeaderMenu}>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
+                        className={cn(menuItem, "font-semibold text-[hsl(var(--primary))]")}>
                         <LogOut className="h-4 w-4" /> Sign in / Create account
                       </button>
                     )}
                     {user && !effectiveDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
+                        className={cn(menuItem, "text-foreground")}>
                         <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
                     {user && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
+                        className={cn(menuItem, "text-foreground")}>
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
-                        <Settings className="h-4 w-4 opacity-60" /> Settings
+                        className={cn(menuItem, "text-foreground")}>
+                        <Settings className="opacity-60" /> Settings
                       </button>
                     )}
                     <button onClick={toggleTheme}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                      className={cn(menuItem, "text-foreground", rowSep)}>
                       {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                       {theme === "dark" ? "Light mode" : "Dark mode"}
                     </button>
                     {updateSupported ? (
                       // Inside the APK: in-app update settings instead of a download link.
                       <button onClick={() => { setHeaderMenuOpen(false); setShowAppUpdates(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                        className={cn(menuItem, "text-foreground", rowSep)}>
                         <Download className="h-4 w-4 opacity-60" /> App updates
                         {appUpdate.checkStatus === "available" && (
                           <span className="ml-auto h-2 w-2 rounded-full bg-[hsl(var(--primary))]" aria-label="Update available" />
@@ -487,33 +471,30 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     ) : (
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30"
+                      className={cn(menuItem, "text-foreground", rowSep)}
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
                     )}
                     {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-warning hover:bg-muted/50 border-t border-border/30">
+                        className={cn(menuItem, "text-warning", rowSep)}>
                         <Sparkles className="h-4 w-4" /> Exit demo
                       </button>
                     )}
                     {guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-border/30">
+                        className={cn(menuItem, "text-[hsl(var(--primary))] font-semibold", rowSep)}>
                         <LogOut className="h-4 w-4" /> Create free account
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-red-400 font-medium hover:bg-white/5 border-t border-border/30">
+                        className={cn(menuItem, "text-negative-text font-medium", rowSep)}>
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
                     )}
-                  </div>
-                </>,
-                document.body
-              )}
+              </HeaderMenu>
             </div>
           </div>
         </header>
@@ -735,7 +716,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </button>
             <MobileMoreMenu open={moreOpen} onClose={closeMore}>
                   <button onClick={() => { setMoreOpen(false); setTimelineOpen(true); }} data-tl-open
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors">
+                    role="menuitem" className={menuItem}>
                     <History className="h-4 w-4 opacity-60" />
                     Timeline
                   </button>
@@ -743,8 +724,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
-                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors",
-                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
+                        role="menuitem" aria-current={view === t.k ? "page" : undefined}
+                        className={cn(menuItem, view === t.k && menuItemActive)}>
                         <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
                       </button>
