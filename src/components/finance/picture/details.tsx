@@ -2,6 +2,7 @@
  * Detail views: the same content renders in the desktop dialog, a mobile
  * full screen or a mobile bottom sheet (see overlays.tsx).
  */
+import { RecurringItem, RecurringList } from "./recurring";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -797,9 +798,22 @@ function EditFooter() {
   );
 }
 
+// ── Detected recurring ──
+
+function renderRecurring(key: string, pc: PictureState): DetailView | null {
+  if (key === "rcv") return { title: "Detected recurring", wide: true, body: <RecurringList /> };
+  if (key.startsWith("rcv:item:")) {
+    const k = decodeURIComponent(key.slice("rcv:item:".length));
+    const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);
+    return it ? { title: it.label, body: <RecurringItem key={`${k}|${it.status}|${it.edited}`} it={it} /> } : null;
+  }
+  return null;
+}
+
 // ── Router ─────────────────────────────────────────────────────────────────
 
 export function renderDetail(key: string, pc: PictureState): DetailView | null {
+  if (key === "rcv" || key.startsWith("rcv:")) return renderRecurring(key, pc);
   const [a, b, ...rest] = key.split(":");
   const viaEdit = rest[rest.length - 1] === "edit" && a === "pick";
   const c = (viaEdit ? rest.slice(0, -1) : rest).join(":");

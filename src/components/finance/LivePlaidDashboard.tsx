@@ -6663,6 +6663,7 @@ export const LivePlaidDashboard = ({
         savingsGoals={settings.savingsGoals}
         financialPicture={settings.financialPicture}
         onUpdate={S.update}
+        userId={(demo || guestDemo) ? null : user?.id ?? null}
         demo={demo || guestDemo}
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}

@@ -45,7 +45,7 @@ export const useOverlay = () => {
   return c;
 };
 
-export const isSheetKey = (k: string) => /^(row|pick|add):/.test(k);
+export const isSheetKey = (k: string) => /^(row|pick|add|rcv:item):/.test(k);
 const HISTORY_TAG = "fpOverlay";
 const EXIT_MS = 320;
 
@@ -133,6 +133,11 @@ export function OverlayProvider({ isMobile, render, children }: {
   );
 }
 
+// An Undo toast sits outside the open dialog/sheet: clicking it must not close the layer.
+const fromToast = (e: { target: EventTarget | null; preventDefault: () => void }) => {
+  if (e.target instanceof Element && e.target.closest("[data-sonner-toaster]")) e.preventDefault();
+};
+
 const BACKDROP = "fixed inset-0 z-50 bg-[hsl(222_40%_3%/.66)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0";
 
 function DesktopDialog({ entry, lastEntry, onClose, render }: {
@@ -147,6 +152,7 @@ function DesktopDialog({ entry, lastEntry, onClose, render }: {
         {v && (
           <DialogPrimitive.Content
             aria-describedby={undefined}
+            onInteractOutside={fromToast}
             className={`fp fp-dlg ${v.wide ? "wide" : ""} ${v.compact ? "compact" : ""} fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-border bg-popover text-foreground shadow-2xl outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95`}
           >
             <div className="ov-h">
@@ -167,7 +173,7 @@ function Sheet({ open, onClose, view }: { open: boolean; onClose: () => void; vi
     <DrawerPrimitive.Root open={open} onOpenChange={o => { if (!o && open) onClose(); }} shouldScaleBackground={false}>
       <DrawerPrimitive.Portal>
         <DrawerPrimitive.Overlay className="fixed inset-0 z-50 bg-[hsl(222_40%_3%/.66)]" />
-        <DrawerPrimitive.Content aria-describedby={undefined} className={`fp fp-sheet ${view.compact ? "compact" : ""} fixed inset-x-0 bottom-0 z-50 border-t border-border bg-popover text-foreground outline-none`} data-fp-sheet="">
+        <DrawerPrimitive.Content aria-describedby={undefined} className={`fp fp-sheet ${view.compact ? "compact" : ""} fixed inset-x-0 bottom-0 z-50 border-t border-border bg-popover text-foreground outline-none`} data-fp-sheet="" onInteractOutside={fromToast}>
           <div className="grab" aria-hidden="true"><span /></div>
           <div className="ov-h">
             <DrawerPrimitive.Title asChild><h3>{view.title}</h3></DrawerPrimitive.Title>
@@ -190,6 +196,7 @@ function Screen({ open, onClose, view, under }: { open: boolean; onClose: () => 
           data-fp-screen=""
           className={`fp fp-screen ${under ? "under" : ""} text-foreground outline-none duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right`}
           onPointerDownOutside={e => e.preventDefault()}
+          onInteractOutside={fromToast}
         >
           <div className="scr-h">
             <DialogPrimitive.Close className="back" aria-label="Back"><ArrowLeft className="h-5 w-5" aria-hidden="true" /></DialogPrimitive.Close>

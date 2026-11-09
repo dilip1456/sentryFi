@@ -13,6 +13,7 @@ import {
   type PaycheckAnomaly, type TimelineCursor, type TimelineEvent, type TimelineFilters, type TimelinePage, type UpcomingAccount,
   type UpcomingMilestone, type UpcomingObligation, type UpcomingStatement, type UpcomingStream,
 } from "@/lib/timeline";
+import { isPictureDecisionRow } from "@/lib/recurring/decisions";
 
 // Tables/RPC added by 20261029100000_timeline_events.sql (and a few older
 // ones) aren't in the generated types yet: narrow untyped access.
@@ -120,7 +121,8 @@ export function useTimelineUpcoming({ userId, demo }: TimelineSourceOpts, enable
         { today, overrides: overrides as TxnTypeOverride[] },
       );
       const detected: UpcomingStream[] = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen }));
-      const streams = mergeStreams(stored as UpcomingStream[], detected);
+      // Picture review decisions share the table; they are not schedule rows.
+      const streams = mergeStreams((stored as UpcomingStream[]).filter(r => !isPictureDecisionRow(r as { source?: unknown; series_key?: unknown })), detected);
       return buildUpcoming({ today, through, streams, obligations: obligations as UpcomingObligation[], statements: statements as UpcomingStatement[], milestones: milestones as UpcomingMilestone[], accounts });
     },
   });

@@ -156,7 +156,7 @@ const Auth = () => {
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`flex-1 py-1.5 rounded-full transition ${mode === m ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}
+              className={`flex-1 py-1.5 min-h-[40px] rounded-full transition ${mode === m ? "bg-foreground text-background font-medium" : "text-muted-foreground"}`}
               type="button"
             >
               {m === "signin" ? "Sign in" : "Create account"}
@@ -167,33 +167,33 @@ const Auth = () => {
         <form onSubmit={submit} className="space-y-3">
           {mode === "signup" && (
             <div>
-              <label className="text-[12.5px] text-muted-foreground">Display name</label>
-              <input value={displayName} onChange={(e) => setDisplayName(e.target.value)}
-                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
+              <label htmlFor="auth-name" className="text-[12.5px] text-muted-foreground">Display name</label>
+              <input id="auth-name" value={displayName} onChange={(e) => setDisplayName(e.target.value)}
+                className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 min-h-[44px] text-[14px] text-foreground outline-none focus:border-foreground/40"
                 placeholder="Jordan Reeves" maxLength={80} />
             </div>
           )}
           <div>
-            <label className="text-[12.5px] text-muted-foreground">Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
+            <label htmlFor="auth-email" className="text-[12.5px] text-muted-foreground">Email</label>
+            <input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 min-h-[44px] text-[14px] text-foreground outline-none focus:border-foreground/40"
               placeholder="you@example.com" maxLength={255} autoComplete="email" />
           </div>
           <div>
-            <label className="text-[12.5px] text-muted-foreground">Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40"
+            <label htmlFor="auth-password" className="text-[12.5px] text-muted-foreground">Password</label>
+            <input id="auth-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 min-h-[44px] text-[14px] text-foreground outline-none focus:border-foreground/40"
               placeholder="••••••••" minLength={8} maxLength={72} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
           </div>
           <button type="submit" disabled={busy}
-            className="w-full py-2 rounded-md bg-foreground text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+            className="w-full py-2 min-h-[44px] rounded-md bg-foreground text-background text-[14px] font-medium hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === "signin" ? "Sign in" : "Create account"}
           </button>
           {mode === "signin" && (
             <div className="text-center mt-1">
               <button type="button" onClick={() => { setShowForgot(true); setForgotEmail(email); }}
-                className="text-[12.5px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                className="inline-flex min-h-[44px] items-center px-2 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
                 Forgot password?
               </button>
             </div>
@@ -204,9 +204,9 @@ const Auth = () => {
           <div className="mt-4 rounded-xl border border-border bg-surface/40 p-4 space-y-3">
             <div className="text-[14px] font-medium text-foreground">Reset your password</div>
             <form onSubmit={sendReset} className="space-y-2">
-              <input type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
+              <input type="email" aria-label="Email for password reset" autoComplete="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+                className="w-full bg-surface/40 border border-border/60 rounded-md px-3 py-2 min-h-[44px] text-[14px] text-foreground outline-none focus:border-foreground/40" />
               <div className="flex gap-2">
                 <button type="submit" disabled={busy}
                   className="flex-1 py-2 rounded-md bg-foreground text-background text-[13px] font-medium disabled:opacity-50 inline-flex items-center justify-center gap-1.5">

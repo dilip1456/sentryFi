@@ -95,3 +95,6 @@ export async function spendingTotal(page: Page): Promise<number> {
   for (let i = 0; i < 20 && cur !== prev; i++) { await page.waitForTimeout(150); prev = cur; cur = usd(await val.innerText()); }
   return cur;
 }
+
+/** The Timeline opens on the Rundown tab; the History feed is one tap away. */
+export async function toHistory(p: import("@playwright/test").Page) { await p.getByTestId("tl-tab-history").click(); }
