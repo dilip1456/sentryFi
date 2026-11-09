@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1231,
-  "sha256": "245300d63740d1d2bfe141d18adcad7b6f9c63f33f97f2ba39488176649ce3cb",
-  "size": 7188989,
-  "releaseNotes": "ui(menus): header menu focus management, 44px gear, gift card dialog X 44px",
+  "versionCode": 1232,
+  "sha256": "e260b2fc46ffbe7e5bf0d30337d7aa5408e10714fc845249f23a8d19198af39a",
+  "size": 7189017,
+  "releaseNotes": "ui(timeline): tiny skeleton a11y swap",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-09T16:26:38.043Z"
+  "publishedAt": "2026-11-09T16:32:19.637Z"
 }
