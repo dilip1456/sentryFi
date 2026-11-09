@@ -1152,7 +1152,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
               </>
             )}
           </div>
-          <button onClick={() => onOpenChange(false)} aria-label="Close" className="ml-auto h-8 w-8 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
+          <button onClick={() => onOpenChange(false)} aria-label="Close" className="ml-auto -mr-1.5 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1351,7 +1351,7 @@ const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCa
         <DialogTitle className="sr-only">Log spend on {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Record how much you spent to update the tracked balance.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40">
-          <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-3">
@@ -1465,7 +1465,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
         <DialogTitle className="sr-only">Edit {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Edit balance and details for this gift card.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
-          <button onClick={onClose} aria-label="Close" className="absolute top-4 right-4 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-3">
