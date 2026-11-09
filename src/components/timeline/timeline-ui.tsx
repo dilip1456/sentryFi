@@ -44,8 +44,8 @@ export function EventCard({ e, ghost, onOpen, subtitle }: { e: TimelineEvent; gh
 
 export function Skeletons({ n }: { n: number }) {
   return (
-    <div data-testid="tl-skeleton">
-      <div className="tl-skel-h" />
+    <div data-testid="tl-skeleton" role="status" aria-label="Loading timeline">
+      <div className="tl-skel-h" aria-hidden />
       <div className="tl-skel-wrap" aria-hidden>
         {Array.from({ length: n }, (_, i) => <div key={i} className="tl-skel"><i /><i /><i /></div>)}
       </div>
