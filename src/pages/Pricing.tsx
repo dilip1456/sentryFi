@@ -23,7 +23,7 @@ const Pricing = () => {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-background/70 border-b border-border/60">
         <div className="max-w-[1100px] mx-auto px-4 md:px-8 h-14 flex items-center justify-between">
-          <Link to="/" className="inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
+          <Link to="/" className="inline-flex min-h-[44px] items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-3.5 w-3.5" /> Back to dashboard
           </Link>
           <div className="font-display text-sm text-foreground">Sentry Finance / Plans</div>

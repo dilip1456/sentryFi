@@ -521,6 +521,11 @@ main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
     min-height: 40px;
     min-width: 40px;
   }
+  /* Opt-in full 44px target (WCAG 2.5.5 / Android guideline) for icon buttons & chips. */
+  .tap-44 {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
 }
 
 /* ── Focus visible ──────────────────────────────────────────────── */

@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test";
-import { test, expect, openDemo, QA_NOW } from "./fixtures";
+import { test, expect, openDemo, QA_NOW, toHistory } from "./fixtures";
 
 /**
  * Timeline sidebar (demo data). Mirrors the approved prototype's interaction
@@ -65,6 +65,7 @@ test.describe("Timeline · desktop 1440x900", () => {
         .observe(document.body, { childList: true, subtree: true });
     });
     await navBtn(page).click();
+    await toHistory(page);
     await expect(panel(page)).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __tlSkel?: boolean }).__tlSkel)).toBe(true); // D2 skeletons first
     expect((await panel(page).boundingBox())!.width).toBe(400);
@@ -100,6 +101,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D8-D15 filters popover: Escape, chips, Upcoming-only, transfers toggle, Reset, click outside", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     const filtersBtn = panel(page).getByRole("button", { name: "Filters" });
     await filtersBtn.click();
     const pop = page.getByTestId("tl-pop-filters");
@@ -139,6 +141,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D16-D18 jump to date: Jan 1, date picker + Go, Today", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Jump to date" }).click();
     await page.getByTestId("tl-pop-jump").getByRole("button", { name: "Jan 1" }).click(); await waitLoaded(page);
     await expect(page.getByTestId("tl-jumped")).toContainText("Thu, Jan 1, 2026"); // D16
@@ -160,6 +163,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D19-D24 detail dialog: X, Escape, backdrop; sidebar Escape + X, focus return", async ({ page, guard }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     const dlg = page.getByTestId("tl-detail-dialog");
     const ev = history(page).first();
     await ev.click();
@@ -194,6 +198,7 @@ test.describe("Timeline · desktop 1440x900", () => {
     await expect(navBtn(page)).toBeFocused();
     await expect(navBtn(page)).toHaveAttribute("aria-expanded", "false");
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Close timeline" }).click(); // D24
     await expect(panel(page)).toBeHidden();
     expect(guard.consoleErrors).toEqual([]); // D25
@@ -201,6 +206,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("empty filter state + Clear filters", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Jump to date" }).click();
     await page.getByTestId("tl-pop-jump").getByRole("button", { name: "Start of history" }).click(); await waitLoaded(page);
     await panel(page).locator(".tl-chips").getByRole("button", { name: "Taxes" }).click(); await waitLoaded(page);
@@ -220,6 +226,7 @@ test.describe("Timeline · phone 390x844", () => {
     const item = page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true });
     await expect(item).toBeVisible(); // M1
     await item.click();
+    await toHistory(page);
     await expect(panel(page)).toBeVisible();
     await waitLoaded(page);
   }

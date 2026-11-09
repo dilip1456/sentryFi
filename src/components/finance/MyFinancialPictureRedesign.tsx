@@ -8,6 +8,7 @@ import { renderDetail } from "./picture/details";
 import { HistoryToast } from "./picture/history-hint";
 import { fmt } from "./picture/bits";
 import { SEC } from "./picture/meta";
+import { RecurringCard } from "./picture/recurring";
 import type { ListGroup } from "./picture/state";
 import "./picture/picture.css";
 
@@ -91,6 +92,7 @@ function AttentionColumn() {
       <span className="fp-attention-copy"><b>{good ? "Everything is connected" : "A few things need a home"}</b><span>{cov.pct}% of bills and goals have an account behind them.</span><span className="bar"><i style={{ width: `${cov.pct}%` }} /></span></span>
       <strong>{cov.pct}%</strong>
     </button>
+    <div className="mt-3"><RecurringCard /></div>
     {cov.flags.length > 0 && <div className="fp-review-card">
       <div><b>{cov.flags.length} item{cov.flags.length === 1 ? " needs" : "s need"} a payment account</b><p>Assign an account so these obligations are tracked against the right money.</p></div>
       <button type="button" className="btn" onClick={() => open(cov.flags[0].key)}>Review</button>

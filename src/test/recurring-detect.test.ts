@@ -6,6 +6,7 @@ import {
   withOverrides,
   detectRecurringSeries,
   mergeStreamRow,
+  merchantKey,
   occurrenceOverridesFromRows,
   toOccurrenceRows,
   toStreamRow,
@@ -143,6 +144,11 @@ describe("bills", () => {
     expect(s.amount.priceChanged).toBe(true);
     expect(s.nextExpectedAmount).toBe(17.99);
     expect(s.nextExpectedDate).toBe("2026-11-12");
+  });
+
+  it("collapses a truncated trailing descriptor word but keeps the brand word whole", () => {
+    expect(merchantKey("PROVIDENT FUNDING")).toBe(merchantKey("PROVIDENT FUNDIN"));
+    expect(merchantKey("NETFLIX.COM", "Netflix")).toBe("netflix");
   });
 
   it("finds a monthly charge hidden among one-off purchases at the same merchant", () => {

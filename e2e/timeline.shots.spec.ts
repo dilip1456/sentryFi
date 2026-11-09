@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { test, expect, openDemo } from "./fixtures";
+import { test, expect, openDemo, toHistory } from "./fixtures";
 
 /**
  * Review screenshots for the Timeline (not part of the regular run).
@@ -29,6 +29,7 @@ test.describe("desktop 1440x900", () => {
     await openDemo(page);
     await shot(page, "timeline-desktop-closed-1440x900");
     await page.locator("aside").getByRole("button", { name: "Timeline" }).click();
+    await toHistory(page);
     await expect(page.getByTestId("tl-skeleton").first()).toBeVisible();
     await shot(page, "timeline-desktop-skeleton-initial-1440x900");
     await loaded(page); await settle(page);
@@ -86,6 +87,7 @@ test.describe("phone 390x844", () => {
     await page.getByRole("button", { name: "More", exact: true }).click(); await settle(page);
     await shot(page, "timeline-mobile-more-sheet-390x844");
     await page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true }).click();
+    await toHistory(page);
     await expect(page.getByTestId("tl-skeleton").first()).toBeVisible();
     await shot(page, "timeline-mobile-skeleton-390x844");
     await loaded(page); await settle(page);

@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1222,
-  "sha256": "d67d038ee8d443b76e427fefcc4e758432e04f86121ece3347712166fa5576c0",
-  "size": 7164181,
-  "releaseNotes": "ui: shared design-system primitives + style guide (1/2, base of stack)",
+  "versionCode": 1229,
+  "sha256": "d08f112b2c82d2a6fe8b06135ae511e78560afa7434a5cccc233199c230c8e52",
+  "size": 7188253,
+  "releaseNotes": "ui(settings): Settings dialog on shared primitives",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-04T06:48:55.678Z"
+  "publishedAt": "2026-11-09T14:55:14.413Z"
 }
