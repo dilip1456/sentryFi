@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1224,
-  "sha256": "4123eca70b523198c16dcc180951150eb80092b512f490a8a99d75d91bb3e3ec",
-  "size": 7164289,
-  "releaseNotes": "ui(auth/public): labelled auth fields, single Terms/Privacy title, 44px links",
+  "versionCode": 1225,
+  "sha256": "f30cdca87ab85cbf61d0fda993453fa568c40e62880d36f1df8706b468ae1a1a",
+  "size": 7173589,
+  "releaseNotes": "Picture: recurring streams review (detected items fix)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-04T08:02:14.624Z"
+  "publishedAt": "2026-11-09T13:35:45.242Z"
 }
