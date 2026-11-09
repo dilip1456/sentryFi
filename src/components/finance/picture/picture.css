@@ -451,3 +451,49 @@
   .fp .sum-card .t { font-size:14px; letter-spacing:-.01em; }
   .fp .sum-card .v { font-size:14.5px; }
 }
+
+/* ── Detected recurring ── */
+.fp .rcv-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.fp .rcv-chip { font-size:12.5px; padding:4px 10px; border-radius:999px; background:hsl(var(--muted)/.6); color:hsl(var(--foreground)); }
+.fp .rcv-chip.muted { color:hsl(var(--muted-foreground)); }
+.fp .rcv-missed { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:13px; color:hsl(var(--warning)); }
+.fp .rcv-n { display:inline-block; min-width:20px; padding:1px 6px; margin-left:4px; border-radius:999px; background:hsl(var(--muted)); text-align:center; font-size:10px; letter-spacing:0; }
+.fp .rcv-row { display:flex; align-items:center; gap:6px; padding-right:8px; min-height:56px; }
+.fp .rcv-row + .rcv-row { border-top:1px solid hsl(var(--border)/.7); }
+.fp .rcv-main { flex:1; min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto 18px; align-items:center; gap:10px; padding:8px 4px 8px 14px; text-align:left; }
+.fp .rcv-main.static { grid-template-columns:minmax(0,1fr); }
+.fp .rcv-main:hover { background:hsl(var(--surface-hover)/.5); }
+.fp .rcv-lbl { min-width:0; font-size:14px; }
+.fp .rcv-lbl b { font-weight:600; margin-right:6px; }
+.fp .rcv-lbl small, .fp .rcv-amt small { display:block; font-size:12px; color:hsl(var(--muted-foreground)); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fp .rcv-amt { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:14px; }
+.fp .rcv-chev { color:hsl(var(--muted-foreground)); }
+.fp .rcv-acts { display:flex; gap:4px; flex-shrink:0; }
+.fp .rcv-icon { height:36px; width:36px; display:grid; place-items:center; border-radius:9px; border:1px solid hsl(var(--border)); color:hsl(var(--muted-foreground)); }
+.fp .rcv-icon.ok:hover { color:hsl(var(--success, 142 70% 45%)); border-color:currentColor; }
+.fp .rcv-icon.no:hover { color:hsl(var(--destructive)); border-color:currentColor; }
+.fp .rcv-badge { display:inline-flex; align-items:center; gap:3px; vertical-align:middle; font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }
+.fp .rcv-badge.ok { background:hsl(var(--primary)/.12); color:hsl(var(--primary)); }
+.fp .rcv-badge.warn { background:hsl(var(--warning)/.15); color:hsl(var(--warning)); }
+.fp .rcv-btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.fp .rcv-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.fp .rcv-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:hsl(var(--muted-foreground)); }
+.fp .rcv-form select, .fp .rcv-form input { min-height:40px; padding:0 10px; border-radius:9px; border:1px solid hsl(var(--border-strong)); background:hsl(var(--background)); color:hsl(var(--foreground)); font-size:14px; }
+.fp .rcv-form input[aria-invalid="true"] { border-color:hsl(var(--destructive)); }
+.fp .rcv-form .rcv-btns { grid-column:1 / -1; margin-top:2px; }
+.fp .rcv-txns { border:1px solid hsl(var(--border)/.8); border-radius:10px; margin-top:8px; }
+.fp .rcv-txns li { display:grid; grid-template-columns:64px minmax(0,1fr) auto; gap:10px; padding:7px 12px; font-size:13px; }
+.fp .rcv-txns li + li { border-top:1px solid hsl(var(--border)/.6); }
+.fp .rcv-txns .amt { font-variant-numeric:tabular-nums; }
+@media (max-width: 480px) {
+  .fp .rcv-form { grid-template-columns:minmax(0,1fr); }
+  .fp .rcv-amt small { display:none; }
+  .fp .rcv-main { grid-template-columns:minmax(0,1fr) auto; padding-left:12px; }
+  .fp .rcv-chev { display:none; }
+  .fp .kv { grid-template-columns:minmax(0,1fr); }
+}
+
+/* Radix modals set pointer-events:none on <body>; keep toasts (Undo) clickable over an open layer. */
+[data-sonner-toast] { pointer-events:auto; }
+/* Detected recurring: "Review" / "Show" are primary taps on phones (44px). */
+@media (max-width:767px){ .fp .rcv-card .sec-more, .fp .rcv-list .sec-more, .fp [data-testid="rcv-list"] .sec-more { min-height:44px; } }
