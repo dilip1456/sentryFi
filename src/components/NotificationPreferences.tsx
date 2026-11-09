@@ -1,3 +1,5 @@
+import { Button } from "@/components/ui/button";
+import { Eyebrow } from "@/components/ui/headers";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -132,7 +134,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
       <div className="divide-y divide-border/20">
         {/* Channels */}
         <div className="p-5 space-y-4">
-          <div className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-foreground/60">Channels</div>
+          <Eyebrow>Channels</Eyebrow>
 
           {/* Email */}
           <div className="space-y-3">
@@ -148,8 +150,8 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
             </div>
             {prefs.email_enabled && (
               <input value={prefs.email} onChange={e => setPrefs(p => ({ ...p, email: e.target.value }))}
-                placeholder="your@email.com" type="email"
-                className="w-full h-9 px-3 rounded-lg bg-secondary/40 border border-border text-[14px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
+                placeholder="your@email.com" type="email" aria-label="Alert email address" autoComplete="email"
+                className="w-full min-h-11 md:min-h-10 px-3 rounded-[10px] bg-secondary border border-border-strong text-[14px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
             )}
           </div>
 
@@ -180,7 +182,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
 
         {/* Alert types — per-category opt-in/out, independent of channel/thresholds */}
         <div className="p-5 space-y-1">
-          <div className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-2">Alert types</div>
+          <Eyebrow className="mb-2">Alert types</Eyebrow>
           {ALERT_TYPES.map(({ key, icon: Icon, label, desc }) => (
             <div key={key} className="flex items-center gap-3 py-2">
               <div className="h-8 w-8 rounded-lg bg-secondary/60 grid place-items-center shrink-0">
@@ -197,29 +199,29 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
 
         {/* Thresholds */}
         <div className="p-5 space-y-4">
-          <div className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-foreground/60">Alert thresholds</div>
+          <Eyebrow>Alert thresholds</Eyebrow>
 
           <div className="space-y-1.5">
-            <label className="text-[14px] text-foreground">Budget alert at <span className="font-semibold text-[hsl(var(--primary))]">{prefs.budget_pct}%</span> spent</label>
-            <input type="range" min={50} max={100} step={5} value={prefs.budget_pct}
+            <label htmlFor="pref-budget-pct" className="text-[14px] text-foreground">Budget alert at <span className="font-semibold text-[hsl(var(--primary))]">{prefs.budget_pct}%</span> spent</label>
+            <input id="pref-budget-pct" type="range" min={50} max={100} step={5} value={prefs.budget_pct}
               onChange={e => setPrefs(p => ({ ...p, budget_pct: Number(e.target.value) }))}
-              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
+              className="w-full h-11 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[12px] text-muted-foreground"><span>50%</span><span>100%</span></div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[14px] text-foreground">Low balance alert below <span className="font-semibold text-[hsl(var(--primary))]">${prefs.low_balance}</span></label>
-            <input type="range" min={0} max={1000} step={50} value={prefs.low_balance}
+            <label htmlFor="pref-low-balance" className="text-[14px] text-foreground">Low balance alert below <span className="font-semibold text-[hsl(var(--primary))]">${prefs.low_balance}</span></label>
+            <input id="pref-low-balance" type="range" min={0} max={1000} step={50} value={prefs.low_balance}
               onChange={e => setPrefs(p => ({ ...p, low_balance: Number(e.target.value) }))}
-              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
+              className="w-full h-11 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[12px] text-muted-foreground"><span>$0</span><span>$1,000</span></div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[14px] text-foreground">Payment due warning <span className="font-semibold text-[hsl(var(--primary))]">{prefs.payment_days} days</span> before</label>
-            <input type="range" min={1} max={14} step={1} value={prefs.payment_days}
+            <label htmlFor="pref-payment-days" className="text-[14px] text-foreground">Payment due warning <span className="font-semibold text-[hsl(var(--primary))]">{prefs.payment_days} days</span> before</label>
+            <input id="pref-payment-days" type="range" min={1} max={14} step={1} value={prefs.payment_days}
               onChange={e => setPrefs(p => ({ ...p, payment_days: Number(e.target.value) }))}
-              className="w-full h-1.5 accent-[hsl(var(--primary))] cursor-pointer" />
+              className="w-full h-11 accent-[hsl(var(--primary))] cursor-pointer" />
             <div className="flex justify-between text-[12px] text-muted-foreground"><span>1 day</span><span>14 days</span></div>
           </div>
         </div>
@@ -227,15 +229,13 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
 
       {/* Actions */}
       <div className="p-5 flex gap-2 border-t border-border/20">
-        <button onClick={save} disabled={saving || !dirty}
-          className="flex-1 h-11 rounded-xl bg-gold text-[15px] font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
+        <Button onClick={save} disabled={saving || !dirty} variant="gold" size="touch" className="flex-1 gap-2">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {dirty ? "Apply changes" : "Saved"}
-        </button>
-        <button onClick={() => { setPrefs(initial); onClose(); }}
-          className="h-11 px-5 rounded-xl border border-border-strong text-[14px] text-muted-foreground hover:text-foreground">
+        </Button>
+        <Button onClick={() => { setPrefs(initial); onClose(); }} variant="quiet" size="touch">
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
