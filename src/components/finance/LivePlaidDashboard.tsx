@@ -2386,8 +2386,8 @@ const TxnDetailModal = ({
               {(merchant ?? "?").charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-display text-[15px] text-foreground truncate">{currentDisplayName}</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5 truncate">
+              <p className="font-display text-[15px] text-foreground break-words">{currentDisplayName}</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5 break-words">
                 {dateStr}{account ? ` · ${account.name ?? account.official_name ?? "account"}${account.mask ? ` ··${account.mask}` : ""}` : ""}{txn.pending ? " · Pending" : ""}{isImportedTxn ? " · Imported from PDF" : ""}
               </p>
             </div>
@@ -2403,7 +2403,7 @@ const TxnDetailModal = ({
           <div className="flex gap-1 mt-4 bg-muted/50 rounded-xl p-1">
             {(["info","edit"] as const).map(t => (
               <button key={t} onClick={() => setTab(t)}
-                className={cn("flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                className={cn("flex-1 min-h-11 md:min-h-0 py-1.5 rounded-lg text-[11px] font-medium transition-all",
                   tab === t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
                 {t === "info" ? "Details" : "Edit"}
               </button>
@@ -2430,12 +2430,13 @@ const TxnDetailModal = ({
               <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
                 {([
                   ...(merchant && merchant !== currentDisplayName ? [["Merchant", merchant]] : []),
+                  ...(account ? [["Account", `${account.name ?? account.official_name ?? "account"}${account.mask ? ` ••${account.mask}` : ""}`]] : []),
                   ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "-"],
                   ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
                 ] as [string,string][]).map(([label, value]) => (
-                  <div key={label} className="flex items-center gap-3 px-4 py-2.5 bg-card/50">
-                    <span className="text-[12px] text-muted-foreground w-20 shrink-0">{label}</span>
-                    <span className="text-[12.5px] text-foreground font-medium truncate capitalize flex-1 text-right">{value}</span>
+                  <div key={label} className="flex items-start gap-3 px-4 py-2.5 bg-card/50">
+                    <span className="text-[12px] text-muted-foreground w-20 shrink-0 pt-0.5">{label}</span>
+                    <span className="text-[12.5px] text-foreground font-medium break-words flex-1 text-right">{value}</span>
                   </div>
                 ))}
               </div>

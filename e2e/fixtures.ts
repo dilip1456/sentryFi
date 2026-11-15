@@ -86,14 +86,16 @@ export async function homeSpent(page: Page): Promise<number> {
   return usd(await card.innerText());
 }
 
-/** Reads Spending's current-month total from the "Month summary" hero
- *  ("Spent so far in <Month>" → value), after any count-up settles. */
+/** Reads Spending's current-month total from the "Spending by period"
+ *  summary ("In $X" / "Out $Y"). The Oct 29-30 redesign replaced the
+ *  "Month summary" / "Spent so far in <Month>" hero. */
 export async function spendingTotal(page: Page): Promise<number> {
-  const val = page.getByRole("region", { name: "Month summary" }).getByText(/^Spent so far in /).locator("xpath=following-sibling::div[1]");
-  await expect(val).toHaveText(/\$[\d,]+/);
-  let prev = -1, cur = usd(await val.innerText());
-  for (let i = 0; i < 20 && cur !== prev; i++) { await page.waitForTimeout(150); prev = cur; cur = usd(await val.innerText()); }
-  return cur;
+  const region = page.getByRole("region", { name: "Spending by period" });
+  await expect(region).toBeVisible();
+  const text = await region.innerText();
+  const m = /Out\s*([−-]?\$[\d,.]+)/.exec(text);
+  expect(m, "Spending period 'Out' total").toBeTruthy();
+  return usd(m![1]);
 }
 
 /** The Timeline opens on the Rundown tab; the History feed is one tap away. */

@@ -411,7 +411,7 @@ export const demoTransactions = [
   // Spending-page review/money-movement examples: a pending charge, a same-day
   // double charge, a brokerage deposit miscategorized as Shopping, savings,
   // P2P, a card payment and an internal transfer (the last two are ignored).
-  { id: "dtp1", account_id: "da5", amount: 18.75,  date: d(0),  name: "SWEETGREEN NYC 0412", merchant_name: "Sweetgreen", category: ["Food & Drink"], pending: true, payment_channel: "in store" },
+  { id: "dtp1", account_id: "da4", amount: 18.75,  date: d(0),  name: "ARMSTRONG INTERNATIONAL MARKET & DELI", merchant_name: "Armstrong International Market & Deli", category: ["Food & Drink"], pending: true, payment_channel: "in store" },
   { id: "dtp2", account_id: "da5", amount: 34.50,  date: d(2),  name: "STARBUCKS STORE 08812", merchant_name: "Starbucks", category: ["Food & Drink"], pending: false, payment_channel: "in store" },
   { id: "dtp3", account_id: "da1", amount: 500.00, date: d(6),  name: "ROBINHOOD DES:FUNDS ID:8K2PQ INDN:DEMO USER WEB", merchant_name: "Robinhood", category: ["Transfer Out"], pending: false, payment_channel: "online" },
   { id: "dtp4", account_id: "da1", amount: 250.00, date: d(9),  name: "FIDELITY INVESTMENTS MONEYLINE PPD", merchant_name: "Fidelity", category: ["Shopping"], pending: false, payment_channel: "online" },

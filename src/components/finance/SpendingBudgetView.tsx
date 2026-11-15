@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { cn } from "@/lib/utils";
 import { fmtUSD, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
-import { SpendingOverview, FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
+import { FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
 import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
 import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
@@ -254,27 +254,39 @@ function yearBucketsList(count: number) {
 function PeriodBars({ buckets, totals, selIdx, onSelect, maxWidth }: {
   buckets: { key:string; label:string }[]; totals:number[]; selIdx:number; onSelect:(i:number)=>void; maxWidth?:number;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const selRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const bar = selRef.current, scroller = scrollerRef.current;
+    if (!bar || !scroller) return;
+    const left = bar.offsetLeft - 8;
+    const right = bar.offsetLeft + bar.offsetWidth + 8;
+    if (left < scroller.scrollLeft) scroller.scrollLeft = left;
+    else if (right > scroller.scrollLeft + scroller.clientWidth) scroller.scrollLeft = right - scroller.clientWidth;
+  }, [selIdx, buckets.length]);
   const maxV = Math.max(...totals, 1);
   return (
-    <div className="flex items-end gap-1 h-8" style={maxWidth ? {maxWidth} : undefined}>
-      {buckets.map((b,i) => {
-        const spend = totals[i] ?? 0;
-        const pct = Math.max((spend/maxV)*100, spend>0?8:3);
-        const isSel = i === selIdx;
-        const isLast = i === buckets.length-1;
-        return (
-          <button key={b.key} onClick={() => onSelect(i)}
-            title={`${b.label}: ${fmtUSD(spend)}`}
-            className="flex-1 min-w-0 flex flex-col items-center gap-0.5 group">
-            <div className="w-full flex items-end" style={{height:20}}>
-              <div className={cn("w-full rounded-sm transition-all duration-300",
-                isSel ? "bg-gold" : isLast ? "bg-[hsl(var(--primary)/0.55)]" : "bg-[hsl(var(--primary)/0.25)] group-hover:bg-[hsl(var(--primary)/0.45)]")}
-                style={{height:`${pct}%`}}/>
-            </div>
-            <span className={cn("text-[11px] font-medium truncate w-full text-center", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
-          </button>
-        );
-      })}
+    <div ref={scrollerRef} data-testid="period-bars" className="min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none">
+      <div className="flex h-8 w-full items-end gap-1" style={{ minWidth: `${Math.max(buckets.length * 28, 0)}px`, maxWidth: maxWidth }}>
+        {buckets.map((b,i) => {
+          const spend = totals[i] ?? 0;
+          const pct = Math.max((spend/maxV)*100, spend>0?8:3);
+          const isSel = i === selIdx;
+          const isLast = i === buckets.length-1;
+          return (
+            <button key={b.key} ref={isSel ? selRef : undefined} onClick={() => onSelect(i)}
+              title={`${b.label}: ${fmtUSD(spend)}`}
+              className="flex min-w-[1.75rem] flex-1 flex-col items-center gap-0.5 group">
+              <div className="w-full flex items-end" style={{height:20}}>
+                <div className={cn("w-full rounded-sm transition-all duration-300",
+                  isSel ? "bg-gold" : isLast ? "bg-[hsl(var(--primary)/0.55)]" : "bg-[hsl(var(--primary)/0.25)] group-hover:bg-[hsl(var(--primary)/0.45)]")}
+                  style={{height:`${pct}%`}}/>
+              </div>
+              <span className={cn("w-full text-center text-[10px] font-medium leading-none sm:text-[11px]", isSel?"text-[hsl(var(--primary))] font-bold":"text-muted-foreground/60")}>{b.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -484,18 +496,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COL_WIDTHS_STORAGE_KEY, JSON.stringify(colWidths)); } catch { /* ignore */ }
   }, [colWidths]);
-  // Height of the (sticky, phones only) list toolbar, so the mobile date
-  // headings can stick directly underneath it.
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const [toolbarH, setToolbarH] = useState(0);
-  useEffect(() => {
-    const el = toolbarRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setToolbarH(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   // ── Fit the desktop table to its container (see COL_DROP_ORDER). ────────
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [tableWrapWidth, setTableWrapWidth] = useState(0);
@@ -1414,25 +1414,26 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       {/* ═══ 1. Header; same title/date treatment as Home, plus the period
           controls (granularity + month switcher) in one clean row ═══ */}
       <header className="content-max shrink-0 px-4 md:px-8 pt-3 md:pt-5 pb-2">
-        <div className="flex items-start justify-between gap-3">
+        <div className="hidden md:flex items-start justify-between gap-3">
           {/* Phones show the title in the app's top bar (Index.tsx); repeating
               it here pushed the content down for no information. */}
-          <div className="hidden md:block">
+          <div>
             <h1 className="font-display text-2xl text-foreground">Spending</h1>
             <p className="text-[13px] text-muted-foreground mt-0.5">{todayLong}</p>
           </div>
-          {headerActions && <div className="hidden md:flex items-center gap-2">{headerActions}</div>}
+          {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <div className="flex bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
+        <div className="md:mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex w-full min-w-0 sm:w-auto bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
             {(["day","week","month","year","all"] as const).map(g => (
               <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
-                className={cn("px-3 py-1.5 rounded-lg text-[12.5px] font-semibold capitalize transition-all",
+                className={cn("min-h-11 flex-1 sm:flex-none md:min-h-9 px-2 sm:px-3 rounded-lg text-[12px] sm:text-[12.5px] font-semibold capitalize transition-all",
                   granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/60")}>
-                {g === "all" ? "All time" : g}
+                {g === "all" ? <><span className="sm:hidden">All</span><span className="hidden sm:inline">All time</span></> : g}
               </button>
             ))}
           </div>
+          <div className="flex min-w-0 w-full sm:w-auto sm:flex-1 items-center gap-2">
           {granularity !== "all" && (() => {
             // One prev/next switcher for every granularity (it used to exist
             // for months only, so day/week/year had no way to go back).
@@ -1448,14 +1449,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
               ? setMonthOffset(o => dir < 0 ? Math.max(o-1, -lastIdx) : Math.min(0, o+1))
               : stepPeriod(dir);
             return (
-              <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
+              <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
                 <button onClick={()=>step(-1)} disabled={atStart} aria-label={`Previous ${unit}`}
-                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  className="h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
                   <ChevronLeft className="h-4 w-4"/>
                 </button>
-                <span className="min-w-[124px] text-center text-[13.5px] font-semibold text-foreground tabular" aria-live="polite">{label}</span>
+                <span className="min-w-0 flex-1 truncate text-center text-[13.5px] font-semibold text-foreground tabular" aria-live="polite">{label}</span>
                 <button onClick={()=>step(1)} disabled={activeRange.isCurrent} aria-label={`Next ${unit}`}
-                  className="h-9 w-9 md:h-8 md:w-8 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  className="h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
                   <ChevronRight className="h-4 w-4"/>
                 </button>
               </div>
@@ -1463,14 +1464,15 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           })()}
           {granularity !== "all" && !activeRange.isCurrent && (
             <button onClick={()=> granularity==="month" ? setMonthOffset(0) : resetPeriod()}
-              className="text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
+              className="min-h-11 md:min-h-0 shrink-0 text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
               {granularity==="month" ? "This month" : granularity==="week" ? "This week" : granularity==="year" ? "This year" : "Today"}
             </button>
           )}
           <button type="button" onClick={() => setInsightsOpen(true)} aria-label="Open spending insights" title="Insights"
-            className="ml-auto h-9 px-2.5 rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-2 text-[12px] font-semibold transition-colors shrink-0">
+            className="ml-auto h-11 px-2.5 md:h-9 rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-2 text-[12px] font-semibold transition-colors shrink-0">
             <TrendingUp className="h-4 w-4" /><span className="hidden sm:inline">Insights</span>
           </button>
+          </div>
         </div>
       </header>
 
@@ -1529,12 +1531,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       </Dialog>
 
       <div className="content-max flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 md:px-8">
-        <section className="surface-card shrink-0 rounded-xl px-3 py-2.5" aria-label="Spending by period">
-          <div className="mb-1.5 flex items-baseline justify-between gap-3">
-            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{activeRange.label}</span>
-            <div className="flex shrink-0 items-center gap-3 text-[11px] tabular">
-              <span className="text-positive">In {fmtUSD(totalEarned)}</span>
-              <span className="text-foreground">Out {fmtUSD(totalSpent)}</span>
+        <section className="surface-card shrink-0 overflow-hidden rounded-xl px-3 py-2.5" aria-label="Spending by period" data-testid="spending-period-strip">
+          <div className="mb-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{activeRange.label}</span>
+            <div className="flex shrink-0 items-center gap-3 text-[11px] tabular whitespace-nowrap">
+              <span data-testid="period-in" className="text-positive">In {fmtUSD(totalEarned)}</span>
+              <span data-testid="period-out" className="text-foreground">Out {fmtUSD(totalSpent)}</span>
             </div>
           </div>
           {granularity === "day" ? (
@@ -1679,33 +1681,35 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="surface-card min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
             {/* Search and filters stay attached to the transaction list while
                 only the rows below scroll, on both phone and desktop. */}
-            <div ref={toolbarRef} className="px-3 py-2 border-b border-border/20 shrink-0 bg-card/95 backdrop-blur-sm space-y-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
-                  className={cn("h-9 shrink-0 max-w-[112px] sm:max-w-[150px] rounded-lg border px-2 text-[11px] sm:text-[11.5px] font-medium flex items-center gap-1.5 transition-colors",
-                    accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Landmark className="h-3 w-3 shrink-0"/>
-                  <span className="truncate">{accountFilters.length===0 ? "All accounts" : accountFilters.length===1 ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "1 account") : `${accountFilters.length} accounts`}</span>
-                </button>
-                <div className="relative min-w-0 flex-1">
+            <div className="px-3 py-2 border-b border-border/20 shrink-0 bg-card space-y-2">
+              <div className="flex min-w-0 flex-col gap-1.5 md:flex-row md:items-center">
+                <div className="relative min-w-0 w-full flex-1 order-1 md:order-2">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true"/>
                   <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
                     onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); } }}
                     placeholder="Search transactions" aria-label="Search transactions"
-                    className="h-9 w-full rounded-lg border border-border/60 bg-muted/40 pl-8 pr-8 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
+                    className="h-11 md:h-9 w-full rounded-lg border border-border/60 bg-muted/40 pl-8 pr-8 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-[hsl(var(--primary)/0.5)] [&::-webkit-search-cancel-button]:hidden"/>
                   {searchDraft && <button type="button" onClick={()=>{ setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); }} aria-label="Clear search"
-                    className="absolute right-0.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5"/></button>}
+                    className="absolute right-0.5 top-1/2 grid h-10 w-10 md:h-8 md:w-8 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5"/></button>}
                 </div>
+                <div className="flex min-w-0 items-center gap-1.5 order-2 md:order-1">
+                <button ref={accountsMenu.btnRef} onClick={accountsMenu.toggle}
+                  className={cn("h-11 md:h-9 min-w-0 flex-1 md:flex-none md:shrink-0 md:max-w-[150px] rounded-lg border px-2 text-[11px] sm:text-[11.5px] font-medium flex items-center gap-1.5 transition-colors",
+                    accountFilters.length>0 ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
+                  <Landmark className="h-3 w-3 shrink-0"/>
+                  <span className="truncate">{accountFilters.length===0 ? "All accounts" : accountFilters.length===1 ? (accountsInPeriod.find(a=>a.account_id===accountFilters[0])?.name ?? "1 account") : `${accountFilters.length} accounts`}</span>
+                </button>
                 <button ref={filtersMenu.btnRef} onClick={filtersMenu.toggle} aria-label="Filter transactions" title="Filters"
-                  className={cn("relative grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors",
+                  className={cn("relative grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border transition-colors",
                     hasActiveFilters ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
                   <Filter className="h-4 w-4"/>{hasActiveFilters && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]"/>}
                 </button>
                 <button ref={sortMenu.btnRef} onClick={sortMenu.toggle} aria-label="Sort transactions" title="Sort transactions"
-                  className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition-colors",
+                  className={cn("grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border transition-colors",
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-4 w-4"/>
                 </button>
+                </div>
               </div>
               {selectedIds.size > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 [&_button]:max-md:h-10">
@@ -1856,7 +1860,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <div className="flex gap-1 mb-1.5">
                         {([["none","Period"],["range","Range"],["lastN","Last N days"],["year","Year"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setDateMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 max-md:min-h-11 rounded-lg text-[11px] font-medium border transition-colors",
                               dateMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1893,7 +1897,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <div className="flex gap-1">
                         {([["all","All"],["in","Incoming"],["out","Outgoing"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setTypeFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 max-md:min-h-11 rounded-lg text-[11px] font-medium border transition-colors",
                               typeFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1906,7 +1910,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <div className="flex gap-1 mb-1.5">
                         {([["range","Range"],["fixed","Exact"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>setAmountMode(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 max-md:min-h-11 rounded-lg text-[11px] font-medium border transition-colors",
                               amountMode===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1935,7 +1939,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       <div className="flex gap-1">
                         {([["no","No"],["yes","Yes"]] as const).map(([k,l]) => (
                           <button key={k} onClick={()=>toggleIgnoredFilter(k)}
-                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
+                            className={cn("flex-1 h-7 max-md:min-h-11 rounded-lg text-[11px] font-medium border transition-colors",
                               ignoredFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
@@ -1976,7 +1980,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 low-priority columns that don't fit), so it normally never
                 scrolls sideways; overflow-x-auto is only a safety net so a
                 column can never be silently clipped. */}
-            <div ref={tableWrapRef} className="min-h-0 flex-1 overflow-auto scrollbar-none">
+            <div ref={tableWrapRef} data-testid="spending-txn-scroll" className="min-h-0 flex-1 overflow-auto scrollbar-none">
               {visibleTxns.length === 0 ? (
                 <div className="py-14 px-6 text-center space-y-3">
                   {(hasActiveFilters || catSel) ? (
@@ -2104,8 +2108,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       return (
                       <div key={g.key}>
                         {g.key !== MOBILE_FLAT_KEY && (
-                        <div className="sticky z-10 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
-                          style={{ top: toolbarH }} onClick={()=>toggleGroupCollapsed(g.key)}>
+                        <div data-day-header className="sticky top-0 z-20 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
+                          onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
                             <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
@@ -2932,7 +2936,7 @@ const MobileTxnRow = ({
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); } }}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={cancelPress} onPointerLeave={cancelPress} onPointerCancel={cancelPress}
       onContextMenu={e => e.preventDefault()}
-      className={cn("w-full min-h-[64px] px-4 py-3 flex items-center gap-3 text-left select-none active:bg-muted/30 transition-colors outline-none focus-visible:bg-muted/30",
+      className={cn("w-full min-h-[64px] px-4 py-3 flex items-start gap-3 text-left select-none active:bg-muted/30 transition-colors outline-none focus-visible:bg-muted/30",
         selected && "bg-[hsl(var(--primary)/0.08)]", t.pending && !selected && "bg-warning/[0.03]")}>
       <div className="relative h-10 w-10 rounded-full shrink-0 grid place-items-center text-[14px] font-bold text-white" style={{background:col}} aria-hidden>
         {selected ? <Check className="h-5 w-5"/> : (nm[0]??"?").toUpperCase()}
@@ -2955,19 +2959,15 @@ const MobileTxnRow = ({
           <span onClick={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()} className="shrink-0 [&_button]:!min-h-[28px]">
             <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType} compact/>
           </span>
-          {/* Category keeps priority; the account name gives way first. */}
-          <span className="truncate min-w-[3rem] shrink" style={{ color: vivid(col) }}>{formatCat(cat)}</span>
-          {visibleCols.has("account") && accLabel && (
-            <>
-              <span aria-hidden className="shrink-0 text-muted-foreground/50">·</span>
-              <span className="truncate min-w-0 shrink-[4]" title={accLabel}>{accLabel}</span>
-            </>
-          )}
+          <span className="truncate min-w-0" title={formatCat(cat)} style={{ color: vivid(col) }}>{formatCat(cat)}</span>
         </div>
+        {visibleCols.has("account") && accLabel && (
+          <div className="mt-0.5 truncate text-[12px] text-muted-foreground" title={accLabel}>{accLabel}</div>
+        )}
       </div>
-      <div className="shrink-0 text-right">
+      <div className="shrink-0 self-start pt-0.5 text-right">
         {visibleCols.has("amount") && (
-          <div className={cn("text-[15px] font-bold tabular", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</div>
+          <div data-txn-amount className={cn("text-[15px] font-bold tabular whitespace-nowrap", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}>{fmtTxnAmount(t.amount)}</div>
         )}
         {showDate && <div className="text-[11.5px] text-muted-foreground tabular mt-0.5">{fmtShortDate(t.date)}</div>}
       </div>
