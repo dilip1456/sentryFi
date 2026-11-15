@@ -73,7 +73,7 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
 
   test("spending filters sheet has an X", async ({ page, guard }) => {
     await openView(page, "spending");
-    const trigger = page.getByRole("button", { name: "Filter", exact: true });
+    const trigger = page.getByRole("button", { name: "Filter transactions" });
     await trigger.click();
     const sheet = page.getByRole("dialog", { name: "Filters" });
     await expect(sheet).toBeVisible();
