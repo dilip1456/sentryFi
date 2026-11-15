@@ -386,7 +386,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             paddingLeft: "max(1rem, env(safe-area-inset-left))",
             paddingRight: "max(1rem, env(safe-area-inset-right))",
           }}>
-          <button onClick={() => go("overall")} className="flex items-center gap-2.5">
+          <button onClick={() => go("overall")} className="tap-44 flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
             <span className="text-[15px] font-semibold text-foreground">
               {/* Always the current page's name; demo mode is already signalled by the banner below. */}
@@ -396,7 +396,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <div className="flex items-center gap-1.5">
             {/* Not logged in */}
             {!user && !effectiveDemo && (
-              <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[13px] font-semibold">
+              <button onClick={() => navigate("/auth")} className="tap-44 h-8 px-3 rounded-full bg-gold text-[13px] font-semibold">
                 Sign in
               </button>
             )}

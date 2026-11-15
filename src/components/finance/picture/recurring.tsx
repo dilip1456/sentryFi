@@ -59,8 +59,8 @@ function ItemRow({ it }: { it: ReviewItem }) {
         <ChevronRight className="h-4 w-4 rcv-chev" aria-hidden="true" />
       </button>
       <div className="rcv-acts">
-        {it.status !== "confirmed" && <button type="button" className="rcv-icon ok" onClick={() => a.confirm(it)} aria-label={`Confirm ${it.label}`} title="Confirm"><Check className="h-4 w-4" /></button>}
-        <button type="button" className="rcv-icon no" onClick={() => a.dismiss(it)} aria-label={`${it.label} is not recurring`} title="Not recurring"><X className="h-4 w-4" /></button>
+        {it.status !== "confirmed" && <button type="button" className="rcv-icon ok tap-44" onClick={() => a.confirm(it)} aria-label={`Confirm ${it.label}`} title="Confirm"><Check className="h-4 w-4" /></button>}
+        <button type="button" className="rcv-icon no tap-44" onClick={() => a.dismiss(it)} aria-label={`${it.label} is not recurring`} title="Not recurring"><X className="h-4 w-4" /></button>
       </div>
     </div>
   );

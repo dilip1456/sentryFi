@@ -16,7 +16,7 @@ async function checkDetail(d: Locator) {
   await expect(d.getByTestId("tl-detail")).toContainText("Usually ~2 paychecks land per month based on recent history — only 1 found so far this month.");
   await expect(d.getByTestId("tl-detail")).toContainText("Paychecks this month");
   await expect(d.getByTestId("tl-detail")).toContainText("1 of usual ~2");
-  await expect(d.getByTestId("tl-detail")).toContainText("SentryFi paycheck check");
+  await expect(d.getByTestId("tl-detail")).toContainText("Sentry Finance paycheck check");
   await expect(d.getByTestId("tl-detail")).toContainText("Tue, Oct 20, 2026");
 }
 
