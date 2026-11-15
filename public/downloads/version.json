@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1233,
-  "sha256": "7ad4afa34dcc9097a0e26bdad10dee68ab84ea1fffa4fd8599d82c51553a9bc6",
-  "size": 7189025,
-  "releaseNotes": "ui(home): 44px phone tap targets",
+  "versionCode": 1234,
+  "sha256": "419996ced9cb9c88374ef52daa7e4c638ab8fdd44bd4f6de651e32a362fe142c",
+  "size": 7189529,
+  "releaseNotes": "fix(spending): mobile overflow, sticky day headers, and 44px controls",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-09T16:52:28.736Z"
+  "publishedAt": "2026-11-15T17:24:51.476Z"
 }
