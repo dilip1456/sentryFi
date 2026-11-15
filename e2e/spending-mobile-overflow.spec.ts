@@ -94,13 +94,16 @@ for (const [w, h] of VIEWPORTS) {
           // Empty band: a stuck header should sit at the scroller's top, not
           // be offset downward (the old toolbarH bug).
           const gap = hr.top - sr.top;
+          // Rows that have scrolled up under the header are expected (that's
+          // how sticky works). The bug is a row that *starts* inside the
+          // header box — the header sitting on top of the next row.
           const rows = [...document.querySelectorAll("[data-txn-row]")] as HTMLElement[];
-          const overlapping = rows.filter(row => {
+          const startedInside = rows.filter(row => {
             const rr = row.getBoundingClientRect();
             if (rr.bottom <= sr.top || rr.top >= sr.bottom) return false;
-            return !(hr.right <= rr.left || rr.right <= hr.left || hr.bottom <= rr.top + 0.5 || rr.bottom <= hr.top + 0.5);
+            return rr.top > hr.top + 0.5 && rr.top < hr.bottom - 0.5;
           }).map(row => (row.getAttribute("aria-label") ?? row.textContent ?? "").slice(0, 80));
-          return { ok: overlapping.length === 0 && gap <= 2, gap, overlapping, headerTop: hr.top, scrollerTop: sr.top };
+          return { ok: startedInside.length === 0 && gap <= 2, gap, startedInside, headerTop: hr.top, scrollerTop: sr.top };
         });
         expect(stuck.ok, `sticky header overlap or offset: ${JSON.stringify(stuck)}`).toBe(true);
 
