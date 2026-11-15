@@ -6959,7 +6959,7 @@ export const LivePlaidDashboard = ({
             </div>
           </div>
           <button onClick={() => setShowOrganize(true)}
-            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
+            className={cn("tap-44 h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
               unassignedAccts.length > 0 ? "bg-gold" : "border border-border text-muted-foreground hover:text-foreground")}>
             <Wallet className="h-3 w-3" />
             {unassignedAccts.length > 0 ? `Tag ${unassignedAccts.length}` : "Edit roles"}

@@ -675,7 +675,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
           )}
           <button
             onClick={openAdd}
-            className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-gold text-[13px] font-semibold hover:opacity-90 transition-opacity shrink-0"
+            className="tap-44 inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-gold text-[13px] font-semibold hover:opacity-90 transition-opacity shrink-0"
           >
             <Plus className="h-3.5 w-3.5 shrink-0" /> <span>Add</span>
           </button>
@@ -724,7 +724,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
           <div className="text-[13px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
           <button
             onClick={openAdd}
-            className="mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[13.5px] font-medium hover:opacity-90 transition-opacity"
+            className="tap-44 mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[13.5px] font-medium hover:opacity-90 transition-opacity"
           >
             <Plus className="h-3.5 w-3.5" /> Add your first gift card
           </button>

@@ -469,7 +469,7 @@
 .fp .rcv-amt { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:14px; }
 .fp .rcv-chev { color:hsl(var(--muted-foreground)); }
 .fp .rcv-acts { display:flex; gap:4px; flex-shrink:0; }
-.fp .rcv-icon { height:36px; width:36px; display:grid; place-items:center; border-radius:9px; border:1px solid hsl(var(--border)); color:hsl(var(--muted-foreground)); }
+.fp .rcv-icon { height:44px; width:44px; display:grid; place-items:center; border-radius:9px; border:1px solid hsl(var(--border)); color:hsl(var(--muted-foreground)); }
 .fp .rcv-icon.ok:hover { color:hsl(var(--success, 142 70% 45%)); border-color:currentColor; }
 .fp .rcv-icon.no:hover { color:hsl(var(--destructive)); border-color:currentColor; }
 .fp .rcv-badge { display:inline-flex; align-items:center; gap:3px; vertical-align:middle; font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); }

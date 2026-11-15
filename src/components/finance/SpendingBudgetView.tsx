@@ -1427,7 +1427,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="flex w-full min-w-0 sm:w-auto bg-muted/50 rounded-xl p-1 gap-0.5 border border-border/50" role="tablist" aria-label="Period">
             {(["day","week","month","year","all"] as const).map(g => (
               <button key={g} role="tab" aria-selected={granularity===g} onClick={() => setGranularity(g)}
-                className={cn("min-h-11 flex-1 sm:flex-none md:min-h-9 px-2 sm:px-3 rounded-lg text-[12px] sm:text-[12.5px] font-semibold capitalize transition-all",
+                className={cn("tap-44 min-h-11 flex-1 sm:flex-none md:min-h-9 px-2 sm:px-3 rounded-lg text-[12px] sm:text-[12.5px] font-semibold capitalize transition-all",
                   granularity===g ? "bg-[hsl(var(--primary))] text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/60")}>
                 {g === "all" ? <><span className="sm:hidden">All</span><span className="hidden sm:inline">All time</span></> : g}
               </button>
@@ -1451,12 +1451,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
             return (
               <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border/60 bg-card p-1">
                 <button onClick={()=>step(-1)} disabled={atStart} aria-label={`Previous ${unit}`}
-                  className="h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  className="tap-44 h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
                   <ChevronLeft className="h-4 w-4"/>
                 </button>
                 <span className="min-w-0 flex-1 truncate text-center text-[13.5px] font-semibold text-foreground tabular" aria-live="polite">{label}</span>
                 <button onClick={()=>step(1)} disabled={activeRange.isCurrent} aria-label={`Next ${unit}`}
-                  className="h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
+                  className="tap-44 h-11 w-11 md:h-8 md:w-8 shrink-0 rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 transition-colors">
                   <ChevronRight className="h-4 w-4"/>
                 </button>
               </div>
@@ -1464,12 +1464,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           })()}
           {granularity !== "all" && !activeRange.isCurrent && (
             <button onClick={()=> granularity==="month" ? setMonthOffset(0) : resetPeriod()}
-              className="min-h-11 md:min-h-0 shrink-0 text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
+              className="tap-44 min-h-11 md:min-h-0 shrink-0 text-[12.5px] font-medium text-[hsl(var(--primary))] hover:underline px-1">
               {granularity==="month" ? "This month" : granularity==="week" ? "This week" : granularity==="year" ? "This year" : "Today"}
             </button>
           )}
           <button type="button" onClick={() => setInsightsOpen(true)} aria-label="Open spending insights" title="Insights"
-            className="ml-auto h-11 px-2.5 md:h-9 rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-2 text-[12px] font-semibold transition-colors shrink-0">
+            className="tap-44 ml-auto h-11 min-w-11 px-2.5 md:h-9 rounded-xl border border-border/70 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground flex items-center gap-2 text-[12px] font-semibold transition-colors shrink-0">
             <TrendingUp className="h-4 w-4" /><span className="hidden sm:inline">Insights</span>
           </button>
           </div>
