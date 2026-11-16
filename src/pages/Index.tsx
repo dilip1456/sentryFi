@@ -409,8 +409,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.mobileLabel ?? TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
             {effectiveDemo && (
-              <span className="nc-example shrink-0" data-testid="example-data">
-                <FlaskConical className="h-3 w-3" aria-hidden="true" />Example data
+              <span className="nc-example shrink-0 relative" data-testid="example-data" title="Example data">
+                <FlaskConical className="h-3 w-3" aria-hidden="true" />
+                <span className="nc-example-label">Example data</span>
               </span>
             )}
           </button>
@@ -611,7 +612,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
           {/* All other views inside padded container */}
           {view !== "spending" && view !== "myfinances" && view !== "myfinances-redesign" && (
-          <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
+          <div className={cn(
+            "content-max px-4 md:px-8 pb-10 md:space-y-5",
+            // When the urgent strip is up, don't also keep the old pt-6 / space-y
+            // gap that used to sit under the header (or the hidden desktop
+            // PageHeader, which still received space-y-5 on mobile).
+            inbox.strip ? "pt-2" : "pt-6",
+          )}>
 
             {/* Page header on desktop — Spending/My Financial Picture skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already

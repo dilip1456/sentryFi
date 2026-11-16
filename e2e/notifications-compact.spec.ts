@@ -40,6 +40,38 @@ async function assertMin(locator: Locator, label: string, min = 44) {
   expect(box!.width, `${label} width ${Math.round(box!.width)}`).toBeGreaterThanOrEqual(min - 0.5);
 }
 
+
+async function assertStripLayout(page: Page, strip: Locator) {
+  const msg = strip.locator(".nc-strip-msg");
+  const view = strip.locator(".nc-strip-view");
+  await expect(msg).toBeVisible();
+  await expect(view).toBeVisible();
+  const s = (await strip.boundingBox())!;
+  const m = (await msg.boundingBox())!;
+  const v = (await view.boundingBox())!;
+  const mid = s.y + s.height / 2;
+  expect(Math.abs((m.y + m.height / 2) - mid), "strip text vertical center").toBeLessThanOrEqual(4);
+  expect(Math.abs((v.y + v.height / 2) - mid), "View vertical center").toBeLessThanOrEqual(4);
+  expect(v.height, "View height").toBeGreaterThanOrEqual(43.5);
+  expect(v.width, "View width").toBeGreaterThanOrEqual(43.5);
+
+  const gap = await page.evaluate(() => {
+    const stripEl = document.querySelector("[data-testid='urgent-strip']");
+    const main = document.querySelector("main");
+    if (!stripEl || !main) return Infinity;
+    const bottom = stripEl.getBoundingClientRect().bottom;
+    let nextTop = Infinity;
+    for (const el of main.querySelectorAll("*")) {
+      const r = (el as HTMLElement).getBoundingClientRect();
+      if (r.height < 8 || r.width < 8) continue;
+      if (r.top + 0.5 >= bottom && r.top < nextTop) nextTop = r.top;
+    }
+    return nextTop - bottom;
+  });
+  expect(gap, `gap from strip to next content (${Math.round(gap)}px)`).toBeGreaterThanOrEqual(0);
+  expect(gap, `gap from strip to next content (${Math.round(gap)}px)`).toBeLessThanOrEqual(16);
+}
+
 const settle = (page: Page) => page.waitForFunction(() => document.getAnimations().filter(a => a.playState === "running").length === 0);
 
 async function shot(page: Page, name: string) {
@@ -94,6 +126,7 @@ for (const vp of WIDTHS) {
       await expect(page.getByText("Get the Sentry Finance Android app")).toHaveCount(0);
       await expect(page.getByText("You're viewing demo data.")).toBeHidden();
       await expect(page.getByRole("heading", { name: "Action items" })).toHaveCount(0);
+      await assertStripLayout(page, strip);
       await noHorizontalOverflow(page);
       await shot(page, `after-home-${vp.name}`);
       expect(guard.consoleErrors).toEqual([]);

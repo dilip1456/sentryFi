@@ -6,12 +6,12 @@
 .nc-side-badge { margin-left:auto; min-width:16px; height:16px; padding:0 4px; border-radius:9999px; font-size:10px; font-weight:700;
   background:hsl(var(--negative)); color:#fff; display:grid; place-items:center; }
 
-.nc-strip { display:flex; align-items:center; gap:10px; margin:0; padding:6px 14px; min-height:44px;
+.nc-strip { display:flex; align-items:center; gap:10px; margin:0; padding:0 10px 0 14px; min-height:44px;
   background:hsl(var(--negative)/.10); border-bottom:1px solid hsl(var(--negative)/.28); font-size:13px; width:100%; text-align:left; }
 .nc-strip .nc-strip-ico { color:hsl(var(--negative)); flex-shrink:0; }
 .nc-strip b { color:hsl(var(--negative-text)); font-weight:700; }
 .nc-strip .nc-strip-msg { flex:1; min-width:0; color:hsl(var(--foreground)); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.nc-strip .nc-strip-view { color:hsl(var(--foreground)); font-weight:600; font-size:12.5px; text-decoration:underline; text-underline-offset:2px; min-height:44px; min-width:44px; padding:0 8px; flex-shrink:0; }
+.nc-strip .nc-strip-view { color:hsl(var(--foreground)); font-weight:600; font-size:12.5px; text-decoration:underline; text-underline-offset:2px; min-height:44px; min-width:44px; padding:0 8px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; }
 
 /* 400px desktop panel; full-screen on mobile (used when not rendering as a vaul sheet). */
 .nc-panel { position:fixed; z-index:55; top:0; right:0; bottom:0; width:400px; display:flex; flex-direction:column;
@@ -95,8 +95,11 @@
 .nc-sheet-actions .primary { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
 .nc-sheet-actions .ghost { border:1px solid hsl(var(--border-strong)); color:hsl(var(--foreground)); }
 
-@media (max-width: 379px){
-  .nc-example { padding: 3px 6px; font-size: 0; gap: 0; }
-  .nc-example svg { width: 12px; height: 12px; }
-  .nc-strip { padding: 6px 10px; gap: 8px; font-size: 12.5px; }
+/* Mobile header is tight (logo + title + trailing icons). Icon-only chip
+   keeps "Sentry Finance" from truncating at 412. */
+@media (max-width: 767px){
+  header .nc-example { padding: 3px 6px; gap: 0; }
+  header .nc-example .nc-example-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  header .nc-example svg { width: 12px; height: 12px; }
+  .nc-strip { padding: 0 8px 0 14px; gap: 8px; font-size: 12.5px; }
 }
