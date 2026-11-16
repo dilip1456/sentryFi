@@ -26,7 +26,7 @@ import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
 import { paycheckAlerts } from "@/lib/paycheck-anomaly";
 import { setDerivedAlerts } from "@/lib/derived-alerts";
-import { setHomeActionItems } from "@/lib/notifications/extras-store";
+import { usePublishHomeActionItems } from "@/lib/notifications/extras-store";
 import type { CompactItem } from "@/lib/notifications/compact";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
@@ -4958,8 +4958,11 @@ export const LivePlaidDashboard = ({
 
   const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
-  useEffect(() => {
-    if (demo || guestDemo) { setHomeActionItems([]); return; }
+  // Publish into the inbox store. Do not clear the store in this effect's
+  // cleanup — visibleActions is a new array every render, and clearing then
+  // re-publishing looped (React #185) on live Home. Demo never published.
+  const homeActionItems = useMemo(() => {
+    if (demo || guestDemo) return [] as CompactItem[];
     const toType = (id: string): CompactItem["type"] => {
       if (id.startsWith("low-") || id.includes("low-checking")) return "low_balance";
       if (id.startsWith("cc-") || id.includes("overdue") || id.includes("cc-due")) return "payment_due";
@@ -4968,7 +4971,7 @@ export const LivePlaidDashboard = ({
       if (id.includes("large") || id.includes("big")) return "large_txn";
       return "insight";
     };
-    const list: CompactItem[] = visibleActions.map(a => ({
+    return visibleActions.map(a => ({
       id: `action:${a.id}`,
       type: toType(a.id),
       priority: a.priority,
@@ -4983,9 +4986,8 @@ export const LivePlaidDashboard = ({
       read: false,
       payload: a.reviewCategory ? { category: a.reviewCategory } : {},
     }));
-    setHomeActionItems(list);
-    return () => setHomeActionItems([]);
   }, [demo, guestDemo, visibleActions]);
+  usePublishHomeActionItems(homeActionItems, !(demo || guestDemo));
 
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories, classOf);
