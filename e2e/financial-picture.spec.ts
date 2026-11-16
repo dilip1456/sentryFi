@@ -288,12 +288,14 @@ for (const vp of [{ name: "390", width: 390, height: 844, mobile: true }, { name
       await detail.getByRole("button", { name: "Extend history" }).click();
       const dlg = page.getByRole("dialog").filter({ hasText: "Settings" });
       await expect(dlg).toBeVisible();
+      await expect(page.getByTestId("inbox-panel")).toBeHidden();
       await expect(dlg.getByRole("button", { name: "Banks", pressed: true })).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dlg).toBeHidden();
-      // Re-open and dismiss
+      // Re-open and dismiss. Opening the item marked it read, so use All.
       await page.getByRole("button", { name: "Notifications" }).first().click();
       await expect(panel).toBeVisible();
+      await panel.locator('[data-nc-filter="all"]').click();
       if (await panel.getByTestId("inbox-stack").count()) {
         const stacks = panel.getByTestId("inbox-stack");
         const n = await stacks.count();

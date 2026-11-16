@@ -200,6 +200,29 @@ for (const vp of WIDTHS) {
       });
     }
 
+    test("Escape closes Settings opened from Extend history, and the inbox is already closed", async ({ page }) => {
+      await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
+      await openDemo(page);
+      const panel = await openInbox(page);
+      if (await panel.getByTestId("inbox-stack").count()) {
+        const stacks = panel.getByTestId("inbox-stack");
+        const n = await stacks.count();
+        for (let i = 0; i < n; i++) {
+          const s = stacks.nth(i);
+          if ((await s.getAttribute("aria-expanded")) !== "true") await s.click();
+        }
+      }
+      await panel.getByRole("button", { name: /Extend bank history/ }).click();
+      const detail = page.getByTestId("inbox-detail");
+      await expect(detail).toBeVisible();
+      await detail.getByRole("button", { name: "Extend history" }).click();
+      const dlg = page.getByRole("dialog").filter({ hasText: "Settings" });
+      await expect(dlg).toBeVisible();
+      await expect(panel).toBeHidden();
+      await page.keyboard.press("Escape");
+      await expect(dlg).toBeHidden();
+    });
+
     test("Picture no longer shows the history hint card; review card is compact", async ({ page, guard }) => {
       await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
       await openDemo(page);

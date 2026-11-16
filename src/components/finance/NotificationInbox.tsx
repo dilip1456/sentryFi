@@ -81,6 +81,25 @@ function useNarrow() {
   return n;
 }
 
+
+/** True when a dialog other than the inbox / its detail is visible on top. */
+function isForeignModalOpen() {
+  if (typeof document === "undefined") return false;
+  const ours = new Set(["inbox-panel", "inbox-detail"]);
+  for (const el of document.querySelectorAll('[role="dialog"], [role="alertdialog"]')) {
+    const node = el as HTMLElement;
+    const testid = node.dataset.testid;
+    if (testid && ours.has(testid)) continue;
+    if (node.closest("[data-testid='inbox-panel']") || node.closest("[data-testid='inbox-detail']")) continue;
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden" || node.getAttribute("aria-hidden") === "true") continue;
+    const r = node.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    return true;
+  }
+  return false;
+}
+
 export const NotificationInbox = (props: Props) => {
   if (props.inbox) return <InboxUI {...props} inbox={props.inbox} />;
   return <InboxWithHook {...props} />;
@@ -162,6 +181,14 @@ function InboxUI({
     onClose();
   };
 
+  /** Close the detail and the inbox before opening another dialog or route. */
+  const closeInbox = () => {
+    selectedRef.current = null;
+    setSelected(null);
+    consumeHist();
+    onClose();
+  };
+
   const openItem = async (item: CompactItem) => {
     setSelected(item);
     setPinned(s => { const n = new Set(s); n.add(item.id); return n; });
@@ -177,6 +204,8 @@ function InboxUI({
 
   const onKey = useCallback((e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
+    // Don't swallow Escape when another dialog (Settings, etc.) is on top.
+    if (isForeignModalOpen()) return;
     if (selectedRef.current) {
       closeDetail();
       e.preventDefault();
@@ -253,6 +282,7 @@ function InboxUI({
       onDone={() => { void markRead([selected.id]); closeDetail(); toast("Marked done"); }}
       onDismiss={() => { void dismiss([selected.id]); closeDetail(); toast("Notification dismissed"); }}
       onOpenTransaction={onOpenTransaction}
+      onLeaveInbox={closeInbox}
     />
   ) : null;
 
@@ -461,11 +491,12 @@ function InboxRow({
 }
 
 function DetailSheet({
-  item, now, mobile, onClose, onDone, onDismiss, onOpenTransaction,
+  item, now, mobile, onClose, onDone, onDismiss, onOpenTransaction, onLeaveInbox,
 }: {
   item: CompactItem; now: Date; mobile: boolean;
   onClose: () => void; onDone: () => void; onDismiss: () => void;
   onOpenTransaction?: (txnId: string) => void;
+  onLeaveInbox: () => void;
 }) {
   const Icon = ALERT_ICON[item.type] ?? Bell;
   const color = ALERT_COLOR[item.type] ?? "fl-mute";
@@ -517,19 +548,19 @@ function DetailSheet({
       )}
       {item.type === "promo" && item.id === "promo:history" && (
         <button type="button" className="mt-4 w-full min-h-11 rounded-xl bg-gold text-[14px] font-semibold"
-          onClick={() => { onClose(); openSettings("banks"); }}>
+          onClick={() => { onLeaveInbox(); openSettings("banks"); }}>
           Extend history
         </button>
       )}
       {item.type === "promo" && item.id === "promo:demo" && (
         <button type="button" className="mt-4 w-full min-h-11 rounded-xl bg-gold text-[14px] font-semibold"
-          onClick={() => { onClose(); window.location.assign("/auth"); }}>
+          onClick={() => { onLeaveInbox(); window.location.assign("/auth"); }}>
           Create free account
         </button>
       )}
       {onOpenTransaction && p.transaction_id && (
         <button type="button" className="mt-4 w-full min-h-11 rounded-xl bg-[hsl(var(--primary)/0.1)] text-[hsl(var(--primary))] text-[13px] font-semibold"
-          onClick={() => { onClose(); onOpenTransaction(String(p.transaction_id)); }}>
+          onClick={() => { onLeaveInbox(); onOpenTransaction(String(p.transaction_id)); }}>
           View transaction
         </button>
       )}
@@ -543,7 +574,7 @@ function DetailSheet({
   if (mobile) {
     return (
       <Drawer open onOpenChange={o => { if (!o) onClose(); }} shouldScaleBackground={false}>
-        <DrawerContent showClose closeLabel="Close" className="max-h-[88dvh] rounded-t-[20px] bg-background p-0" data-testid="inbox-detail">
+        <DrawerContent showClose closeLabel="Close" className="z-[60] max-h-[88dvh] rounded-t-[20px] bg-background p-0" data-testid="inbox-detail">
           <div className="flex items-start gap-2 px-2 pt-1 pb-2">
             <DrawerTitle className="font-display text-[20px] font-semibold leading-snug flex-1 px-3 pt-2">{item.title}</DrawerTitle>
           </div>
@@ -556,7 +587,7 @@ function DetailSheet({
 
   return (
     <Drawer open onOpenChange={o => { if (!o) onClose(); }} shouldScaleBackground={false}>
-      <DrawerContent showClose closeLabel="Close" className="md:left-auto md:right-[420px] md:bottom-auto md:top-1/2 md:w-[min(420px,calc(100vw-500px))] md:max-h-[min(760px,86dvh)] md:rounded-[18px] md:translate-y-[-50%] p-0" data-testid="inbox-detail">
+      <DrawerContent showClose closeLabel="Close" className="z-[60] md:left-auto md:right-[420px] md:bottom-auto md:top-1/2 md:w-[min(420px,calc(100vw-500px))] md:max-h-[min(760px,86dvh)] md:rounded-[18px] md:translate-y-[-50%] p-0" data-testid="inbox-detail">
         <div className="flex items-start gap-2 px-2 pt-3 pb-2">
           <DrawerTitle className="font-display text-[20px] font-semibold leading-snug flex-1 px-3">{item.title}</DrawerTitle>
         </div>
