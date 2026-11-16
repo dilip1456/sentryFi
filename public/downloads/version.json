@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1236,
-  "sha256": "1601a7b3157fd0fe096fa0c6dd4b539fb8ec6bbe69628ad18eaa26eb5ac2939f",
-  "size": 7197337,
-  "releaseNotes": "feat(inbox): compact Option B notifications with an urgent strip",
+  "versionCode": 1237,
+  "sha256": "9a286ef31cb9b1ea245426206aaff0231c45baa5e592ae0fab3f8fd42b0d5449",
+  "size": 7197409,
+  "releaseNotes": "fix: Home crash (React #185 max update depth) on Android",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-16T04:53:21.320Z"
+  "publishedAt": "2026-11-16T23:07:58.318Z"
 }
