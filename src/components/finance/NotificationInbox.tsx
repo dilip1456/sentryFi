@@ -13,7 +13,7 @@ import {
   type CompactItem, type StackRow,
 } from "@/lib/notifications/compact";
 import { DEMO_INBOX_USER as DEMO_USER } from "@/lib/notifications/compact";
-import { useInboxItems, type UseInboxItemsOpts } from "@/hooks/useInboxItems";
+import { useInboxItems } from "@/hooks/useInboxItems";
 import { openSettings } from "@/lib/settings-nav";
 import { APK_DOWNLOAD_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -35,8 +35,6 @@ interface Props {
   onClose: () => void;
   onOpenTransaction?: (txnId: string) => void;
   demo?: boolean;
-  /** Open this item's detail once the panel is shown (e.g. from the urgent strip). */
-  jumpToId?: string | null;
   /** Shared inbox model from the page (bell + strip). Falls back to its own hook. */
   inbox?: ReturnType<typeof useInboxItems>;
 }
@@ -95,19 +93,22 @@ function InboxWithHook(props: Props) {
 }
 
 function InboxUI({
-  supabase, userId, open, onClose, onOpenTransaction, demo = false, jumpToId, inbox,
+  supabase, userId, open, onClose, onOpenTransaction, demo = false, inbox,
 }: Props & { inbox: NonNullable<Props["inbox"]> }) {
   const { items, loading, now, markRead, markAllRead, dismiss } = inbox;
   const [filter, setFilter] = useState<"unread" | "all">("unread");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<CompactItem | null>(null);
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
   const mobile = useNarrow();
   const pushed = useRef(0);
   const closingFromPop = useRef(false);
+  const selectedRef = useRef<CompactItem | null>(null);
+  selectedRef.current = selected;
 
   const model = useMemo(
-    () => buildCompactInbox(items, { filter, now, expanded }),
-    [items, filter, now, expanded],
+    () => buildCompactInbox(items, { filter, now, expanded, pinIds: pinned }),
+    [items, filter, now, expanded, pinned],
   );
   const anyUnread = items.some(i => !i.read && !i.gone);
 
@@ -129,9 +130,15 @@ function InboxUI({
     const onPop = () => {
       if (closingFromPop.current) { closingFromPop.current = false; return; }
       if (pushed.current <= 0) return;
-      pushed.current -= 1;
-      if (selected) setSelected(null);
-      else onClose();
+      if (selectedRef.current) {
+        closeDetail();
+        // The inbox entry was the one that popped; put it back so another
+        // Back still closes the panel. Don't bump `pushed` — we replaced it.
+        try { window.history.pushState({ ...(window.history.state ?? {}), nc: "inbox" }, ""); } catch { /* sandboxed */ }
+        return;
+      }
+      pushed.current = 0;
+      onClose();
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -142,8 +149,7 @@ function InboxUI({
     else if (pushed.current > 0 && !closingFromPop.current) {
       const n = pushed.current; pushed.current = 0; window.history.go(-n);
     }
-    if (!open) { setSelected(null); setExpanded(new Set()); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!open) { setSelected(null); setExpanded(new Set()); setPinned(new Set()); }
   }, [open]);
 
   useEffect(() => () => {
@@ -158,37 +164,33 @@ function InboxUI({
 
   const openItem = async (item: CompactItem) => {
     setSelected(item);
-    pushHist("detail");
+    setPinned(s => { const n = new Set(s); n.add(item.id); return n; });
     if (!item.read) await markRead([item.id]);
   };
 
   const closeDetail = () => {
-    // One history entry was pushed for the detail; drop it if we still have it.
-    if (pushed.current > 0 && selected) {
-      closingFromPop.current = true;
-      pushed.current -= 1;
-      try { window.history.back(); } catch { /* ignore */ }
-    }
+    if (!selectedRef.current) return;
+    selectedRef.current = null;
     setSelected(null);
   };
 
-  useEffect(() => {
-    if (!open || !jumpToId) return;
-    const it = items.find(i => i.id === jumpToId);
-    if (it) { void openItem(it); }
-    // only jump once per open+id
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, jumpToId]);
 
   const onKey = useCallback((e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    if (selected) { closeDetail(); e.preventDefault(); }
-    else if (open) { closePanel(); e.preventDefault(); }
-  }, [selected, open]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (selectedRef.current) {
+      closeDetail();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    } else if (open) {
+      closePanel();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onKey]);
 
   const toggleStack = (key: string) => {
@@ -257,7 +259,7 @@ function InboxUI({
   if (mobile) {
     return (
       <>
-        <Drawer open={open} onOpenChange={o => { if (!o) onClose(); }} shouldScaleBackground={false}>
+        <Drawer open={open} onOpenChange={o => { if (!o) closePanel(); }} dismissible={!selected} shouldScaleBackground={false}>
           <DrawerContent
             showClose
             closeLabel="Close notifications"

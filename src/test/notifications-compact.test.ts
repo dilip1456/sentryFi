@@ -146,6 +146,14 @@ describe("buildCompactInbox stacking", () => {
     expect(all.groups.map(g => g.label)).toEqual(["Today", "This week"]);
     expect(all.groups[1].items.map(i => i.id)).toEqual(["w", "r"]);
   });
+  it("keeps a just-opened read item visible on Unread when it is pinned", () => {
+    const open = item({ id: "r", type: "paycheck_anomaly", title: "Paycheck may be missing", priority: "urgent", read: true });
+    const other = item({ id: "u", type: "low_balance", title: "Joint Checking is low", priority: "urgent" });
+    const hidden = buildCompactInbox([open, other], { now: NOW, filter: "unread" });
+    expect(hidden.urgent.map(i => i.id)).toEqual(["u"]);
+    const pinned = buildCompactInbox([open, other], { now: NOW, filter: "unread", pinIds: new Set(["r"]) });
+    expect(pinned.urgent.map(i => i.id)).toEqual(["r", "u"]);
+  });
   it("drops dismissed items", () => {
     const a = item({ id: "a", type: "large_txn", title: "Best Buy", priority: "soon", gone: true });
     expect(buildCompactInbox([a], { now: NOW, filter: "all" }).groups).toEqual([]);

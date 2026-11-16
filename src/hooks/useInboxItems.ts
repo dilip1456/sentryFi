@@ -90,7 +90,8 @@ export function useInboxItems({ userId, demo, supabase, open = false }: UseInbox
 
   useEffect(() => { loadDb().catch(() => {}); }, [loadDb, open]);
 
-  const now = useMemo(() => new Date(), [localTick, dbRows, derived, extras, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Recompute 'now' whenever inbox inputs change so relative times stay fresh.
+  const now = useMemo(() => new Date(), [dbRows, derived, extras, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const items: CompactItem[] = useMemo(() => {
     const history = extras.history ?? getHistoryHintNotice();
@@ -102,7 +103,7 @@ export function useInboxItems({ userId, demo, supabase, open = false }: UseInbox
     const fromDb = prepareInbox([...dbRows, ...(derivedRows as AlertRow[])], now).map(a => fromAlertLike(a, now));
     const actions = applyLocalState(userId, extras.actions.length ? extras.actions : getHomeActionItems());
     return applyLocalState(userId, mergeUnique([fromDb, product, actions]));
-    // localTick forces a re-read of localStorage-backed state
+    void localTick; // re-read localStorage-backed read/dismiss state
   }, [demo, userId, dbRows, derived, extras, now, localTick]);
 
   const unreadCount = items.filter(i => !i.read && !i.gone).length;

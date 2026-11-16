@@ -226,12 +226,12 @@ export function stackTotal(items: CompactItem[]): number | null {
  */
 export function buildCompactInbox(
   items: CompactItem[],
-  opts: { filter?: "unread" | "all"; now?: Date; expanded?: ReadonlySet<string> } = {},
+  opts: { filter?: "unread" | "all"; now?: Date; expanded?: ReadonlySet<string>; pinIds?: ReadonlySet<string> } = {},
 ): CompactInboxModel {
   const now = opts.now ?? new Date();
   const filter = opts.filter ?? "unread";
   let list = items.filter(i => !i.gone);
-  if (filter === "unread") list = list.filter(i => !i.read);
+  if (filter === "unread") list = list.filter(i => !i.read || !!opts.pinIds?.has(i.id));
   const urgent = list.filter(i => i.priority === "urgent")
     .sort((a, b) => stripRank(a, now) - stripRank(b, now) || new Date(b.at).getTime() - new Date(a.at).getTime());
   const rest = list.filter(i => i.priority !== "urgent");

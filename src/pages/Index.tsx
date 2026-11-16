@@ -104,7 +104,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showAppBanner, setShowAppBanner] = useState(() => !localStorage.getItem("sentryfi_apk_banner_dismissed"));
   const { isAdmin, user, signOut, profile } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
@@ -115,7 +114,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
-  const [inboxJumpTo, setInboxJumpTo] = useState<string | null>(null);
   const inboxUserId = guestDemo || effectiveDemo ? (user?.id ?? "demo") : (user?.id ?? "");
   const inbox = useInboxItems({
     userId: inboxUserId,
@@ -402,10 +400,10 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             paddingLeft: "max(1rem, env(safe-area-inset-left))",
             paddingRight: "max(1rem, env(safe-area-inset-right))",
           }}>
-          <button onClick={() => go("overall")} className="tap-44 flex items-center gap-2.5">
-            <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
+          <button onClick={() => go("overall")} className="tap-44 flex min-w-0 items-center gap-2.5">
+            <img src="/logo.png" alt="" className="h-7 w-7 object-contain shrink-0" />
             <span className="text-[15px] font-semibold text-foreground truncate">
-              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
+              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.mobileLabel ?? TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
             {effectiveDemo && (
               <span className="nc-example shrink-0" data-testid="example-data">
@@ -520,7 +518,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         </header>
 
         {/* Option B: one slim urgent strip. APK / demo banners live in the inbox. */}
-        <UrgentStrip selection={inbox.strip} onOpen={(id) => { setInboxJumpTo(id ?? null); setShowInbox(true); }} />
+        <UrgentStrip selection={inbox.strip} onOpen={() => setShowInbox(true)} />
 
         {/* Main scroll area */}
         <main
@@ -732,9 +730,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         userId={inboxUserId}
         demo={effectiveDemo}
         inbox={inbox}
-        jumpToId={inboxJumpTo}
         open={showInbox && !!(user || effectiveDemo)}
-        onClose={() => { setShowInbox(false); setInboxJumpTo(null); refreshUnread(); }}
+        onClose={() => { setShowInbox(false); refreshUnread(); }}
       />
       <TimelinePanel open={timelineOpen} onOpenChange={setTimelineOpen} userId={user?.id ?? null} demo={effectiveDemo} />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />
