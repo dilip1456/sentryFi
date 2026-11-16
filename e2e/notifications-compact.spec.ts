@@ -79,9 +79,18 @@ for (const vp of WIDTHS) {
 
     test("home has an urgent strip, no page banners, and no overflow", async ({ page, guard }) => {
       await openDemo(page);
-      await expect(page.getByTestId("urgent-strip")).toBeVisible();
-      await expect(page.getByTestId("urgent-strip")).toContainText(/Urgent/);
-      await expect(page.getByTestId("urgent-strip")).toContainText(/\+\d+ more/);
+      const strip = page.getByTestId("urgent-strip");
+      await expect(strip).toBeVisible();
+      await expect(strip).toContainText(/Urgent/);
+      // Only a shortfall, a missing paycheck, or a bill due tomorrow belong on the strip.
+      await expect(strip).toContainText(/Paycheck may be missing/);
+      await expect(strip).toContainText(/\+1 more/);
+      await expect(strip).not.toContainText(/Joint Checking|duplicate|over budget/i);
+      // Option B in RATIONALE.md keeps a numeric badge so the unread count stays visible.
+      const badge = page.locator("[data-testid='inbox-badge'], [data-testid='inbox-badge-side']").filter({ visible: true });
+      await expect(badge.first()).toBeVisible();
+      await expect(badge.first()).toHaveText(/^\d+\+?$/);
+      await expect(page.getByRole("button", { name: /Notifications, \d+ unread/ }).first()).toBeVisible();
       await expect(page.getByText("Get the Sentry Finance Android app")).toHaveCount(0);
       await expect(page.getByText("You're viewing demo data.")).toBeHidden();
       await expect(page.getByRole("heading", { name: "Action items" })).toHaveCount(0);

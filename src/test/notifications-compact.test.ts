@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCompactInbox, classifyPriority, compactAgo, dayLabel, dayOffset,
-  formatInboxAmount, selectUrgentStrip, stackKey, stackTitle, type CompactItem,
+  formatInboxAmount, isStripWorthy, selectUrgentStrip, stackKey, stackTitle, type CompactItem,
 } from "@/lib/notifications/compact";
 import { demoInboxItems } from "@/lib/notifications/demo";
 
@@ -66,20 +66,45 @@ describe("selectUrgentStrip", () => {
       item({ id: "b", type: "budget_threshold", title: "Shopping over budget", priority: "soon" }),
     ], NOW)).toBeNull();
   });
-  it("picks the most recent unread urgent item and counts +N more", () => {
-    const paycheck = item({ id: "pay", type: "paycheck_anomaly", title: "Paycheck may be missing", priority: "urgent", at: "2026-11-15T10:00:00" });
+  it("picks the most recent strip-worthy item and counts only those in +N more", () => {
+    const paycheck = item({ id: "pay", type: "paycheck_anomaly", title: "Paycheck may be missing", priority: "urgent", at: "2026-11-15T10:00:00", payload: { kind: "missing" } });
     const amex = item({
       id: "amex", type: "payment_due", title: "Amex Gold due tomorrow", priority: "urgent",
       at: "2026-11-15T07:00:00", payload: { due_date: "2026-11-16" },
     });
-    const low = item({ id: "low", type: "low_balance", title: "Joint Checking is low", priority: "urgent", amount: 420, at: "2026-11-15T04:00:00" });
-    const dup = item({ id: "dup", type: "insight", title: "Possible duplicate charge", priority: "urgent", at: "2026-11-14T10:00:00" });
-    const sel = selectUrgentStrip([dup, low, amex, paycheck], NOW);
+    const short = item({ id: "short", type: "shortfall", title: "Shortfall in 7 days", priority: "urgent", at: "2026-11-14T12:00:00" });
+    const low = item({ id: "low", type: "low_balance", title: "Joint Checking is low", priority: "urgent", amount: 420, at: "2026-11-15T11:00:00" });
+    const dup = item({ id: "dup", type: "insight", title: "Possible duplicate charge", priority: "urgent", at: "2026-11-15T12:00:00" });
+    const sel = selectUrgentStrip([dup, low, short, amex, paycheck], NOW);
     expect(sel).not.toBeNull();
-    // newest first — matches the Option B mockup ("Paycheck may be missing · +3 more")
+    // newest among the three approved kinds — paycheck (10:00) beats Amex (07:00) and the older shortfall
     expect(sel!.item.id).toBe("pay");
-    expect(sel!.more).toBe(3);
-    expect(sel!.all.map(i => i.id)).toEqual(["pay", "amex", "low", "dup"]);
+    expect(sel!.more).toBe(2);
+    expect(sel!.all.map(i => i.id)).toEqual(["pay", "amex", "short"]);
+  });
+  it("keeps low balance, due-today, overdue, duplicate and misclassified paycheck off the strip", () => {
+    const low = item({ id: "low", type: "low_balance", title: "Joint Checking is low", priority: "urgent", amount: 420 });
+    const today = item({
+      id: "today", type: "payment_due", title: "Visa due today", priority: "urgent",
+      payload: { due_date: "2026-11-15" },
+    });
+    const late = item({
+      id: "late", type: "payment_due", title: "Card was due yesterday", priority: "urgent",
+      payload: { due_date: "2026-11-14" },
+    });
+    const later = item({
+      id: "later", type: "payment_due", title: "Netflix in 3 days", priority: "info",
+      payload: { due_date: "2026-11-18" },
+    });
+    const dup = item({ id: "dup", type: "insight", title: "Possible duplicate charge", priority: "urgent" });
+    const misc = item({
+      id: "misc", type: "paycheck_anomaly", title: "Paycheck may be misclassified", priority: "urgent",
+      payload: { kind: "misclassified" },
+    });
+    for (const it of [low, today, late, later, dup, misc]) {
+      expect(isStripWorthy(it, NOW), it.id).toBe(false);
+    }
+    expect(selectUrgentStrip([low, today, late, later, dup, misc], NOW)).toBeNull();
   });
   it("uses urgency rank only as a tie-breaker when times match", () => {
     const at = "2026-11-15T10:00:00";
@@ -91,11 +116,15 @@ describe("selectUrgentStrip", () => {
     expect(selectUrgentStrip([due, short], NOW)!.item.id).toBe("s");
     expect(selectUrgentStrip([due, short], NOW)!.more).toBe(1);
   });
-  it("does not count dismissed or info items in +N", () => {
-    const a = item({ id: "a", type: "paycheck_anomaly", title: "Missing", priority: "urgent" });
-    const gone = item({ id: "g", type: "low_balance", title: "Low", priority: "urgent", gone: true });
-    const info = item({ id: "i", type: "deposit", title: "Paycheck deposited", priority: "info" });
-    const sel = selectUrgentStrip([a, gone, info], NOW);
+  it("does not count dismissed, read, or non-strip items in +N", () => {
+    const a = item({ id: "a", type: "paycheck_anomaly", title: "Missing", priority: "urgent", payload: { kind: "missing" } });
+    const gone = item({ id: "g", type: "shortfall", title: "Shortfall", priority: "urgent", gone: true });
+    const read = item({
+      id: "r", type: "payment_due", title: "Amex Gold due tomorrow", priority: "urgent",
+      read: true, payload: { due_date: "2026-11-16" },
+    });
+    const low = item({ id: "low", type: "low_balance", title: "Low", priority: "urgent" });
+    const sel = selectUrgentStrip([a, gone, read, low], NOW);
     expect(sel!.item.id).toBe("a");
     expect(sel!.more).toBe(0);
   });
@@ -161,13 +190,14 @@ describe("buildCompactInbox stacking", () => {
 });
 
 describe("demo inbox + strip", () => {
-  it("demo data has four unread urgent items; strip shows the top one and +3 more", () => {
+  it("demo data has four unread urgent items; the strip only counts the paycheck and the bill due tomorrow", () => {
     const items = demoInboxItems(NOW);
     const unreadUrgent = items.filter(i => i.priority === "urgent" && !i.read);
     expect(unreadUrgent).toHaveLength(4);
     const sel = selectUrgentStrip(items, NOW);
     expect(sel!.item.title).toBe("Paycheck may be missing");
-    expect(sel!.more).toBe(3);
+    expect(sel!.more).toBe(1);
+    expect(sel!.all.map(i => i.title)).toEqual(["Paycheck may be missing", "Amex Gold due tomorrow"]);
     const model = buildCompactInbox(items, { now: NOW, filter: "unread" });
     expect(model.urgent).toHaveLength(4);
     const today = model.groups.find(g => g.label === "Today");

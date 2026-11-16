@@ -115,23 +115,34 @@ export function inferStack(item: { type: string; stack?: StackFamily | null; pri
 }
 
 /**
- * An unread urgent item may appear on the slim top-of-page strip.
- * Types that qualify (per RATIONALE + Option B mockup): shortfall, missing
- * paycheck, payment due today/tomorrow or missed, low balance, and other
- * items already classified urgent (e.g. a possible duplicate).
+ * The urgent strip shows only three kinds of unread item (Dilip's approved
+ * spec): a shortfall, a missing paycheck, or a bill due tomorrow. Every
+ * other unread urgent item stays in the inbox and is not counted in "+N more".
  */
-export function isStripWorthy(item: CompactItem): boolean {
-  return !item.read && !item.gone && item.priority === "urgent";
+export function isStripWorthy(item: CompactItem, now: Date = new Date()): boolean {
+  if (item.read || item.gone) return false;
+  if (item.type === "shortfall") return true;
+  if (item.type === "paycheck_anomaly") {
+    const kind = item.payload?.kind;
+    return kind == null || kind === "missing";
+  }
+  if (item.type === "payment_due") {
+    const due = daysUntilDue({
+      id: item.id, alert_type: "payment_due", title: item.title, body: item.body,
+      payload: item.payload ?? {}, read_at: item.read ? item.at : null, created_at: item.at,
+    }, now);
+    return due === 1;
+  }
+  return false;
 }
 
 /**
- * Pick the single line for the urgent strip: the highest-ranked unread
- * urgent item, plus how many other urgent items are waiting ("+N more").
+ * Pick the single line for the urgent strip: the newest strip-worthy item,
+ * plus how many other strip-worthy items are waiting ("+N more"). Rank is
+ * only a tie-breaker.
  */
 export function selectUrgentStrip(items: CompactItem[], now: Date = new Date()): UrgentStripSelection | null {
-  // Newest first (matches the Option B mockup: the most recently raised
-  // urgent item leads the strip). Rank is only a tie-breaker.
-  const all = [...items].filter(isStripWorthy).sort((a, b) =>
+  const all = [...items].filter(i => isStripWorthy(i, now)).sort((a, b) =>
     new Date(b.at).getTime() - new Date(a.at).getTime() || stripRank(a, now) - stripRank(b, now));
   if (!all.length) return null;
   return { item: all[0], more: all.length - 1, all };
