@@ -3,7 +3,6 @@
  * download, the demo-data note, and the Picture history hint. They live in
  * the inbox (product stack) and are dismissed via localStorage — no migration.
  */
-import { isNative } from "@/lib/app-version";
 import type { CompactItem } from "./compact";
 import { APK_BANNER_KEY, DEMO_NOTICE_KEY, isKeySet } from "./local-state";
 
@@ -27,7 +26,7 @@ export function productNotices(opts: {
   native?: boolean;
 }): CompactItem[] {
   const now = opts.now ?? new Date();
-  const native = opts.native ?? (typeof isNative === "function" ? isNative() : false);
+  const native = opts.native ?? false;
   const out: CompactItem[] = [];
   if (!native && !isKeySet(APK_BANNER_KEY)) {
     out.push({

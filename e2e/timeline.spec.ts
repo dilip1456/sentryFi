@@ -237,7 +237,7 @@ test.describe("Timeline · phone 390x844", () => {
     expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, 390, 844]); // M2 full screen
     await page.goBack(); // M3
     await expect(panel(page)).toBeHidden();
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible(); // still on /demo
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible(); // still on /demo
     await page.locator("header").getByRole("button", { name: "Timeline" }).click(); // M4
     await expect(panel(page)).toBeVisible();
     await waitLoaded(page);
@@ -282,7 +282,7 @@ test.describe("Timeline · phone 390x844", () => {
     await page.goBack(); // M25 Android/browser Back closes the menu, stays on /demo
     await expect(menu).toBeHidden();
     expect(new URL(page.url()).pathname).toBe("/demo");
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
     await open();
     const x = menu.getByRole("button", { name: "Close" });
     const xb = (await x.boundingBox())!;
@@ -298,7 +298,7 @@ test.describe("Timeline · phone 390x844", () => {
     await page.goBack();
     await expect(panel(page)).toBeHidden();
     expect(new URL(page.url()).pathname).toBe("/demo");
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
     // M28 header Timeline tap target
     const hb = (await page.locator("header").getByRole("button", { name: "Timeline" }).boundingBox())!;
     expect(Math.min(hb.width, hb.height)).toBeGreaterThanOrEqual(44);

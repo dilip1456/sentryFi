@@ -63,8 +63,10 @@ export function setKey(key: string): void {
   emitInboxLocal();
 }
 
+/** Fired after alerts are marked read so the bell badge refreshes at once. */
+export const ALERTS_READ_EVENT = "sentryfi:alerts-read";
 export const INBOX_LOCAL_EVENT = "sentryfi:inbox-local";
 export function emitInboxLocal(): void {
   try { window.dispatchEvent(new Event(INBOX_LOCAL_EVENT)); } catch { /* ss r */ }
-  try { window.dispatchEvent(new Event("sentryfi:alerts-read")); } catch { /* ss r */ }
+  try { window.dispatchEvent(new Event(ALERTS_READ_EVENT)); } catch { /* ss r */ }
 }

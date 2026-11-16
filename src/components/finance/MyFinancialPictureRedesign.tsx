@@ -5,7 +5,7 @@ import { CoverSelect, DataMobile, DataRow } from "./picture/data-column";
 import { PictureProvider, usePicture, type MyFinancialPictureProps } from "./picture/state";
 import { OverlayProvider, useOverlay } from "./picture/overlays";
 import { renderDetail } from "./picture/details";
-import { HistoryToast } from "./picture/history-hint";
+import { HistoryHintPublisher } from "./picture/history-hint";
 import { fmt } from "./picture/bits";
 import { SEC } from "./picture/meta";
 import { RecurringCard } from "./picture/recurring";
@@ -116,7 +116,7 @@ function Page({ mobile }: { mobile: boolean }) {
     <PeriodControl />
     <div className="flex items-center gap-2 mt-3">{pc.demo && <ExampleTag />}<span className="text-[12.5px] text-muted-foreground">{periodLabel}</span></div>
     <SummaryCard />
-    <HistoryToast />
+    <HistoryHintPublisher />
     <DataMobile />
     <div className="mt-6"><FlowMini /><AttentionColumn /></div>
   </div>;
@@ -126,7 +126,7 @@ function Page({ mobile }: { mobile: boolean }) {
       <div className="fp-redesign-controls"><PeriodControl /><button type="button" className="btn" onClick={pc.editing ? pc.cancelEdit : pc.startEdit}><Pencil className="h-4 w-4" aria-hidden="true" />{editingAction}</button><button type="button" className="btn" onClick={() => open("cashflow")}><ChartNoAxesColumnDecreasing className="h-4 w-4" aria-hidden="true" />Where it goes</button></div>
     </header>
     <SummaryCard />
-    <HistoryToast />
+    <HistoryHintPublisher />
     <div className="fp-redesign-grid">
       <section aria-labelledby="yd-h">
         <div className="col-h"><div><h2 id="yd-h">{pc.full ? "Full picture" : "Monthly plan"}</h2><p>{pc.full ? `Your whole year, ${pc.year}.` : "Here’s how your money flows this month."}</p></div>{pc.full ? <span className="text-[12.5px] text-muted-foreground">Switch to Monthly to edit</span> : pc.editing ? <div className="flex gap-2"><button type="button" className="btn" onClick={pc.cancelEdit}>Cancel</button><button type="button" className="btn-gold" onClick={pc.saveEdit}>Done</button></div> : null}</div>

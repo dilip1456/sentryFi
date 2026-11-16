@@ -59,7 +59,7 @@ export type ViewName = (typeof VIEWS)[number];
 
 export async function openDemo(page: Page) {
   await page.goto("/demo");
-  await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+  await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
 }
 
 export async function goTo(page: Page, view: ViewName) {

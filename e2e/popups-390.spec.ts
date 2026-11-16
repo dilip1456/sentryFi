@@ -24,7 +24,7 @@ const OPEN = "[role=dialog][data-state=open], [role=alertdialog][data-state=open
 async function load(page: Page, view: string) {
   await page.addInitScript(v => sessionStorage.setItem("sentryfi_view", v), view);
   await page.goto("/demo");
-  await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+  await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
   await page.waitForTimeout(500);
 }
 

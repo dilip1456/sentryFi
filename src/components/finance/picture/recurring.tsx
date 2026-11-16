@@ -74,7 +74,7 @@ export function RecurringCard() {
   const toReview = items.filter(i => i.status === "suggested").length;
   const missed = items.filter(i => i.missed).length;
   return (
-    <div className="sec rcv-card" data-testid="rcv-card">
+    <div className="sec rcv-card rcv-card-compact" data-testid="rcv-card">
       <div className="sec-h">
         <span className="sec-ico" aria-hidden="true"><Repeat className="h-[18px] w-[18px]" /></span>
         <div className="min-w-0"><div className="sec-t">Detected recurring</div>

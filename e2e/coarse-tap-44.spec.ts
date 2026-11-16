@@ -112,7 +112,7 @@ for (const [w, h] of WIDTHS) {
 
       await page.getByRole("button", { name: "More", exact: true }).click();
       await page.getByRole("menuitem", { name: "Benefits" }).or(page.getByRole("button", { name: "Benefits", exact: true })).first().click();
-      await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+      await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
       await shot(page, `benefits-${w}`);
 
       const timeline = page.getByRole("button", { name: "Timeline" }).first();
