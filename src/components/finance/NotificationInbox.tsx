@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
-import { createPortal } from "react-dom";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
   Bell, X, CheckCheck, CreditCard, TrendingUp, AlertTriangle,
@@ -24,6 +24,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Drawer, DrawerContent, DrawerTitle, DrawerDescription,
 } from "@/components/ui/drawer";
+import {
+  Dialog, DialogPortal, DialogOverlay, DialogTitle, DialogDescription, DialogClose,
+} from "@/components/ui/dialog";
 import "./inbox.css";
 
 /** Fired after alerts are marked read so the bell badge refreshes at once. */
@@ -125,6 +128,8 @@ function InboxUI({
   const closingFromPop = useRef(false);
   const selectedRef = useRef<CompactItem | null>(null);
   selectedRef.current = selected;
+  // Row that opened the desktop detail; focus returns here on X / Escape / outside click.
+  const restoreFocusId = useRef<string | null>(null);
 
   const model = useMemo(
     () => buildCompactInbox(items, { filter, now, expanded, pinIds: pinned }),
@@ -162,7 +167,7 @@ function InboxUI({
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [selected, onClose]);
+  }, [selected, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (open) pushHist("inbox");
@@ -182,8 +187,20 @@ function InboxUI({
     onClose();
   };
 
+  const focusOpenerRow = (id: string | null) => {
+    if (!id) return;
+    const run = () => {
+      const row = document.querySelector(
+        `[data-testid="inbox-row"][data-nc-item="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      row?.focus();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+  };
+
   /** Close the detail and the inbox before opening another dialog or route. */
   const closeInbox = () => {
+    restoreFocusId.current = null;
     selectedRef.current = null;
     setSelected(null);
     consumeHist();
@@ -191,6 +208,7 @@ function InboxUI({
   };
 
   const openItem = async (item: CompactItem) => {
+    restoreFocusId.current = item.id;
     setSelected(item);
     setPinned(s => { const n = new Set(s); n.add(item.id); return n; });
     if (!item.read) await markRead([item.id]);
@@ -198,8 +216,10 @@ function InboxUI({
 
   const closeDetail = () => {
     if (!selectedRef.current) return;
+    const id = restoreFocusId.current;
     selectedRef.current = null;
     setSelected(null);
+    focusOpenerRow(id);
   };
 
 
@@ -499,6 +519,7 @@ function DetailSheet({
   onOpenTransaction?: (txnId: string) => void;
   onLeaveInbox: () => void;
 }) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const Icon = ALERT_ICON[item.type] ?? Bell;
   const color = ALERT_COLOR[item.type] ?? "fl-mute";
   const p = (item.payload ?? {}) as Record<string, unknown>;
@@ -586,29 +607,42 @@ function DetailSheet({
     );
   }
 
-  // Desktop detail is a plain fixed dialog, portaled to document.body — not a
-  // repositioned vaul bottom sheet. Vaul measures a bottom-anchored box and
-  // dismisses on pointerdown "outside" that box, so a real mouse click on a
-  // CTA closed the sheet before the button's click fired. Rendering in-place
-  // also left the card under the inbox panel (ancestor stacking). Mobile stays a vaul sheet.
-  return createPortal(
-    <div
-      className="nc-detail"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="nc-detail-title"
-      data-testid="inbox-detail"
-    >
-      <div className="flex items-start gap-2 px-2 pt-3 pb-2">
-        <h2 id="nc-detail-title" className="font-display text-[20px] font-semibold leading-snug flex-1 px-3">{item.title}</h2>
-        <button type="button" className="nc-ib tap-44 h-11 w-11" aria-label="Close" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <p className="sr-only">{item.body}</p>
-      <div className="nc-detail-body">{body}</div>
-    </div>,
-    document.body,
+  // Desktop detail is a Radix Dialog (focus move / trap / restore), not a
+  // repositioned vaul bottom sheet. Vaul treated a real mouse click on a CTA
+  // as pointerdown-outside and only dismissed the sheet. The content is still
+  // portaled, z-60, and parked beside the 400px panel. Mobile stays a vaul sheet.
+  return (
+    <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogPortal>
+        <DialogOverlay className="z-[59] bg-transparent" />
+        <DialogPrimitive.Content
+          className="nc-detail left-auto right-[420px] top-1/2 z-[60] flex h-auto max-h-[min(760px,86dvh)] w-[min(420px,calc(100vw-500px))] max-w-none translate-x-0 translate-y-[-50%] gap-0 p-0 shadow-none"
+          data-testid="inbox-detail"
+          onOpenAutoFocus={e => {
+            e.preventDefault();
+            titleRef.current?.focus();
+          }}
+          onCloseAutoFocus={e => { e.preventDefault(); }}
+        >
+          <div className="flex items-start gap-2 px-2 pt-3 pb-2">
+            <DialogTitle
+              ref={titleRef}
+              tabIndex={-1}
+              className="font-display text-[20px] font-semibold leading-snug flex-1 px-3 outline-none"
+            >
+              {item.title}
+            </DialogTitle>
+            <DialogClose asChild>
+              <button type="button" className="nc-ib tap-44 h-11 w-11" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </DialogClose>
+          </div>
+          <DialogDescription className="sr-only">{item.body}</DialogDescription>
+          <div className="nc-detail-body">{body}</div>
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </Dialog>
   );
 }
 

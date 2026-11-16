@@ -100,6 +100,54 @@ async function expandStacks(panel: Locator) {
 }
 
 
+
+async function assertFocusInside(page: Page, testId: string) {
+  await expect.poll(async () => page.evaluate((id) => {
+    const root = document.querySelector(`[data-testid="${id}"]`);
+    return !!(root && document.activeElement && root.contains(document.activeElement));
+  }, testId)).toBe(true);
+}
+
+async function assertDesktopDetailFocus(page: Page) {
+  await openDemo(page);
+  const panel = await openInbox(page);
+  const row = panel.getByRole("button", { name: /Paycheck may be missing/ });
+  await mouseClick(page, row);
+  const detail = page.getByTestId("inbox-detail");
+  await expect(detail).toBeVisible();
+  await assertFocusInside(page, "inbox-detail");
+
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Tab");
+    await assertFocusInside(page, "inbox-detail");
+  }
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Shift+Tab");
+    await assertFocusInside(page, "inbox-detail");
+  }
+
+  await mouseClick(page, detail.getByRole("button", { name: "Close" }));
+  await expect(detail).toBeHidden();
+  await expect(row).toBeFocused();
+
+  await mouseClick(page, row);
+  await expect(detail).toBeVisible();
+  await assertFocusInside(page, "inbox-detail");
+  await page.keyboard.press("Escape");
+  await expect(detail).toBeHidden();
+  await expect(row).toBeFocused();
+
+  await mouseClick(page, row);
+  await expect(detail).toBeVisible();
+  await assertFocusInside(page, "inbox-detail");
+  const box = (await detail.boundingBox())!;
+  const x = Math.max(8, box.x - 40);
+  const y = box.y + Math.min(80, box.height / 2);
+  await page.mouse.click(x, y);
+  await expect(detail).toBeHidden();
+  await expect(row).toBeFocused();
+}
+
 async function openInbox(page: Page) {
   await page.getByRole("button", { name: "Notifications" }).first().click();
   const panel = page.getByTestId("inbox-panel");
@@ -336,6 +384,12 @@ for (const vp of WIDTHS) {
       });
     }
 
+    if (vp.width === 1440) {
+      test("desktop detail moves, traps, and restores focus", async ({ page }) => {
+        await assertDesktopDetailFocus(page);
+      });
+    }
+
     test("Picture no longer shows the history hint card; review card is compact", async ({ page, guard }) => {
       await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
       await openDemo(page);
@@ -350,3 +404,15 @@ for (const vp of WIDTHS) {
     });
   });
 }
+
+test.describe("notifications compact @ 1280", () => {
+  test.use({
+    viewport: { width: 1280, height: 900 },
+    isMobile: false,
+    hasTouch: true,
+  });
+
+  test("desktop detail moves, traps, and restores focus", async ({ page }) => {
+    await assertDesktopDetailFocus(page);
+  });
+});
