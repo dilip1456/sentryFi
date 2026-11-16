@@ -26,6 +26,8 @@ import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
 import { paycheckAlerts } from "@/lib/paycheck-anomaly";
 import { setDerivedAlerts } from "@/lib/derived-alerts";
+import { setHomeActionItems } from "@/lib/notifications/extras-store";
+import type { CompactItem } from "@/lib/notifications/compact";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -44,6 +46,7 @@ import {
 import { recurringFrequencyFor } from "@/lib/recurring";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
+import { OPEN_TRANSACTION_EVENT } from "@/lib/txn-nav";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
   ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
@@ -4478,6 +4481,20 @@ export const LivePlaidDashboard = ({
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
+  // Inbox (and anything else) can open a transaction by id. Match demo rows
+  // on `id` as well — demoTransactions only set `id`, not `transaction_id`.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<{ txnId?: string }>).detail?.txnId;
+      if (!id) return;
+      const txn = txns.find(t => t.id === id || t.transaction_id === id);
+      if (!txn) { toast.error("This transaction is no longer available"); return; }
+      openDetail(txn);
+    };
+    window.addEventListener(OPEN_TRANSACTION_EVENT, on);
+    return () => window.removeEventListener(OPEN_TRANSACTION_EVENT, on);
+  }, [txns]);
+
   // ── Smart rules — evaluate generic multi-condition rules across all txns.
   // Because this is derived state, newly synced transactions are handled
   // automatically on the next render (no manual "run" needed).
@@ -4941,6 +4958,35 @@ export const LivePlaidDashboard = ({
 
   const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
+  useEffect(() => {
+    if (demo || guestDemo) { setHomeActionItems([]); return; }
+    const toType = (id: string): CompactItem["type"] => {
+      if (id.startsWith("low-") || id.includes("low-checking")) return "low_balance";
+      if (id.startsWith("cc-") || id.includes("overdue") || id.includes("cc-due")) return "payment_due";
+      if (id.startsWith("budget")) return "budget_threshold";
+      if (id.includes("spike") || id.includes("dup") || id.includes("duplicate")) return "insight";
+      if (id.includes("large") || id.includes("big")) return "large_txn";
+      return "insight";
+    };
+    const list: CompactItem[] = visibleActions.map(a => ({
+      id: `action:${a.id}`,
+      type: toType(a.id),
+      priority: a.priority,
+      title: a.title,
+      body: typeof a.detail === "string" ? a.detail : "",
+      amount: null,
+      at: new Date().toISOString(),
+      account: null,
+      source: "Home",
+      status: a.priority === "urgent" ? "Needs review" : a.cta,
+      stack: null,
+      read: false,
+      payload: a.reviewCategory ? { category: a.reviewCategory } : {},
+    }));
+    setHomeActionItems(list);
+    return () => setHomeActionItems([]);
+  }, [demo, guestDemo, visibleActions]);
+
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories, classOf);
   const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
@@ -5253,7 +5299,7 @@ export const LivePlaidDashboard = ({
       {/* ── Insights — full width ── */}
       <div className="space-y-3 min-w-0">
       {/* ═══ Insights into your spending ═══════════════════════ */}
-      {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
+      {(visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-display text-[20px] md:text-[22px] font-semibold tracking-[-0.02em] text-foreground">Insights into your spending</h2>
@@ -5506,7 +5552,7 @@ export const LivePlaidDashboard = ({
             );
 
             const renderPanel = (id: string, dragHandle: React.HTMLAttributes<HTMLElement>) => {
-              if (id === "action-items") return panelActionItems(dragHandle);
+              if (id === "action-items") return null; // moved into the notification inbox
               if (id === "saving-opps") return panelSavingOpps(dragHandle);
               if (id === "upcoming-charges") return panelUpcomingCharges(dragHandle);
               return null;

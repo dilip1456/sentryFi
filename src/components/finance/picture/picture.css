@@ -497,3 +497,9 @@
 [data-sonner-toast] { pointer-events:auto; }
 /* Detected recurring: "Review" / "Show" are primary taps on phones (44px). */
 @media (max-width:767px){ .fp .rcv-card .sec-more, .fp .rcv-list .sec-more, .fp [data-testid="rcv-list"] .sec-more { min-height:44px; } }
+
+/* Compact "Detected recurring" card (Option B): one row, no chip tray. */
+.fp .rcv-card-compact { padding: 12px 14px; }
+.fp .rcv-card-compact .sec-h { margin-bottom: 0; }
+.fp .rcv-card-compact .rcv-chips,
+.fp .rcv-card-compact .rcv-missed { display: none; }

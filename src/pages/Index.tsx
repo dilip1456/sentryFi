@@ -22,17 +22,20 @@ import { PageHeader } from "@/components/ui/headers";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
+import { UrgentStrip } from "@/components/finance/UrgentStrip";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
 import { MobileMoreMenu } from "@/components/nav/MobileMoreMenu";
 import { HeaderMenu } from "@/components/nav/HeaderMenu";
 import { menuItem, menuItemActive, menuItemGroupStart as rowSep } from "@/components/ui/menu-styles";
 import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
+import { openTransaction } from "@/lib/txn-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
+import { useInboxItems } from "@/hooks/useInboxItems";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -49,7 +52,7 @@ import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import {
   LayoutDashboard, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical,
   type LucideIcon,
 } from "lucide-react";
 
@@ -102,17 +105,27 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showAppBanner, setShowAppBanner] = useState(() => !localStorage.getItem("sentryfi_apk_banner_dismissed"));
   const { isAdmin, user, signOut, profile } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { theme, toggle: toggleTheme } = useTheme();
   const dark = theme === "dark";
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
-  const { unreadCount, refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
+  const { refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
+  const inboxUserId = guestDemo || effectiveDemo ? (user?.id ?? "demo") : (user?.id ?? "");
+  const inbox = useInboxItems({
+    userId: inboxUserId,
+    demo: effectiveDemo,
+    supabase: effectiveDemo ? null : supabase,
+    open: showInbox,
+  });
+  const unreadCount = inbox.unreadCount;
+  // Option B in RATIONALE.md: "Numeric badge retained so the count stays visible."
+  const badgeText = unreadCount > 9 ? "9+" : String(unreadCount);
+  const notifLabel = unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications";
 
   const TABS = isAdmin && !guestDemo
     ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users }]
@@ -207,14 +220,15 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
         </button>
       )}
-      {user && (
+      {(user || effectiveDemo) && (
         <button onClick={() => setShowInbox(true)}
           title="Notifications"
+          aria-label={notifLabel}
           className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-              {unreadCount > 9 ? "9+" : unreadCount}
+            <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true">
+              {badgeText}
             </span>
           )}
         </button>
@@ -252,7 +266,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </div>
           <div>
             <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
-            {guestDemo && <div className="text-[12px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
+            {effectiveDemo && (
+              <div className="nc-example mt-0.5" data-testid="example-data">
+                <FlaskConical className="h-3 w-3" aria-hidden="true" />Example data
+              </div>
+            )}
           </div>
         </button>
 
@@ -314,13 +332,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {user && (
-            <button onClick={() => setShowInbox(true)} className="nav-item w-full">
+          {(user || effectiveDemo) && (
+            <button onClick={() => setShowInbox(true)} className="nav-item w-full" aria-label={notifLabel}>
               <Bell className="h-4 w-4" />
               Notifications
               {unreadCount > 0 && (
-                <span className="ml-auto min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[10.5px] font-bold grid place-items-center leading-none">
-                  {unreadCount > 9 ? "9+" : unreadCount}
+                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true">
+                  {badgeText}
                 </span>
               )}
             </button>
@@ -386,12 +404,17 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             paddingLeft: "max(1rem, env(safe-area-inset-left))",
             paddingRight: "max(1rem, env(safe-area-inset-right))",
           }}>
-          <button onClick={() => go("overall")} className="tap-44 flex items-center gap-2.5">
-            <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
-            <span className="text-[15px] font-semibold text-foreground">
-              {/* Always the current page's name; demo mode is already signalled by the banner below. */}
-              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
+          <button onClick={() => go("overall")} className="tap-44 flex min-w-0 items-center gap-2.5">
+            <img src="/logo.png" alt="" className="h-7 w-7 object-contain shrink-0" />
+            <span className="text-[15px] font-semibold text-foreground truncate">
+              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.mobileLabel ?? TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
+            {effectiveDemo && (
+              <span className="nc-example shrink-0 relative" data-testid="example-data" title="Example data">
+                <FlaskConical className="h-3 w-3" aria-hidden="true" />
+                <span className="nc-example-label">Example data</span>
+              </span>
+            )}
           </button>
           <div className="flex items-center gap-1.5">
             {/* Not logged in */}
@@ -405,13 +428,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <span className="h-8 w-8 rounded-full border border-border grid place-items-center"><History className="h-3.5 w-3.5" /></span>
             </button>
             {/* Notifications */}
-            {user && (
-              <button onClick={() => setShowInbox(true)}
-                className="relative h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+            {(user || effectiveDemo) && (
+              <button onClick={() => setShowInbox(true)} aria-label={notifLabel}
+                className="relative tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-                    {unreadCount > 9 ? "9+" : unreadCount}
+                  <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true">
+                    {badgeText}
                   </span>
                 )}
               </button>
@@ -443,7 +466,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                         <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
-                    {user && (
+                    {(user || effectiveDemo) && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
                         className={cn(menuItem, "text-foreground")}>
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
@@ -499,37 +522,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </div>
         </header>
 
-        {/* APK banner — shown once, dismissed forever via localStorage */}
-        {!isNative() && showAppBanner && (
-          <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.20)] px-4 py-2.5 flex items-center gap-3">
-            <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[13px] text-foreground flex-1 font-medium">Get the Sentry Finance Android app</span>
-            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[12.5px] font-bold px-3 py-1.5 rounded-full bg-gold">
-              Download
-            </a>
-            <button onClick={() => { setShowAppBanner(false); localStorage.setItem("sentryfi_apk_banner_dismissed", "1"); }}
-              className="shrink-0 text-muted-foreground hover:text-foreground p-1 -mr-1">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Demo banner */}
-        {effectiveDemo && (
-          <div className="shrink-0 bg-[hsl(var(--warning)/0.08)] border-b border-[hsl(var(--warning)/0.15)] px-4 py-2 flex items-center gap-2.5">
-            <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
-            <span className="text-[13px] text-foreground flex-1">You're viewing demo data.</span>
-            <button onClick={() => navigate("/auth")}
-              className="text-[13px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
-              Create account
-            </button>
-            <button onClick={() => { setDemo(false); navigate("/welcome"); }}
-              className="tap-44 text-[12.5px] text-muted-foreground shrink-0 underline underline-offset-2">
-              Exit
-            </button>
-          </div>
-        )}
+        {/* Option B: one slim urgent strip. APK / demo banners live in the inbox. */}
+        <UrgentStrip selection={inbox.strip} onOpen={() => setShowInbox(true)} />
 
         {/* Main scroll area */}
         <main
@@ -619,7 +613,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
           {/* All other views inside padded container */}
           {view !== "spending" && view !== "myfinances" && view !== "myfinances-redesign" && (
-          <div className="content-max px-4 md:px-8 pt-6 pb-10 space-y-5">
+          <div className={cn(
+            "content-max px-4 md:px-8 pb-10 md:space-y-5",
+            // When the urgent strip is up, don't also keep the old pt-6 / space-y
+            // gap that used to sit under the header (or the hidden desktop
+            // PageHeader, which still received space-y-5 on mobile).
+            inbox.strip ? "pt-2" : "pt-6",
+          )}>
 
             {/* Page header on desktop — Spending/My Financial Picture skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
@@ -737,10 +737,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       </div>
 
       <NotificationInbox
-        supabase={supabase}
-        userId={user?.id ?? ""}
-        open={showInbox && !!user}
+        supabase={effectiveDemo ? null : supabase}
+        userId={inboxUserId}
+        demo={effectiveDemo}
+        inbox={inbox}
+        open={showInbox && !!(user || effectiveDemo)}
         onClose={() => { setShowInbox(false); refreshUnread(); }}
+        onOpenTransaction={openTransaction}
       />
       <TimelinePanel open={timelineOpen} onOpenChange={setTimelineOpen} userId={user?.id ?? null} demo={effectiveDemo} />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />

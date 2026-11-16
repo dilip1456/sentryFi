@@ -35,7 +35,8 @@ describe("Money Map", () => {
 describe("Home", () => {
   it("section and card titles use one neutral style (not gold, not mixed sizes)", async () => {
     renderDashboard("overall");
-    for (const name of [/^action items$/i, /^saving opportunities$/i, /^upcoming charges$/i]) {
+    expect(screen.queryByRole("heading", { name: /^action items$/i })).toBeNull();
+    for (const name of [/^saving opportunities$/i, /^upcoming charges$/i]) {
       const h = await screen.findByRole("heading", { name });
       expect(h.className).toContain("text-foreground");
       expect(h.className).not.toContain("text-primary");

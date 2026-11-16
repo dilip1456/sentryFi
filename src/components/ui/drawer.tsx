@@ -38,7 +38,7 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" aria-hidden="true" />
+      <div className="grab mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" aria-hidden="true" />
       {showClose && (
         <DrawerPrimitive.Close
           aria-label={closeLabel}
