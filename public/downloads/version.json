@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1235,
-  "sha256": "fef3e9259b6566d5b43d96f291f324b6ed508388f62d0c292515e820d9157c6a",
-  "size": 7189685,
-  "releaseNotes": "fix(ui): keep intended 44px tap targets on coarse pointers",
+  "versionCode": 1236,
+  "sha256": "1601a7b3157fd0fe096fa0c6dd4b539fb8ec6bbe69628ad18eaa26eb5ac2939f",
+  "size": 7197337,
+  "releaseNotes": "feat(inbox): compact Option B notifications with an urgent strip",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-15T18:01:47.625Z"
+  "publishedAt": "2026-11-16T04:53:21.320Z"
 }
