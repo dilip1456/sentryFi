@@ -29,6 +29,7 @@ import { MobileMoreMenu } from "@/components/nav/MobileMoreMenu";
 import { HeaderMenu } from "@/components/nav/HeaderMenu";
 import { menuItem, menuItemActive, menuItemGroupStart as rowSep } from "@/components/ui/menu-styles";
 import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
+import { openTransaction } from "@/lib/txn-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
 import { Onboarding } from "@/components/Onboarding";
@@ -742,6 +743,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         inbox={inbox}
         open={showInbox && !!(user || effectiveDemo)}
         onClose={() => { setShowInbox(false); refreshUnread(); }}
+        onOpenTransaction={openTransaction}
       />
       <TimelinePanel open={timelineOpen} onOpenChange={setTimelineOpen} userId={user?.id ?? null} demo={effectiveDemo} />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />

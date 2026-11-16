@@ -149,7 +149,7 @@ export function demoInboxItems(now: Date = new Date()): CompactItem[] {
       status: "Posted",
       stack: null,
       read: false,
-      payload: {},
+      payload: { transaction_id: "dt12" },
     },
     {
       id: "demo:pay",

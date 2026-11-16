@@ -46,6 +46,7 @@ import {
 import { recurringFrequencyFor } from "@/lib/recurring";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
+import { OPEN_TRANSACTION_EVENT } from "@/lib/txn-nav";
 import {
   Loader2, Plus, CreditCard, Landmark, TrendingUp, TrendingDown, Home, Building2,
   ShoppingBag, ShoppingCart, Utensils, Car, Zap, Plane, Film, Heart, Coffee,
@@ -4479,6 +4480,20 @@ export const LivePlaidDashboard = ({
   const [detailTxnRecurring, setDetailTxnRecurring] = useState<string | null | undefined>(undefined);
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
+
+  // Inbox (and anything else) can open a transaction by id. Match demo rows
+  // on `id` as well — demoTransactions only set `id`, not `transaction_id`.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<{ txnId?: string }>).detail?.txnId;
+      if (!id) return;
+      const txn = txns.find(t => t.id === id || t.transaction_id === id);
+      if (!txn) { toast.error("This transaction is no longer available"); return; }
+      openDetail(txn);
+    };
+    window.addEventListener(OPEN_TRANSACTION_EVENT, on);
+    return () => window.removeEventListener(OPEN_TRANSACTION_EVENT, on);
+  }, [txns]);
 
   // ── Smart rules — evaluate generic multi-condition rules across all txns.
   // Because this is derived state, newly synced transactions are handled

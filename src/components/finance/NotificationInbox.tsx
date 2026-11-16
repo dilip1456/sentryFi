@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
   Bell, X, CheckCheck, CreditCard, TrendingUp, AlertTriangle,
@@ -585,16 +586,29 @@ function DetailSheet({
     );
   }
 
-  return (
-    <Drawer open onOpenChange={o => { if (!o) onClose(); }} shouldScaleBackground={false}>
-      <DrawerContent showClose closeLabel="Close" className="z-[60] md:left-auto md:right-[420px] md:bottom-auto md:top-1/2 md:w-[min(420px,calc(100vw-500px))] md:max-h-[min(760px,86dvh)] md:rounded-[18px] md:translate-y-[-50%] p-0" data-testid="inbox-detail">
-        <div className="flex items-start gap-2 px-2 pt-3 pb-2">
-          <DrawerTitle className="font-display text-[20px] font-semibold leading-snug flex-1 px-3">{item.title}</DrawerTitle>
-        </div>
-        <DrawerDescription className="sr-only">{item.body}</DrawerDescription>
-        {body}
-      </DrawerContent>
-    </Drawer>
+  // Desktop detail is a plain fixed dialog, portaled to document.body — not a
+  // repositioned vaul bottom sheet. Vaul measures a bottom-anchored box and
+  // dismisses on pointerdown "outside" that box, so a real mouse click on a
+  // CTA closed the sheet before the button's click fired. Rendering in-place
+  // also left the card under the inbox panel (ancestor stacking). Mobile stays a vaul sheet.
+  return createPortal(
+    <div
+      className="nc-detail"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="nc-detail-title"
+      data-testid="inbox-detail"
+    >
+      <div className="flex items-start gap-2 px-2 pt-3 pb-2">
+        <h2 id="nc-detail-title" className="font-display text-[20px] font-semibold leading-snug flex-1 px-3">{item.title}</h2>
+        <button type="button" className="nc-ib tap-44 h-11 w-11" aria-label="Close" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="sr-only">{item.body}</p>
+      <div className="nc-detail-body">{body}</div>
+    </div>,
+    document.body,
   );
 }
 

@@ -18,7 +18,18 @@
   background:hsl(var(--surface)); border-left:1px solid hsl(var(--border-strong)); box-shadow:-24px 0 60px -20px hsl(222 40% 2% / .8);
   transform:translateX(102%); transition:transform .3s cubic-bezier(.2,.8,.2,1); visibility:hidden; }
 .nc-panel.on { transform:none; visibility:visible; }
-@media (prefers-reduced-motion: reduce){ .nc-panel, .nc-sheet, .nc-bd { transition:none !important; } }
+@media (prefers-reduced-motion: reduce){ .nc-panel, .nc-sheet, .nc-bd, .nc-detail { transition:none !important; } }
+
+/* Desktop detail: a real card dialog next to the 400px panel. Not a vaul
+   bottom sheet — vaul's outside-pointerdown / drag-dismiss treated clicks on
+   the visually-centered card as outside the sheet. Portaled to document.body
+   so ancestor overflow/transform cannot trap it under the inbox panel. */
+.nc-detail { position:fixed; z-index:60; right:420px; top:50%; transform:translateY(-50%);
+  width:min(420px,calc(100vw - 500px)); max-height:min(760px,86dvh); display:flex; flex-direction:column;
+  background:hsl(var(--background)); border:1px solid hsl(var(--border-strong)); border-radius:18px;
+  box-shadow:0 24px 60px -20px hsl(222 40% 2% / .8); overflow:hidden; }
+.nc-detail-body { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
+
 
 .nc-head { display:flex; align-items:center; gap:6px; padding:10px 10px 10px 16px; border-bottom:1px solid hsl(var(--border)); }
 .nc-head h2 { font-family:Fraunces,serif; font-size:21px; font-weight:600; flex:1; min-width:0; }

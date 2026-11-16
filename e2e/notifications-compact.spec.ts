@@ -80,6 +80,26 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: false });
 }
 
+
+/** Real mouse click at the element's bounding-box center. Do not use locator.click({ force }) or dispatchEvent. */
+async function mouseClick(page: Page, locator: Locator) {
+  await expect(locator).toBeVisible();
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  expect(box, "target bounding box").toBeTruthy();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+}
+
+async function expandStacks(panel: Locator) {
+  const stacks = panel.getByTestId("inbox-stack");
+  const n = await stacks.count();
+  for (let i = 0; i < n; i++) {
+    const s = stacks.nth(i);
+    if ((await s.getAttribute("aria-expanded")) !== "true") await s.click();
+  }
+}
+
+
 async function openInbox(page: Page) {
   await page.getByRole("button", { name: "Notifications" }).first().click();
   const panel = page.getByTestId("inbox-panel");
@@ -222,6 +242,99 @@ for (const vp of WIDTHS) {
       await page.keyboard.press("Escape");
       await expect(dlg).toBeHidden();
     });
+
+
+    if (vp.width === 390 || vp.width === 1440) {
+      test("real mouse: Create free account navigates to /auth", async ({ page }) => {
+        await openDemo(page);
+        const panel = await openInbox(page);
+        await expandStacks(panel);
+        await mouseClick(page, panel.getByRole("button", { name: /You're viewing demo data/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "Create free account" }));
+        await expect(page).toHaveURL(/\/auth/);
+      });
+
+      test("real mouse: Extend history opens Settings and closes the inbox", async ({ page }) => {
+        await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
+        await openDemo(page);
+        const panel = await openInbox(page);
+        await expandStacks(panel);
+        await mouseClick(page, panel.getByRole("button", { name: /Extend bank history/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "Extend history" }));
+        const dlg = page.getByRole("dialog").filter({ hasText: "Settings" });
+        await expect(dlg).toBeVisible();
+        await expect(panel).toBeHidden();
+      });
+
+      test("real mouse: View transaction opens that transaction's detail", async ({ page }) => {
+        await openDemo(page);
+        const panel = await openInbox(page);
+        await expandStacks(panel);
+        await mouseClick(page, panel.getByRole("button", { name: /Large purchase: Best Buy/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "View transaction" }));
+        await expect(panel).toBeHidden();
+        const txn = page.getByRole("dialog").filter({ hasText: "Best Buy" });
+        await expect(txn).toBeVisible();
+        await expect(txn).toContainText("Best Buy");
+        await expect(txn.getByRole("heading", { name: "Transaction details" })).toBeAttached();
+      });
+
+      test("real mouse: inbox filters, Mark all read, Close, and panel close", async ({ page }) => {
+        await openDemo(page);
+        const panel = await openInbox(page);
+
+        await mouseClick(page, panel.locator('[data-nc-filter="all"]'));
+        await expect(panel.getByRole("button", { name: /Paycheck deposited/ })).toBeVisible();
+
+        await mouseClick(page, panel.locator('[data-nc-filter="unread"]'));
+        await expect(panel.getByRole("button", { name: /Paycheck may be missing/ })).toBeVisible();
+
+        await mouseClick(page, panel.getByRole("button", { name: /Paycheck may be missing/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "Close" }));
+        await expect(detail).toBeHidden();
+        await expect(panel).toBeVisible();
+
+        await mouseClick(page, panel.getByRole("button", { name: /Mark all read/ }));
+        await expect(panel.locator("[data-nc-all]")).toBeDisabled();
+
+        await mouseClick(page, panel.getByRole("button", { name: /^(Close|Back|Close notifications)$/ }).first());
+        await expect(panel).toBeHidden();
+      });
+
+      // Isolated from other toast-producing actions: the frozen QA clock keeps
+      // sonner toasts on screen, and on mobile they sit over the bottom CTAs.
+      test("real mouse: Dismiss in the detail removes the row", async ({ page }) => {
+        await openDemo(page);
+        const panel = await openInbox(page);
+        await mouseClick(page, panel.getByRole("button", { name: /Joint Checking is low/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "Dismiss" }));
+        await expect(detail).toBeHidden();
+        await expect(panel.getByRole("button", { name: /Joint Checking is low/ })).toHaveCount(0);
+        await expect(page.getByText("Notification dismissed")).toBeVisible();
+      });
+
+      test("real mouse: Mark done in the detail closes the sheet", async ({ page }) => {
+        await openDemo(page);
+        const panel = await openInbox(page);
+        await mouseClick(page, panel.getByRole("button", { name: /Paycheck may be missing/ }));
+        const detail = page.getByTestId("inbox-detail");
+        await expect(detail).toBeVisible();
+        await mouseClick(page, detail.getByRole("button", { name: "Mark done" }));
+        await expect(detail).toBeHidden();
+        await expect(page.getByText("Marked done")).toBeVisible();
+        await expect(panel).toBeVisible();
+      });
+    }
 
     test("Picture no longer shows the history hint card; review card is compact", async ({ page, guard }) => {
       await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));

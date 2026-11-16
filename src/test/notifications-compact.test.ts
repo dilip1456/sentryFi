@@ -4,6 +4,7 @@ import {
   formatInboxAmount, isStripWorthy, selectUrgentStrip, stackKey, stackTitle, type CompactItem,
 } from "@/lib/notifications/compact";
 import { demoInboxItems } from "@/lib/notifications/demo";
+import { demoTransactions } from "@/lib/finance-data";
 
 const NOW = new Date(2026, 10, 15, 12); // Sun Nov 15, 2026 12:00 local
 
@@ -204,6 +205,12 @@ describe("demo inbox + strip", () => {
     expect(today).toBeTruthy();
     const bills = today!.rows.find(r => r.kind === "stack" && r.stack === "bills");
     expect(bills && bills.kind === "stack" && stackTitle(bills)).toBe("3 bill reminders");
+  });
+
+  it("wires a Best Buy notice to a real demo transaction", () => {
+    const buy = demoInboxItems(NOW).find(i => i.id === "demo:bestbuy");
+    expect(buy?.payload?.transaction_id).toBe("dt12");
+    expect(demoTransactions.some(t => t.id === "dt12" && /Best Buy/i.test(t.name))).toBe(true);
   });
 });
 
