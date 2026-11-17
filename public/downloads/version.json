@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1237,
-  "sha256": "9a286ef31cb9b1ea245426206aaff0231c45baa5e592ae0fab3f8fd42b0d5449",
-  "size": 7197409,
-  "releaseNotes": "fix: Home crash (React #185 max update depth) on Android",
+  "versionCode": 1238,
+  "sha256": "4b485d4e5b43b1c5d698cb59471ce12abe189fb74c24c3b8b9549b0d02773cf5",
+  "size": 7461623,
+  "releaseNotes": "Gift Cards redesign: issuer groups, scannable barcodes, usage history; Gift Cards replaces Money Map in nav",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-16T23:07:58.318Z"
+  "publishedAt": "2026-11-17T04:43:23.912Z"
 }
