@@ -81,7 +81,7 @@ export function RecurringList() {
   const [showDismissed, setShowDismissed] = useState(false);
   return (
     <div className="rcv-list" data-testid="rcv-list">
-      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your plan; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
+      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your Picture; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
       <div className="h4" data-testid="rcv-pending-head">To review <span className="rcv-n">{pending.length}</span></div>
       {!pending.length && <p className="mini">All caught up. New detections show up here.</p>}
       {REVIEW_GROUPS.map(g => {
