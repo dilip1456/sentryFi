@@ -15,7 +15,7 @@
 import type { ClassifierAccount, ClassifierTxn, TransactionClassifier, TxnClassification, TxnTypeOverride } from "./classifier";
 import { addDays, diffDays, parseDate, type ISODate } from "./dates";
 import { detectRecurringSeries, type RecurringSeries, type SeriesKind } from "./detect";
-import { billSubtype, loanSubtype } from "./patterns";
+import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
 
@@ -140,7 +140,20 @@ export function groupFor(kind: SeriesKind, subtype: string | null, text: string)
   }
 }
 
-const minOccurrences = (group: ReviewGroup) => (group === "insurance_tax" ? 2 : 3);
+/**
+ * Evidence needed before something is suggested. Things billed every 6 or 12
+ * months (insurance premiums, vehicle registration, property tax, annual
+ * fees) can't show 3 in a normal history: 2 at a 6/12-month gap are enough,
+ * and one charge with an unmistakably yearly descriptor (DMV / registration
+ * renewal / annual fee / property tax, see YEARLY_HINT_RE) is projected a
+ * year on as a low-confidence suggestion.
+ */
+function minOccurrences(group: ReviewGroup, s: Pick<RecurringSeries, "cadence" | "direction" | "occurrenceCount" | "confidence">, text: string): number {
+  const longCycle = s.cadence === "yearly" || s.cadence === "semiannual";
+  if (s.direction === "outflow" && s.occurrenceCount === 1 && (s.cadence === "yearly" || s.cadence === "quarterly") && (YEARLY_HINT_RE.test(text) || group === "insurance_tax")) return 1;
+  if (group === "insurance_tax" || (longCycle && s.direction === "outflow")) return 2;
+  return 3;
+}
 
 // ── Labels ────────────────────────────────────────────────────────────────
 
@@ -285,7 +298,7 @@ export function reviewDrafts(series: RecurringSeries[], txnById: Map<string, Cla
       if (s.kind === "income" && INTERNAL_INFLOW_RE.test(text)) continue;
     }
     // Evidence.
-    if (s.occurrenceCount < minOccurrences(group)) continue;
+    if (s.occurrenceCount < minOccurrences(group, s, text)) continue;
     if (s.amount.cv > amountTolerance(group, s.kind, subtype)) continue;
     if (group === "income") {
       const months = new Set(members.map(t => t.date.slice(0, 7)));
@@ -409,6 +422,35 @@ function itemFromSnapshot(dec: RecurringDecision, txnById: Map<string, Classifie
   return item;
 }
 
+/**
+ * Re-detection can give the same real pattern a new key (a second amount band
+ * shifts the "|~n" suffix, a payee descriptor changes). A decision the person
+ * already made must still apply, or a dismissed item comes back as "to
+ * review": carry over a confirmed/dismissed decision whose stored
+ * transactions are mostly this draft's (same direction, 2+ shared and at
+ * least half of the smaller set).
+ */
+export function carriedDecision(
+  d: Pick<Draft, "key" | "transactionIds"> & { s: Pick<RecurringSeries, "direction"> },
+  decisions: ReadonlyMap<string, RecurringDecision>,
+  used: ReadonlySet<string>,
+): RecurringDecision | undefined {
+  if (!d.transactionIds.length) return undefined;
+  const mine = new Set(d.transactionIds);
+  let best: RecurringDecision | undefined;
+  let bestHits = 0;
+  for (const dec of decisions.values()) {
+    if (used.has(dec.key) || dec.status === "suggested") continue;
+    const ids = dec.snapshot?.transactionIds ?? [];
+    if (!ids.length) continue;
+    const dir = dec.snapshot?.direction;
+    if (dir && dir !== d.s.direction) continue;
+    const hits = ids.reduce((n, id) => n + (mine.has(id) ? 1 : 0), 0);
+    if (hits >= 2 && hits >= 0.5 * Math.min(ids.length, mine.size) && hits > bestHits) { best = dec; bestHits = hits; }
+  }
+  return best;
+}
+
 const GROUP_ORDER = new Map(REVIEW_GROUPS.map((g, i) => [g, i] as const));
 const byGroupThenMonthly = (a: ReviewItem, b: ReviewItem) =>
   (GROUP_ORDER.get(a.group)! - GROUP_ORDER.get(b.group)!) || b.monthly - a.monthly || a.label.localeCompare(b.label);
@@ -423,9 +465,15 @@ export function buildReview(series: RecurringSeries[], txns: ClassifierTxn[], op
   const items: ReviewItem[] = [];
   const dismissed: ReviewItem[] = [];
   const seen = new Set<string>();
-  for (const d of reviewDrafts(series, txnById, opts)) {
-    const it = applyDecision(itemFromDraft(d, txnById, opts.today), decisions.get(d.key), opts.today);
+  const drafts = reviewDrafts(series, txnById, opts);
+  // Exact keys first, so a carried-over decision never steals one that still matches.
+  const used = new Set(drafts.map(d => d.key).filter(k => decisions.has(k)));
+  for (const d of drafts) {
+    let dec = decisions.get(d.key);
+    if (!dec) { dec = carriedDecision(d, decisions, used); if (dec) used.add(dec.key); }
+    const it = applyDecision(itemFromDraft(d, txnById, opts.today), dec, opts.today);
     seen.add(d.key);
+    if (dec) seen.add(dec.key);
     (it.status === "dismissed" ? dismissed : items).push(it);
   }
   // Decisions about things detection no longer finds: a dismissed one stays

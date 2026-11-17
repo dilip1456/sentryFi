@@ -85,4 +85,4 @@ export function billSubtype(text: string): BillSubtype | null {
 
 /** Descriptors that strongly imply a once-a-year charge. */
 export const YEARLY_HINT_RE =
-  /\b(annual|yearly|renewal|annual\s*fee|membership\s*fee|dmv|vehicle\s*registration|registration\s*renewal|property\s*tax|prime\s*membership|premium\s*renewal)\b/i;
+  /\b(annual|yearly|renewal|annual\s*fee|membership\s*fee|dmv|bmv|mvd|motor\s*vehicles?|vehicle\s*registration|registration\s*renewal|tag\s*renewal|property\s*tax|prime\s*membership|costco\s*(member|annual)|premium\s*renewal)\b/i;

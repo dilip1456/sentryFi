@@ -801,7 +801,7 @@ function EditFooter() {
 // ── Detected recurring ──
 
 function renderRecurring(key: string, pc: PictureState): DetailView | null {
-  if (key === "rcv") return { title: "Detected recurring", wide: true, body: <RecurringList /> };
+  if (key === "rcv") return { title: "Review detected items", wide: true, body: <RecurringList /> };
   if (key.startsWith("rcv:item:")) {
     const k = decodeURIComponent(key.slice("rcv:item:".length));
     const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);

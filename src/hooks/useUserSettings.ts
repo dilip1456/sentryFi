@@ -108,15 +108,32 @@ export interface FinancialPictureData {
   confirmations?: Record<string, "yes" | "no">;
   // Bills and loans added by hand ("Add one") that don't show up in transactions.
   manualItems?: FinancialPictureManualItem[];
+  // Tax inputs bank data can't show (Picture → Taxes): 401(k) % of gross pay
+  // (used only when no payroll 401(k) deduction is found), health FSA per
+  // year and mortgage interest per year (Form 1098). Estimates only.
+  taxInputs?: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number; at?: string };
 }
 
 export interface FinancialPictureManualItem {
   id: string;
   group: "obligations" | "fixed";
   label: string;
+  /** Monthly equivalent (what the plan rows use). */
   monthly: number;
   dueDay?: number;
   createdAt: string;
+  // One Financial Picture plan (all optional; older items are monthly bills).
+  category?: import("@/lib/picture/obligations").ObligationCategory;
+  /** Per occurrence; manual items always have an amount. */
+  amount?: number;
+  amountKind?: "fixed" | "estimated";
+  cadence?: import("@/lib/picture/obligations").PlanCadence;
+  /** For cadence "custom": every N days. */
+  intervalDays?: number;
+  nextDue?: string;
+  /** Remind this many days before it's due. */
+  reminderDays?: number;
+  notes?: string;
 }
 
 export { FP_UNASSIGNED } from "@/lib/picture/keys";

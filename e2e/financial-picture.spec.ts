@@ -166,7 +166,7 @@ test.describe("phone (390x844)", () => {
   });
 
   test("edit screen: pick sheet, cancel and save", async ({ page, guard }) => {
-    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     const screen = page.getByRole("dialog", { name: "Edit your data" });
     await expect(screen).toBeVisible();
     await noHorizontalOverflow(screen);
@@ -184,7 +184,7 @@ test.describe("phone (390x844)", () => {
     await expect(screen).toBeHidden();
     await expect(page.getByText("Saved. Your picture is updated.")).toBeVisible();
     // Cancel path
-    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await screen.getByRole("button", { name: "Cancel" }).click();
     await expect(screen).toBeHidden();
     expect(guard.consoleErrors).toEqual([]);

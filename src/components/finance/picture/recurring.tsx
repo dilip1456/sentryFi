@@ -29,10 +29,14 @@ const itemKey = (key: string) => `rcv:item:${encodeURIComponent(key)}`;
 const shortDate = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.slice(0, 4) === String(new Date().getFullYear()) ? undefined : "numeric" }) : "—");
 const money = (n: number) => (Math.abs(n) < 100 && n % 1 ? `$${n.toFixed(2)}` : fmt(n));
 
-function useActions() {
+// eslint-disable-next-line react-refresh/only-export-components -- shared with plan.tsx
+export function useRecurringActions() {
   const pc = usePicture();
   return useMemo(() => ({
-    confirm: (it: ReviewItem) => { pc.recurring.decide(it, { status: "confirmed" }); toast.success(`${it.label} confirmed`, { id: TOAST }); },
+    confirm: (it: ReviewItem) => {
+      const prev = pc.recurring.decide(it, { status: "confirmed" });
+      toast.success(`${it.label} confirmed`, { id: TOAST, description: "Added to your plan.", action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });
+    },
     dismiss: (it: ReviewItem) => {
       const prev = pc.recurring.decide(it, { status: "dismissed" });
       toast(`${it.label} marked not recurring`, { id: TOAST, description: "It won't come back. Restore it from Dismissed.", action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });
@@ -47,9 +51,9 @@ function Badge({ it }: { it: ReviewItem }) {
   return null;
 }
 
-function ItemRow({ it }: { it: ReviewItem }) {
+export function ItemRow({ it }: { it: ReviewItem }) {
   const { open } = useOverlay();
-  const a = useActions();
+  const a = useRecurringActions();
   const amount = it.amountKind === "variable" ? `~${money(it.amount)}` : money(it.amount);
   return (
     <div className="rcv-row" data-testid="rcv-item" data-key={it.key}>
@@ -66,49 +70,34 @@ function ItemRow({ it }: { it: ReviewItem }) {
   );
 }
 
-/** Compact card on the Picture: counts per group and what needs a look. */
-export function RecurringCard() {
-  const pc = usePicture();
-  const { open } = useOverlay();
-  const { items, dismissed } = pc.m.review;
-  const toReview = items.filter(i => i.status === "suggested").length;
-  const missed = items.filter(i => i.missed).length;
-  return (
-    <div className="sec rcv-card rcv-card-compact" data-testid="rcv-card">
-      <div className="sec-h">
-        <span className="sec-ico" aria-hidden="true"><Repeat className="h-[18px] w-[18px]" /></span>
-        <div className="min-w-0"><div className="sec-t">Detected recurring</div>
-          <div className="sec-s">{items.length ? `${items.length} pattern${items.length === 1 ? "" : "s"} found${toReview ? ` · ${toReview} to review` : ""}` : "No repeating payments found yet"}</div></div>
-        <button type="button" className="sec-more" onClick={() => open("rcv")}>Review<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
-      </div>
-      <div className="rcv-chips">
-        {REVIEW_GROUPS.map(g => { const n = items.filter(i => i.group === g).length; return n ? <span key={g} className="rcv-chip">{REVIEW_GROUP_LABEL[g]} <b>{n}</b></span> : null; })}
-        {dismissed.length > 0 && <span className="rcv-chip muted">Dismissed <b>{dismissed.length}</b></span>}
-      </div>
-      {missed > 0 && <p className="rcv-missed"><CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />{missed} confirmed item{missed === 1 ? " is" : "s are"} missed or late.</p>}
-    </div>
-  );
-}
-
 export function RecurringList() {
   const pc = usePicture();
-  const a = useActions();
+  const a = useRecurringActions();
   const { items, dismissed } = pc.m.review;
+  const pending = items.filter(i => i.status === "suggested");
+  const confirmed = items.filter(i => i.status !== "suggested");
+  const [showConfirmed, setShowConfirmed] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   return (
     <div className="rcv-list" data-testid="rcv-list">
-      <p className="note mb-3">Payments and deposits that repeat on a schedule. Income needs 3+ months; bills and payments 3+ times; insurance and tax count from 2 (yearly and every-6-months too). Food, groceries, shopping and gas are never treated as recurring.</p>
+      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your plan; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
+      <div className="h4" data-testid="rcv-pending-head">To review <span className="rcv-n">{pending.length}</span></div>
+      {!pending.length && <p className="mini">All caught up. New detections show up here.</p>}
       {REVIEW_GROUPS.map(g => {
-        const list = items.filter(i => i.group === g);
+        const list = pending.filter(i => i.group === g);
+        if (!list.length) return null;
         return (
           <section key={g} aria-label={REVIEW_GROUP_LABEL[g]}>
-            <div className="h4">{REVIEW_GROUP_LABEL[g]} <span className="rcv-n">{list.length}</span></div>
-            {list.length ? <div className="rows">{list.map(it => <ItemRow key={it.key} it={it} />)}</div> : <p className="mini">Nothing found.</p>}
+            <div className="h4 !mt-3 !text-[12.5px] text-muted-foreground">{REVIEW_GROUP_LABEL[g]} <span className="rcv-n">{list.length}</span></div>
+            <div className="rows">{list.map(it => <ItemRow key={it.key} it={it} />)}</div>
           </section>
         );
       })}
+      <div className="h4 flex items-center justify-between"><span>Confirmed <span className="rcv-n">{confirmed.length}</span></span>
+        {confirmed.length > 0 && <button type="button" className="sec-more !ml-0 tap-44" onClick={() => setShowConfirmed(v => !v)} aria-expanded={showConfirmed}>{showConfirmed ? "Hide" : "Show"}</button>}</div>
+      {showConfirmed && <div className="rows" data-testid="rcv-confirmed">{confirmed.map(it => <ItemRow key={it.key} it={it} />)}</div>}
       <div className="h4 flex items-center justify-between"><span>Dismissed <span className="rcv-n">{dismissed.length}</span></span>
-        {dismissed.length > 0 && <button type="button" className="sec-more !ml-0" onClick={() => setShowDismissed(v => !v)} aria-expanded={showDismissed}>{showDismissed ? "Hide" : "Show"}</button>}</div>
+        {dismissed.length > 0 && <button type="button" className="sec-more !ml-0 tap-44" onClick={() => setShowDismissed(v => !v)} aria-expanded={showDismissed}>{showDismissed ? "Hide" : "Show"}</button>}</div>
       {!dismissed.length && <p className="mini">Items you mark “Not recurring” go here, so you can restore them.</p>}
       {showDismissed && <div className="rows mb-24">{dismissed.map(it => (
         <div className="rcv-row dismissed" key={it.key} data-testid="rcv-dismissed">
@@ -123,7 +112,7 @@ export function RecurringList() {
 export function RecurringItem({ it }: { it: ReviewItem }) {
   const pc = usePicture();
   const { close } = useOverlay();
-  const a = useActions();
+  const a = useRecurringActions();
   const [editing, setEditing] = useState(false);
   const [cadence, setCadence] = useState<Cadence>(it.cadence);
   const [amount, setAmount] = useState(String(Math.round(it.amount * 100) / 100));

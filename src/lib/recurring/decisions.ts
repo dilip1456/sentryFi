@@ -84,3 +84,32 @@ export function rowToDecision(r: DecisionRow): RecurringDecision | null {
 /** Rows the timeline/detector should ignore (Picture decisions share the table). */
 export const isPictureDecisionRow = (r: { source?: unknown; series_key?: unknown }) =>
   r.source === PICTURE_SOURCE || String(r.series_key ?? "").startsWith(PICTURE_KEY_PREFIX);
+
+// ── Optimistic layer (useRecurringDecisions) ──────────────────────────────
+
+/**
+ * What the screen shows: stored decisions with this session's own changes on
+ * top (`null` = the person restored it). The local layer wins, so a slow
+ * initial load or a refetch can't bring back an item the person just acted on.
+ */
+export function overlayDecisions(base: readonly RecurringDecision[], local: ReadonlyMap<string, RecurringDecision | null>): RecurringDecision[] {
+  const out = base.filter(d => !local.has(d.key));
+  for (const d of local.values()) if (d) out.push(d);
+  return out;
+}
+
+/** Items still waiting on the person ("to review"): confirmed and dismissed ones are done. */
+export const pendingReview = <T extends { status: ReviewStatus }>(items: readonly T[]): T[] => items.filter(i => i.status === "suggested");
+
+/** Demo / guest decisions live in sessionStorage so they survive a reload (never sent anywhere). */
+export const DEMO_DECISIONS_KEY = "sentryfi:demo-recurring-decisions";
+
+export function parseStoredDecisions(raw: string | null | undefined): RecurringDecision[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.filter((d): d is RecurringDecision =>
+      !!d && typeof d === "object" && typeof d.key === "string" && STATUSES.includes(d.status as ReviewStatus));
+  } catch { return []; }
+}
