@@ -101,8 +101,10 @@ describe("groupByIssuer", () => {
     expect(keys("balance-desc")).toEqual(["target", "starbucks", "ikea"]);
     expect(keys("balance-asc")).toEqual(["ikea", "starbucks", "target"]);
     expect(keys("name")).toEqual(["ikea", "starbucks", "target"]);
-    // Target's only card is already expired, so it has no upcoming expiry.
+    // Target's only card is already expired, so it sinks to the bottom.
     expect(keys("expiry")).toEqual(["starbucks", "ikea", "target"]);
+    const undated = card({ brand_name: "Apple", balance: 1 });
+    expect(groupByIssuer([t1, undated, k1], "expiry", NOW).map(g => g.key)).toEqual(["ikea", "apple", "target"]);
   });
 });
 

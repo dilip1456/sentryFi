@@ -177,11 +177,13 @@ export const groupByIssuer = <T extends GiftCard>(cards: readonly T[], sort: Sor
   }
   const tie = (a: IssuerGroup<T>, b: IssuerGroup<T>) => byName(a.name, b.name);
   const groupExpiry = (g: IssuerGroup<T>) => g.nextExpiry ? new Date(g.nextExpiry + "T00:00:00").getTime() : Number.POSITIVE_INFINITY;
+  // Same buckets as sortCards("expiry"): upcoming expiry, then undated, then only-expired groups.
+  const groupBucket = (g: IssuerGroup<T>) => g.nextExpiry ? 0 : g.cards.some(c => expiryStatus(c.expiry_date, now) !== "expired") ? 1 : 2;
   const newest = (g: IssuerGroup<T>) => Math.max(...g.cards.map(c => new Date(c.created_at).getTime()));
   const cmp: Record<SortKey, (a: IssuerGroup<T>, b: IssuerGroup<T>) => number> = {
     "balance-desc": (a, b) => b.total - a.total || tie(a, b),
     "balance-asc":  (a, b) => a.total - b.total || tie(a, b),
-    expiry:         (a, b) => (groupExpiry(a) - groupExpiry(b)) || tie(a, b),
+    expiry:         (a, b) => (groupBucket(a) - groupBucket(b)) || (groupBucket(a) === 0 ? groupExpiry(a) - groupExpiry(b) : 0) || tie(a, b),
     name:           tie,
     recent:         (a, b) => newest(b) - newest(a) || tie(a, b),
   };

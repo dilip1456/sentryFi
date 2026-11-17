@@ -730,6 +730,7 @@ const IssuerHeader = ({ group, collapsed, onToggle, className }: { group: Issuer
   </button>
 );
 
+const OPEN_DIALOG = "[role=dialog][data-state=open],[role=alertdialog][data-state=open]";
 type GroupMode = "issuer" | "flat";
 const PREFS_KEY = "sentryfi_giftcards_view";
 const readPrefs = (): { group: GroupMode; sort: SortKey; collapsed: string[] } => {
@@ -903,22 +904,39 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
     load();
   };
 
+  // Dialogs here are mounted on demand (no Radix Trigger), so remember the
+  // on-page control that opened the first one and hand focus back to it when
+  // the last one closes — also across chains like checkout → update balance.
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const noteOpener = () => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el !== document.body && !el.closest(OPEN_DIALOG)) returnFocus.current = el;
+  };
+  const restoreFocus = () => {
+    window.setTimeout(() => {
+      if (document.querySelector(OPEN_DIALOG)) return;
+      const el = returnFocus.current;
+      if (el && el.isConnected) el.focus();
+    }, 30);
+  };
+  const closeWith = (fn: () => void) => () => { fn(); restoreFocus(); };
+
   const actions: CardActions = {
-    openDetail: c => { if (wide) setSelectedId(c.id); else setDetailId(c.id); },
-    openCheckout: c => { setDetailId(null); setCheckoutCard(c); },
-    openBalance: c => { if (blockedReason()) return; setCheckoutCard(null); setDetailId(null); setBalanceCard(c); },
-    openEdit: c => { if (blockedReason()) return; setCheckoutCard(null); setDetailId(null); setEditCard(c); },
+    openDetail: c => { if (wide) setSelectedId(c.id); else { noteOpener(); setDetailId(c.id); } },
+    openCheckout: c => { noteOpener(); setDetailId(null); setCheckoutCard(c); },
+    openBalance: c => { if (blockedReason()) return; noteOpener(); setCheckoutCard(null); setDetailId(null); setBalanceCard(c); },
+    openEdit: c => { if (blockedReason()) return; noteOpener(); setCheckoutCard(null); setDetailId(null); setEditCard(c); },
     archive: c => { void setArchived(c, true); },
     unarchive: c => { void setArchived(c, false); },
-    requestRemove: c => { if (blockedReason()) return; setRemoveTarget(c); },
-    openSheet: c => setSheetCard(c),
+    requestRemove: c => { if (blockedReason()) return; noteOpener(); setRemoveTarget(c); },
+    openSheet: c => { noteOpener(); setSheetCard(c); },
   };
   const openAdd = () => { if (blockedReason()) return; setAddOpen(true); };
 
   const detailIndex = detailId ? ordered.findIndex(c => c.id === detailId) : -1;
   const detailList = detailIndex >= 0 ? ordered : (detailId ? allCards.filter(c => c.id === detailId) : []);
   const segBtn = (on: boolean) => cn(
-    "tap-44 h-10 min-h-10 px-3 inline-flex items-center gap-1.5 rounded-[7px] text-[13px] font-medium transition-colors whitespace-nowrap",
+    "tap-44 h-11 min-h-11 px-3 inline-flex items-center gap-1.5 rounded-[7px] text-[13px] font-medium transition-colors whitespace-nowrap",
     on ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
   );
 
@@ -1170,26 +1188,26 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
 
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
       {balanceCard && (
-        <BalanceDialog card={balanceCard} onClose={() => setBalanceCard(null)} onSaved={load}
+        <BalanceDialog card={balanceCard} onClose={closeWith(() => setBalanceCard(null))} onSaved={load}
           onArchive={() => { void setArchived(balanceCard, true); }} />
       )}
-      {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} />}
+      {editCard && <EditGiftCardDialog card={editCard} onClose={closeWith(() => setEditCard(null))} onSaved={load} />}
       {detailId && detailList.length > 0 && (
         <CardDetailDialog
           cards={detailList}
           index={Math.max(0, detailIndex)}
           onIndexChange={i => setDetailId(detailList[i]?.id ?? null)}
-          onClose={() => setDetailId(null)}
+          onClose={closeWith(() => setDetailId(null))}
           actions={actions}
           activityByCard={activity}
         />
       )}
       {checkoutCard && (
-        <CheckoutView card={checkoutCard} onClose={() => setCheckoutCard(null)}
+        <CheckoutView card={checkoutCard} onClose={closeWith(() => setCheckoutCard(null))}
           onEdit={c => actions.openEdit(c)} onUpdateBalance={c => actions.openBalance(c)} />
       )}
-      {sheetCard && <CardActionSheet card={sheetCard} onClose={() => setSheetCard(null)} actions={actions} />}
-      <AlertDialog open={!!removeTarget} onOpenChange={o => { if (!o) setRemoveTarget(null); }}>
+      {sheetCard && <CardActionSheet card={sheetCard} onClose={closeWith(() => setSheetCard(null))} actions={actions} />}
+      <AlertDialog open={!!removeTarget} onOpenChange={o => { if (!o) { setRemoveTarget(null); restoreFocus(); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
@@ -1607,7 +1625,7 @@ const BalanceDialog = ({ card, onClose, onSaved, onArchive }: { card: GiftCardRo
           <div role="group" aria-label="How to update" className="grid grid-cols-2 p-0.5 rounded-lg bg-secondary/60 border border-border/40">
             {(["spent", "set"] as const).map(m => (
               <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m}
-                className={cn("tap-44 h-10 min-h-10 rounded-[7px] text-[13px] font-medium", mode === m ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                className={cn("tap-44 h-11 min-h-11 rounded-[7px] text-[13px] font-medium", mode === m ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
                 {m === "spent" ? "I spent" : "New balance"}
               </button>
             ))}
