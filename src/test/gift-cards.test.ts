@@ -66,8 +66,9 @@ describe("sortCards", () => {
     expect(sortCards([a, b, c], "balance-desc").map(x => x.brand_name)).toEqual(["Target", "Best Buy", "Amazon"]);
     expect(sortCards([a, b, c], "balance-asc").map(x => x.brand_name)).toEqual(["Amazon", "Best Buy", "Target"]);
   });
-  it("sorts by soonest expiry with undated cards last", () => {
-    expect(sortCards([a, b, c], "expiry").map(x => x.brand_name)).toEqual(["Target", "Amazon", "Best Buy"]);
+  it("sorts by soonest expiry, then undated, then already expired", () => {
+    const gone = card({ brand_name: "Domino's", balance: 5, expiry_date: plus(-3) });
+    expect(sortCards([gone, a, b, c], "expiry", NOW).map(x => x.brand_name)).toEqual(["Target", "Amazon", "Best Buy", "Domino's"]);
   });
   it("sorts by name and by recency without mutating input", () => {
     const input = [b, c, a];

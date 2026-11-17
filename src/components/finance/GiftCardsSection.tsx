@@ -414,7 +414,7 @@ const SwipeRow = ({ card, children, actions }: { card: GiftCardRow; children: Re
   const offset = dragging ? dx : open ? -REVEAL : 0;
 
   return (
-    <div className="relative overflow-hidden" data-testid="gc-row" data-card-id={card.id}>
+    <div className="relative overflow-hidden select-none" data-testid="gc-row" data-card-id={card.id}>
       <div className="absolute inset-y-0 right-0 flex" style={{ width: REVEAL }} aria-hidden={!open}>
         <button tabIndex={open ? 0 : -1} onClick={() => { setOpen(false); actions.openBalance(card); }}
           className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-info/90 text-white text-[12px] font-medium">
@@ -715,6 +715,7 @@ const CardActionSheet = ({ card, onClose, actions }: { card: GiftCardRow; onClos
 /** Issuer section header (shared by mobile list and desktop grid). */
 const IssuerHeader = ({ group, collapsed, onToggle, className }: { group: IssuerGroup<GiftCardRow>; collapsed: boolean; onToggle: () => void; className?: string }) => (
   <button onClick={onToggle} aria-expanded={!collapsed} data-testid="gc-issuer" data-issuer={group.key}
+    aria-label={`${group.name}, ${group.cards.length} card${group.cards.length !== 1 ? "s" : ""}, ${fmtUSD(group.total)}${group.expiringSoon > 0 ? `, ${group.expiringSoon} expiring soon` : ""}`}
     className={cn("tap-44 w-full min-h-[56px] flex items-center gap-3 px-4 py-2 text-left", className)}>
     <BrandLogo domain={group.domain} logoUrl={group.logo_url} name={group.name} size={34} />
     <div className="flex-1 min-w-0">

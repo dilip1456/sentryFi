@@ -118,13 +118,16 @@ const expiryTime = (c: Pick<GiftCard, "expiry_date">): number =>
 
 const byName = (a: string, b: string) => a.localeCompare(b, "en", { sensitivity: "base" });
 
-/** Returns a new array; ties fall back to issuer name, then id, so order is stable. */
-export const sortCards = <T extends GiftCard>(cards: readonly T[], key: SortKey): T[] => {
+/** Returns a new array; ties fall back to issuer name, then id, so order is stable.
+ *  "expiry" puts upcoming expiries first (soonest first), then undated cards,
+ *  then already-expired ones — the ones you can still act on come first. */
+export const sortCards = <T extends GiftCard>(cards: readonly T[], key: SortKey, now: number = Date.now()): T[] => {
   const tie = (a: T, b: T) => byName(a.brand_name, b.brand_name) || a.id.localeCompare(b.id);
+  const bucket = (c: T) => expiryStatus(c.expiry_date, now) === "expired" ? 2 : c.expiry_date ? 0 : 1;
   const cmp: Record<SortKey, (a: T, b: T) => number> = {
     "balance-desc": (a, b) => Number(b.balance) - Number(a.balance) || tie(a, b),
     "balance-asc":  (a, b) => Number(a.balance) - Number(b.balance) || tie(a, b),
-    expiry:         (a, b) => (expiryTime(a) - expiryTime(b)) || tie(a, b),
+    expiry:         (a, b) => (bucket(a) - bucket(b)) || ((bucket(a) === 1 ? 0 : expiryTime(a) - expiryTime(b))) || tie(a, b),
     name:           (a, b) => tie(a, b) || Number(b.balance) - Number(a.balance),
     recent:         (a, b) => (new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) || tie(a, b),
   };
@@ -147,7 +150,7 @@ export type IssuerGroup<T extends GiftCard = GiftCard> = {
 /** Groups by issuer; groups and the cards inside them both follow `sort`. */
 export const groupByIssuer = <T extends GiftCard>(cards: readonly T[], sort: SortKey, now: number = Date.now()): IssuerGroup<T>[] => {
   const map = new Map<string, T[]>();
-  for (const c of sortCards(cards, sort)) {
+  for (const c of sortCards(cards, sort, now)) {
     const k = issuerKey(c.brand_name);
     const list = map.get(k);
     if (list) list.push(c); else map.set(k, [c]);
