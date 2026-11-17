@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1238,
-  "sha256": "4b485d4e5b43b1c5d698cb59471ce12abe189fb74c24c3b8b9549b0d02773cf5",
-  "size": 7461623,
-  "releaseNotes": "Gift Cards redesign: issuer groups, scannable barcodes, usage history; Gift Cards replaces Money Map in nav",
+  "versionCode": 1239,
+  "sha256": "836835e3185686871e079cdcfc6aa48fb89c6b56107bc25bb9f6f0f59627aba2",
+  "size": 7476807,
+  "releaseNotes": "feat: one Financial Picture — plan every anticipated expense",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-17T04:43:23.912Z"
+  "publishedAt": "2026-11-17T05:20:03.251Z"
 }
