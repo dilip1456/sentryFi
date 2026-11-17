@@ -15,7 +15,7 @@
 import type { ClassifierAccount, ClassifierTxn, TransactionClassifier, TxnClassification, TxnTypeOverride } from "./classifier";
 import { addDays, diffDays, parseDate, type ISODate } from "./dates";
 import { detectRecurringSeries, type RecurringSeries, type SeriesKind } from "./detect";
-import { billSubtype, loanSubtype } from "./patterns";
+import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
 
@@ -140,7 +140,20 @@ export function groupFor(kind: SeriesKind, subtype: string | null, text: string)
   }
 }
 
-const minOccurrences = (group: ReviewGroup) => (group === "insurance_tax" ? 2 : 3);
+/**
+ * Evidence needed before something is suggested. Things billed every 6 or 12
+ * months (insurance premiums, vehicle registration, property tax, annual
+ * fees) can't show 3 in a normal history: 2 at a 6/12-month gap are enough,
+ * and one charge with an unmistakably yearly descriptor (DMV / registration
+ * renewal / annual fee / property tax, see YEARLY_HINT_RE) is projected a
+ * year on as a low-confidence suggestion.
+ */
+function minOccurrences(group: ReviewGroup, s: Pick<RecurringSeries, "cadence" | "direction" | "occurrenceCount" | "confidence">, text: string): number {
+  const longCycle = s.cadence === "yearly" || s.cadence === "semiannual";
+  if (s.direction === "outflow" && s.occurrenceCount === 1 && (s.cadence === "yearly" || s.cadence === "quarterly") && (YEARLY_HINT_RE.test(text) || group === "insurance_tax")) return 1;
+  if (group === "insurance_tax" || (longCycle && s.direction === "outflow")) return 2;
+  return 3;
+}
 
 // ── Labels ────────────────────────────────────────────────────────────────
 
@@ -285,7 +298,7 @@ export function reviewDrafts(series: RecurringSeries[], txnById: Map<string, Cla
       if (s.kind === "income" && INTERNAL_INFLOW_RE.test(text)) continue;
     }
     // Evidence.
-    if (s.occurrenceCount < minOccurrences(group)) continue;
+    if (s.occurrenceCount < minOccurrences(group, s, text)) continue;
     if (s.amount.cv > amountTolerance(group, s.kind, subtype)) continue;
     if (group === "income") {
       const months = new Set(members.map(t => t.date.slice(0, 7)));
