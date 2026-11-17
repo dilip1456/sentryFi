@@ -33,7 +33,10 @@ const money = (n: number) => (Math.abs(n) < 100 && n % 1 ? `$${n.toFixed(2)}` : 
 export function useRecurringActions() {
   const pc = usePicture();
   return useMemo(() => ({
-    confirm: (it: ReviewItem) => { pc.recurring.decide(it, { status: "confirmed" }); toast.success(`${it.label} confirmed`, { id: TOAST }); },
+    confirm: (it: ReviewItem) => {
+      const prev = pc.recurring.decide(it, { status: "confirmed" });
+      toast.success(`${it.label} confirmed`, { id: TOAST, description: "Added to your plan.", action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });
+    },
     dismiss: (it: ReviewItem) => {
       const prev = pc.recurring.decide(it, { status: "dismissed" });
       toast(`${it.label} marked not recurring`, { id: TOAST, description: "It won't come back. Restore it from Dismissed.", action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });

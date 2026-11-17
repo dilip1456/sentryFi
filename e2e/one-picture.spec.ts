@@ -15,6 +15,14 @@ async function openPicture(page: Page, view = "myfinances") {
   await expect(page.getByTestId("financial-picture")).toBeVisible();
 }
 
+/** A real pointer click at the element's center (not locator.click({force}) / dispatchEvent). */
+async function realClick(page: Page, loc: import("@playwright/test").Locator) {
+  await loc.scrollIntoViewIfNeeded();
+  const b = await loc.boundingBox();
+  if (!b) throw new Error("not visible");
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+}
+
 async function noOverflow(page: Page, width: number) {
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(sw, "page horizontal overflow").toBeLessThanOrEqual(width + 1);
@@ -118,6 +126,34 @@ test.describe("desktop 1440", () => {
     await expect(plan.getByTestId("plan-row").filter({ hasText: firstLabel }).first()).toHaveAttribute("data-source", "confirmed");
   });
 
+  test("confirming a detected item offers Undo, which brings it back to review", async ({ page }) => {
+    await openPicture(page);
+    const card = page.getByTestId("rcv-card");
+    const label = (await card.getByTestId("rcv-item").first().locator(".rcv-lbl b").innerText()).trim();
+    await realClick(page, card.getByRole("button", { name: `Confirm ${label}` }));
+    await expect(card.getByTestId("rcv-item").filter({ hasText: label })).toHaveCount(0);
+    await realClick(page, page.locator("[data-sonner-toast]").filter({ hasText: "confirmed" }).getByRole("button", { name: "Undo" }));
+    await expect(card.getByTestId("rcv-item").filter({ hasText: label }).first()).toBeVisible();
+  });
+
+  test("tax inputs: 401(k) %, FSA and mortgage interest change the estimates (real mouse)", async ({ page }) => {
+    await openPicture(page);
+    await realClick(page, page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }));
+    const form = page.getByTestId("tax-inputs");
+    await expect(form).toBeVisible();
+    await form.getByLabel("FSA per year").fill("2500");
+    await form.getByLabel("Mortgage interest per year").fill("18000");
+    const pct = form.getByLabel("401(k) contribution percent");
+    if (await pct.isEnabled()) await pct.fill("6");
+    await realClick(page, form.getByRole("button", { name: "Save tax inputs" }));
+    await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Tax inputs saved" })).toBeVisible();
+    const dlg = page.getByRole("dialog").filter({ has: page.getByTestId("tax-inputs") });
+    await expect(dlg).toContainText("FSA");
+    await expect(dlg).toContainText(/itemizing/i);
+    await expect(dlg).toContainText(/estimate/i);
+    await expect(dlg).not.toContainText("FSA contributions, if any");
+  });
+
   test("dismiss a recommendation, then undo", async ({ page }) => {
     await openPicture(page);
     const recs = page.getByTestId("plan-rec");
@@ -143,6 +179,18 @@ for (const width of [360, 390, 412, 430]) {
       await plan.getByTestId("plan-row").first().click();
       const sheet = page.getByRole("dialog").filter({ has: page.getByTestId("plan-item-detail") });
       await expect(sheet.locator(".grab")).toHaveCount(1);
+      await noOverflow(page, width);
+    });
+    test("taxes detail: tax inputs fit with 44px targets", async ({ page }) => {
+      await openPicture(page);
+      await page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }).tap();
+      const form = page.getByTestId("tax-inputs");
+      await form.scrollIntoViewIfNeeded();
+      for (const el of [form.getByLabel("FSA per year"), form.getByLabel("Mortgage interest per year"), form.getByRole("button", { name: "Save tax inputs" })]) {
+        const b = await el.boundingBox();
+        expect(b!.height).toBeGreaterThanOrEqual(44);
+        expect(b!.x + b!.width).toBeLessThanOrEqual(width + 1);
+      }
       await noOverflow(page, width);
     });
   });
