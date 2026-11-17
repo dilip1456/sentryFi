@@ -83,9 +83,9 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.6.0",
+    "@capacitor/cli": "^8.6.2",
     "@eslint/js": "^9.32.0",
-    "@playwright/test": "^1.64.1",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/typography": "^0.5.20",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.6.0",
@@ -100,12 +100,12 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
-    "postcss": "^8.5.32",
+    "postcss": "^8.5.33",
     "supabase": "^2.122.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8",
     "vitest": "^4.1.8"
   },
   "engines": {
