@@ -41,7 +41,7 @@ export const CheckoutView = ({ card, onClose, onEdit, onUpdateBalance }: {
         style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex items-center gap-2 px-2 py-1.5 border-b border-neutral-200 shrink-0">
-          <button ref={closeRef} onClick={onClose} aria-label="Close checkout view"
+          <button ref={closeRef} onClick={onClose} aria-label="Close"
             className="tap-44 h-11 w-11 grid place-items-center rounded-full text-neutral-700 hover:bg-neutral-100">
             <X className="h-5 w-5" aria-hidden="true" />
           </button>

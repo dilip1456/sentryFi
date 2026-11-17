@@ -153,12 +153,56 @@ for (const [W, H] of SIZES) {
         await expect(view.getByTestId("gc-barcode").locator("svg")).toBeVisible();
       }
       await noSideScroll(page, "Checkout view");
-      const close = view.getByRole("button", { name: "Close checkout view" });
+      const close = view.getByRole("button", { name: "Close", exact: true });
       await min44(close, "Checkout close");
       await realClick(page, close);
       await expect(view).toBeHidden();
       // Focus goes back to the button that opened it.
       await expect(cta).toBeFocused();
+      expect(guard.consoleErrors).toEqual([]);
+    });
+
+    test("usage history: log a use and see it in the timeline", async ({ page, guard }) => {
+      await openDemoHome(page);
+      let scope: Locator;
+      if (mobile) {
+        await realClick(page, page.locator("nav.md\\:hidden").getByRole("button", { name: "Gift Cards" }));
+        await realClick(page, page.getByRole("button", { name: /^Starbucks ending 5521/ }));
+        scope = page.getByRole("dialog", { name: "Starbucks details" });
+      } else {
+        await realClick(page, page.locator("aside").getByRole("button", { name: "Gift Cards", exact: true }));
+        await realClick(page, page.getByRole("button", { name: /^Starbucks ending 5521, / }));
+        scope = page.getByTestId("gc-panel");
+        await expect(scope).toHaveAttribute("aria-label", "Starbucks details");
+      }
+      const history = scope.getByTestId("gc-history");
+      await expect(history.getByTestId("gc-total-used")).toHaveText("$11.45");
+      await expect(history.getByTestId("gc-history-row")).toHaveCount(4);
+      await expect(history.getByTestId("gc-history-row").first()).toContainText("Topped up");
+
+      const addUse = history.getByRole("button", { name: "Add use" });
+      await min44(addUse, "Add use");
+      await realClick(page, addUse);
+      const dlg = page.getByTestId("gc-balance-dialog");
+      await expect(dlg).toBeVisible();
+      await expect(dlg.getByRole("button", { name: "Used", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await dlg.getByLabel("Amount used").fill("4.50");
+      await dlg.getByLabel("At (optional)").fill("Starbucks Reserve");
+      await expect(dlg.getByTestId("gc-new-balance")).toHaveText("$13.90");
+      const save = dlg.getByRole("button", { name: "Log use" });
+      await min44(save, "Log use");
+      await realClick(page, save);
+      await expect(dlg).toBeHidden();
+
+      const first = history.getByTestId("gc-history-row").first();
+      await expect(first).toHaveAttribute("data-kind", "spend");
+      await expect(first).toContainText("Used at Starbucks Reserve");
+      await expect(first).toContainText("−$4.50");
+      await expect(first).toContainText("Balance $13.90");
+      await expect(history.getByTestId("gc-history-row")).toHaveCount(5);
+      await expect(history.getByTestId("gc-total-used")).toHaveText("$15.95");
+      await expect(scope).toContainText("$13.90");
+      await noSideScroll(page, "History");
       expect(guard.consoleErrors).toEqual([]);
     });
 

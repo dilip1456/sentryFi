@@ -54,8 +54,9 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
 
   test("gift card details: X clear of the card art", async ({ page, guard }) => {
     await openView(page, "giftcards");
-    await page.locator("main").getByRole("button", { name: /Domino's/ }).first().click();
-    const dlg = page.getByRole("dialog", { name: "Domino's details" });
+    // Redesigned list: the card row (not its "Show … at checkout" button) opens details.
+    await page.locator("main").getByRole("button", { name: /^IKEA ending 3931/ }).click();
+    const dlg = page.getByRole("dialog", { name: "IKEA details" });
     await expect(dlg).toBeVisible();
     await expectCleanPopup(page, dlg, "Gift card details");
     await shot(page, `${W}-giftcard-details`);
