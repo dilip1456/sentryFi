@@ -48,7 +48,6 @@ export const TopBar = ({ active, onChange, tabs, onAddAccount, onSync, syncing }
     { k: "overall",   label: "Home" },
     { k: "spending",  label: "Spending" },
     { k: "budget",    label: "Budget" },
-    { k: "moneymap",  label: "Money Map" },
     { k: "monthly",   label: "Transactions" },
     { k: "benefits",  label: "Benefits" },
     { k: "giftcards", label: "Gift Cards" },

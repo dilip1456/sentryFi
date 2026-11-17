@@ -64,18 +64,14 @@ for (const [w, h] of WIDTHS) {
       await shot(page, `spending-${w}`);
     });
 
-    test("Gift Cards Add and Money Map Tag are >= 44px", async ({ page }) => {
+    // Money Map lost its nav entry in the Gift Cards nav swap, so its Tag
+    // chip is no longer reachable here (its UI stays covered by
+    // src/test/qa/screens-core-ui.test.tsx).
+    test("Gift Cards Add and checkout buttons are >= 44px", async ({ page }) => {
       await openView(page, "giftcards");
-      await assertMin(page.getByRole("button", { name: "Add", exact: true }), "Gift Cards Add");
+      await assertMin(page.getByRole("button", { name: "Add gift card", exact: true }), "Gift Cards Add");
+      await assertMin(page.getByRole("button", { name: /^Show .* at checkout$/ }).first(), "Show at checkout");
       await shot(page, `giftcards-${w}`);
-
-      await page.getByRole("navigation").getByRole("button", { name: "Money Map", exact: true })
-        .or(page.getByRole("button", { name: "Money Map", exact: true })).first().click();
-      await expect(page.getByRole("button", { name: /^(Tag \d+|Edit roles)$/ })).toBeVisible({ timeout: 15_000 });
-      const tag = page.getByRole("button", { name: /^(Tag \d+|Edit roles)$/ });
-      await tag.scrollIntoViewIfNeeded();
-      await assertMin(tag, "Money Map Tag chip");
-      await shot(page, `moneymap-${w}`);
     });
 
     test("Picture Confirm / Not-recurring icons are >= 44px", async ({ page }) => {

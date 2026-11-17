@@ -106,7 +106,10 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
     expect(guard.consoleErrors).toEqual([]);
   });
 
-  test("Money Map: Tag opens and every role can be picked", async ({ page, guard }) => {
+  // Money Map has no entry point since the Gift Cards nav swap and a saved
+  // "moneymap" view now restores to Home, so this can't be reached in /demo.
+  // The Tag dialog itself is still covered by src/test/qa/screens-core-ui.
+  test.skip("Money Map: Tag opens and every role can be picked", async ({ page, guard }) => {
     await openView(page, "moneymap");
     const tag = page.locator("main").getByRole("button", { name: /^(Tag \d+|Edit roles)$/ }).first();
     await expect(tag).toBeVisible();

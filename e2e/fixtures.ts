@@ -54,7 +54,9 @@ export const test = base.extend<{ guard: Guard }>({
 });
 export { expect };
 
-export const VIEWS = ["Home", "Money Map", "Spending", "My Financial Picture", "Gift Cards", "Benefits"] as const;
+// Money Map has no nav entry since the Gift Cards nav swap (it is still
+// rendered by LivePlaidDashboard, just unreachable), so it is not a VIEW.
+export const VIEWS = ["Home", "Spending", "My Financial Picture", "Gift Cards", "Benefits"] as const;
 export type ViewName = (typeof VIEWS)[number];
 
 export async function openDemo(page: Page) {
