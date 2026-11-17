@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   barcodeValue, daysUntil, ean13CheckDigit, expiryLabel, expiryStatus, filterCards, groupByIssuer,
   groupDigits, issuerHue, issuerInitials, issuerKey, resolveFormat, sortCards, splitArchived, summarize,
-  type GiftCard,
+  computeBalanceChange, entryDelta, historyLabel, sortHistory, totalUsed,
+  type GiftCard, type HistoryEntry,
 } from "@/lib/gift-cards";
 
 // Local noon on Nov 16 2026 (TZ pinned to America/New_York in vitest.config).
@@ -153,5 +154,46 @@ describe("barcode values", () => {
     expect(resolveFormat({ barcode_format: "pdf417" })).toBe("pdf417");
     expect(resolveFormat({ barcode_format: "upc" })).toBe("code128");
     expect(resolveFormat({ barcode_format: null })).toBe("code128");
+  });
+});
+
+
+describe("usage history math", () => {
+  const h = (p: Partial<HistoryEntry> & Pick<HistoryEntry, "kind">): HistoryEntry => ({
+    id: Math.random().toString(36).slice(2), gift_card_id: "g", amount: null, balance_after: 0, note: null, created_at: "2026-11-01T12:00:00Z", ...p,
+  });
+  it("computes a use, clamped at $0", () => {
+    expect(computeBalanceChange(18.4, "use", 4.5)).toEqual({ kind: "spend", amount: 4.5, balanceAfter: 13.9, clamped: false });
+    expect(computeBalanceChange(6.25, "use", 10)).toEqual({ kind: "spend", amount: 6.25, balanceAfter: 0, clamped: true });
+    expect(computeBalanceChange(0, "use", 5)).toBeNull();
+    expect(computeBalanceChange(5, "use", 0)).toBeNull();
+  });
+  it("computes top-ups and set-balance deltas without float drift", () => {
+    expect(computeBalanceChange(0.1, "topup", 0.2)).toEqual({ kind: "topup", amount: 0.2, balanceAfter: 0.3, clamped: false });
+    expect(computeBalanceChange(42.41, "set", 30)).toEqual({ kind: "adjustment", amount: -12.41, balanceAfter: 30, clamped: false });
+    expect(computeBalanceChange(10, "set", 25.5)).toEqual({ kind: "adjustment", amount: 15.5, balanceAfter: 25.5, clamped: false });
+    expect(computeBalanceChange(10, "set", 10)).toBeNull();
+  });
+  it("signs deltas and totals what was used", () => {
+    expect(entryDelta(h({ kind: "spend", amount: 4.5 }))).toBe(-4.5);
+    expect(entryDelta(h({ kind: "topup", amount: 20 }))).toBe(20);
+    expect(entryDelta(h({ kind: "adjustment", amount: -3 }))).toBe(-3);
+    expect(entryDelta(h({ kind: "added", balance_after: 50 }))).toBe(50);
+    expect(entryDelta(h({ kind: "archived" }))).toBeNull();
+    const list = [
+      h({ kind: "added", balance_after: 50 }), h({ kind: "spend", amount: 12.3 }), h({ kind: "spend", amount: 0.1 }),
+      h({ kind: "spend", amount: 0.2 }), h({ kind: "topup", amount: 10 }), h({ kind: "adjustment", amount: -2 }), h({ kind: "adjustment", amount: 5 }),
+    ];
+    expect(totalUsed(list)).toBe(14.6);
+    expect(totalUsed([])).toBe(0);
+  });
+  it("orders newest first and labels entries", () => {
+    const a = h({ kind: "spend", created_at: "2026-11-01T10:00:00Z" });
+    const b = h({ kind: "topup", created_at: "2026-11-03T10:00:00Z" });
+    expect(sortHistory([a, b])[0]).toBe(b);
+    expect(historyLabel({ kind: "spend", merchant: "Starbucks Reserve", amount: 4 })).toBe("Used at Starbucks Reserve");
+    expect(historyLabel({ kind: "spend", merchant: null, amount: 4 })).toBe("Used");
+    expect(historyLabel({ kind: "adjustment", amount: -1 })).toBe("Balance lowered");
+    expect(historyLabel({ kind: "archived", amount: null })).toBe("Marked used");
   });
 });

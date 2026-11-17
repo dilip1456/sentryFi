@@ -270,3 +270,87 @@ export const groupDigits = (raw: string): string => {
 
 export const resolveFormat = (c: Pick<GiftCard, "barcode_format">): BarcodeFormat =>
   isBarcodeFormat(c.barcode_format) ? c.barcode_format : DEFAULT_BARCODE_FORMAT;
+
+/* ───────────────────────── Usage history ───────────────────────── */
+
+/** Row kinds in public.gift_card_activity (topup/archived/unarchived + merchant from 20261117000000). */
+export type HistoryKind = "added" | "spend" | "topup" | "adjustment" | "removed" | "restored" | "archived" | "unarchived";
+
+export type HistoryEntry = {
+  id: string;
+  gift_card_id: string;
+  user_id?: string;
+  kind: HistoryKind;
+  /** spend/topup: positive amount; adjustment: signed delta; others: null. */
+  amount: number | null;
+  balance_after: number;
+  note: string | null;
+  merchant?: string | null;
+  created_at: string;
+};
+
+/** Signed balance change for an entry (−4.50 for a use), or null for status-only events. */
+export const entryDelta = (e: Pick<HistoryEntry, "kind" | "amount" | "balance_after">): number | null => {
+  const a = e.amount == null ? null : Number(e.amount);
+  switch (e.kind) {
+    case "spend": return a == null ? null : -Math.abs(a);
+    case "topup": return a == null ? null : Math.abs(a);
+    case "adjustment": return a;
+    case "added": return Number(e.balance_after);
+    default: return null;
+  }
+};
+
+/** Money that has left the card: uses plus downward manual corrections. */
+export const totalUsed = (entries: readonly Pick<HistoryEntry, "kind" | "amount" | "balance_after">[]): number => {
+  let t = 0;
+  for (const e of entries) {
+    if (e.kind !== "spend" && e.kind !== "adjustment") continue;
+    const d = entryDelta(e);
+    if (d != null && d < 0) t += -d;
+  }
+  return round2(t);
+};
+
+export const sortHistory = <T extends Pick<HistoryEntry, "created_at" | "id">>(entries: readonly T[]): T[] =>
+  [...entries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() || b.id.localeCompare(a.id));
+
+export type BalanceChange = { kind: "spend" | "topup" | "adjustment"; amount: number; balanceAfter: number; clamped: boolean };
+
+/**
+ * What a balance edit does. "use" can't take the card below $0 (the logged
+ * amount is what actually came off); "topup" adds; "set" logs the signed
+ * delta. Returns null when nothing would change.
+ */
+export const computeBalanceChange = (
+  balance: number, mode: "use" | "topup" | "set", value: number,
+): BalanceChange | null => {
+  const prev = round2(Number(balance) || 0);
+  const v = round2(Math.abs(Number(value) || 0));
+  if (mode === "use") {
+    const applied = Math.min(v, prev);
+    if (applied <= 0) return null;
+    return { kind: "spend", amount: applied, balanceAfter: round2(prev - applied), clamped: v > prev };
+  }
+  if (mode === "topup") {
+    if (v <= 0) return null;
+    return { kind: "topup", amount: v, balanceAfter: round2(prev + v), clamped: false };
+  }
+  const delta = round2(v - prev);
+  if (delta === 0) return null;
+  return { kind: "adjustment", amount: delta, balanceAfter: v, clamped: false };
+};
+
+/** Short human label for a history row. */
+export const historyLabel = (e: Pick<HistoryEntry, "kind" | "merchant" | "amount">): string => {
+  switch (e.kind) {
+    case "spend": return e.merchant ? `Used at ${e.merchant}` : "Used";
+    case "topup": return e.merchant ? `Topped up at ${e.merchant}` : "Topped up";
+    case "adjustment": return Number(e.amount) < 0 ? "Balance lowered" : "Balance raised";
+    case "added": return "Card added";
+    case "archived": return "Marked used";
+    case "unarchived": return "Back in wallet";
+    case "removed": return "Removed";
+    case "restored": return "Restored";
+  }
+};

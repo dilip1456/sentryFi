@@ -1,14 +1,23 @@
--- Gift Cards redesign: scannable barcodes + "mark used / archive".
+-- Gift Cards redesign: scannable barcodes, "mark used / archive", and a
+-- per-card usage history.
 --
--- barcode_format: how the stored card_number is rendered at checkout.
+-- gift_cards.barcode_format: how card_number is rendered at checkout.
 --   NULL means the app default (Code 128), so existing rows need no backfill.
--- archived_at: set when the user marks a card used/archived. Archived cards
---   leave the active list and totals but stay restorable; this is separate
---   from deleted_at (Removed cards).
+-- gift_cards.archived_at: set when the user marks a card used/archived.
+--   Archived cards leave the active list and totals but stay restorable;
+--   separate from deleted_at (Removed cards).
 --
--- Idempotent (IF NOT EXISTS / guarded constraint) so it is safe to re-run.
--- Existing RLS on public.gift_cards (own rows only) already covers both
--- columns; no policy changes.
+-- Usage history lives in the existing append-only public.gift_card_activity
+-- table (20260925120000 / repaired by 20261020120000), which already has
+-- RLS by user_id (select/insert own rows only, no update/delete) and
+-- cascades with its card. Rather than start a second ledger next to it, this
+-- extends it:
+--   * merchant: where a use / top-up happened ("Used $4.50 at Starbucks").
+--   * kinds: + 'topup', 'archived', 'unarchived'.
+--   amount = positive for spend/topup, signed delta for adjustment;
+--   balance_after = the card balance after the event.
+--
+-- Idempotent (IF NOT EXISTS / guarded constraints) so it is safe to re-run.
 
 ALTER TABLE public.gift_cards
   ADD COLUMN IF NOT EXISTS barcode_format TEXT,
@@ -27,11 +36,22 @@ BEGIN
   END IF;
 END $$;
 
--- Archive is a usage-trail event too.
+ALTER TABLE public.gift_card_activity
+  ADD COLUMN IF NOT EXISTS merchant TEXT;
+
 ALTER TABLE public.gift_card_activity
   DROP CONSTRAINT IF EXISTS gift_card_activity_kind_check;
 ALTER TABLE public.gift_card_activity
   ADD CONSTRAINT gift_card_activity_kind_check
-  CHECK (kind IN ('added', 'spend', 'adjustment', 'removed', 'restored', 'archived', 'unarchived'));
+  CHECK (kind IN ('added', 'spend', 'topup', 'adjustment', 'removed', 'restored', 'archived', 'unarchived'));
+
+ALTER TABLE public.gift_card_activity
+  DROP CONSTRAINT IF EXISTS gift_card_activity_merchant_len;
+ALTER TABLE public.gift_card_activity
+  ADD CONSTRAINT gift_card_activity_merchant_len CHECK (merchant IS NULL OR char_length(merchant) <= 120);
+
+-- Timeline reads are per user, newest first.
+CREATE INDEX IF NOT EXISTS idx_gift_card_activity_user
+  ON public.gift_card_activity(user_id, created_at DESC);
 
 NOTIFY pgrst, 'reload schema';
