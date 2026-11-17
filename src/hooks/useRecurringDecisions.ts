@@ -1,61 +1,83 @@
 /**
  * The person's decisions on "Detected recurring" items, stored in
- * recurring_streams (source 'picture', RLS own rows). Demo: in memory only.
- * If the table can't be read or written (e.g. the 20261104000100 migration
- * isn't deployed yet) the screen keeps working with what's in memory and
- * says the choice couldn't be saved.
+ * recurring_streams (source 'picture', RLS own rows). Demo / guest: kept in
+ * sessionStorage only, so an acted-on item stays gone after a reload.
+ *
+ * Optimistic: every save/remove shows at once and is kept in a local layer
+ * on top of what was loaded (overlayDecisions), so the initial load or a
+ * refetch can't bring an acted-on item back. If the table can't be written
+ * (e.g. the 20261104000100 migration isn't deployed yet) only that one change
+ * is rolled back and the person is told it wasn't saved.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { decisionToRow, rowToDecision, PICTURE_KEY_PREFIX, PICTURE_SOURCE, type RecurringDecision } from "@/lib/recurring";
+import {
+  decisionToRow, overlayDecisions, parseStoredDecisions, rowToDecision, DEMO_DECISIONS_KEY, PICTURE_KEY_PREFIX, PICTURE_SOURCE,
+  type RecurringDecision,
+} from "@/lib/recurring";
 
 type Res = PromiseLike<{ data: unknown; error: { message: string } | null }>;
 // recurring_streams' review columns are newer than the generated types.
 type Query = Res & { select: (c: string) => Query; eq: (c: string, v: unknown) => Query; delete: () => Query; upsert: (row: Record<string, unknown>, o: { onConflict: string }) => Query };
 const db = supabase as unknown as { from: (t: string) => Query };
 
+const session = () => { try { return typeof window !== "undefined" ? window.sessionStorage : null; } catch { return null; } };
+const readDemo = () => parseStoredDecisions(session()?.getItem(DEMO_DECISIONS_KEY));
+const writeDemo = (list: RecurringDecision[]) => { try { session()?.setItem(DEMO_DECISIONS_KEY, JSON.stringify(list)); } catch { /* storage full / blocked */ } };
+
 export function useRecurringDecisions(userId: string | null | undefined, demo: boolean) {
-  const [decisions, setDecisions] = useState<RecurringDecision[]>([]);
   const live = !demo && !!userId;
+  /** Last loaded server rows (live) or the stored demo list. */
+  const [base, setBase] = useState<RecurringDecision[]>(() => (live ? [] : readDemo()));
+  /** This session's changes on top of `base` (null = removed). */
+  const [local, setLocal] = useState<ReadonlyMap<string, RecurringDecision | null>>(() => new Map());
+  const decisions = useMemo(() => overlayDecisions(base, local), [base, local]);
   const ref = useRef(decisions);
   ref.current = decisions;
 
   useEffect(() => {
-    setDecisions([]);
-    if (!live) return;
+    setLocal(new Map());
+    if (!live) { setBase(readDemo()); return; }
+    setBase([]);
     let off = false;
     (db.from("recurring_streams").select("*").eq("user_id", userId).eq("source", PICTURE_SOURCE) as Res).then(({ data, error }) => {
       if (off) return;
       if (error) { console.warn("[recurring decisions]", error.message); return; }
-      setDecisions(((data as Record<string, unknown>[]) ?? []).map(rowToDecision).filter((d): d is RecurringDecision => !!d));
+      setBase(((data as Record<string, unknown>[]) ?? []).map(rowToDecision).filter((d): d is RecurringDecision => !!d));
     });
     return () => { off = true; };
   }, [live, userId]);
 
-  const failed = (msg: string, prev: RecurringDecision[]) => {
+  const put = useCallback((key: string, d: RecurringDecision | null) => {
+    setLocal(prev => { const next = new Map(prev); next.set(key, d); return next; });
+    if (!live) writeDemo(overlayDecisions(ref.current, new Map([[key, d]])));
+  }, [live]);
+
+  /** Roll back just this key (later changes to other items stay). */
+  const failed = useCallback((key: string, prev: RecurringDecision | undefined, msg: string) => {
     console.warn("[recurring decisions]", msg);
-    setDecisions(prev);
-    toast.error("Couldn't save that change", { description: "Your choice is shown for now but wasn't stored. Try again later." });
-  };
+    setLocal(m => { const next = new Map(m); next.set(key, prev ?? null); return next; });
+    toast.error("Couldn't save that change", { description: "It wasn't stored, so it's back in the list. Try again later." });
+  }, []);
 
   /** Store (insert or replace) one decision. */
   const save = useCallback(async (d: RecurringDecision) => {
-    const prev = ref.current;
-    setDecisions([...prev.filter(x => x.key !== d.key), d]);
+    const prev = ref.current.find(x => x.key === d.key);
+    put(d.key, d);
     if (!live) return;
     const { error } = await (db.from("recurring_streams").upsert(decisionToRow(userId!, d), { onConflict: "user_id,series_key" }) as Res);
-    if (error) failed(error.message, prev);
-  }, [live, userId]);
+    if (error) failed(d.key, prev, error.message);
+  }, [live, userId, put, failed]);
 
   /** Forget a decision (restore to "suggested"). */
   const remove = useCallback(async (key: string) => {
-    const prev = ref.current;
-    setDecisions(prev.filter(x => x.key !== key));
+    const prev = ref.current.find(x => x.key === key);
+    put(key, null);
     if (!live) return;
     const { error } = await (db.from("recurring_streams").delete().eq("user_id", userId).eq("series_key", PICTURE_KEY_PREFIX + key) as Res);
-    if (error) failed(error.message, prev);
-  }, [live, userId]);
+    if (error) failed(key, prev, error.message);
+  }, [live, userId, put, failed]);
 
   return { decisions, save, remove };
 }
