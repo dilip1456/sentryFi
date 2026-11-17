@@ -159,7 +159,7 @@ export const Onboarding = ({ onLinkPlaid, onSaveManual, onFinish, displayName }:
               <div>
                 <h2 className="font-display text-2xl text-foreground">You're all set!</h2>
                 <p className="mt-2 text-[14px] text-muted-foreground leading-relaxed">
-                  Head to Money Map to tag each account and unlock your True Available balance.
+                  Your dashboard is ready. Head to Home to see where your money stands.
                 </p>
               </div>
 

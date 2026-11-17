@@ -59,9 +59,11 @@ import {
 type View = "overall" | "benefits" | "spending" | "myfinances" | "myfinances-redesign" | "moneymap" | "accounts" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
+// Money Map ("moneymap") still renders if something sets that view, but it
+// has no nav entry anywhere (Dilip, Nov 16: "Remove moneymap and show gift
+// card in menu below itself"); Gift Cards took its bottom-bar slot.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: string }[] = [
   { k: "overall",     label: "Home",               icon: LayoutDashboard },
-  { k: "moneymap",    label: "Money Map",          icon: Compass         },
   { k: "spending",    label: "Spending",           icon: PieChart        },
   { k: "accounts",    label: "Accounts",           icon: Landmark        },
   { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
@@ -70,14 +72,17 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: strin
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "spending", "myfinances", "moneymap"];
+// Bottom-bar order. Gift Cards sits in the slot Money Map used to hold.
+const MOBILE_PRIMARY: View[] = ["overall", "giftcards", "spending", "myfinances"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
   // this tree when the window regains focus) doesn't bounce the user back to Home.
   const [view, setView] = useState<View>(() => {
     const saved = sessionStorage.getItem("sentryfi_view");
-    return (saved as View) || "overall";
+    // Money Map has no entry point any more, so don't restore a session onto it.
+    if (!saved || saved === "moneymap") return "overall";
+    return saved as View;
   });
   useEffect(() => { sessionStorage.setItem("sentryfi_view", view); }, [view]);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -130,7 +135,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const TABS = isAdmin && !guestDemo
     ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users }]
     : BASE_TABS;
-  const mobilePrimary = TABS.filter(t => MOBILE_PRIMARY.includes(t.k));
+  const mobilePrimary = MOBILE_PRIMARY
+    .map(k => TABS.find(t => t.k === k))
+    .filter((t): t is typeof TABS[0] => !!t);
   const mobileOverflow = TABS.filter(t => !MOBILE_PRIMARY.includes(t.k));
 
 
@@ -281,7 +288,6 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
             <span>Home</span>
           </button>
-          {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
           <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open
             className={cn("nav-item w-full text-left", timelineOpen && "active")}>
             <History className="h-4 w-4 flex-shrink-0" />

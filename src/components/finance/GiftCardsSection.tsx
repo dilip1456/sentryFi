@@ -1,24 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
 import {
-  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { fmtUSD } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { SectionHeader } from "@/components/ui/headers";
-import { GIFT_CARD_BRANDS, logoUrlForDomain, clearbitLogoUrl, faviconUrlForDomain, brandGradient, searchBrands, type GiftCardBrand, type BrandSuggestion } from "@/lib/gift-card-brands";
+import { GIFT_CARD_BRANDS, logoUrlForDomain, clearbitLogoUrl, faviconUrlForDomain, brandGradient, searchBrands, type BrandSuggestion } from "@/lib/gift-card-brands";
 import { toast } from "sonner";
 import { isMissingColumnError, isMissingTableError } from "@/lib/supabase-errors";
 import {
   Gift, Plus, X, ExternalLink, ShoppingBag, Pencil, Trash2, Search,
-  CheckCircle2, AlertCircle, Loader2, MinusCircle, Clock, Eye, EyeOff,
-  ChevronLeft, ChevronRight, Copy,
+  CheckCircle2, AlertCircle, Loader2, Clock, Eye, EyeOff,
+  ChevronLeft, ChevronRight, ChevronDown, Copy, ScanBarcode, Archive, ArchiveRestore,
+  Wallet, Layers, List, LayoutGrid, MinusCircle, PlusCircle,
 } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
 import { fmtShortDate } from "@/lib/format-date";
+import {
+  BARCODE_FORMATS, DEFAULT_BARCODE_FORMAT, EXPIRY_WARNING_DAYS, SORT_OPTIONS,
+  barcodeValue, computeBalanceChange, entryDelta, historyLabel, sortHistory, totalUsed,
+  daysUntil, expiryLabel, expiryStatus, filterCards, groupByIssuer, issuerHue,
+  issuerInitials, resolveFormat, sortCards, splitArchived, summarize,
+  type BarcodeFormat, type BalanceChange, type GiftCard, type HistoryEntry, type HistoryKind, type IssuerGroup, type SortKey,
+} from "@/lib/gift-cards";
+import { CheckoutView } from "./giftcards/CheckoutView";
+import { GiftCardBarcode } from "./giftcards/GiftCardBarcode";
+
+// gift_cards / gift_card_activity aren't in the generated Supabase types, so
+// talk to them through an untyped client and the hand-written GiftCard row.
+const db = supabase as unknown as SupabaseClient;
 
 const copyToClipboard = async (text: string, label: string) => {
   try {
@@ -29,98 +44,210 @@ const copyToClipboard = async (text: string, label: string) => {
   }
 };
 
-type GiftCardRow = Tables<"gift_cards">;
+type GiftCardRow = GiftCard;
 
-// gift_card_activity isn't in the generated Supabase types yet (same reason
-// gift_cards itself already resolves loosely — see the pre-existing `never`
-// errors on GiftCardRow field access below), so this is a hand-written
-// mirror of the table shape defined in
-// supabase/migrations/20260925120000_gift_cards_trash_and_activity.sql.
-type GiftCardActivityKind = "added" | "spend" | "adjustment" | "removed" | "restored";
-type GiftCardActivityRow = {
-  id: string;
-  gift_card_id: string;
-  user_id: string;
-  kind: GiftCardActivityKind;
-  amount: number | null;
-  balance_after: number;
-  note: string | null;
-  created_at: string;
-};
+// Hand-written mirror of public.gift_card_activity, the card's usage
+// history (20260925120000; merchant + topup/archived/unarchived kinds from
+// 20261117000000). See HistoryEntry in @/lib/gift-cards.
+type GiftCardActivityKind = HistoryKind;
+type GiftCardActivityRow = HistoryEntry;
 
 // Set once a load discovers gift_card_activity is missing on the live DB, so
 // later inserts don't spam 404s while the migration is pending.
 let activityTableMissing = false;
+// Set once an insert discovers gift_card_activity.merchant is missing.
+let merchantColumnMissing = false;
+// Set once a write discovers barcode_format / archived_at are missing (the
+// 20261117000000 migration isn't applied yet), so later writes skip them.
+let barcodeColumnMissing = false;
 
 /** Append-only usage-trail insert. Fire-and-forget on purpose — a logging
  *  failure shouldn't block or roll back the balance change that triggered it. */
 const logActivity = async (entry: {
   gift_card_id: string; user_id: string; kind: GiftCardActivityKind;
-  amount: number | null; balance_after: number; note?: string | null;
+  amount: number | null; balance_after: number; note?: string | null; merchant?: string | null;
 }) => {
   if (activityTableMissing) return;
-  const { error } = await supabase.from("gift_card_activity").insert({
+  const row: Record<string, unknown> = {
     gift_card_id: entry.gift_card_id,
     user_id: entry.user_id,
     kind: entry.kind,
     amount: entry.amount,
     balance_after: entry.balance_after,
     note: entry.note ?? null,
-  });
+  };
+  if (entry.merchant && !merchantColumnMissing) row.merchant = entry.merchant;
+  let { error } = await db.from("gift_card_activity").insert(row);
+  if (error && "merchant" in row && isMissingColumnError(error, "merchant")) {
+    // Pre-20261117000000 DB: keep the merchant in the note instead of losing it.
+    merchantColumnMissing = true;
+    delete row.merchant;
+    row.note = [entry.merchant, entry.note].filter(Boolean).join(" · ") || null;
+    ({ error } = await db.from("gift_card_activity").insert(row));
+  }
   if (error) {
     if (isMissingTableError(error)) activityTableMissing = true;
     console.error("[gift_card_activity] insert failed:", error.message);
   }
 };
 
-const ACTIVITY_LABEL: Record<GiftCardActivityKind, string> = {
-  added: "Card added", spend: "Spent", adjustment: "Balance adjusted", removed: "Removed", restored: "Restored",
+/** Writes a gift_cards row, retrying without barcode_format if the live DB
+ *  predates 20261117000000 (so adding/editing a card never breaks on it). */
+const writeCard = async <T,>(
+  payload: Record<string, unknown>,
+  run: (p: Record<string, unknown>) => PromiseLike<{ data: T | null; error: { message: string; code?: string } | null }>,
+): Promise<{ data: T | null; error: { message: string; code?: string } | null }> => {
+  const p = { ...payload };
+  if (barcodeColumnMissing) delete p.barcode_format;
+  const res = await run(p);
+  if (res.error && "barcode_format" in p && isMissingColumnError(res.error, "barcode_format")) {
+    barcodeColumnMissing = true;
+    console.warn("[gift_cards] barcode_format column missing — apply supabase/migrations/20261117000000_gift_cards_barcode_archive.sql");
+    delete p.barcode_format;
+    return run(p);
+  }
+  return res;
 };
 
-/** Compact usage trail shown inside the card detail popup and the desktop
- *  preview panel — renders nothing when there's no history yet. */
-const ActivityHistoryList = ({ entries }: { entries: GiftCardActivityRow[] }) => {
-  if (!entries.length) return null;
+const HISTORY_ICON: Record<GiftCardActivityKind, typeof Wallet> = {
+  added: Gift, spend: MinusCircle, topup: PlusCircle, adjustment: Pencil,
+  removed: Trash2, restored: ArchiveRestore, archived: Archive, unarchived: ArchiveRestore,
+};
+
+/** Usage timeline for one card: total used, then every event newest first. */
+const CardHistory = ({ entries, onAddUse, archived }: { entries: GiftCardActivityRow[]; onAddUse?: () => void; archived?: boolean }) => {
+  const sorted = useMemo(() => sortHistory(entries), [entries]);
+  const used = totalUsed(entries);
+  const uses = entries.filter(e => e.kind === "spend").length;
   return (
-    <div className="space-y-1.5">
-      <span className="text-[12px] uppercase tracking-wider text-muted-foreground block">Activity</span>
-      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-        {entries.map(e => (
-          <div key={e.id} className="flex items-center justify-between gap-2 text-[12.5px]">
-            <div className="min-w-0 truncate">
-              <span className="text-foreground">{ACTIVITY_LABEL[e.kind]}</span>
-              {e.note && <span className="text-muted-foreground"> · {e.note}</span>}
-            </div>
-            <div className="flex items-center gap-2 shrink-0 text-muted-foreground">
-              {e.amount != null && (
-                <span className="tabular">{e.kind === "spend" && e.amount > 0 ? "-" : ""}{fmtUSD(Math.abs(Number(e.amount)))}</span>
-              )}
-              <span>{fmtShortDate(e.created_at)}</span>
-            </div>
+    <section aria-label="Usage history" className="space-y-2" data-testid="gc-history">
+      <div className="flex items-end justify-between gap-2">
+        <div>
+          <h3 className="text-[12px] uppercase tracking-wider text-muted-foreground">History</h3>
+          <div className="text-[13px] text-foreground mt-0.5">
+            Total used <span className="font-semibold tabular" data-testid="gc-total-used">{fmtUSD(used)}</span>
+            {uses > 0 && <span className="text-muted-foreground"> · {uses} use{uses !== 1 ? "s" : ""}</span>}
           </div>
-        ))}
+        </div>
+        {onAddUse && !archived && (
+          <button onClick={onAddUse}
+            className="tap-44 min-h-11 px-3 inline-flex items-center gap-1.5 rounded-full border border-border-strong text-[13px] font-medium text-foreground hover:bg-secondary/40 shrink-0">
+            <Plus className="h-4 w-4" aria-hidden="true" /> Add use
+          </button>
+        )}
       </div>
-    </div>
+      {sorted.length === 0 ? (
+        <p className="text-[12.5px] text-muted-foreground">No history yet. Log a use after you pay with this card.</p>
+      ) : (
+        <ol className="relative space-y-0 max-h-72 overflow-y-auto pr-1">
+          {sorted.map((e, i) => {
+            const Icon = HISTORY_ICON[e.kind] ?? Clock;
+            const d = entryDelta(e);
+            const neg = d != null && d < 0;
+            return (
+              <li key={e.id} className="relative flex gap-3 pb-3" data-testid="gc-history-row" data-kind={e.kind}>
+                {i < sorted.length - 1 && <span aria-hidden="true" className="absolute left-[13px] top-7 bottom-0 w-px bg-border/60" />}
+                <span aria-hidden="true" className={cn("relative z-[1] h-7 w-7 shrink-0 grid place-items-center rounded-full border",
+                  e.kind === "spend" ? "bg-negative/10 border-negative/30 text-negative"
+                    : e.kind === "topup" || (e.kind === "adjustment" && !neg) ? "bg-positive/10 border-positive/30 text-positive"
+                      : "bg-secondary border-border/60 text-muted-foreground")}>
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[13.5px] text-foreground truncate">{historyLabel(e)}</span>
+                    {d != null && e.kind !== "added" && (
+                      <span className={cn("text-[13.5px] tabular font-semibold shrink-0", neg ? "text-negative" : "text-positive")}>
+                        {neg ? "−" : "+"}{fmtUSD(Math.abs(d))}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 text-[12px] text-muted-foreground">
+                    <span className="truncate min-w-0">{fmtShortDate(e.created_at)}{e.note ? ` · ${e.note}` : ""}</span>
+                    <span className="tabular shrink-0">Balance {fmtUSD(Number(e.balance_after))}</span>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
   );
 };
 
-const EXPIRY_WARNING_DAYS = 30;
+const isoInDays = (d: number): string => {
+  const t = new Date();
+  t.setDate(t.getDate() + d);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+};
+const agoIso = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
 
-// Illustrative cards shown only in demo/guest mode — this screen otherwise
-// renders nothing at all for a signed-out visitor since every real card is
-// fetched per-user from Supabase.
-const DEMO_GIFT_CARDS: GiftCardRow[] = [
-  { id: "demo-1", user_id: "demo", brand_name: "Domino's", domain: "dominos.com", logo_url: null, balance: 5.00, card_number: null, card_number_last4: null, pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.dominos.com/en/pages/giftcards/", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
-  { id: "demo-2", user_id: "demo", brand_name: "IKEA", domain: "ikea.com", logo_url: null, balance: 42.41, card_number: null, card_number_last4: "4210", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.ikea.com/us/en/customer-service/gift-card/", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
-  { id: "demo-3", user_id: "demo", brand_name: "Panera Bread", domain: "panerabread.com", logo_url: null, balance: 34.67, card_number: null, card_number_last4: "4608", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.panerabread.com/en-us/giftcards.html", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
-  { id: "demo-4", user_id: "demo", brand_name: "Best Buy", domain: "bestbuy.com", logo_url: null, balance: 80.22, card_number: null, card_number_last4: "5130", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.bestbuy.com/giftcard/online/balancecheck", balance_verified: true, created_at: new Date().toISOString() } as GiftCardRow,
-  { id: "demo-5", user_id: "demo", brand_name: "REI", domain: "rei.com", logo_url: null, balance: 14.17, card_number: null, card_number_last4: "4853", pin: null, expiry_date: "2026-12-31", notes: null, balance_check_url: "https://www.rei.com/gift-cards", balance_verified: false, created_at: new Date().toISOString() } as GiftCardRow,
+// Illustrative cards shown only in demo/guest mode — several issuers, some
+// with more than one card, every barcode type, and a couple expiring soon.
+const demoCard = (p: Partial<GiftCardRow> & Pick<GiftCardRow, "id" | "brand_name" | "balance">): GiftCardRow => ({
+  user_id: "demo", domain: null, logo_url: null, balance_check_url: null, buy_url: null,
+  card_number: null, card_number_last4: null, pin: null, notes: null, expiry_date: null,
+  balance_verified: true, created_at: agoIso(30), barcode_format: null, archived_at: null, deleted_at: null, ...p,
+});
+const buildDemoCards = (): GiftCardRow[] => [
+  demoCard({ id: "demo-sb1", brand_name: "Starbucks", domain: "starbucks.com", balance: 18.40, card_number: "6061987412345521", card_number_last4: "5521", pin: "73914", barcode_format: "code128", expiry_date: isoInDays(12), notes: "Birthday gift", balance_check_url: "https://www.starbucks.com/card", created_at: agoIso(60) }),
+  demoCard({ id: "demo-sb2", brand_name: "Starbucks", domain: "starbucks.com", balance: 6.25, card_number: "6061987412340087", card_number_last4: "0087", pin: "20486", barcode_format: "code128", balance_check_url: "https://www.starbucks.com/card", created_at: agoIso(10) }),
+  demoCard({ id: "demo-amz1", brand_name: "Amazon", domain: "amazon.com", balance: 50.00, card_number: "AQ7K-9XZP-4M2R", card_number_last4: "4M2R", barcode_format: "qrcode", notes: "Work raffle", balance_check_url: "https://www.amazon.com/gc/balance", created_at: agoIso(5) }),
+  demoCard({ id: "demo-amz2", brand_name: "Amazon", domain: "amazon.com", balance: 25.00, card_number: "BR3T-6YLQ-8N1W", card_number_last4: "8N1W", barcode_format: "qrcode", balance_check_url: "https://www.amazon.com/gc/balance", created_at: agoIso(40) }),
+  demoCard({ id: "demo-tgt", brand_name: "Target", domain: "target.com", balance: 64.18, card_number: "041234567890123", card_number_last4: "0123", pin: "48210713", barcode_format: "pdf417", expiry_date: isoInDays(400), balance_check_url: "https://www.target.com/guest/gift-card-balance", created_at: agoIso(90) }),
+  demoCard({ id: "demo-bby", brand_name: "Best Buy", domain: "bestbuy.com", balance: 80.22, card_number: "6155432109875130", card_number_last4: "5130", pin: "2841", barcode_format: "code128", expiry_date: isoInDays(220), balance_check_url: "https://www.bestbuy.com/giftcard/online/balancecheck", created_at: agoIso(120) }),
+  demoCard({ id: "demo-ikea", brand_name: "IKEA", domain: "ikea.com", balance: 42.41, card_number: "4006381333931", card_number_last4: "3931", barcode_format: "ean13", balance_check_url: "https://www.ikea.com/us/en/customer-service/gift-card/", created_at: agoIso(75) }),
+  demoCard({ id: "demo-pan", brand_name: "Panera Bread", domain: "panerabread.com", balance: 34.67, card_number: "6006491234564608", card_number_last4: "4608", barcode_format: "code128", expiry_date: isoInDays(26), balance_check_url: "https://www.panerabread.com/en-us/giftcards.html", balance_verified: false, created_at: agoIso(20) }),
+  demoCard({ id: "demo-dom", brand_name: "Domino's", domain: "dominos.com", balance: 5.00, expiry_date: isoInDays(-3), balance_check_url: "https://www.dominos.com/en/pages/giftcards/", created_at: agoIso(200) }),
+  demoCard({ id: "demo-lowes", brand_name: "Lowe's", domain: "lowes.com", balance: 0, card_number: "6006491111112222", card_number_last4: "2222", archived_at: agoIso(14), created_at: agoIso(300) }),
 ];
 
-const daysUntil = (dateStr: string): number =>
-  Math.ceil((new Date(dateStr + "T00:00:00").getTime() - Date.now()) / 86_400_000);
+/** Demo usage history, oldest first per card, consistent with each card's balance. */
+const buildDemoHistory = (cards: GiftCardRow[]): Record<string, GiftCardActivityRow[]> => {
+  const plan: Record<string, { days: number; kind: GiftCardActivityKind; amount?: number; merchant?: string; note?: string }[]> = {
+    "demo-sb1": [{ days: 60, kind: "added", amount: 25 }, { days: 41, kind: "spend", amount: 5.35, merchant: "Starbucks, Main St" }, { days: 9, kind: "spend", amount: 6.10, merchant: "Starbucks Reserve", note: "Latte + croissant" }, { days: 3, kind: "topup", amount: 4.85, note: "Stars reward" }, { days: 1, kind: "adjustment", amount: 0 }],
+    "demo-sb2": [{ days: 10, kind: "added", amount: 10 }, { days: 4, kind: "spend", amount: 3.75, merchant: "Starbucks drive-thru" }],
+    "demo-amz1": [{ days: 5, kind: "added", amount: 50 }],
+    "demo-amz2": [{ days: 40, kind: "added", amount: 50 }, { days: 33, kind: "spend", amount: 18.99, merchant: "Amazon.com", note: "USB-C hub" }, { days: 12, kind: "spend", amount: 6.01, merchant: "Amazon.com" }],
+    "demo-tgt": [{ days: 90, kind: "added", amount: 100 }, { days: 61, kind: "spend", amount: 35.82, merchant: "Target, Union Sq" }],
+    "demo-bby": [{ days: 120, kind: "added", amount: 80.22 }],
+    "demo-ikea": [{ days: 75, kind: "added", amount: 75 }, { days: 50, kind: "spend", amount: 32.59, merchant: "IKEA Brooklyn", note: "Shelf brackets" }],
+    "demo-pan": [{ days: 20, kind: "added", amount: 40 }, { days: 6, kind: "spend", amount: 5.33, merchant: "Panera Bread" }],
+    "demo-dom": [{ days: 200, kind: "added", amount: 20 }, { days: 150, kind: "spend", amount: 15, merchant: "Domino's" }],
+    "demo-lowes": [{ days: 300, kind: "added", amount: 25 }, { days: 20, kind: "spend", amount: 25, merchant: "Lowe's" }, { days: 14, kind: "archived" }],
+  };
+  const out: Record<string, GiftCardActivityRow[]> = {};
+  for (const c of cards) {
+    let bal = 0;
+    const rows: GiftCardActivityRow[] = [];
+    (plan[c.id] ?? []).forEach((p, i) => {
+      if (p.kind === "adjustment") {
+        // Reconcile any rounding so the last entry lands on the card's balance.
+        const delta = Math.round((Number(c.balance) - bal) * 100) / 100;
+        if (delta === 0) return;
+        bal = Number(c.balance);
+        rows.push({ id: `${c.id}-h${i}`, gift_card_id: c.id, kind: "adjustment", amount: delta, balance_after: bal, note: null, merchant: null, created_at: agoIso(p.days) });
+        return;
+      }
+      if (p.kind === "added") bal = p.amount ?? 0;
+      else if (p.kind === "spend") bal = Math.round((bal - (p.amount ?? 0)) * 100) / 100;
+      else if (p.kind === "topup") bal = Math.round((bal + (p.amount ?? 0)) * 100) / 100;
+      rows.push({
+        id: `${c.id}-h${i}`, gift_card_id: c.id, kind: p.kind,
+        amount: p.kind === "added" || p.kind === "archived" ? null : (p.amount ?? null),
+        balance_after: bal, note: p.note ?? null, merchant: p.merchant ?? null, created_at: agoIso(p.days),
+      });
+    });
+    out[c.id] = rows;
+  }
+  return out;
+};
 
-/** "1 Year, 5 Months, 2 Days" style countdown for the card preview panel. */
+const cardLabel = (c: Pick<GiftCardRow, "brand_name" | "card_number_last4">) =>
+  `${c.brand_name}${c.card_number_last4 ? ` ending ${c.card_number_last4}` : ""}`;
+
+/** "1 Year, 5 Months, 2 Days" style countdown for the card detail panel. */
 const humanizeCountdown = (dateStr: string): string => {
   const target = new Date(dateStr + "T00:00:00");
   const now = new Date();
@@ -137,12 +264,16 @@ const humanizeCountdown = (dateStr: string): string => {
   return parts.join(", ");
 };
 
-const expiryStatus = (expiry?: string | null): "expired" | "soon" | null => {
-  if (!expiry) return null;
-  const d = daysUntil(expiry);
-  if (d < 0) return "expired";
-  if (d <= EXPIRY_WARNING_DAYS) return "soon";
-  return null;
+/** Colored initials badge for issuers with no (or a failed) logo. */
+const IssuerMonogram = ({ name, size }: { name: string; size: number }) => {
+  const hue = issuerHue(name);
+  return (
+    <div aria-hidden="true"
+      className="rounded-lg grid place-items-center font-semibold shrink-0 text-white"
+      style={{ height: size, width: size, fontSize: Math.max(10, size * 0.38), background: `linear-gradient(140deg, hsl(${hue} 62% 48%), hsl(${(hue + 18) % 360} 60% 32%))` }}>
+      {issuerInitials(name)}
+    </div>
+  );
 };
 
 const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | null; logoUrl?: string | null; name: string; size?: number }) => {
@@ -157,27 +288,21 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
     domain ? faviconUrlForDomain(domain, fetchSize) : null,
   ].filter(Boolean) as string[];
   const src = sources[attempt];
-  if (!src) {
-    return (
-      <div
-        className="rounded-lg bg-secondary/60 border border-border/50 grid place-items-center text-gold font-display shrink-0"
-        style={{ height: size, width: size, fontSize: size * 0.4 }}
-      >
-        {name.charAt(0).toUpperCase()}
-      </div>
-    );
-  }
+  if (!src) return <IssuerMonogram name={name} size={size} />;
+  // Fixed-size wrapper so the 10% padding is relative to the logo, not to
+  // whatever wide row the logo sits in.
   return (
-    <img
-      src={src}
-      alt={`${name} logo`}
-      onError={() => setAttempt(a => a + 1)}
-      className="rounded-lg border border-border/50 object-contain bg-white shrink-0 p-[10%]"
-      style={{ height: size, width: size, imageRendering: "auto" }}
-    />
+    <span className="relative inline-block shrink-0" style={{ height: size, width: size }}>
+      <img
+        src={src}
+        alt={`${name} logo`}
+        onError={() => setAttempt(a => a + 1)}
+        className="absolute inset-0 h-full w-full rounded-lg border border-border/50 object-contain bg-white"
+        style={{ padding: Math.round(size * 0.1), imageRendering: "auto" }}
+      />
+    </span>
   );
 };
-
 /** Small gift-card-shaped preview shown on every list/table row so no row is a blank. */
 const MiniCardThumb = ({ card }: { card: { brand_name: string; domain?: string | null; logo_url?: string | null } }) => (
   <div className="relative rounded-md overflow-hidden shrink-0 shadow-sm"
@@ -267,7 +392,7 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
               status === "expired" ? "bg-negative/90 text-white" : "bg-warning/90 text-warning-foreground"
             )}>
               <Clock className="h-2.5 w-2.5" />
-              {status === "expired" ? "Expired" : `Expires in ${daysUntil(card.expiry_date!)}d`}
+              {expiryLabel(card.expiry_date)}
             </div>
           )}
           <div className="font-display text-[26px] tabular leading-none drop-shadow-sm">{fmtUSD(Number(card.balance))}</div>
@@ -283,25 +408,302 @@ const GiftCardTile = ({ card, children }: { card: { brand_name: string; domain?:
   );
 };
 
-/** Click-to-view popup for a card — read-only quick view with shortcuts into edit/spend/remove.
- *  Supports swiping left/right to browse other cards without closing the popup. */
-const CardDetailDialog = ({
-  cards, index, onIndexChange, onClose, onEdit, onLogSpend, onRemove, removingId, activityByCard,
-}: {
-  cards: GiftCardRow[]; index: number; onIndexChange: (i: number) => void;
-  onClose: () => void; onEdit: (card: GiftCardRow) => void; onLogSpend: (card: GiftCardRow) => void;
-  onRemove: (card: GiftCardRow) => void; removingId: string | null;
-  activityByCard: Record<string, GiftCardActivityRow[]>;
+/** Everything a card row / tile / panel can trigger, provided by the section. */
+type CardActions = {
+  openDetail: (c: GiftCardRow) => void;
+  openCheckout: (c: GiftCardRow) => void;
+  openBalance: (c: GiftCardRow) => void;
+  /** Balance dialog opened on "Used $X at…". */
+  openUse: (c: GiftCardRow) => void;
+  openEdit: (c: GiftCardRow) => void;
+  archive: (c: GiftCardRow) => void;
+  unarchive: (c: GiftCardRow) => void;
+  requestRemove: (c: GiftCardRow) => void;
+  openSheet: (c: GiftCardRow) => void;
+};
+
+const ExpiryChip = ({ expiry, className }: { expiry: string | null | undefined; className?: string }) => {
+  const st = expiryStatus(expiry);
+  const label = expiryLabel(expiry);
+  if (!label) return null;
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap",
+      st === "expired" ? "bg-negative/12 text-negative" : st === "soon" ? "bg-warning/15 text-warning" : "bg-secondary/70 text-muted-foreground",
+      className,
+    )}>
+      {st && <Clock className="h-2.5 w-2.5" aria-hidden="true" />}{label}
+    </span>
+  );
+};
+
+/**
+ * Mobile row with touch shortcuts: swipe left to reveal Balance / Mark used,
+ * long-press for the full action sheet. Every action is also in the detail
+ * popup, so nothing is gesture-only.
+ */
+const REVEAL = 152;
+const SwipeRow = ({ card, children, actions }: { card: GiftCardRow; children: React.ReactNode; actions: CardActions }) => {
+  const [dx, setDx] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ x: number; y: number; base: number } | null>(null);
+  const axis = useRef<"h" | "v" | null>(null);
+  const longTimer = useRef<number | null>(null);
+  const suppressClick = useRef(false);
+
+  const clearLong = () => { if (longTimer.current) { window.clearTimeout(longTimer.current); longTimer.current = null; } };
+  useEffect(() => clearLong, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("[data-no-swipe]")) return;
+    start.current = { x: e.clientX, y: e.clientY, base: open ? -REVEAL : 0 };
+    axis.current = null;
+    suppressClick.current = false;
+    clearLong();
+    longTimer.current = window.setTimeout(() => {
+      suppressClick.current = true;
+      start.current = null;
+      try { navigator.vibrate?.(12); } catch { /* not supported */ }
+      actions.openSheet(card);
+    }, 520);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const s = start.current;
+    if (!s) return;
+    const mx = e.clientX - s.x, my = e.clientY - s.y;
+    if (!axis.current && (Math.abs(mx) > 8 || Math.abs(my) > 8)) {
+      axis.current = Math.abs(mx) > Math.abs(my) ? "h" : "v";
+      clearLong();
+    }
+    if (axis.current === "h") {
+      suppressClick.current = true;
+      if (!dragging) setDragging(true);
+      setDx(Math.max(-REVEAL - 24, Math.min(0, s.base + mx)));
+    }
+  };
+  const onPointerEnd = () => {
+    clearLong();
+    if (start.current && axis.current === "h") {
+      const next = dx < -REVEAL / 2;
+      setOpen(next); setDx(next ? -REVEAL : 0);
+    }
+    start.current = null;
+    setDragging(false);
+  };
+  const offset = dragging ? dx : open ? -REVEAL : 0;
+
+  return (
+    <div className="relative overflow-hidden select-none" data-testid="gc-row" data-card-id={card.id}>
+      <div className="absolute inset-y-0 right-0 flex" style={{ width: REVEAL }} aria-hidden={!open}>
+        <button tabIndex={open ? 0 : -1} onClick={() => { setOpen(false); actions.openBalance(card); }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-info/90 text-white text-[12px] font-medium">
+          <Wallet className="h-4 w-4" aria-hidden="true" /> Balance
+        </button>
+        <button tabIndex={open ? 0 : -1} onClick={() => { setOpen(false); actions.archive(card); }}
+          className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-secondary text-foreground text-[12px] font-medium">
+          <Archive className="h-4 w-4" aria-hidden="true" /> Mark used
+        </button>
+      </div>
+      <div
+        className="relative bg-card flex items-stretch"
+        style={{ transform: `translateX(${offset}px)`, transition: dragging ? "none" : "transform 200ms cubic-bezier(0.22,1,0.36,1)", touchAction: "pan-y" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onContextMenu={e => { e.preventDefault(); }}
+        onClickCapture={e => {
+          if (suppressClick.current) { e.preventDefault(); e.stopPropagation(); suppressClick.current = false; return; }
+          if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
+
+/** One card in the mobile list. In issuer groups the brand is already in the group header. */
+const CardListRow = ({ card, grouped, actions, index }: { card: GiftCardRow; grouped: boolean; actions: CardActions; index: number }) => {
+  const bal = Number(card.balance);
+  const title = grouped
+    ? (card.card_number_last4 ? `•••• ${card.card_number_last4}` : `Card ${index + 1}`)
+    : card.brand_name;
+  return (
+    <SwipeRow card={card} actions={actions}>
+      <button onClick={() => actions.openDetail(card)} aria-label={`${cardLabel(card)}, ${fmtUSD(bal)}`}
+        className="flex-1 min-w-0 min-h-[60px] flex items-center gap-3 pl-4 pr-2 py-2.5 text-left hover:bg-surface-hover/30 active:bg-surface-hover/50 transition-colors">
+        <MiniCardThumb card={card} />
+        <div className="flex-1 min-w-0">
+          <div className={cn("text-[14px] font-medium text-foreground truncate", grouped && "font-mono tracking-wider text-[13.5px]")}>{title}</div>
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            <ExpiryChip expiry={card.expiry_date} />
+            {!grouped && card.card_number_last4 && <span className="text-[12px] text-muted-foreground font-mono">•••• {card.card_number_last4}</span>}
+            {card.notes && <span className="text-[12px] text-muted-foreground truncate min-w-0">{card.notes}</span>}
+          </div>
+        </div>
+        <div className={cn("text-[15px] tabular font-semibold shrink-0", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
+      </button>
+      <button data-no-swipe onClick={() => actions.openCheckout(card)} aria-label={`Show ${cardLabel(card)} at checkout`}
+        className="tap-44 shrink-0 w-12 grid place-items-center text-muted-foreground hover:text-foreground border-l border-border/20">
+        <ScanBarcode className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </SwipeRow>
+  );
+};
+
+/** Desktop tile: the card art is the select target; checkout is a corner shortcut. */
+const CardTileButton = ({ card, selected, actions, onSelect }: { card: GiftCardRow; selected: boolean; actions: CardActions; onSelect: (c: GiftCardRow) => void }) => (
+  <div className={cn("relative rounded-2xl transition-shadow", selected && "ring-2 ring-[hsl(var(--primary))] ring-offset-2 ring-offset-background")} data-testid="gc-tile" data-card-id={card.id}>
+    <button onClick={() => onSelect(card)} aria-pressed={selected} aria-label={`${cardLabel(card)}, ${fmtUSD(Number(card.balance))}`}
+      className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-offset-4" />
+    <GiftCardTile card={card}>
+      {/* Above the select overlay (z-20) so it's its own target. */}
+      <button onClick={() => actions.openCheckout(card)} aria-label={`Show ${cardLabel(card)} at checkout`}
+        className="tap-44 relative z-20 -mr-1.5 -mt-1.5 h-11 w-11 grid place-items-center rounded-full bg-black/30 text-white hover:bg-black/50">
+        <ScanBarcode className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </GiftCardTile>
+  </div>
+);
+
+const actionBtn = "tap-44 min-h-11 inline-flex items-center justify-center gap-1.5 rounded-lg border border-border-strong text-[13px] font-medium text-foreground hover:bg-secondary/40 transition-colors";
+
+/** Detail content shared by the desktop side panel and the mobile popup. */
+const CardDetailBody = ({ card, actions, activity, compact = false }: {
+  card: GiftCardRow; actions: CardActions; activity: GiftCardActivityRow[]; compact?: boolean;
 }) => {
   const [reveal, setReveal] = useState(false);
+  useEffect(() => { setReveal(false); }, [card.id]);
+  const status = expiryStatus(card.expiry_date);
+  const archived = !!card.archived_at;
+  const fmtLabel = BARCODE_FORMATS.find(f => f.value === resolveFormat(card))?.label ?? "Code 128";
+  return (
+    <div className="space-y-4">
+      {!archived && (
+        <button onClick={() => actions.openCheckout(card)}
+          className="tap-44 w-full min-h-11 h-12 rounded-xl bg-gold text-[15px] font-semibold inline-flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+          <ScanBarcode className="h-5 w-5" aria-hidden="true" /> Show at checkout
+        </button>
+      )}
+
+      <div className="grid grid-cols-2 gap-2">
+        {!archived && (
+          <button onClick={() => actions.openBalance(card)} className={actionBtn}>
+            <Wallet className="h-4 w-4" aria-hidden="true" /> Update balance
+          </button>
+        )}
+        <button onClick={() => actions.openEdit(card)} className={actionBtn}>
+          <Pencil className="h-4 w-4" aria-hidden="true" /> Edit
+        </button>
+        {archived ? (
+          <button onClick={() => actions.unarchive(card)} className={actionBtn}>
+            <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> Back to wallet
+          </button>
+        ) : (
+          <button onClick={() => actions.archive(card)} className={actionBtn}>
+            <Archive className="h-4 w-4" aria-hidden="true" /> Mark used
+          </button>
+        )}
+        {card.balance_check_url && (
+          <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer" className={actionBtn}>
+            <ExternalLink className="h-4 w-4" aria-hidden="true" /> Check balance
+          </a>
+        )}
+      </div>
+
+      <div className="surface-card p-3.5 space-y-2.5 text-[14px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Balance</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="tabular font-semibold text-foreground">{fmtUSD(Number(card.balance))}</span>
+            {card.balance_verified
+              ? <CheckCircle2 className="h-3.5 w-3.5 text-positive" aria-label="Verified on vendor site" />
+              : <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" aria-label="Estimated balance" />}
+          </span>
+        </div>
+        {card.expiry_date && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">Expires</span>
+            <span className={cn("tabular text-[13px] font-medium text-right", status === "expired" ? "text-negative" : status === "soon" ? "text-warning" : "text-foreground")}>
+              {status === "expired" ? "Expired" : humanizeCountdown(card.expiry_date)}
+            </span>
+          </div>
+        )}
+        {(card.card_number || card.card_number_last4) && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">Number</span>
+            <span className="inline-flex items-center gap-1 min-w-0">
+              <span className="font-mono tracking-wider text-foreground truncate">
+                {reveal && card.card_number ? card.card_number : `•••• ${card.card_number_last4 ?? "????"}`}
+              </span>
+              {card.card_number && (
+                <button onClick={() => copyToClipboard(card.card_number!.replace(/\s+/g, ""), "Card number")} aria-label="Copy card number"
+                  className="tap-44 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0">
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </span>
+          </div>
+        )}
+        {card.pin && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">PIN</span>
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
+              <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN"
+                className="tap-44 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary">
+                <Copy className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        )}
+        {(card.card_number || card.pin) && (
+          <button onClick={() => setReveal(v => !v)} aria-pressed={reveal}
+            className="tap-44 min-h-11 -mx-1 px-1 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
+            {reveal ? <EyeOff className="h-3.5 w-3.5" aria-hidden="true" /> : <Eye className="h-3.5 w-3.5" aria-hidden="true" />}
+            {reveal ? "Hide number and PIN" : "Reveal number and PIN"}
+          </button>
+        )}
+        {card.card_number && (
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="text-muted-foreground">Barcode</span>
+            <span className="text-foreground">{fmtLabel}</span>
+          </div>
+        )}
+        {card.notes && <p className="text-[13px] text-muted-foreground border-t border-border/30 pt-2">{card.notes}</p>}
+      </div>
+
+      <CardHistory entries={activity} archived={archived} onAddUse={() => actions.openUse(card)} />
+
+      <div className="flex flex-wrap items-center gap-2">
+        {card.buy_url && (
+          <a href={card.buy_url} target="_blank" rel="noopener noreferrer" className={cn(actionBtn, "border-transparent px-2 text-muted-foreground")}>
+            <ShoppingBag className="h-4 w-4" aria-hidden="true" /> Buy more
+          </a>
+        )}
+        <button onClick={() => actions.requestRemove(card)}
+          className="tap-44 min-h-11 ml-auto px-2 inline-flex items-center gap-1.5 rounded-lg text-[13px] text-negative hover:bg-negative/10">
+          <Trash2 className="h-4 w-4" aria-hidden="true" /> Remove
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** Mobile popup for one card — swipe or use the arrows to move through the visible list. */
+const CardDetailDialog = ({ cards, index, onIndexChange, onClose, actions, activityByCard }: {
+  cards: GiftCardRow[]; index: number; onIndexChange: (i: number) => void; onClose: () => void;
+  actions: CardActions; activityByCard: Record<string, GiftCardActivityRow[]>;
+}) => {
   const [dragX, setDragX] = useState(0);
   const draggingRef = useRef(false);
   const startXRef = useRef(0);
   const widthRef = useRef(1);
-
   const card = cards[index];
   if (!card) return null;
-  const status = expiryStatus(card.expiry_date);
 
   const onPointerDown = (e: React.PointerEvent) => {
     draggingRef.current = true;
@@ -318,192 +720,154 @@ const CardDetailDialog = ({
     if (!draggingRef.current) return;
     draggingRef.current = false;
     const threshold = widthRef.current * 0.18;
-    if (dragX < -threshold && index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); }
-    else if (dragX > threshold && index > 0) { onIndexChange(index - 1); setReveal(false); }
+    if (dragX < -threshold && index < cards.length - 1) onIndexChange(index + 1);
+    else if (dragX > threshold && index > 0) onIndexChange(index - 1);
     setDragX(0);
   };
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[90dvh] flex flex-col">
-        <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
-        <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
-
-        {/* The X gets its own row so it never sits on the card art (it used
-            to float over the tile's "GIFT CARD" label). */}
-        <div className="flex justify-end pr-1 pt-1 -mb-2 shrink-0">
-          <button onClick={onClose} aria-label="Close" className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+        <div className="flex items-center gap-2 pl-4 pr-1 pt-1 shrink-0">
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="font-display text-[16px] text-foreground truncate">{card.brand_name} details</DialogTitle>
+            <DialogDescription className="text-[12.5px] text-muted-foreground">
+              {cards.length > 1 ? `${index + 1} of ${cards.length} · swipe for more` : "Gift card"}
+            </DialogDescription>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="tap-44 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-
-        {/* Swipeable card visual - fixed height container prevents resize */}
-        <div className="relative shrink-0 overflow-hidden" style={{ touchAction: "none" }}>
-          <div className="p-4 select-none"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerLeave={endDrag}
-            style={{
-              transform: `translateX(${dragX}px)`,
-              transition: draggingRef.current ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)",
-              cursor: cards.length > 1 ? "grab" : "default",
-            }}>
+        <div className="relative shrink-0 overflow-hidden" style={{ touchAction: "pan-y" }}>
+          <div className="px-10 py-3 select-none"
+            onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerLeave={endDrag}
+            style={{ transform: `translateX(${dragX}px)`, transition: draggingRef.current ? "none" : "transform 220ms cubic-bezier(0.22,1,0.36,1)", cursor: cards.length > 1 ? "grab" : "default" }}>
             <GiftCardTile card={card} />
           </div>
           {cards.length > 1 && (
             <>
-              <button onClick={() => { if (index > 0) { onIndexChange(index - 1); setReveal(false); } }} disabled={index === 0}
-                aria-label="Previous card"
-                className="absolute left-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-white disabled:opacity-30 transition-colors z-10">
-                <span className="h-7 w-7 grid place-items-center rounded-full bg-black/25"><ChevronLeft className="h-4 w-4" /></span>
+              <button onClick={() => { if (index > 0) onIndexChange(index - 1); }} disabled={index === 0} aria-label="Previous card"
+                className="tap-44 absolute left-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-foreground disabled:opacity-30 z-10">
+                <span className="h-7 w-7 grid place-items-center rounded-full bg-secondary/80"><ChevronLeft className="h-4 w-4" aria-hidden="true" /></span>
               </button>
-              <button onClick={() => { if (index < cards.length - 1) { onIndexChange(index + 1); setReveal(false); } }} disabled={index === cards.length - 1}
-                aria-label="Next card"
-                className="absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-white disabled:opacity-30 transition-colors z-10">
-                <span className="h-7 w-7 grid place-items-center rounded-full bg-black/25"><ChevronRight className="h-4 w-4" /></span>
+              <button onClick={() => { if (index < cards.length - 1) onIndexChange(index + 1); }} disabled={index === cards.length - 1} aria-label="Next card"
+                className="tap-44 absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-foreground disabled:opacity-30 z-10">
+                <span className="h-7 w-7 grid place-items-center rounded-full bg-secondary/80"><ChevronRight className="h-4 w-4" aria-hidden="true" /></span>
               </button>
             </>
           )}
         </div>
-        {cards.length > 1 && (
-          <div className="text-center text-[12px] text-muted-foreground pb-1 shrink-0">{index + 1} of {cards.length}</div>
-        )}
-
-        <div className="px-5 pb-5 space-y-4">
-          {status && (
-            <div className={cn("flex items-center gap-1.5 text-[13px]", status === "expired" ? "text-negative" : "text-warning")}>
-              <Clock className="h-3.5 w-3.5" /> {status === "expired" ? "This card has expired" : `Expires in ${daysUntil(card.expiry_date!)} days`}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-[13px]">
-            {card.balance_verified ? (
-              <span className="inline-flex items-center gap-1 text-positive"><CheckCircle2 className="h-3.5 w-3.5" /> Verified on vendor site</span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <AlertCircle className="h-3.5 w-3.5" /> Estimated · updated {fmtShortDate(card.last_balance_update)}
-              </span>
-            )}
-          </div>
-
-          {(card.card_number || card.card_number_last4 || card.pin) && (
-            <div className="surface-card p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</span>
-                <button onClick={() => setReveal(v => !v)} aria-label={reveal ? "Hide card number and PIN" : "Reveal card number and PIN"} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
-                  {reveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
-                </button>
-              </div>
-              {(card.card_number || card.card_number_last4) && (
-                <div className="flex items-center justify-between text-[14px]">
-                  <span className="text-muted-foreground">Number</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono tracking-wider text-foreground">
-                      {reveal ? (card.card_number ?? `•••• ${card.card_number_last4}`) : `•••• ${card.card_number_last4 ?? "????"}`}
-                    </span>
-                    {card.card_number && (
-                      <button onClick={() => copyToClipboard(card.card_number!, "Card number")} aria-label="Copy card number" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                        <Copy className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {card.pin && (
-                <div className="flex items-center justify-between text-[14px]">
-                  <span className="text-muted-foreground">PIN</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono tracking-wider text-foreground">{reveal ? card.pin : "••••"}</span>
-                    <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
-                      <Copy className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {card.notes && (
-            <div className="text-[13px] text-muted-foreground">
-              <span className="text-[12px] uppercase tracking-wider block mb-1">Notes</span>
-              {card.notes}
-            </div>
-          )}
-
-          <ActivityHistoryList entries={activityByCard[card.id] ?? []} />
-
-          <div className="grid grid-cols-2 gap-1.5">
-            <button onClick={() => onLogSpend(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
-              <MinusCircle className="h-3.5 w-3.5" /> Log spend
-            </button>
-            <button onClick={() => onEdit(card)} className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
-              <Pencil className="h-3.5 w-3.5" /> Edit
-            </button>
-            {card.balance_check_url && (
-              <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[13px] text-foreground hover:bg-secondary transition-colors">
-                <ExternalLink className="h-3.5 w-3.5" /> Check balance
-              </a>
-            )}
-            {card.buy_url && (
-              <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 h-9 rounded-md bg-secondary/60 text-[13px] text-foreground hover:bg-secondary transition-colors">
-                <ShoppingBag className="h-3.5 w-3.5" /> Buy more
-              </a>
-            )}
-          </div>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button disabled={removingId === card.id}
-                className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-md text-[13px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
-                {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This moves {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
-                  {(card.card_number || card.card_number_last4 || card.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => onRemove(card)} className="bg-negative text-negative-foreground hover:bg-negative/90">
-                  Remove
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        <div className="px-4 pb-4 pt-1 overflow-y-auto min-h-0">
+          <CardDetailBody card={card} actions={actions} activity={activityByCard[card.id] ?? []} compact />
         </div>
       </DialogContent>
     </Dialog>
   );
 };
 
+/** Long-press action sheet (mobile). */
+const CardActionSheet = ({ card, onClose, actions }: { card: GiftCardRow; onClose: () => void; actions: CardActions }) => {
+  const run = (fn: (c: GiftCardRow) => void) => () => { onClose(); fn(card); };
+  const item = "tap-44 w-full min-h-12 flex items-center gap-3 px-5 text-left text-[15px] text-foreground hover:bg-secondary/40";
+  const archived = !!card.archived_at;
+  return (
+    <Drawer open onOpenChange={o => { if (!o) onClose(); }} shouldScaleBackground={false}>
+      <DrawerContent closeLabel="Close" className="max-h-[80dvh]" data-testid="gc-action-sheet">
+        <div className="px-5 pt-3 pb-2 pr-14">
+          <DrawerTitle className="font-display text-[17px] text-foreground truncate">{cardLabel(card)}</DrawerTitle>
+          <DrawerDescription className="tabular">{fmtUSD(Number(card.balance))} balance</DrawerDescription>
+        </div>
+        <div className="pb-3">
+          {!archived && <button className={item} onClick={run(actions.openCheckout)}><ScanBarcode className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> Show at checkout</button>}
+          {!archived && <button className={item} onClick={run(actions.openBalance)}><Wallet className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> Update balance</button>}
+          <button className={item} onClick={run(actions.openEdit)}><Pencil className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> Edit card</button>
+          {archived
+            ? <button className={item} onClick={run(actions.unarchive)}><ArchiveRestore className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> Back to wallet</button>
+            : <button className={item} onClick={run(actions.archive)}><Archive className="h-5 w-5 text-muted-foreground" aria-hidden="true" /> Mark used / archive</button>}
+          <button className={cn(item, "text-negative")} onClick={run(actions.requestRemove)}><Trash2 className="h-5 w-5" aria-hidden="true" /> Remove card</button>
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+};
+
+/** Issuer section header (shared by mobile list and desktop grid). */
+const IssuerHeader = ({ group, collapsed, onToggle, className }: { group: IssuerGroup<GiftCardRow>; collapsed: boolean; onToggle: () => void; className?: string }) => (
+  <button onClick={onToggle} aria-expanded={!collapsed} data-testid="gc-issuer" data-issuer={group.key}
+    aria-label={`${group.name}, ${group.cards.length} card${group.cards.length !== 1 ? "s" : ""}, ${fmtUSD(group.total)}${group.expiringSoon > 0 ? `, ${group.expiringSoon} expiring soon` : ""}`}
+    className={cn("tap-44 w-full min-h-[56px] flex items-center gap-3 px-4 py-2 text-left", className)}>
+    <BrandLogo domain={group.domain} logoUrl={group.logo_url} name={group.name} size={34} />
+    <div className="flex-1 min-w-0">
+      <div className="text-[15px] font-semibold text-foreground truncate">{group.name}</div>
+      <div className="text-[12.5px] text-muted-foreground flex items-center gap-1.5 min-w-0">
+        <span className="shrink-0">{group.cards.length} card{group.cards.length !== 1 ? "s" : ""}</span>
+        {group.expiringSoon > 0 && <span className="text-warning font-medium truncate">· {group.expiringSoon} expiring soon</span>}
+      </div>
+    </div>
+    <div className="text-[15px] tabular font-semibold text-foreground shrink-0" data-testid="gc-issuer-total">{fmtUSD(group.total)}</div>
+    <ChevronDown className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform", collapsed && "-rotate-90")} aria-hidden="true" />
+  </button>
+);
+
+const OPEN_DIALOG = "[role=dialog][data-state=open],[role=alertdialog][data-state=open]";
+type GroupMode = "issuer" | "flat";
+const PREFS_KEY = "sentryfi_giftcards_view";
+const readPrefs = (): { group: GroupMode; sort: SortKey; collapsed: string[] } => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<{ group: GroupMode; sort: SortKey; collapsed: string[] }>;
+    return {
+      group: raw.group === "flat" ? "flat" : "issuer",
+      sort: SORT_OPTIONS.some(o => o.value === raw.sort) ? raw.sort! : "balance-desc",
+      collapsed: Array.isArray(raw.collapsed) ? raw.collapsed.filter(x => typeof x === "string") : [],
+    };
+  } catch { return { group: "issuer", sort: "balance-desc", collapsed: [] }; }
+};
+
+/** True at the desktop split layout (tile grid + side panel). */
+const WIDE_QUERY = "(min-width: 1024px)";
+const useWide = (): boolean => {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(WIDE_QUERY).matches);
+  useEffect(() => {
+    const mql = window.matchMedia?.(WIDE_QUERY);
+    if (!mql) return;
+    const on = () => setWide(mql.matches);
+    on();
+    mql.addEventListener?.("change", on);
+    return () => mql.removeEventListener?.("change", on);
+  }, []);
+  return wide;
+};
+
 export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const { user } = useAuth();
+  const wide = useWide();
+  const isMobile = useIsMobile();
   const [cards, setCards] = useState<GiftCardRow[] | null>(null);
   const [trashCards, setTrashCards] = useState<GiftCardRow[]>([]);
   const [trashOpen, setTrashOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   // True when the live DB predates the soft-delete migration (no deleted_at
   // column): cards still load, but remove/restore are unavailable.
   const [legacySchema, setLegacySchema] = useState(false);
   const [activity, setActivity] = useState<Record<string, GiftCardActivityRow[]>>({});
   const [addOpen, setAddOpen] = useState(false);
-  const [spendCard, setSpendCard] = useState<GiftCardRow | null>(null);
+  const [balanceCard, setBalanceCard] = useState<GiftCardRow | null>(null);
+  const [balanceMode, setBalanceMode] = useState<"use" | "topup" | "set">("use");
   const [editCard, setEditCard] = useState<GiftCardRow | null>(null);
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [checkoutCard, setCheckoutCard] = useState<GiftCardRow | null>(null);
+  const [sheetCard, setSheetCard] = useState<GiftCardRow | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<GiftCardRow | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
-  const [detailIndex, setDetailIndex] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [dragX, setDragX] = useState(0);
-  const draggingRef = useRef(false);
-  const startXRef = useRef(0);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [onlyExpiring, setOnlyExpiring] = useState(false);
+  const [prefs, setPrefs] = useState(readPrefs);
+  useEffect(() => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode */ } }, [prefs]);
+  const collapsed = useMemo(() => new Set(prefs.collapsed), [prefs.collapsed]);
+  const toggleGroup = (key: string) => setPrefs(p => ({ ...p, collapsed: p.collapsed.includes(key) ? p.collapsed.filter(k => k !== key) : [...p.collapsed, key] }));
 
   // Guest/demo mode never has a real user, so gift_cards can't be queried —
   // show illustrative sample cards instead and block every mutation with an
@@ -511,33 +875,33 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const demoBlocked = () => toast("Create a free account to manage your gift cards", { description: "This is sample data in demo mode." });
 
   const load = useCallback(async () => {
-    if (demo) { setCards(DEMO_GIFT_CARDS); setTrashCards([]); setActivity({}); setLoadError(null); return; }
+    if (demo) { const d = buildDemoCards(); setCards(d); setTrashCards([]); setActivity(buildDemoHistory(d)); setLoadError(null); return; }
     if (!user) return;
     try {
       const [{ data, error }, { data: trashData, error: trashError }, { data: activityData, error: activityError }] = await Promise.all([
-        supabase.from("gift_cards").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
-        supabase.from("gift_cards").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false }),
+        db.from("gift_cards").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
+        db.from("gift_cards").select("*").not("deleted_at", "is", null).order("deleted_at", { ascending: false }),
         activityTableMissing
           ? Promise.resolve({ data: [], error: null })
-          : supabase.from("gift_card_activity").select("*").order("created_at", { ascending: false }),
+          : db.from("gift_card_activity").select("*").order("created_at", { ascending: false }),
       ]);
 
       if (error && isMissingColumnError(error, "deleted_at")) {
         // DB is missing the soft-delete migration — show every card rather
         // than failing the whole page.
-        const legacy = await supabase.from("gift_cards").select("*").order("created_at", { ascending: false });
+        const legacy = await db.from("gift_cards").select("*").order("created_at", { ascending: false });
         if (legacy.error) throw new Error(legacy.error.message);
         console.warn("[gift_cards] deleted_at column missing — apply supabase/migrations/20261020120000_repair_gift_cards_trash_and_activity.sql");
         setLegacySchema(true);
-        setCards((legacy.data ?? []) as unknown as GiftCardRow[]);
+        setCards((legacy.data ?? []) as GiftCardRow[]);
         setTrashCards([]);
       } else if (error) {
         throw new Error(error.message);
       } else {
         setLegacySchema(false);
-        setCards(data ?? []);
+        setCards((data ?? []) as GiftCardRow[]);
         if (trashError) console.error("[gift_cards] removed-cards load failed:", trashError.message);
-        else setTrashCards(trashData ?? []);
+        else setTrashCards((trashData ?? []) as GiftCardRow[]);
       }
       setLoadError(null);
 
@@ -547,417 +911,372 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         setActivity({});
       } else {
         const grouped: Record<string, GiftCardActivityRow[]> = {};
-        for (const row of (activityData ?? []) as unknown as GiftCardActivityRow[]) {
+        for (const row of (activityData ?? []) as GiftCardActivityRow[]) {
           (grouped[row.gift_card_id] ??= []).push(row);
         }
         setActivity(grouped);
       }
     } catch (e) {
-      // Previously a failed query returned early with `cards` still null,
-      // which rendered the spinner forever. Now an error panel with a retry
-      // replaces the spinner whenever loadError is set and no cards loaded.
+      // A failed query shows an error panel with a retry instead of an
+      // endless spinner.
       setLoadError(e instanceof Error ? e.message : String(e));
     }
   }, [user, demo]);
 
   useEffect(() => { load(); }, [load]);
 
-  const totalBalance = useMemo(() => (cards ?? []).reduce((s, c) => s + Number(c.balance), 0), [cards]);
-  const expiringSoon = useMemo(
-    () => (cards ?? []).filter(c => expiryStatus(c.expiry_date) === "soon"),
-    [cards]
-  );
-  const expired = useMemo(
-    () => (cards ?? []).filter(c => expiryStatus(c.expiry_date) === "expired"),
-    [cards]
-  );
+  const { active, archived } = useMemo(() => splitArchived(cards ?? []), [cards]);
+  const summary = useMemo(() => summarize(active), [active]);
+  const visible = useMemo(() => {
+    const hits = filterCards(active, query);
+    return onlyExpiring ? hits.filter(c => expiryStatus(c.expiry_date) === "soon") : hits;
+  }, [active, query, onlyExpiring]);
+  const groups = useMemo(() => groupByIssuer(visible, prefs.sort), [visible, prefs.sort]);
+  const flat = useMemo(() => sortCards(visible, prefs.sort), [visible, prefs.sort]);
+  /** Display order (what Prev/Next in the detail popup walks through). */
+  const ordered = useMemo(() => prefs.group === "issuer" ? groups.flatMap(g => g.cards) : flat, [prefs.group, groups, flat]);
+  useEffect(() => { if (!onlyExpiring) return; if (summary.expiringSoon === 0) setOnlyExpiring(false); }, [onlyExpiring, summary.expiringSoon]);
 
-  // Table view sorted by soonest-expiring first; cards with no expiry date sort last.
-  // Keeps the original index so goTo()/detail popup still reference the right card.
-  const sortedForTable = useMemo(() => {
-    if (!cards) return [];
-    return cards
-      .map((card, originalIndex) => ({ card, originalIndex }))
-      .sort((a, b) => {
-        const ea = a.card.expiry_date, eb = b.card.expiry_date;
-        if (!ea && !eb) return 0;
-        if (!ea) return 1;
-        if (!eb) return -1;
-        return new Date(ea).getTime() - new Date(eb).getTime();
-      });
-  }, [cards]);
+  const allCards = useMemo(() => [...(cards ?? []), ...trashCards], [cards, trashCards]);
+  const selected = (selectedId && allCards.find(c => c.id === selectedId)) || ordered[0] || null;
 
-  useEffect(() => {
-    if (!cards) return;
-    setActiveIndex(i => Math.min(i, Math.max(0, cards.length - 1)));
-  }, [cards]);
+  const blockedReason = () => {
+    if (demo) { demoBlocked(); return true; }
+    return false;
+  };
 
-  const removeCard = async (id: string) => {
-    if (demo) { demoBlocked(); return; }
+  const removeCard = async (card: GiftCardRow) => {
+    if (blockedReason()) return;
     if (legacySchema) {
       toast.error("Removing cards isn't available yet", { description: "The gift card database update hasn't been applied. Your cards are safe." });
       return;
     }
-    const card = (cards ?? []).find(c => c.id === id);
-    setRemovingId(id);
-    const { error } = await supabase.from("gift_cards")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", id);
-    setRemovingId(null);
+    const { error } = await db.from("gift_cards").update({ deleted_at: new Date().toISOString() }).eq("id", card.id);
     if (error) { toast.error("Couldn't remove card", { description: error.message }); return; }
-    if (user && card) {
-      await logActivity({ gift_card_id: id, user_id: user.id, kind: "removed", amount: null, balance_after: Number(card.balance) });
-    }
+    if (user) await logActivity({ gift_card_id: card.id, user_id: user.id, kind: "removed", amount: null, balance_after: Number(card.balance) });
     toast.success("Gift card removed", { description: "Restore it anytime from Removed cards below." });
+    if (detailId === card.id) setDetailId(null);
     load();
   };
 
-  const restoreCard = async (id: string) => {
-    if (demo) { demoBlocked(); return; }
-    const card = trashCards.find(c => c.id === id);
-    setRestoringId(id);
-    const { error } = await supabase.from("gift_cards")
-      .update({ deleted_at: null })
-      .eq("id", id);
+  const restoreCard = async (card: GiftCardRow) => {
+    if (blockedReason()) return;
+    setRestoringId(card.id);
+    const { error } = await db.from("gift_cards").update({ deleted_at: null }).eq("id", card.id);
     setRestoringId(null);
     if (error) { toast.error("Couldn't restore card", { description: error.message }); return; }
-    if (user && card) {
-      await logActivity({ gift_card_id: id, user_id: user.id, kind: "restored", amount: null, balance_after: Number(card.balance) });
-    }
+    if (user) await logActivity({ gift_card_id: card.id, user_id: user.id, kind: "restored", amount: null, balance_after: Number(card.balance) });
     toast.success("Gift card restored");
     load();
   };
 
-  const goTo = (i: number) => { if (!cards) return; setActiveIndex(Math.max(0, Math.min(cards.length - 1, i))); };
+  /** Demo mode works on local state only (nothing is saved), so the history can be tried out. */
+  const pushLocal = (cardId: string, patch: Partial<GiftCardRow>, entry: Omit<GiftCardActivityRow, "id" | "gift_card_id" | "created_at">) => {
+    setCards(cs => (cs ?? []).map(c => c.id === cardId ? { ...c, ...patch } : c));
+    const row: GiftCardActivityRow = { ...entry, id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, gift_card_id: cardId, created_at: new Date().toISOString() };
+    setActivity(a => ({ ...a, [cardId]: [row, ...(a[cardId] ?? [])] }));
+  };
 
-  const openAdd = () => { if (demo) { demoBlocked(); return; } setAddOpen(true); };
-  const openEdit = (c: GiftCardRow) => { if (demo) { demoBlocked(); return; } setEditCard(c); };
-  const openSpend = (c: GiftCardRow) => { if (demo) { demoBlocked(); return; } setSpendCard(c); };
+  const setArchived = async (card: GiftCardRow, on: boolean) => {
+    if (demo) {
+      pushLocal(card.id, { archived_at: on ? new Date().toISOString() : null }, { kind: on ? "archived" : "unarchived", amount: null, balance_after: Number(card.balance), note: null, merchant: null });
+      toast.success(on ? `${card.brand_name} moved to Used & archived` : `${card.brand_name} is back in your wallet`, { description: "Demo only: not saved." });
+      if (on && detailId === card.id) setDetailId(null);
+      return;
+    }
+    const { error } = await db.from("gift_cards").update({ archived_at: on ? new Date().toISOString() : null }).eq("id", card.id);
+    if (error) {
+      if (isMissingColumnError(error, "archived_at")) {
+        toast.error("Archiving isn't available yet", { description: "The gift card database update hasn't been applied. Your card is unchanged." });
+      } else toast.error(on ? "Couldn't archive card" : "Couldn't restore card", { description: error.message });
+      return;
+    }
+    if (user) await logActivity({ gift_card_id: card.id, user_id: user.id, kind: on ? "archived" : "unarchived", amount: null, balance_after: Number(card.balance) });
+    toast.success(on ? `${card.brand_name} moved to Used & archived` : `${card.brand_name} is back in your wallet`);
+    if (on && detailId === card.id) setDetailId(null);
+    load();
+  };
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    draggingRef.current = true;
-    startXRef.current = e.clientX;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  /** Applies a balance change and writes its history entry. Returns false on failure. */
+  const commitBalance = async (card: GiftCardRow, change: BalanceChange, extra: { note: string | null; merchant: string | null }): Promise<boolean> => {
+    const entry = { kind: change.kind, amount: change.amount, balance_after: change.balanceAfter, note: extra.note, merchant: extra.merchant };
+    if (demo) {
+      pushLocal(card.id, { balance: change.balanceAfter, last_balance_update: new Date().toISOString() }, entry);
+      toast.success("Balance updated", { description: "Demo only: not saved." });
+      return true;
+    }
+    const { error } = await db.from("gift_cards").update({
+      balance: change.balanceAfter,
+      last_balance_update: new Date().toISOString(),
+      ...(change.kind === "adjustment" ? { balance_verified: true } : {}),
+    }).eq("id", card.id);
+    if (error) { toast.error("Couldn't update balance", { description: error.message }); return false; }
+    if (user) await logActivity({ gift_card_id: card.id, user_id: user.id, ...entry });
+    toast.success("Balance updated");
+    load();
+    return true;
   };
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!draggingRef.current) return;
-    e.preventDefault();
-    setDragX(e.clientX - startXRef.current);
+
+  // Dialogs here are mounted on demand (no Radix Trigger), so remember the
+  // on-page control that opened the first one and hand focus back to it when
+  // the last one closes — also across chains like checkout → update balance.
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const noteOpener = () => {
+    const el = document.activeElement as HTMLElement | null;
+    if (el && el !== document.body && !el.closest(OPEN_DIALOG)) returnFocus.current = el;
   };
-  const endDrag = () => {
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-    if (dragX < -50) goTo(activeIndex + 1);
-    else if (dragX > 50) goTo(activeIndex - 1);
-    setDragX(0);
+  const restoreFocus = () => {
+    window.setTimeout(() => {
+      if (document.querySelector(OPEN_DIALOG)) return;
+      const el = returnFocus.current;
+      if (el && el.isConnected) el.focus();
+    }, 30);
   };
+  const closeWith = (fn: () => void) => () => { fn(); restoreFocus(); };
+
+  const actions: CardActions = {
+    openDetail: c => { if (wide) setSelectedId(c.id); else { noteOpener(); setDetailId(c.id); } },
+    openCheckout: c => { noteOpener(); setDetailId(null); setCheckoutCard(c); },
+    openBalance: c => { noteOpener(); setCheckoutCard(null); setBalanceMode("use"); setBalanceCard(c); },
+    openUse: c => { noteOpener(); setCheckoutCard(null); setBalanceMode("use"); setBalanceCard(c); },
+    openEdit: c => { if (blockedReason()) return; noteOpener(); setCheckoutCard(null); setDetailId(null); setEditCard(c); },
+    archive: c => { void setArchived(c, true); },
+    unarchive: c => { void setArchived(c, false); },
+    requestRemove: c => { if (blockedReason()) return; noteOpener(); setRemoveTarget(c); },
+    openSheet: c => { noteOpener(); setSheetCard(c); },
+  };
+  const openAdd = () => { if (blockedReason()) return; setAddOpen(true); };
+
+  const detailIndex = detailId ? ordered.findIndex(c => c.id === detailId) : -1;
+  const detailList = detailIndex >= 0 ? ordered : (detailId ? allCards.filter(c => c.id === detailId) : []);
+  const segBtn = (on: boolean) => cn(
+    "tap-44 h-11 min-h-11 px-3 inline-flex items-center gap-1.5 rounded-[7px] text-[13px] font-medium transition-colors whitespace-nowrap",
+    on ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+  );
+
+  const loaded = cards !== null;
+  const hasCards = active.length > 0;
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between px-1">
-        {/* The top bar / page header already says "Gift Cards"; this header names the list. */}
-        <SectionHeader className="mb-0 min-w-0" title="Your cards"
-          subtitle={cards && cards.length > 0 ? <>{cards.length} card{cards.length !== 1 ? "s" : ""} · {fmtUSD(totalBalance)} total balance</> : undefined} />
-        <div className="flex items-center gap-2">
-          {/* Cards/Table toggle only matters on mobile — desktop always shows
-              the table + detail-panel layout below, so the toggle is noise there. */}
-          {cards && cards.length > 0 && (
-            <div className="md:hidden inline-flex p-0.5 rounded-md bg-secondary/60 border border-border/40">
-              <button onClick={() => setViewMode("cards")}
-                aria-pressed={viewMode === "cards"} className={cn("tap-44 px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "cards" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
-                Cards
-              </button>
-              <button onClick={() => setViewMode("table")}
-                aria-pressed={viewMode === "table"} className={cn("tap-44 px-2.5 h-7 rounded-[5px] text-[13px] font-medium transition-colors", viewMode === "table" ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
-                Table
-              </button>
-            </div>
-          )}
-          <button
-            onClick={openAdd}
-            className="tap-44 inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-gold text-[13px] font-semibold hover:opacity-90 transition-opacity shrink-0"
-          >
-            <Plus className="h-3.5 w-3.5 shrink-0" /> <span>Add</span>
-          </button>
-        </div>
-      </div>
-
-      {(expired.length > 0 || expiringSoon.length > 0) && (
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3.5 py-2.5 flex items-start gap-2.5">
-          <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-          <div className="text-[13px] text-foreground">
-            {expired.length > 0 && (
-              <div><span className="font-medium">{expired.length} card{expired.length !== 1 ? "s" : ""} expired:</span> {expired.map(c => c.brand_name).join(", ")}</div>
-            )}
-            {expiringSoon.length > 0 && (
-              <div className={expired.length > 0 ? "mt-1" : ""}>
-                <span className="font-medium">{expiringSoon.length} card{expiringSoon.length !== 1 ? "s" : ""} expiring within {EXPIRY_WARNING_DAYS} days:</span>{" "}
-                {expiringSoon.map(c => `${c.brand_name} (${daysUntil(c.expiry_date!)}d)`).join(", ")}
-              </div>
+    <section className="space-y-4 min-w-0" data-testid="giftcards">
+      {/* ── Summary header ── */}
+      <div className="surface-card p-4 md:p-5 relative overflow-hidden">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full opacity-25 blur-2xl" style={{ background: "hsl(var(--gold, 45 90% 55%))" }} />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-foreground">Your cards</h2>
+            {loaded && hasCards ? (
+              <>
+                <div className="text-[12px] uppercase tracking-wider text-muted-foreground mt-2">Total value</div>
+                <div className="font-display text-[30px] md:text-[36px] leading-none tabular text-foreground mt-1" data-testid="gc-total">{fmtUSD(summary.total)}</div>
+                <div className="text-[13px] text-muted-foreground mt-1.5">
+                  {summary.count} card{summary.count !== 1 ? "s" : ""} · {summary.issuers} issuer{summary.issuers !== 1 ? "s" : ""}
+                  {summary.expired > 0 && <> · <span className="text-negative">{summary.expired} expired</span></>}
+                </div>
+              </>
+            ) : (
+              <p className="text-[13px] text-muted-foreground mt-1">Balances, barcodes and expiry dates in one place.</p>
             )}
           </div>
+          <button onClick={openAdd} aria-label="Add gift card"
+            className="tap-44 shrink-0 inline-flex items-center justify-center gap-1.5 h-11 px-4 rounded-full bg-gold text-[14px] font-semibold hover:opacity-90 transition-opacity">
+            <Plus className="h-4 w-4 shrink-0" aria-hidden="true" /> <span>Add</span>
+          </button>
         </div>
-      )}
+        {loaded && summary.expiringSoon > 0 && (
+          <button onClick={() => setOnlyExpiring(v => !v)} aria-pressed={onlyExpiring} data-testid="gc-expiring"
+            className={cn("tap-44 relative mt-3 w-full min-h-11 flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-[13px] transition-colors",
+              onlyExpiring ? "border-warning bg-warning/20" : "border-warning/30 bg-warning/10 hover:bg-warning/15")}>
+            <Clock className="h-4 w-4 text-warning shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-foreground">
+              <span className="font-semibold tabular">{fmtUSD(summary.expiringSoonValue)}</span> expiring in the next {EXPIRY_WARNING_DAYS} days
+              <span className="text-muted-foreground"> · {summary.expiringSoon} card{summary.expiringSoon !== 1 ? "s" : ""}</span>
+            </span>
+            <span className="text-warning font-semibold shrink-0">{onlyExpiring ? "Show all" : "Review"}</span>
+          </button>
+        )}
+      </div>
 
       {loadError && (
         <div className="surface-card p-6 text-center">
-          <AlertCircle className="h-6 w-6 mx-auto text-negative/70 mb-2" />
+          <AlertCircle className="h-6 w-6 mx-auto text-negative/70 mb-2" aria-hidden="true" />
           <div className="text-[14px] text-foreground font-medium">Couldn't load your gift cards</div>
           <div className="text-[12.5px] text-muted-foreground mt-1 break-words">{loadError}</div>
-          <button
-            onClick={() => { setCards(null); setLoadError(null); load(); }}
-            className="mt-3 inline-flex items-center gap-1.5 h-8 px-4 rounded-md border border-border-strong text-[13px] font-medium hover:bg-secondary/40 transition-colors"
-          >
+          <button onClick={() => { setCards(null); setLoadError(null); load(); }}
+            className="tap-44 mt-3 inline-flex items-center gap-1.5 h-11 px-4 rounded-md border border-border-strong text-[13px] font-medium hover:bg-secondary/40 transition-colors">
             Try again
           </button>
         </div>
       )}
 
-      {loadError && (cards ?? []).length === 0 ? null : cards === null ? (
+      {loadError && !hasCards ? null : !loaded ? (
         <div className="surface-card p-8 grid place-items-center">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading gift cards" />
         </div>
-      ) : cards.length === 0 ? (
-        <div className="surface-card p-8 text-center">
-          <Gift className="h-8 w-8 mx-auto text-muted-foreground/40 mb-3" />
-          <div className="text-[14px] text-foreground font-medium">No gift cards yet</div>
-          <div className="text-[13px] text-muted-foreground mt-1">Track balances for Amazon, Starbucks, Target, and 25+ other brands, or add any custom one.</div>
-          <button
-            onClick={openAdd}
-            className="tap-44 mt-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-gold text-[13.5px] font-medium hover:opacity-90 transition-opacity"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add your first gift card
+      ) : !hasCards ? (
+        /* ── Empty state ── */
+        <div className="surface-card px-6 py-10 text-center" data-testid="gc-empty">
+          <div aria-hidden="true" className="relative mx-auto h-24 w-36 mb-5">
+            <div className="absolute inset-x-3 top-0 h-20 rounded-xl rotate-[-8deg] opacity-60" style={{ background: brandGradient("Target") }} />
+            <div className="absolute inset-x-1 top-1 h-20 rounded-xl rotate-[5deg] opacity-80" style={{ background: brandGradient("Starbucks") }} />
+            <div className="absolute inset-x-0 top-3 h-20 rounded-xl grid place-items-center shadow-lg" style={{ background: brandGradient("Amazon") }}>
+              <Gift className="h-8 w-8 text-white/90" />
+            </div>
+          </div>
+          <div className="text-[16px] text-foreground font-semibold">{archived.length > 0 ? "No active gift cards" : "Keep every gift card in one place"}</div>
+          <ul className="text-[13px] text-muted-foreground mt-2 space-y-1">
+            <li>Show a scannable barcode at the register</li>
+            <li>Track what's left on each card</li>
+            <li>Get a heads-up before a card expires</li>
+          </ul>
+          <button onClick={openAdd}
+            className="tap-44 mt-5 inline-flex items-center gap-1.5 h-11 px-5 rounded-full bg-gold text-[14px] font-semibold hover:opacity-90 transition-opacity">
+            <Plus className="h-4 w-4" aria-hidden="true" /> Add your first gift card
           </button>
         </div>
       ) : (
-        <div className="overflow-x-hidden space-y-3">
-          {/* ── Desktop: side-by-side table + active card preview. Table gets
-              all remaining width; the detail panel is a fixed 360px so the
-              table doesn't leave a dead gap on wide screens. ── */}
-          <div className="hidden md:grid md:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
-            {/* Table */}
-            <div className="surface-card overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-border/30">
-                    <th className="px-3.5 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card</th>
-                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Card number</th>
-                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Expiration</th>
-                    <th className="px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                    <th className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/15">
-                  {sortedForTable.map(({ card, originalIndex: i }) => {
-                    const status = expiryStatus(card.expiry_date);
-                    const isActive = i === activeIndex;
-                    const statusLabel = status === "expired" ? "Expired" : status === "soon" ? "Expiring soon" : "Active";
-                    const statusClasses = status === "expired" ? "bg-negative/10 text-negative"
-                      : status === "soon" ? "bg-warning/10 text-warning" : "bg-positive/10 text-positive";
-                    return (
-                      <tr key={card.id}
-                        onClick={() => { goTo(i); setDetailIndex(i); }}
-                        className={cn("cursor-pointer transition-colors", isActive ? "bg-[hsl(var(--primary)/0.07)]" : "hover:bg-surface-hover/30")}>
-                        <td className="px-3.5 py-3">
-                          <div className="flex items-center gap-2.5">
-                            {isActive && <div className="w-1 h-8 rounded-full bg-[hsl(var(--primary))] shrink-0 -ml-1" />}
-                            <MiniCardThumb card={card} />
-                            <div className="min-w-0 text-[13.5px] font-medium text-foreground truncate">{card.brand_name}</div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-[12.5px] text-muted-foreground tabular whitespace-nowrap">
-                          {card.card_number_last4 ? `•••• ${card.card_number_last4}` : "-"}
-                        </td>
-                        <td className="px-3 py-3 text-[12.5px] text-muted-foreground whitespace-nowrap">
-                          {card.expiry_date ? new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "-"}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap", statusClasses)}>
-                            {statusLabel}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right align-middle">
-                          <span className={cn("text-[14px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
-                            {fmtUSD(Number(card.balance))}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        <>
+          {/* ── Toolbar: search, grouping, sort ── */}
+          <div className="flex flex-col sm:flex-row gap-2 min-w-0">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 pointer-events-none" aria-hidden="true" />
+              <input type="search" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search gift cards"
+                placeholder="Search issuer, notes or last 4"
+                className="w-full h-11 pl-9 pr-10 rounded-lg bg-surface/60 border border-border/60 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors [&::-webkit-search-cancel-button]:hidden" />
+              {query && (
+                <button onClick={() => setQuery("")} aria-label="Clear search"
+                  className="tap-44 absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
             </div>
+            <div className="flex gap-2 min-w-0">
+              <div role="group" aria-label="Group cards" className="inline-flex p-0.5 rounded-lg bg-secondary/60 border border-border/40 shrink-0">
+                <button onClick={() => setPrefs(p => ({ ...p, group: "issuer" }))} aria-pressed={prefs.group === "issuer"} className={segBtn(prefs.group === "issuer")}>
+                  <Layers className="h-3.5 w-3.5 hidden min-[380px]:block" aria-hidden="true" /> By issuer
+                </button>
+                <button onClick={() => setPrefs(p => ({ ...p, group: "flat" }))} aria-pressed={prefs.group === "flat"} className={segBtn(prefs.group === "flat")}>
+                  {wide ? <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" /> : <List className="h-3.5 w-3.5 hidden min-[380px]:block" aria-hidden="true" />} All cards
+                </button>
+              </div>
+              <select value={prefs.sort} onChange={e => setPrefs(p => ({ ...p, sort: e.target.value as SortKey }))} aria-label="Sort cards"
+                className="h-11 min-w-0 flex-1 sm:flex-none sm:w-44 rounded-lg bg-surface/60 border border-border/60 px-2.5 text-[14px] text-foreground outline-none focus:border-primary/50">
+                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
 
-            {/* Card preview panel — shows selected card details inline */}
-            <div className="space-y-3">
-              {cards[activeIndex] && (() => {
-                const card = cards[activeIndex];
-                const status = expiryStatus(card.expiry_date);
-                return (
-                  <div className="space-y-3">
-                    {/* Primary actions toolbar — replaces the old floating
-                        corner icons with a proper, discoverable action row */}
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => openEdit(card)}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border-strong text-[12px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
-                        <Pencil className="h-3.5 w-3.5" /> Edit
-                      </button>
-                      {card.balance_check_url && (
-                        <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-border-strong text-[12px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
-                          <ExternalLink className="h-3.5 w-3.5" /> Check balance
-                        </a>
-                      )}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <button disabled={removingId === card.id}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-negative/30 text-[12px] font-medium text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
-                            {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
-                          </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This moves {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
-                              {(card.card_number || card.card_number_last4 || card.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => removeCard(card.id)} className="bg-negative text-negative-foreground hover:bg-negative/90">
-                              Remove
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-
-                    {/* Card graphic — scaled down so it doesn't dominate the panel */}
-                    <div className="max-w-[260px] mx-auto">
-                      <GiftCardTile card={card} />
-                    </div>
-
-                    <div className="surface-card p-4 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[15px] font-semibold text-foreground truncate">
-                          {card.brand_name}{card.card_number_last4 ? ` •••• ${card.card_number_last4}` : ""}
-                        </div>
-                        {card.balance_verified ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-positive shrink-0"><CheckCircle2 className="h-3 w-3" /> Verified</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground shrink-0"><AlertCircle className="h-3 w-3" /> Estimated</span>
-                        )}
+          {visible.length === 0 ? (
+            <div className="surface-card p-6 text-center" data-testid="gc-no-results">
+              <div className="text-[14px] font-medium text-foreground">{query ? <>No cards match “{query}”</> : "No cards expiring soon"}</div>
+              <button onClick={() => { setQuery(""); setOnlyExpiring(false); }}
+                className="tap-44 mt-3 h-11 px-4 rounded-full border border-border-strong text-[13px] font-medium hover:bg-secondary/40">
+                Show all cards
+              </button>
+            </div>
+          ) : wide ? (
+            /* ── Desktop: tile grid + sticky detail panel ── */
+            <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5 items-start">
+              <div className="space-y-5 min-w-0">
+                {prefs.group === "issuer" ? groups.map(g => (
+                  <div key={g.key} className="space-y-3">
+                    <IssuerHeader group={g} collapsed={collapsed.has(g.key)} onToggle={() => toggleGroup(g.key)}
+                      className="surface-card rounded-xl hover:bg-surface-hover/30" />
+                    {!collapsed.has(g.key) && (
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4 px-1">
+                        {g.cards.map(c => <CardTileButton key={c.id} card={c} selected={selected?.id === c.id} actions={actions} onSelect={x => setSelectedId(x.id)} />)}
                       </div>
-                      {(card.card_number_last4 || card.pin || card.expiry_date || card.notes) && (
-                        <div className="space-y-2 text-[14px]">
-                          {card.expiry_date && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Expires in</span>
-                              <span className={cn("tabular text-[13px] font-medium", status === "expired" ? "text-negative" : status === "soon" ? "text-warning" : "text-foreground")}>
-                                {humanizeCountdown(card.expiry_date)}
-                              </span>
-                            </div>
-                          )}
-                          {card.card_number_last4 && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">Card number</span>
-                              <div className="flex items-center gap-1.5">
-                                <span className="tabular">···· {card.card_number_last4}</span>
-                                {card.card_number && <button onClick={() => copyToClipboard(card.card_number!, "Card number")} aria-label="Copy card number" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-4 w-4" /></button>}
-                              </div>
-                            </div>
-                          )}
-                          {card.pin && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">PIN</span>
-                              <div className="flex items-center gap-1.5">
-                                <span className="tabular">{card.pin}</span>
-                                <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN" className="h-9 w-9 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground"><Copy className="h-4 w-4" /></button>
-                              </div>
-                            </div>
-                          )}
-                          {card.notes && <p className="text-muted-foreground text-[13px]">{card.notes}</p>}
-                        </div>
-                      )}
-                      <ActivityHistoryList entries={activity[card.id] ?? []} />
-                      <button onClick={() => openSpend(card)}
-                        className="w-full h-10 rounded-lg bg-gold text-[13.5px] font-semibold flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity">
-                        <MinusCircle className="h-3.5 w-3.5" /> Log Spend
-                      </button>
+                    )}
+                  </div>
+                )) : (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4 px-1">
+                    {flat.map(c => <CardTileButton key={c.id} card={c} selected={selected?.id === c.id} actions={actions} onSelect={x => setSelectedId(x.id)} />)}
+                  </div>
+                )}
+              </div>
+              {selected && (
+                <aside aria-label={`${selected.brand_name} details`} className="surface-card p-4 space-y-4 sticky top-4" data-testid="gc-panel">
+                  <div className="flex items-center gap-3">
+                    <BrandLogo domain={selected.domain} logoUrl={selected.logo_url} name={selected.brand_name} size={36} />
+                    <div className="min-w-0">
+                      <div className="font-display text-[17px] text-foreground truncate">{selected.brand_name}</div>
+                      <div className="text-[12.5px] text-muted-foreground">
+                        {selected.card_number_last4 ? `•••• ${selected.card_number_last4}` : "Gift card"}
+                        {selected.archived_at ? " · Used & archived" : ""}
+                      </div>
                     </div>
                   </div>
-                );
-              })()}
+                  <div className="max-w-[280px] mx-auto"><GiftCardTile card={selected} /></div>
+                  <CardDetailBody card={selected} actions={actions} activity={activity[selected.id] ?? []} />
+                </aside>
+              )}
             </div>
-          </div>
-
-          {/* ── Mobile: viewMode controls cards grid vs table list ── */}
-          <div className="md:hidden">
-            {viewMode === "cards" ? (
-              /* Cards grid — 2 columns of visual cards */
-              <div className="grid grid-cols-2 gap-3">
-                {sortedForTable.map(({ card, originalIndex: i }) => {
-                  const status = expiryStatus(card.expiry_date);
-                  const bal = Number(card.balance);
-                  return (
-                    <button key={card.id} onClick={() => { goTo(i); setDetailIndex(i); }}
-                      className="text-left space-y-2">
-                      <GiftCardTile card={card} />
-                      <div className="px-1">
-                        <div className="font-display text-[13px] text-foreground truncate">{card.brand_name}</div>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className={cn("text-[13px] tabular font-medium", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</span>
-                          {status && <span className={cn("text-[10px] font-semibold", status === "expired" ? "text-negative" : "text-warning")}>{status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d`}</span>}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Table list — compact rows */
-              <div className="surface-card overflow-hidden">
-                <div className="divide-y divide-border/15">
-                  {sortedForTable.map(({ card, originalIndex: i }) => {
-                    const status = expiryStatus(card.expiry_date);
-                    const bal = Number(card.balance);
-                    return (
-                      <button key={card.id}
-                        onClick={() => { goTo(i); setDetailIndex(i); }}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover/30 transition-colors active:bg-surface-hover/50">
-                        <MiniCardThumb card={card} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[14px] font-medium text-foreground truncate">{card.brand_name}</div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {status && (
-                              <span className={cn("text-[12px] font-medium shrink-0", status === "expired" ? "text-negative" : "text-warning")}>
-                                {status === "expired" ? "Expired" : `${daysUntil(card.expiry_date!)}d left`}
-                              </span>
-                            )}
-                            {card.card_number_last4 && <span className="text-[12px] text-muted-foreground">···· {card.card_number_last4}</span>}
-                          </div>
-                        </div>
-                        <div className={cn("text-[15px] tabular font-semibold shrink-0", bal === 0 ? "text-muted-foreground" : "text-foreground")}>{fmtUSD(bal)}</div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
-                      </button>
-                    );
-                  })}
+          ) : (
+            /* ── Mobile / tablet: grouped list ── */
+            <div className="space-y-3">
+              {prefs.group === "issuer" ? groups.map(g => (
+                <div key={g.key} className="surface-card overflow-hidden">
+                  <IssuerHeader group={g} collapsed={collapsed.has(g.key)} onToggle={() => toggleGroup(g.key)} />
+                  {!collapsed.has(g.key) && (
+                    <div className="divide-y divide-border/15 border-t border-border/20">
+                      {g.cards.map((c, i) => <CardListRow key={c.id} card={c} grouped index={i} actions={actions} />)}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
+              )) : (
+                <div className="surface-card overflow-hidden divide-y divide-border/15">
+                  {flat.map((c, i) => <CardListRow key={c.id} card={c} grouped={false} index={i} actions={actions} />)}
+                </div>
+              )}
+              {isMobile && <p className="text-center text-[12px] text-muted-foreground/70 px-4">Swipe a card left for quick actions, or press and hold for more.</p>}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Used & archived ── */}
+      {archived.length > 0 && (
+        <div className="surface-card overflow-hidden" data-testid="gc-archived">
+          <button onClick={() => setArchiveOpen(v => !v)} aria-expanded={archiveOpen}
+            className="tap-44 w-full min-h-11 flex items-center justify-between px-4 py-3 text-left">
+            <span className="text-[13px] font-medium text-muted-foreground inline-flex items-center gap-1.5">
+              <Archive className="h-3.5 w-3.5" aria-hidden="true" /> Used & archived ({archived.length})
+            </span>
+            <ChevronRight className={cn("h-4 w-4 text-muted-foreground/50 transition-transform", archiveOpen && "rotate-90")} aria-hidden="true" />
+          </button>
+          {archiveOpen && (
+            <div className="divide-y divide-border/15 border-t border-border/20">
+              {archived.map(card => (
+                <div key={card.id} className="flex items-center gap-3 px-4 py-2">
+                  <button onClick={() => actions.openDetail(card)} className="flex-1 min-w-0 min-h-11 flex items-center gap-3 text-left">
+                    <span className="opacity-60"><MiniCardThumb card={card} /></span>
+                    <span className="min-w-0">
+                      <span className="block text-[13.5px] font-medium text-foreground truncate">{cardLabel(card)}</span>
+                      <span className="block text-[12px] text-muted-foreground">
+                        {fmtUSD(Number(card.balance))}{card.archived_at ? ` · archived ${fmtShortDate(card.archived_at)}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                  <button onClick={() => actions.unarchive(card)}
+                    className="tap-44 h-11 px-3 rounded-md border border-border-strong text-[12.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors shrink-0">
+                    Back to wallet
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
+      {/* ── Removed (soft-deleted) ── */}
       {trashCards.length > 0 && (
         <div className="surface-card overflow-hidden">
-          <button onClick={() => setTrashOpen(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left">
+          <button onClick={() => setTrashOpen(v => !v)} aria-expanded={trashOpen}
+            className="tap-44 w-full min-h-11 flex items-center justify-between px-4 py-3 text-left">
             <span className="text-[13px] font-medium text-muted-foreground inline-flex items-center gap-1.5">
-              <Trash2 className="h-3.5 w-3.5" /> Removed cards ({trashCards.length})
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Removed cards ({trashCards.length})
             </span>
-            <ChevronRight className={cn("h-4 w-4 text-muted-foreground/50 transition-transform", trashOpen && "rotate-90")} />
+            <ChevronRight className={cn("h-4 w-4 text-muted-foreground/50 transition-transform", trashOpen && "rotate-90")} aria-hidden="true" />
           </button>
           {trashOpen && (
             <div className="divide-y divide-border/15 border-t border-border/20">
@@ -970,8 +1289,8 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
                       {fmtUSD(Number(card.balance))}{card.deleted_at ? ` · removed ${fmtShortDate(card.deleted_at)}` : ""}
                     </div>
                   </div>
-                  <button onClick={() => restoreCard(card.id)} disabled={restoringId === card.id}
-                    className="h-8 px-3 rounded-md border border-border-strong text-[12.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1.5">
+                  <button onClick={() => restoreCard(card)} disabled={restoringId === card.id}
+                    className="tap-44 h-11 px-3 rounded-md border border-border-strong text-[12.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1.5">
                     {restoringId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Restore"}
                   </button>
                 </div>
@@ -982,21 +1301,45 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
       )}
 
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
-      {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} onRemoveCard={() => removeCard(spendCard.id)} />}
-      {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} onRemoveCard={() => removeCard(editCard.id)} />}
-      {detailIndex !== null && cards && cards[detailIndex] && (
+      {balanceCard && (
+        <BalanceDialog card={balanceCard} initialMode={balanceMode} onClose={closeWith(() => setBalanceCard(null))}
+          onCommit={(change, extra) => commitBalance(balanceCard, change, extra)}
+          onArchive={() => { void setArchived(balanceCard, true); }} />
+      )}
+      {editCard && <EditGiftCardDialog card={editCard} onClose={closeWith(() => setEditCard(null))} onSaved={load} />}
+      {detailId && detailList.length > 0 && (
         <CardDetailDialog
-          cards={cards}
-          index={detailIndex}
-          onIndexChange={(i) => { setDetailIndex(i); goTo(i); }}
-          onClose={() => setDetailIndex(null)}
-          onEdit={(c) => { openEdit(c); setDetailIndex(null); }}
-          onLogSpend={(c) => { openSpend(c); setDetailIndex(null); }}
-          onRemove={(c) => { removeCard(c.id); setDetailIndex(null); }}
-          removingId={removingId}
+          cards={detailList}
+          index={Math.max(0, detailIndex)}
+          onIndexChange={i => setDetailId(detailList[i]?.id ?? null)}
+          onClose={closeWith(() => setDetailId(null))}
+          actions={actions}
           activityByCard={activity}
         />
       )}
+      {checkoutCard && (
+        <CheckoutView card={checkoutCard} onClose={closeWith(() => setCheckoutCard(null))}
+          onEdit={c => actions.openEdit(c)} onUpdateBalance={c => actions.openBalance(c)} />
+      )}
+      {sheetCard && <CardActionSheet card={sheetCard} onClose={closeWith(() => setSheetCard(null))} actions={actions} />}
+      <AlertDialog open={!!removeTarget} onOpenChange={o => { if (!o) { setRemoveTarget(null); restoreFocus(); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeTarget && <>This moves {removeTarget.brand_name}'s {fmtUSD(Number(removeTarget.balance))} balance
+              {(removeTarget.card_number || removeTarget.card_number_last4 || removeTarget.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there. If you've used it up, Mark used keeps it in your history instead.</>}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (removeTarget) void removeCard(removeTarget); setRemoveTarget(null); }}
+              className="bg-negative text-negative-foreground hover:bg-negative/90">
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 };
@@ -1051,13 +1394,14 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
   const [pin, setPin] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [format, setFormat] = useState<BarcodeFormat>(DEFAULT_BARCODE_FORMAT);
   const [saving, setSaving] = useState(false);
 
   const last4 = cardNumber.replace(/\D/g, "").slice(-4);
 
   const reset = () => {
     setStep("pick"); setSearch(""); setLookupResults([]); setChosen(null);
-    setBalance(""); setCardNumber(""); setPin(""); setExpiryDate(""); setNotes("");
+    setBalance(""); setCardNumber(""); setPin(""); setExpiryDate(""); setNotes(""); setFormat(DEFAULT_BARCODE_FORMAT);
   };
   useEffect(() => { if (!open) reset(); }, [open]);
 
@@ -1091,7 +1435,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
     if (!user || !chosen || balance === "") return;
     setSaving(true);
     const bal = Number(balance) || 0;
-    const { data: inserted, error } = await supabase.from("gift_cards").insert({
+    const { data: inserted, error } = await writeCard<{ id: string }>({
       user_id: user.id,
       brand_name: chosen.name,
       domain: chosen.domain ?? null,
@@ -1105,11 +1449,12 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
       pin: pin || null,
       expiry_date: expiryDate || null,
       notes: notes.trim() || null,
-    }).select().single();
+      barcode_format: format,
+    }, p => db.from("gift_cards").insert(p).select().single());
     setSaving(false);
     if (error) { toast.error("Couldn't add gift card", { description: error.message }); return; }
     if (inserted) {
-      await logActivity({ gift_card_id: (inserted as { id: string }).id, user_id: user.id, kind: "added", amount: null, balance_after: bal });
+      await logActivity({ gift_card_id: inserted.id, user_id: user.id, kind: "added", amount: null, balance_after: bal });
     }
     toast.success(`${chosen.name} gift card added`);
     onOpenChange(false);
@@ -1130,7 +1475,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
         <div className="px-4 pt-4 pb-3 border-b border-border/40 shrink-0 flex items-center gap-2">
           {step === "details" && (
             <button onClick={() => setStep("pick")} aria-label="Back to brand selection"
-              className="h-8 w-8 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0 no-min-h">
+              className="tap-44 -ml-2 h-11 w-11 grid place-items-center rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0">
               <ChevronLeft className="h-4 w-4" />
             </button>
           )}
@@ -1152,7 +1497,7 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
               </>
             )}
           </div>
-          <button onClick={() => onOpenChange(false)} aria-label="Close" className="ml-auto -mr-1.5 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 no-min-h">
+          <button onClick={() => onOpenChange(false)} aria-label="Close" className="tap-44 ml-auto -mr-1.5 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1212,12 +1557,12 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
                 <input
                   value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder="Search brands or any company…"
+                  placeholder="Search brands or any company…" aria-label="Search brands"
                   className="w-full h-11 pl-10 pr-10 rounded-xl bg-surface/60 border border-border/60 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors"
                 />
                 {search && (
                   <button onClick={() => { setSearch(""); setLookupResults([]); }} aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 grid place-items-center text-muted-foreground hover:text-foreground no-min-h">
+                    className="tap-44 absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center text-muted-foreground hover:text-foreground">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -1240,11 +1585,11 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
               {/* Balance — required, prominent */}
               <div>
-                <label className="text-[13px] font-medium text-foreground">Current balance *</label>
+                <label htmlFor="gc-add-balance" className="text-[13px] font-medium text-foreground">Current balance *</label>
                 <div className="relative mt-1.5">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[15px]">$</span>
                   <input
-                    type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
+                    id="gc-add-balance" type="number" inputMode="decimal" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
                     placeholder="0.00" autoFocus
                     className="w-full h-12 pl-7 pr-3 bg-surface/40 border border-border/60 rounded-xl text-[16px] text-foreground outline-none focus:border-primary/50 transition-colors"
                   />
@@ -1253,33 +1598,35 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[13px] font-medium text-foreground">Card number</label>
-                  <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Optional"
+                  <label htmlFor="gc-add-number" className="text-[13px] font-medium text-foreground">Card number</label>
+                  <input id="gc-add-number" autoComplete="off" value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Optional"
                     className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
                 </div>
                 <div>
-                  <label className="text-[13px] font-medium text-foreground">PIN</label>
-                  <input value={pin} onChange={e => setPin(e.target.value)} placeholder="Optional"
+                  <label htmlFor="gc-add-pin" className="text-[13px] font-medium text-foreground">PIN</label>
+                  <input id="gc-add-pin" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} placeholder="Optional"
                     className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
                 </div>
               </div>
 
+              <BarcodeFormatPicker value={format} onChange={setFormat} number={cardNumber} brand={chosen?.name ?? "gift card"} />
+
               <div>
-                <label className="text-[13px] font-medium text-foreground">Expiry date</label>
-                <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
+                <label htmlFor="gc-add-expiry" className="text-[13px] font-medium text-foreground">Expiry date</label>
+                <input id="gc-add-expiry" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
                   className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
               </div>
 
               <div>
-                <label className="text-[13px] font-medium text-foreground">Notes</label>
-                <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Birthday gift from mom"
+                <label htmlFor="gc-add-notes" className="text-[13px] font-medium text-foreground">Notes</label>
+                <input id="gc-add-notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Birthday gift from mom"
                   className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50 transition-colors" />
               </div>
             </div>
 
             <div className="p-4 border-t border-border/40 shrink-0">
               <button onClick={save} disabled={balance === "" || saving}
-                className="w-full h-12 rounded-xl bg-gold text-[15px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                className="tap-44 w-full h-12 rounded-xl bg-gold text-[15px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 inline-flex items-center justify-center gap-2">
                 {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : <><Plus className="h-4 w-4" /> Add {chosen?.name ?? "gift card"}</>}
               </button>
             </div>
@@ -1290,53 +1637,81 @@ const AddGiftCardDialog = ({ open, onOpenChange, onAdded }: { open: boolean; onO
   );
 };
 
-/* ───────────────────────── Log spend dialog ───────────────────────── */
+/* ───────────────────────── Barcode type picker ───────────────────────── */
 
-const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCardRow; onClose: () => void; onSaved: () => void; onRemoveCard: () => void }) => {
-  const { user } = useAuth();
-  const [spent, setSpent] = useState("");
+const BarcodeFormatPicker = ({ value, onChange, number, brand }: { value: BarcodeFormat; onChange: (f: BarcodeFormat) => void; number: string; brand: string }) => {
+  const fb = number.trim() ? barcodeValue(number, value).fellBack : false;
+  return (
+    <div>
+      <div id="gc-format-label" className="text-[13px] font-medium text-foreground">Barcode type</div>
+      <div role="group" aria-labelledby="gc-format-label" className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {BARCODE_FORMATS.map(f => (
+          <button key={f.value} type="button" onClick={() => onChange(f.value)} aria-pressed={value === f.value}
+            className={cn("tap-44 min-h-11 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+              value === f.value ? "border-primary bg-primary/10" : "border-border/60 hover:bg-secondary/40")}>
+            <span className="block text-[13px] font-medium text-foreground">{f.label}</span>
+            <span className="block text-[11px] text-muted-foreground leading-tight">{f.hint}</span>
+          </button>
+        ))}
+      </div>
+      {fb && <p className="mt-1.5 text-[12px] text-warning">EAN-13 needs 12 or 13 digits with a valid check digit. This number will show as Code 128.</p>}
+      {number.trim() && (
+        <div className="mt-2 rounded-lg bg-white p-2">
+          <GiftCardBarcode number={number} format={value} brand={brand} className={value === "qrcode" ? "max-w-[120px] mx-auto" : "max-h-[72px]"} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ───────────────────────── Update balance dialog ───────────────────────── */
+
+const BALANCE_MODES: { value: "use" | "topup" | "set"; label: string }[] = [
+  { value: "use", label: "Used" }, { value: "topup", label: "Top up" }, { value: "set", label: "Set balance" },
+];
+
+const BalanceDialog = ({ card, initialMode = "use", onClose, onCommit, onArchive }: {
+  card: GiftCardRow; initialMode?: "use" | "topup" | "set"; onClose: () => void;
+  onCommit: (change: BalanceChange, extra: { note: string | null; merchant: string | null }) => Promise<boolean>;
+  onArchive: () => void;
+}) => {
+  const [mode, setMode] = useState<"use" | "topup" | "set">(initialMode);
+  const [amount, setAmount] = useState("");
+  const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const newBalance = Math.max(0, Number(card.balance) - (Number(spent) || 0));
+  const [askArchive, setAskArchive] = useState(false);
+  const prev = Number(card.balance);
+  const n = Number(amount);
+  const valid = amount !== "" && Number.isFinite(n) && n >= 0;
+  const change = valid ? computeBalanceChange(prev, mode, n) : null;
+  const newBalance = change ? change.balanceAfter : prev;
 
   const save = async () => {
+    if (!change) return;
     setSaving(true);
-    const { error } = await supabase.from("gift_cards").update({
-      balance: newBalance,
-      last_balance_update: new Date().toISOString(),
-      balance_verified: false,
-    }).eq("id", card.id);
+    const ok = await onCommit(change, { note: note.trim() || null, merchant: mode === "set" ? null : (merchant.trim() || null) });
     setSaving(false);
-    if (error) { toast.error("Couldn't update balance", { description: error.message }); return; }
-    if (user) {
-      await logActivity({
-        gift_card_id: card.id, user_id: user.id, kind: "spend",
-        amount: Number(spent) || 0, balance_after: newBalance, note: note.trim() || null,
-      });
-    }
-    toast.success("Balance updated");
-    onSaved();
-    // Balance just hit zero — offer to remove the (now-empty) card instead of
-    // silently closing, rather than making the user notice and act later.
-    if (newBalance === 0 && Number(card.balance) > 0) { setConfirmRemove(true); return; }
+    if (!ok) return;
+    // Used it up? Offer to move it out of the wallet instead of closing silently.
+    if (change.balanceAfter === 0 && prev > 0) { setAskArchive(true); return; }
     onClose();
   };
 
-  if (confirmRemove) {
+  if (askArchive) {
     return (
       <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
         <DialogContent className="max-w-sm surface-elevated border-border p-5 gap-4">
-          <DialogTitle className="font-display text-base text-foreground">{card.brand_name} is now empty</DialogTitle>
+          <DialogTitle className="font-display text-base text-foreground">{card.brand_name} is used up</DialogTitle>
           <DialogDescription className="text-[13.5px] text-muted-foreground">
-            This card's balance just hit $0. Remove it? You can still restore it later from Removed cards.
+            The balance is now $0. Mark it used to move it to Used & archived? You can bring it back anytime.
           </DialogDescription>
           <div className="flex gap-2">
-            <button onClick={() => { onRemoveCard(); onClose(); }}
-              className="flex-1 h-10 rounded-lg bg-negative text-negative-foreground text-[14px] font-medium hover:bg-negative/90 transition-colors">
-              Remove card
+            <button onClick={() => { onArchive(); onClose(); }}
+              className="tap-44 flex-1 h-11 rounded-lg bg-gold text-[14px] font-semibold hover:opacity-90 inline-flex items-center justify-center gap-1.5">
+              <Archive className="h-4 w-4" aria-hidden="true" /> Mark used
             </button>
-            <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={onClose} className="tap-44 h-11 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
               Keep it
             </button>
           </div>
@@ -1345,44 +1720,74 @@ const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCa
     );
   }
 
+  const quick = mode === "use" ? [5, 10, 20].filter(v => v < prev) : mode === "topup" ? [10, 25, 50] : [];
+  const amountLabel = mode === "use" ? "Amount used" : mode === "topup" ? "Amount added" : "Balance on the card now";
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden">
-        <DialogTitle className="sr-only">Log spend on {card.brand_name}</DialogTitle>
-        <DialogDescription className="sr-only">Record how much you spent to update the tracked balance.</DialogDescription>
-        <div className="relative p-5 pb-4 border-b border-border/40">
-          <button onClick={onClose} aria-label="Close" className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
-            <X className="h-4 w-4" />
+      <DialogContent showClose={false} className="max-w-sm surface-elevated border-border p-0 gap-0 overflow-hidden flex flex-col max-h-[90dvh]" data-testid="gc-balance-dialog">
+        <div className="flex items-center gap-3 pl-5 pr-1 py-2 border-b border-border/40 shrink-0">
+          <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={34} />
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="font-display text-base text-foreground truncate">Update {card.brand_name} balance</DialogTitle>
+            <DialogDescription className="text-[12.5px] text-muted-foreground tabular">Now {fmtUSD(prev)}</DialogDescription>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="tap-44 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-hover">
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
-          <div className="flex items-center gap-3">
-            <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={36} />
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto min-h-0">
+          <div role="group" aria-label="What happened" className="grid grid-cols-3 p-0.5 rounded-lg bg-secondary/60 border border-border/40">
+            {BALANCE_MODES.map(m => (
+              <button key={m.value} onClick={() => setMode(m.value)} aria-pressed={mode === m.value}
+                className={cn("tap-44 h-11 min-h-11 rounded-[7px] text-[13px] font-medium", mode === m.value ? "bg-surface-elevated text-foreground shadow-sm" : "text-muted-foreground")}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div className={cn("grid gap-2", mode !== "set" && "grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]")}>
             <div>
-              <div className="font-display text-base text-foreground">{card.brand_name}</div>
-              <div className="text-[12.5px] text-muted-foreground">Current balance: {fmtUSD(Number(card.balance))}</div>
+              <label htmlFor="gc-balance-amount" className="text-[13px] font-medium text-foreground">{amountLabel}</label>
+              <div className="relative mt-1.5">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[15px]">$</span>
+                <input id="gc-balance-amount" type="number" inputMode="decimal" step="0.01" min="0" autoFocus value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00"
+                  className="w-full h-12 pl-7 pr-2 bg-surface/40 border border-border/60 rounded-xl text-[16px] text-foreground outline-none focus:border-primary/50" />
+              </div>
             </div>
+            {mode !== "set" && (
+              <div>
+                <label htmlFor="gc-balance-merchant" className="text-[13px] font-medium text-foreground">{mode === "use" ? "At (optional)" : "Where (optional)"}</label>
+                <input id="gc-balance-merchant" value={merchant} onChange={e => setMerchant(e.target.value)} maxLength={120}
+                  placeholder={mode === "use" ? card.brand_name : "e.g. In the app"}
+                  className="mt-1.5 w-full h-12 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50" />
+              </div>
+            )}
           </div>
-        </div>
-        <div className="p-5 space-y-3">
-          <div>
-            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">How much did you spend?</label>
-            <input type="number" step="0.01" autoFocus value={spent} onChange={e => setSpent(e.target.value)} placeholder="0.00"
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
-          </div>
-          {spent !== "" && (
-            <div className="text-[13px] text-muted-foreground">New balance: <span className="text-foreground font-medium tabular">{fmtUSD(newBalance)}</span></div>
+          {quick.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {quick.map(v => (
+                <button key={v} onClick={() => setAmount(String(v))} className="tap-44 h-11 px-3 rounded-full border border-border/60 text-[13px] text-foreground hover:bg-secondary/40">{fmtUSD(v)}</button>
+              ))}
+              {mode === "use" && prev > 0 && (
+                <button onClick={() => setAmount(String(prev))} className="tap-44 h-11 px-3 rounded-full border border-border/60 text-[13px] text-foreground hover:bg-secondary/40">All of it</button>
+              )}
+            </div>
           )}
+          <div className="text-[13px] text-muted-foreground">
+            New balance: <span className="text-foreground font-semibold tabular" data-testid="gc-new-balance">{fmtUSD(newBalance)}</span>
+            {change?.clamped && <span className="block text-warning text-[12px] mt-0.5">That's more than the card holds, so {fmtUSD(change.amount)} is logged.</span>}
+          </div>
           <div>
-            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">What was it for? (optional)</label>
-            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Coffee run"
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+            <label htmlFor="gc-balance-note" className="text-[13px] font-medium text-foreground">Note (optional)</label>
+            <input id="gc-balance-note" value={note} onChange={e => setNote(e.target.value)} placeholder={mode === "use" ? "e.g. Coffee run" : "e.g. Checked on the receipt"}
+              className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-xl px-3 text-[15px] text-foreground outline-none focus:border-primary/50" />
           </div>
         </div>
-        <div className="p-4 pt-0 flex gap-2">
-          <button onClick={save} disabled={saving || spent === ""}
-            className="flex-1 h-10 rounded-lg bg-gold text-[14px] font-medium hover:opacity-90 disabled:opacity-50">
-            {saving ? "Saving…" : "Update balance"}
+        <div className="p-4 pt-0 flex gap-2 shrink-0">
+          <button onClick={save} disabled={saving || !change}
+            className="tap-44 flex-1 h-11 rounded-lg bg-gold text-[14px] font-semibold hover:opacity-90 disabled:opacity-50">
+            {saving ? "Saving…" : mode === "use" ? "Log use" : mode === "topup" ? "Add funds" : "Save balance"}
           </button>
-          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="tap-44 h-11 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
@@ -1393,8 +1798,12 @@ const LogSpendDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCa
 
 /* ───────────────────────── Edit dialog ───────────────────────── */
 
-const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: GiftCardRow; onClose: () => void; onSaved: () => void; onRemoveCard: () => void }) => {
+/* ───────────────────────── Edit dialog ───────────────────────── */
+
+const EditGiftCardDialog = ({ card, onClose, onSaved }: { card: GiftCardRow; onClose: () => void; onSaved: () => void }) => {
   const { user } = useAuth();
+  const [brandName, setBrandName] = useState(card.brand_name);
+  const [format, setFormat] = useState<BarcodeFormat>(resolveFormat(card));
   const [balance, setBalance] = useState(String(card.balance));
   const [cardNumber, setCardNumber] = useState(card.card_number ?? "");
   const [pin, setPin] = useState(card.pin ?? "");
@@ -1403,15 +1812,17 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
   const [verified, setVerified] = useState(card.balance_verified);
   const [revealSensitive, setRevealSensitive] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const last4 = cardNumber.replace(/\D/g, "").slice(-4);
 
   const save = async () => {
+    if (!brandName.trim()) { toast.error("Issuer name can't be empty"); return; }
     setSaving(true);
     const prevBal = Number(card.balance);
     const newBal = Number(balance) || 0;
-    const { error } = await supabase.from("gift_cards").update({
+    const { error } = await writeCard({
+      brand_name: brandName.trim(),
+      barcode_format: format,
       balance: newBal,
       card_number: cardNumber.replace(/\s/g, "") || null,
       card_number_last4: last4 || null,
@@ -1420,7 +1831,7 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
       notes: notes.trim() || null,
       balance_verified: verified,
       last_balance_update: new Date().toISOString(),
-    }).eq("id", card.id);
+    }, p => db.from("gift_cards").update(p).eq("id", card.id));
     setSaving(false);
     if (error) { toast.error("Couldn't save changes", { description: error.message }); return; }
     if (user && newBal !== prevBal) {
@@ -1431,31 +1842,8 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
     }
     toast.success("Gift card updated");
     onSaved();
-    if (newBal === 0 && prevBal !== 0) { setConfirmRemove(true); return; }
     onClose();
   };
-
-  if (confirmRemove) {
-    return (
-      <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-sm surface-elevated border-border p-5 gap-4">
-          <DialogTitle className="font-display text-base text-foreground">{card.brand_name} is now empty</DialogTitle>
-          <DialogDescription className="text-[13.5px] text-muted-foreground">
-            This card's balance is now $0. Remove it? You can still restore it later from Removed cards.
-          </DialogDescription>
-          <div className="flex gap-2">
-            <button onClick={() => { onRemoveCard(); onClose(); }}
-              className="flex-1 h-10 rounded-lg bg-negative text-negative-foreground text-[14px] font-medium hover:bg-negative/90 transition-colors">
-              Remove card
-            </button>
-            <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground transition-colors">
-              Keep it
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   const status = expiryStatus(expiryDate || null);
 
@@ -1465,25 +1853,30 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
         <DialogTitle className="sr-only">Edit {card.brand_name}</DialogTitle>
         <DialogDescription className="sr-only">Edit balance and details for this gift card.</DialogDescription>
         <div className="relative p-5 pb-4 border-b border-border/40 shrink-0">
-          <button onClick={onClose} aria-label="Close" className="absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
+          <button onClick={onClose} aria-label="Close" className="tap-44 absolute top-2 right-2 h-11 w-11 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors">
             <X className="h-4 w-4" />
           </button>
-          <div className="flex items-center gap-3">
-            <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={card.brand_name} size={36} />
-            <div className="font-display text-base text-foreground">{card.brand_name}</div>
+          <div className="flex items-center gap-3 pr-10">
+            <BrandLogo domain={card.domain} logoUrl={card.logo_url} name={brandName || card.brand_name} size={36} />
+            <div className="font-display text-base text-foreground truncate">Edit {card.brand_name}</div>
           </div>
         </div>
         <div className="p-5 space-y-4 flex-1 overflow-y-auto min-h-0">
+          <div>
+            <label htmlFor="gc-edit-issuer" className="text-[12px] uppercase tracking-wider text-muted-foreground">Issuer</label>
+            <input id="gc-edit-issuer" value={brandName} onChange={e => setBrandName(e.target.value)}
+              className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Balance</label>
-              <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+              <label htmlFor="gc-edit-balance" className="text-[12px] uppercase tracking-wider text-muted-foreground">Balance</label>
+              <input id="gc-edit-balance" inputMode="decimal" type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)}
+                className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
             </div>
             <div>
-              <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Expiry date</label>
-              <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
-                className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+              <label htmlFor="gc-edit-expiry" className="text-[12px] uppercase tracking-wider text-muted-foreground">Expiry date</label>
+              <input id="gc-edit-expiry" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)}
+                className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
             </div>
           </div>
           {status && (
@@ -1494,56 +1887,58 @@ const EditGiftCardDialog = ({ card, onClose, onSaved, onRemoveCard }: { card: Gi
 
           <div className="flex items-center justify-between">
             <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Card details</label>
-            <button onClick={() => setRevealSensitive(v => !v)} aria-label={revealSensitive ? "Hide card number and PIN" : "Reveal card number and PIN"} className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+            <button onClick={() => setRevealSensitive(v => !v)} aria-label={revealSensitive ? "Hide card number and PIN" : "Reveal card number and PIN"} className="tap-44 min-h-11 inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors">
               {revealSensitive ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
             </button>
           </div>
           <div className="grid grid-cols-2 gap-3 -mt-2">
             <div className="relative">
-              <input type={revealSensitive ? "text" : "password"} value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card number"
-                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+              <input type={revealSensitive ? "text" : "password"} value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card number" aria-label="Card number" autoComplete="off"
+                className="w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {cardNumber && (
                 <button onClick={() => copyToClipboard(cardNumber.replace(/\s/g, ""), "Card number")} aria-label="Copy card number"
-                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                  className="tap-44 absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
                   <Copy className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
             <div className="relative">
-              <input type={revealSensitive ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN"
-                className="w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+              <input type={revealSensitive ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="PIN" aria-label="PIN" autoComplete="off"
+                className="w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 py-2 pr-9 text-[14px] text-foreground outline-none focus:border-foreground/40" />
               {pin && (
                 <button onClick={() => copyToClipboard(pin, "PIN")} aria-label="Copy PIN"
-                  className="absolute right-0.5 top-1/2 -translate-y-1/2 h-8 w-8 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
+                  className="tap-44 absolute right-0 top-1/2 -translate-y-1/2 h-11 w-11 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors">
                   <Copy className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
           </div>
 
+          <BarcodeFormatPicker value={format} onChange={setFormat} number={cardNumber} brand={brandName || card.brand_name} />
+
           <div>
-            <label className="text-[12px] uppercase tracking-wider text-muted-foreground">Notes</label>
-            <input value={notes} onChange={e => setNotes(e.target.value)}
-              className="mt-1.5 w-full bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
+            <label htmlFor="gc-edit-notes" className="text-[12px] uppercase tracking-wider text-muted-foreground">Notes</label>
+            <input id="gc-edit-notes" value={notes} onChange={e => setNotes(e.target.value)}
+              className="mt-1.5 w-full h-11 bg-surface/40 border border-border/60 rounded-lg px-3 py-2 text-[14px] text-foreground outline-none focus:border-foreground/40" />
           </div>
 
-          <label className="flex items-center gap-2 text-[13px] text-muted-foreground cursor-pointer">
+          <label className="min-h-11 flex items-center gap-2 text-[13px] text-muted-foreground cursor-pointer">
             <input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="rounded" />
             I just confirmed this balance on {card.brand_name}'s site
           </label>
           {card.buy_url && (
             <a href={card.buy_url} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
+              className="min-h-11 inline-flex items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors">
               <ShoppingBag className="h-3 w-3" /> Buy another {card.brand_name} gift card
             </a>
           )}
         </div>
         <div className="p-4 pt-0 flex gap-2 shrink-0">
           <button onClick={save} disabled={saving}
-            className="flex-1 h-10 rounded-lg bg-gold text-[14px] font-medium hover:opacity-90 disabled:opacity-50">
+            className="tap-44 flex-1 h-11 rounded-lg bg-gold text-[14px] font-medium hover:opacity-90 disabled:opacity-50">
             {saving ? "Saving…" : "Save changes"}
           </button>
-          <button onClick={onClose} className="h-10 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
+          <button onClick={onClose} className="tap-44 h-11 px-4 rounded-lg border border-border-strong text-[13px] text-muted-foreground hover:text-foreground">
             Cancel
           </button>
         </div>
