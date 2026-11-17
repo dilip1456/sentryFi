@@ -186,6 +186,25 @@ for (const width of [360, 390, 412, 430]) {
       await expect(sheet.locator(".grab")).toHaveCount(1);
       await noOverflow(page, width);
     });
+    for (const view of ["myfinances", "insights"]) {
+      test(`${view === "insights" ? "Insights" : "Picture"}: nothing wider than the screen, 44px tap targets`, async ({ page }) => {
+        await openPicture(page, view);
+        const root = page.getByTestId(view === "insights" ? "insights-page" : "picture-page");
+        await expect(root).toBeVisible();
+        await noOverflow(page, width);
+        const bad = await root.evaluate((el, w) => {
+          const out: string[] = [];
+          for (const n of el.querySelectorAll<HTMLElement>("*")) {
+            const r = n.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            if (!n.closest(".recharts-wrapper, [data-allow-x-scroll]") && r.right > w + 1) out.push(`overflow ${n.tagName}.${n.className} ${Math.round(r.right)}`);
+            if (n.matches("button, a[href], [role='button'], input, select") && (r.height < 43.5 || r.width < 43.5)) out.push(`small ${(n.getAttribute("aria-label") ?? n.textContent ?? "").trim().slice(0, 30)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+          }
+          return out;
+        }, width);
+        expect(bad, `${view} at ${width}`).toEqual([]);
+      });
+    }
     test("taxes detail: tax inputs fit with 44px targets", async ({ page }) => {
       await openPicture(page, "insights");
       await page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }).tap();
