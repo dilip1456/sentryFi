@@ -735,7 +735,7 @@ const CardDetailDialog = ({ cards, index, onIndexChange, onClose, actions, activ
               {cards.length > 1 ? `${index + 1} of ${cards.length} · swipe for more` : "Gift card"}
             </DialogDescription>
           </div>
-          <button onClick={onClose} aria-label="Close" className="tap-44 h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+          <button onClick={onClose} aria-label="Close" className="tap-44 h-11 w-11 shrink-0 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>

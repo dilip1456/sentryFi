@@ -213,6 +213,7 @@ for (const [W, H] of SIZES) {
         await realClick(page, page.getByRole("button", { name: /^IKEA ending 3931/ }));
         const dlg = page.getByRole("dialog", { name: "IKEA details" });
         await expect(dlg).toBeVisible();
+        await min44(dlg.getByRole("button", { name: "Close", exact: true }), "Detail Close");
         const show = dlg.getByRole("button", { name: "Show at checkout" });
         await min44(show, "Detail Show at checkout");
         await realClick(page, show);
