@@ -3,16 +3,16 @@ import type { Page } from "@playwright/test";
 
 /**
  * The one My Financial Picture (Nov 2026): no Preview tab, the old
- * "myfinances-redesign" view opens the Picture, the plan of anticipated
- * expenses (Upcoming windows, By cadence, By category), adding an expense by
- * hand, detected items vanishing from "To review" once acted on (and staying
- * gone after a reload), and dismissing a recommendation. Demo data, backend
- * stubbed, test clock 2026-10-20.
+ * "myfinances-redesign" view opens the Picture, obligations & expenses
+ * (Upcoming windows, By cadence, By category), adding an expense by hand,
+ * detected items vanishing from "To review" once acted on (and staying gone
+ * after a reload). Taxes, recommendations and category totals live on
+ * Insights. Demo data, backend stubbed, test clock 2026-10-20.
  */
 async function openPicture(page: Page, view = "myfinances") {
   await page.addInitScript(v => { if (!sessionStorage.getItem("onepic_init")) { sessionStorage.setItem("onepic_init", "1"); sessionStorage.setItem("sentryfi_view", v); } }, view);
   await openDemo(page);
-  await expect(page.getByTestId("financial-picture")).toBeVisible();
+  await expect(page.getByTestId(view === "insights" ? "financial-insights" : "financial-picture")).toBeVisible();
 }
 
 /** A real pointer click at the element's center (not locator.click({force}) / dispatchEvent). */
@@ -36,9 +36,12 @@ test.describe("desktop 1440", () => {
     await expect(page.getByRole("button", { name: /Picture Preview|^Preview$/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "My Financial Picture" }).first()).toBeVisible();
     expect(await page.evaluate(() => sessionStorage.getItem("sentryfi_view"))).toBe("myfinances");
-    for (const id of ["plan-summary", "rcv-card", "plan-upcoming", "plan-cats", "plan-accounted", "plan-recs", "plan-allocation", "plan-taxes", "plan-networth", "plan-more"]) {
+    for (const id of ["plan-summary", "rcv-card", "pic-income", "plan-upcoming", "plan-accounted", "pic-savings", "plan-networth", "plan-more"]) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
+    await noOverflow(page, 1440);
+    await page.getByTestId("open-insights").first().click();
+    for (const id of ["plan-recs", "plan-allocation", "plan-taxes", "plan-cats"]) await expect(page.getByTestId(id)).toBeVisible();
     await noOverflow(page, 1440);
   });
 
@@ -79,20 +82,22 @@ test.describe("desktop 1440", () => {
     const plan = page.getByTestId("plan-upcoming");
     await plan.getByRole("button", { name: "Add expense" }).click();
     const form = page.getByTestId("plan-form");
-    await expect(form.getByRole("button", { name: "Add to plan" })).toBeDisabled();
+    await expect(form.getByRole("button", { name: "Add expense" })).toBeDisabled();
     await form.getByLabel("Name").fill("Kids swim lessons");
     await form.getByLabel("Category").selectOption("family");
     await form.getByLabel("Amount", { exact: true }).fill("240");
     await form.getByLabel("How often").selectOption("quarterly");
     await form.getByLabel("Next due date").fill("2026-11-05");
     await form.getByLabel("Reminder days before").fill("7");
-    await form.getByRole("button", { name: "Add to plan" }).click();
+    await form.getByRole("button", { name: "Add expense" }).click();
     await expect(page.getByTestId("plan-form")).toBeHidden();
     const row = plan.getByTestId("plan-row").filter({ hasText: "Kids swim lessons" });
     await plan.getByRole("button", { name: "3 months", exact: true }).click();
     await expect(row.first()).toHaveAttribute("data-source", "manual");
     await expect(row.first()).toContainText("$240");
-    await expect(page.getByTestId("plan-categories")).toContainText(/Childcare|Family|kids/i);
+    await plan.getByRole("button", { name: "By category" }).click();
+    await expect(plan.getByTestId("plan-categories")).toContainText(/Childcare|Family|kids/i);
+    await plan.getByRole("button", { name: "Upcoming" }).click();
     // Remove + Undo.
     await row.first().click();
     await page.getByTestId("plan-item-detail").getByRole("button", { name: "Remove" }).click();
@@ -137,7 +142,7 @@ test.describe("desktop 1440", () => {
   });
 
   test("tax inputs: 401(k) %, FSA and mortgage interest change the estimates (real mouse)", async ({ page }) => {
-    await openPicture(page);
+    await openPicture(page, "insights");
     await realClick(page, page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }));
     const form = page.getByTestId("tax-inputs");
     await expect(form).toBeVisible();
@@ -155,7 +160,7 @@ test.describe("desktop 1440", () => {
   });
 
   test("dismiss a recommendation, then undo", async ({ page }) => {
-    await openPicture(page);
+    await openPicture(page, "insights");
     const recs = page.getByTestId("plan-rec");
     const n = await recs.count();
     expect(n).toBeGreaterThan(0);
@@ -182,7 +187,7 @@ for (const width of [360, 390, 412, 430]) {
       await noOverflow(page, width);
     });
     test("taxes detail: tax inputs fit with 44px targets", async ({ page }) => {
-      await openPicture(page);
+      await openPicture(page, "insights");
       await page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }).tap();
       const form = page.getByTestId("tax-inputs");
       await form.scrollIntoViewIfNeeded();

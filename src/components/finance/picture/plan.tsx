@@ -57,7 +57,7 @@ export function ReviewQueue() {
       <div className="sec-h">
         <span className="sec-ico" aria-hidden="true"><Sparkles className="h-[18px] w-[18px]" /></span>
         <div className="min-w-0 flex-1"><h3 className="sec-t">To review</h3>
-          <div className="sec-s" data-testid="rcv-count">{`${list.length} detected bill${list.length === 1 ? "" : "s"} to confirm or dismiss`}</div></div>
+          <div className="sec-s" data-testid="rcv-count">{`${list.length} detected item${list.length === 1 ? "" : "s"} to confirm or dismiss`}</div></div>
         <button type="button" className="sec-more tap-44" onClick={() => open("rcv")}>Review all<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
       </div>
       <div className="rows">{list.slice(0, 4).map(it => <ItemRow key={it.key} it={it} />)}</div>

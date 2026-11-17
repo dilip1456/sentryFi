@@ -29,7 +29,7 @@ import { DataDesktop, DataMobile } from "./picture/data-column";
 import { InsightsDesktop, InsightsMobile } from "./picture/insights";
 import { renderDetail } from "./picture/details";
 import { HistoryHintPublisher } from "./picture/history-hint";
-import { AccountedCard, AllocationCard, RecsCard, ReviewQueue, TaxCard, UpcomingPlan, renderPlanDetail } from "./picture/plan";
+import { AccountedCard, AllocationCard, CategoryCard, RecsCard, ReviewQueue, TaxCard, UpcomingPlan, renderPlanDetail } from "./picture/plan";
 import { AccountsSection, IncomeSection, InsightsLink, PictureSummary, SavingsSection, renderInventoryDetail } from "./picture/inventory";
 import { PictureSkeleton } from "./picture/PictureSkeleton";
 import { fmt } from "./picture/bits";
@@ -56,7 +56,6 @@ function PicturePage({ isMobile }: { isMobile: boolean }) {
     return (
       <div className="px-4 pt-3 pb-28 fp-one" data-testid="picture-page">
         <div className="flex items-center gap-2">{pc.demo && <ExampleTag />}<span className="text-[12.5px] text-muted-foreground">All your money in one place · {pc.today.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span></div>
-        <HistoryHintPublisher />
         <PictureSummary />
         <ReviewQueue />
         <IncomeSection />
@@ -78,7 +77,6 @@ function PicturePage({ isMobile }: { isMobile: boolean }) {
         {nav && <button type="button" className="btn tap-44" onClick={() => nav("insights")}><Lightbulb className="h-4 w-4" aria-hidden="true" />Insights</button>}
       </div>
       <p className="text-[13px] text-muted-foreground -mt-1">Everything you earn, owe, pay and set aside, weekly to yearly, and whether it's all accounted for.</p>
-      <HistoryHintPublisher />
       <PictureSummary />
       <ReviewQueue />
       <div className="fp-one-grid">
@@ -119,6 +117,7 @@ function InsightsPage({ isMobile }: { isMobile: boolean }) {
         <InsightsContext />
         <RecsCard />
         <AllocationCard />
+        <CategoryCard />
         <TaxCard />
         <div className="mt-6"><PeriodSeg /><p className="text-[12.5px] text-muted-foreground mt-2">{periodLabel}</p></div>
         <section aria-labelledby="yd-h" className="mt-4"><DataMobile /></section>
@@ -140,7 +139,7 @@ function InsightsPage({ isMobile }: { isMobile: boolean }) {
       <InsightsContext />
       <div className="fp-one-grid">
         <div className="min-w-0"><RecsCard /><AllocationCard /></div>
-        <div className="min-w-0"><TaxCard /></div>
+        <div className="min-w-0"><TaxCard /><CategoryCard /></div>
       </div>
       <div className="fp-one-period">
         <div><h2 className="font-display text-[22px] font-semibold">Monthly breakdown</h2><p className="text-[13px] text-muted-foreground">{periodLabel}. Income, paycheck deductions, bills, budgets, cards and savings — all editable.</p></div>
@@ -162,6 +161,7 @@ function WithOverlays({ mode }: { mode: PictureMode }) {
   if (!pc.ready) return <PictureSkeleton insights={mode === "insights"} />;
   return (
     <OverlayProvider isMobile={isMobile} render={key => renderInventoryDetail(key, pc) ?? renderPlanDetail(key, pc) ?? renderDetail(key, pc)}>
+      <HistoryHintPublisher />
       {mode === "insights" ? <InsightsPage isMobile={isMobile} /> : <PicturePage isMobile={isMobile} />}
     </OverlayProvider>
   );
