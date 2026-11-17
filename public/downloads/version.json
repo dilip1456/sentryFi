@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1239,
-  "sha256": "836835e3185686871e079cdcfc6aa48fb89c6b56107bc25bb9f6f0f59627aba2",
-  "size": 7476807,
-  "releaseNotes": "feat: one Financial Picture — plan every anticipated expense",
+  "versionCode": 1240,
+  "sha256": "2a0ac8d84f78e37e0b1464d5746cbd707404bf682d78cc95b1d4f6083d1dddbf",
+  "size": 7481639,
+  "releaseNotes": "fix: Picture is the full picture: accurate predictor, salary, review queue; Insights screen",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-17T05:20:03.251Z"
+  "publishedAt": "2026-11-17T08:08:04.613Z"
 }
