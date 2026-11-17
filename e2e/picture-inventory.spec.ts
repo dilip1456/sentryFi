@@ -14,6 +14,9 @@ const watchFirstPaint = () => {
     const mark = (k: string, hit: unknown) => { if (hit) seen[k] = true; };
     mark("spendingSkeleton", document.querySelector('[aria-label="Loading spending"]'));
     mark("settingsSpinner", document.body?.innerText.includes("Loading your settings"));
+    // The previous Picture (the plan + "Your Data" monthly breakdown on one page).
+    mark("oldPicture", document.querySelector('[data-testid="financial-picture"] [aria-labelledby="yd-h"]') || /Monthly plan & insights|Everything you pay or plan for/.test(document.body?.innerText ?? ""));
+    mark("insightsOnPicture", document.querySelector('[data-testid="financial-picture"] [data-testid="plan-taxes"], [data-testid="financial-picture"] [data-testid="plan-recs"]'));
     mark("pictureSkeleton", document.querySelector('[data-testid="picture-skeleton"]'));
     mark("picture", document.querySelector('[data-testid="picture-page"]'));
     mark("mortgageInReview", /Rocket/i.test(document.querySelector('[data-testid="rcv-card"]')?.textContent ?? ""));
@@ -40,6 +43,8 @@ test.describe("signed in", () => {
     expect(seen.pictureSkeleton, "Picture-shaped skeleton while loading").toBe(true);
     expect(seen.spendingSkeleton, "Spending skeleton on the Picture").toBeFalsy();
     expect(seen.settingsSpinner, "'Loading your settings…' spinner").toBeFalsy();
+    expect(seen.oldPicture, "the previous Picture layout").toBeFalsy();
+    expect(seen.insightsOnPicture, "tax / recommendation cards on the Picture").toBeFalsy();
     // The confirmed mortgage must never flash in To review before saved decisions arrive.
     expect(seen.mortgageInReview, "confirmed item shown in To review").toBeFalsy();
   });
