@@ -6,7 +6,6 @@
  *  - the gift card details X sat on the card art,
  *  - the Spending Filters sheet and the header menu had no X (the menu also
  *    ignored Escape),
- *  - Money Map "Tag N" crashed with React #130 (role chips' icon was undefined).
  * Every X must be a 44px tap target with nothing drawn under it, and no popup
  * may overflow sideways.
  */
@@ -104,38 +103,6 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
     expect(page.url()).toMatch(/\/demo$/);
-    expect(guard.consoleErrors).toEqual([]);
-  });
-
-  // Money Map has no entry point since the Gift Cards nav swap and a saved
-  // "moneymap" view now restores to Home, so this can't be reached in /demo.
-  // The Tag dialog itself is still covered by src/test/qa/screens-core-ui.
-  test.skip("Money Map: Tag opens and every role can be picked", async ({ page, guard }) => {
-    await openView(page, "moneymap");
-    const tag = page.locator("main").getByRole("button", { name: /^(Tag \d+|Edit roles)$/ }).first();
-    await expect(tag).toBeVisible();
-    await tag.click();
-    const dlg = page.getByRole("dialog", { name: "Account roles" });
-    await expect(dlg).toBeVisible();
-    expect(reactCrashes(guard.consoleErrors), "no React crash opening Tag").toEqual([]);
-    await expectCleanPopup(page, dlg, "Account roles");
-    await shot(page, `${W}-moneymap-roles`);
-    // First account's chips: pick each role in turn.
-    const chips = dlg.locator("button[aria-pressed]");
-    const perAccount = await dlg.locator("button[aria-pressed]").evaluateAll(bs => {
-      const first = bs[0]?.parentElement; return bs.filter(b => b.parentElement === first).length;
-    });
-    expect(perAccount, "role chips for the first account").toBeGreaterThanOrEqual(6);
-    for (let i = 0; i < perAccount; i++) {
-      const chip = chips.nth(i);
-      const name = (await chip.innerText()).trim();
-      await chip.click();
-      await expect(chip, `role "${name}" selected`).toHaveAttribute("aria-pressed", "true");
-      await expect(chip.locator("svg"), `role "${name}" has its icon`).toHaveCount(1);
-    }
-    await dlg.getByRole("button", { name: "Done" }).click();
-    await expect(dlg).toBeHidden();
-    await expect(page.getByText(/Something went wrong/i)).toHaveCount(0);
     expect(guard.consoleErrors).toEqual([]);
   });
 

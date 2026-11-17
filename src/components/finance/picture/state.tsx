@@ -6,7 +6,7 @@
  * copy of the current settings, so a multi-field save (the Edit form) can't
  * lose an earlier field to a stale read.
  */
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { FinancialPictureData, FinancialPictureManualItem, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "@/lib/picture/keys";
 import type { BankHistory } from "@/lib/relink/history";
@@ -21,7 +21,7 @@ import { cashflowSteps, flowSplit, type FlowSplit, type WaterfallStep } from "@/
 import { giftCardSummary, netWorthBreakdown, savingsRate, upcomingWindow, type GiftCardLike, type GiftCardSummary, type ManualAccountLike, type NetWorth, type SavingsRate, type UpcomingWindow } from "@/lib/picture/overview";
 import { accountedFor, buildObligations, categorize, categoryTotals, perYear, project, type AccountedFor, type CategoryTotal, type ManualObligationLike, type Obligation, type ObligationCategory, type PlanCadence } from "@/lib/picture/obligations";
 import { effectiveK401, moneyAllocation, recommendations, taxSummary, type Allocation, type Recommendation, type TaxSummary } from "@/lib/picture/plan-insights";
-import { addDays, pendingReview } from "@/lib/recurring";
+import { addDays, expensesToReview } from "@/lib/recurring";
 import { demoPlanClass, demoPlanTransactions } from "@/lib/picture/demo-plan";
 import { useBenefitSummary, useGiftCardRows } from "@/hooks/usePictureExtras";
 import type { BenefitSummary } from "@/lib/card-benefits";
@@ -34,6 +34,7 @@ export interface PictureSettingsPatch {
   cardAutopayFrom?: Record<string, string>;
   savingsGoals?: SavingsGoal[];
   dismissedInsights?: string[];
+  manualIncome?: ManualIncomeItem[];
 }
 
 export interface MyFinancialPictureProps {
@@ -98,6 +99,13 @@ export interface PlanState {
   giftCardsLoaded: boolean;
   benefits: BenefitSummary | null;
   creditCardCount: number;
+  /** 401(k) per month (payroll deductions, else the % typed in) and where it came from. */
+  k401Monthly: number;
+  k401Source: "payroll" | "entered" | "none";
+  /** Take-home income per month (salary, bonus, other, added by hand). */
+  incomeMonthly: number;
+  /** Set aside per month: savings goals & transfers, pre-tax 401(k)/HSA/FSA and ESPP. */
+  savingsMonthly: number;
 }
 
 export type ListGroup = Exclude<PictureGroup, "cards">;
@@ -118,6 +126,8 @@ const DEMO_CARD_FROM: Record<string, string> = { da4: "da1" };
 
 export interface PictureState {
   props: MyFinancialPictureProps;
+  /** The person's saved decisions are in (until then the page shows its skeleton, not a guessed review). */
+  ready: boolean;
   demo: boolean;
   today: Date;
   m: PictureModel;
@@ -178,6 +188,11 @@ export interface PictureState {
     restoreManualItem: (item: FinancialPictureManualItem) => void;
     dismissRec: (id: string) => void;
     restoreRec: (id: string) => void;
+    /** Income added by hand (pension, rent from a tenant, side work): take-home per month. */
+    addIncome: (it: { label: string; amount: number; accountId?: string }) => void;
+    updateIncome: (id: string, it: { label: string; amount: number; accountId?: string }) => void;
+    removeIncome: (id: string) => void;
+    restoreIncome: (it: ManualIncomeItem) => void;
     /** Tax inputs bank data can't show; undefined fields are cleared. */
     setTaxInputs: (t: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number }) => void;
   };
@@ -233,8 +248,25 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const cardsFrom = useMemo(() => (demo ? { ...DEMO_CARD_FROM, ...props.cardAutopayFrom } : props.cardAutopayFrom ?? {}), [demo, props.cardAutopayFrom]);
   const budgets = useMemo(() => props.budgets ?? {}, [props.budgets]);
 
-  const rd = useRecurringDecisions(props.userId, !!demo);
-  const today = useMemo(() => props.today ?? new Date(), [props.today]);
+  // Re-read decisions whenever transactions are refreshed or synced, so the
+  // review, plan and "missed" flags are rebuilt from fresh data.
+  const rd = useRecurringDecisions(props.userId, !!demo, props.txns);
+  // "Today" follows the clock: the app can stay open (or sit in the Android
+  // background) past midnight, and a frozen date hid newer payments (posted
+  // after it) and kept already-paid bills flagged as missed. Recomputed on
+  // every refresh and when the app comes back to the foreground.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { setNow(new Date()); }, [props.txns]);
+  useEffect(() => {
+    const wake = () => {
+      if (document.visibilityState === "hidden") return;
+      setNow(prev => (ymd(prev) === ymd(new Date()) ? prev : new Date()));
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
+  }, []);
+  const today = props.today ?? now;
   const todayISO = ymd(today);
   // Demo: example yearly / twice-a-year / quarterly bills for the plan (Picture only).
   const txns = useMemo(() => (demo ? [...props.txns, ...demoPlanTransactions(todayISO)] : props.txns), [demo, props.txns, todayISO]);
@@ -326,7 +358,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     const nw = netWorthBreakdown(props.accounts, props.manualAccounts ?? []);
     const cash = m.accounts.filter(a => a.kind === "bank" || a.kind === "save").reduce((s, a) => s + a.balance, 0);
     const checking = m.accounts.filter(a => a.kind === "bank").reduce((s, a) => s + a.balance, 0);
-    const toReview = pendingReview(m.review.items);
+    const toReview = expensesToReview(m.review.items);
     const incomeItems = m.review.items.filter(i => i.direction === "inflow" && i.group === "income");
     // Typed-in expenses join the 30-day cash run too.
     const extra = project(obligations.filter(o => o.source === "manual"), todayISO, addDays(todayISO, 30))
@@ -353,8 +385,10 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     return {
       todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, toReview, nw, cash,
       savingsRate: sr, allocation, taxes, recs, giftCards, giftCardsLoaded: gc.loaded, benefits, creditCardCount: Object.keys(cardNames).length,
+      k401Monthly: k401.annual / 12, k401Source: k401.source, incomeMonthly: takeHome,
+      savingsMonthly: savingsMonthly + k401.annual / 12 + m.payroll.hsa + m.payroll.espp + fsaAnnual / 12,
     };
-  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames, k401]);
+  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames, k401, fsaAnnual]);
 
   // ── writes ──
   const working = useCallback((): Working => ({
@@ -454,6 +488,10 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     addPlanItem: it => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []), { ...planToManual(it), id: newId("mi"), createdAt: new Date().toISOString() }]; w.touched.add("fp"); }),
     updatePlanItem: (id, it) => one(w => { w.fp.manualItems = (w.fp.manualItems ?? []).map(x => (x.id === id ? { ...x, ...planToManual(it) } : x)); w.touched.add("fp"); }),
     restoreManualItem: item => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []).filter(x => x.id !== item.id), item]; w.touched.add("fp"); }),
+    addIncome: it => props.onUpdate({ manualIncome: [...(props.manualIncome ?? []), { id: newId("inc"), label: it.label.trim(), amount: Math.round(it.amount * 100) / 100, accountId: it.accountId || undefined }] }),
+    updateIncome: (id, it) => props.onUpdate({ manualIncome: (props.manualIncome ?? []).map(x => (x.id === id ? { ...x, label: it.label.trim(), amount: Math.round(it.amount * 100) / 100, accountId: it.accountId || undefined } : x)) }),
+    removeIncome: id => props.onUpdate({ manualIncome: (props.manualIncome ?? []).filter(x => x.id !== id) }),
+    restoreIncome: it => props.onUpdate({ manualIncome: [...(props.manualIncome ?? []).filter(x => x.id !== it.id), it] }),
     dismissRec: id => props.onUpdate({ dismissedInsights: [...new Set([...(props.dismissedInsights ?? []), id])] }),
     restoreRec: id => props.onUpdate({ dismissedInsights: (props.dismissedInsights ?? []).filter(x => x !== id) }),
     setTaxInputs: t => fpPatch({ taxInputs: { ...t, at: new Date().toISOString() } }),
@@ -490,7 +528,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   }), [rd]);
 
   const value: PictureState = {
-    demo: !!demo, today,
+    ready: rd.loaded, demo: !!demo, today,
     props, m, fp, goals, full, setFull: v => { setFull(v); if (v) cancelEdit(); }, P, per, perWord, year,
     rowsFor, sumOf, findRow, acct, pool, tax, savers, match, bd, cov, map, flow, steps, risk, riskInfo,
     shares: { ...sharesRaw, total: sharesTotal, account: sharesAcct },

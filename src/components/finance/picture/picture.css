@@ -439,3 +439,19 @@
   .fp .pl-card .sec-h > .pl-add { order:3; width:100%; }
   .fp .pl-seg button { white-space:nowrap; }
 }
+/* ── Inventory (Nov 17): six summary tiles, per-row yearly totals, Insights link ── */
+.fp .inv-summary { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.fp .pl-amt .pl-per { font-style:normal; font-size:11px; font-weight:500; margin-left:1px; color:hsl(var(--muted-foreground)); }
+.fp .pl-row.static { cursor:default; }
+.fp .pl-row.static:hover { background:transparent; }
+.fp .ins-context { margin-top:10px; }
+.fp .inv-insights { display:flex; align-items:center; gap:12px; width:100%; min-height:56px; margin-top:18px; padding:12px 16px; text-align:left; border:1px solid hsl(var(--gold-border)); border-radius:var(--radius); background:hsl(var(--primary)/.06); color:hsl(var(--foreground)); }
+.fp .inv-insights:hover { background:hsl(var(--primary)/.1); }
+.fp .inv-insights > svg { color:hsl(var(--primary)); }
+.fp .inv-insights b { display:block; font-size:14px; }
+.fp .inv-insights small { display:block; font-size:12px; color:hsl(var(--muted-foreground)); }
+@media (max-width:1100px) and (min-width:768px) { .fp .inv-summary { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:767px) {
+  .fp .inv-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fp .inv-insights { margin-top:14px; }
+}

@@ -11,8 +11,8 @@ import {
 const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   {
     icon: Compass,
-    title: "Money Map",
-    desc: "Tag every account with a purpose: Spending, Emergency Buffer, Reserve, Investment. Your emergency fund never bleeds into your spendable balance.",
+    title: "My Financial Picture",
+    desc: "Your income, bills, loans, savings and balances in one place, with every obligation for the year, what's due next and whether it's covered.",
   },
   {
     icon: Wallet,

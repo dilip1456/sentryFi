@@ -18,6 +18,7 @@ import { detectRecurringSeries, type RecurringSeries, type SeriesKind } from "./
 import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
+import { reconcilePayments } from "./reconcile";
 
 export const REVIEW_GROUPS = ["income", "bills", "insurance_tax", "payments", "savings"] as const;
 export type ReviewGroup = (typeof REVIEW_GROUPS)[number];
@@ -485,9 +486,13 @@ export function buildReview(series: RecurringSeries[], txns: ClassifierTxn[], op
     if (!it) continue;
     (it.status === "dismissed" ? dismissed : items).push(it);
   }
-  items.sort(byGroupThenMonthly);
+  // Before anything is called missed or late: did the payment arrive in a
+  // form the detector didn't match (early, extra amount, new descriptor,
+  // filed as a transfer, or only on the loan / card account)?
+  const settled = reconcilePayments(items, txns, { today: opts.today, accounts: opts.accounts });
+  settled.sort(byGroupThenMonthly);
   dismissed.sort(byGroupThenMonthly);
-  return { items, dismissed, series };
+  return { items: settled, dismissed, series };
 }
 
 /** Detect and review in one call (tests and non-React callers). */

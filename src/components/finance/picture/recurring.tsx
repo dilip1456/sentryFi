@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronRight, CircleAlert, RotateCcw, Repeat, X } from "lucide-react";
-import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
+import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, needsReview, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
 import type { Cadence } from "@/lib/recurring/schedule";
 import { usePicture } from "./state";
 import { useOverlay } from "./overlays";
@@ -74,13 +74,14 @@ export function RecurringList() {
   const pc = usePicture();
   const a = useRecurringActions();
   const { items, dismissed } = pc.m.review;
-  const pending = items.filter(i => i.status === "suggested");
-  const confirmed = items.filter(i => i.status !== "suggested");
+  // Income is never a bill to review: suggested paychecks count as pay and sit with the confirmed items.
+  const pending = items.filter(needsReview);
+  const confirmed = items.filter(i => !needsReview(i));
   const [showConfirmed, setShowConfirmed] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   return (
     <div className="rcv-list" data-testid="rcv-list">
-      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your plan; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
+      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your Picture; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
       <div className="h4" data-testid="rcv-pending-head">To review <span className="rcv-n">{pending.length}</span></div>
       {!pending.length && <p className="mini">All caught up. New detections show up here.</p>}
       {REVIEW_GROUPS.map(g => {

@@ -300,6 +300,34 @@ export const settingsToDb = (s: UserSettings) => ({
   financial_picture:   s.financialPicture,
 });
 
+/** user_settings column for each persisted setting. */
+const COLUMN_OF: Partial<Record<keyof UserSettings, keyof ReturnType<typeof settingsToDb>>> = {
+  budgets: "budgets", accountRoles: "account_roles", catOverrides: "cat_overrides", catRules: "cat_rules", smartRules: "smart_rules",
+  customCats: "custom_cats", nameOverrides: "name_overrides", nameRules: "name_rules", manualIncome: "manual_income",
+  manualInternal: "manual_internal", manualExternal: "manual_external", dismissedInsights: "dismissed_insights",
+  dismissedActions: "dismissed_actions", dismissedRecurring: "dismissed_recurring", recurringDismissals: "recurring_dismissals",
+  overageFundingPrefs: "overage_funding_prefs", plannedTransfers: "planned_transfers", savingsGoals: "savings_goals",
+  panelOrder: "panel_order", accountMeta: "account_meta", benefitsUsed: "benefits_used", moneyMapFeedback: "money_map_feedback",
+  txnTags: "txn_tags", txnNotes: "txn_notes", recurringOverrides: "recurring_overrides", txnSplits: "txn_splits",
+  recurringGroups: "recurring_groups", cardAutopayFrom: "card_autopay_from", financialPicture: "financial_picture",
+};
+
+/**
+ * Only the columns behind the settings that changed. Saving the whole row
+ * from this tab's copy would put back stale values for everything else
+ * (an edit made meanwhile on another device, e.g. a phone, would be undone
+ * by a later dismiss on the desktop).
+ */
+export function changedColumns(s: UserSettings, keys: Iterable<keyof UserSettings>): Partial<ReturnType<typeof settingsToDb>> {
+  const all = settingsToDb(s);
+  const out: Partial<ReturnType<typeof settingsToDb>> = {};
+  for (const k of keys) {
+    const col = COLUMN_OF[k];
+    if (col) (out as Record<string, unknown>)[col] = all[col];
+  }
+  return out;
+}
+
 /** Narrow typed view of user_settings.budgets for the one-time budget upload. */
 type BudgetsRow = { budgets: Record<string, number> | null };
 interface BudgetsTable {
@@ -313,6 +341,8 @@ export const useUserSettings = (userId: string | undefined) => {
   const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSettings = useRef<UserSettings>(DEFAULTS);
+  /** Settings changed since the last successful save (only these columns are written). */
+  const dirty = useRef<Set<keyof UserSettings>>(new Set());
 
   // Load from Supabase on mount
   useEffect(() => {
@@ -412,17 +442,23 @@ export const useUserSettings = (userId: string | undefined) => {
   }, [userId]);
 
   // Debounced save — batches rapid changes (typing a budget amount) into one write
-  const persist = useCallback((next: UserSettings) => {
+  const persist = useCallback((next: UserSettings, keys: (keyof UserSettings)[]) => {
     latestSettings.current = next;
+    for (const k of keys) dirty.current.add(k);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       if (!userId) return;
+      const keysNow = [...dirty.current];
+      dirty.current.clear();
+      const cols = changedColumns(latestSettings.current, keysNow);
+      if (!Object.keys(cols).length) return;
       let failure = "Unknown save error";
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          // Upsert with just these columns: on conflict only they are updated.
           const { error } = await supabase.from("user_settings").upsert({
             user_id: userId,
-            ...settingsToDb(latestSettings.current),
+            ...cols,
           }, { onConflict: "user_id" });
           if (!error) return;
           failure = error.message;
@@ -431,6 +467,8 @@ export const useUserSettings = (userId: string | undefined) => {
         }
         if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
       }
+      // Keep them dirty so the next save retries them.
+      for (const k of keysNow) dirty.current.add(k);
       console.error("[settings] save failed after retries:", failure);
       toast.error("Couldn't save your profile changes", { description: "Check your connection and try again." });
     }, 600);
@@ -439,7 +477,7 @@ export const useUserSettings = (userId: string | undefined) => {
   const update = useCallback((patch: Partial<UserSettings>) => {
     setSettingsState(prev => {
       const next = { ...prev, ...patch };
-      persist(next);
+      persist(next, Object.keys(patch) as (keyof UserSettings)[]);
       return next;
     });
   }, [persist]);

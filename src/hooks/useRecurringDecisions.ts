@@ -26,7 +26,12 @@ const session = () => { try { return typeof window !== "undefined" ? window.sess
 const readDemo = () => parseStoredDecisions(session()?.getItem(DEMO_DECISIONS_KEY));
 const writeDemo = (list: RecurringDecision[]) => { try { session()?.setItem(DEMO_DECISIONS_KEY, JSON.stringify(list)); } catch { /* storage full / blocked */ } };
 
-export function useRecurringDecisions(userId: string | null | undefined, demo: boolean) {
+/**
+ * @param reloadKey  refetch when this changes (the Picture passes its
+ *   transactions, so a sync / refresh re-reads decisions made on another
+ *   device). A refetch keeps what is shown until the new rows arrive.
+ */
+export function useRecurringDecisions(userId: string | null | undefined, demo: boolean, reloadKey?: unknown) {
   const live = !demo && !!userId;
   /** Last loaded server rows (live) or the stored demo list. */
   const [base, setBase] = useState<RecurringDecision[]>(() => (live ? [] : readDemo()));
@@ -36,18 +41,25 @@ export function useRecurringDecisions(userId: string | null | undefined, demo: b
   const ref = useRef(decisions);
   ref.current = decisions;
 
+  /** False until the first server read for this user finished (ok or not). */
+  const [loaded, setLoaded] = useState(!live);
+  // A different person (or demo ↔ live): start from nothing.
   useEffect(() => {
     setLocal(new Map());
-    if (!live) { setBase(readDemo()); return; }
-    setBase([]);
+    setBase(live ? [] : readDemo());
+    setLoaded(!live);
+  }, [live, userId]);
+  useEffect(() => {
+    if (!live) return;
     let off = false;
     (db.from("recurring_streams").select("*").eq("user_id", userId).eq("source", PICTURE_SOURCE) as Res).then(({ data, error }) => {
       if (off) return;
+      setLoaded(true);
       if (error) { console.warn("[recurring decisions]", error.message); return; }
       setBase(((data as Record<string, unknown>[]) ?? []).map(rowToDecision).filter((d): d is RecurringDecision => !!d));
-    });
+    }, (e: unknown) => { if (!off) { setLoaded(true); console.warn("[recurring decisions]", e); } });
     return () => { off = true; };
-  }, [live, userId]);
+  }, [live, userId, reloadKey]);
 
   const put = useCallback((key: string, d: RecurringDecision | null) => {
     setLocal(prev => { const next = new Map(prev); next.set(key, d); return next; });
@@ -79,5 +91,5 @@ export function useRecurringDecisions(userId: string | null | undefined, demo: b
     if (error) failed(key, prev, error.message);
   }, [live, userId, put, failed]);
 
-  return { decisions, save, remove };
+  return { decisions, save, remove, loaded };
 }

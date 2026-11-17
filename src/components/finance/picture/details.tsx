@@ -740,7 +740,7 @@ function CashflowDetail() {
       </div>
       <p className="note mt-3 flex gap-2">
         {left.amount >= 0 ? <CircleCheck className="h-4 w-4 text-positive shrink-0" aria-hidden="true" /> : <TriangleAlert className="h-4 w-4 shrink-0" style={NEG} aria-hidden="true" />}
-        {left.amount >= 0 ? `${fmt(left.amount * P)} is left for unbudgeted spending, about ${pctOf(left.amount, gross)}% of gross pay.` : `You're ${fmt(-left.amount * P)} short; your plan spends more than comes in.`}
+        {left.amount >= 0 ? `${fmt(left.amount * P)} is left for unbudgeted spending, about ${pctOf(left.amount, gross)}% of gross pay.` : `You're ${fmt(-left.amount * P)} short; your budgets spend more than comes in.`}
       </p>
       <p className="note mt-1">RSU tax is withheld in shares at vest, so it isn't in this cash flow. "Other payroll" is whatever the gross estimate can't explain: state tax, benefits and rounding.</p>
     </>

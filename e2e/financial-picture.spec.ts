@@ -8,10 +8,12 @@ import type { Locator, Page } from "@playwright/test";
  * dialog closes. Demo data only; the fixture stubs every backend request.
  */
 
+// The monthly breakdown (section screens, insight dialogs, edit) moved from
+// the Picture to the Insights screen.
 async function openPicture(page: Page) {
-  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
+  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "insights"));
   await openDemo(page);
-  await expect(page.getByTestId("financial-picture")).toBeVisible();
+  await expect(page.getByTestId("financial-insights")).toBeVisible();
 }
 
 
