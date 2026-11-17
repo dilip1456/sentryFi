@@ -106,11 +106,11 @@ export const issuerHue = (name: string): number => {
 export type SortKey = "balance-desc" | "balance-asc" | "expiry" | "name" | "recent";
 
 export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "balance-desc", label: "Balance: high to low" },
-  { value: "balance-asc",  label: "Balance: low to high" },
+  { value: "balance-desc", label: "Highest balance" },
+  { value: "balance-asc",  label: "Lowest balance" },
   { value: "expiry",       label: "Expiring soonest" },
   { value: "name",         label: "Issuer A–Z" },
-  { value: "recent",       label: "Recently added" },
+  { value: "recent",       label: "Newest" },
 ];
 
 const expiryTime = (c: Pick<GiftCard, "expiry_date">): number =>
