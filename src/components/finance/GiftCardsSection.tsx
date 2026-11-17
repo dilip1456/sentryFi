@@ -210,14 +210,18 @@ const BrandLogo = ({ domain, logoUrl, name, size = 40 }: { domain?: string | nul
   ].filter(Boolean) as string[];
   const src = sources[attempt];
   if (!src) return <IssuerMonogram name={name} size={size} />;
+  // Fixed-size wrapper so the 10% padding is relative to the logo, not to
+  // whatever wide row the logo sits in.
   return (
-    <img
-      src={src}
-      alt={`${name} logo`}
-      onError={() => setAttempt(a => a + 1)}
-      className="rounded-lg border border-border/50 object-contain bg-white shrink-0 p-[10%]"
-      style={{ height: size, width: size, imageRendering: "auto" }}
-    />
+    <span className="relative inline-block shrink-0" style={{ height: size, width: size }}>
+      <img
+        src={src}
+        alt={`${name} logo`}
+        onError={() => setAttempt(a => a + 1)}
+        className="absolute inset-0 h-full w-full rounded-lg border border-border/50 object-contain bg-white"
+        style={{ padding: Math.round(size * 0.1), imageRendering: "auto" }}
+      />
+    </span>
   );
 };
 /** Small gift-card-shaped preview shown on every list/table row so no row is a blank. */
@@ -472,13 +476,15 @@ const CardListRow = ({ card, grouped, actions, index }: { card: GiftCardRow; gro
 /** Desktop tile: the card art is the select target; checkout is a corner shortcut. */
 const CardTileButton = ({ card, selected, actions, onSelect }: { card: GiftCardRow; selected: boolean; actions: CardActions; onSelect: (c: GiftCardRow) => void }) => (
   <div className={cn("relative rounded-2xl transition-shadow", selected && "ring-2 ring-[hsl(var(--primary))] ring-offset-2 ring-offset-background")} data-testid="gc-tile" data-card-id={card.id}>
-    <GiftCardTile card={card} />
     <button onClick={() => onSelect(card)} aria-pressed={selected} aria-label={`${cardLabel(card)}, ${fmtUSD(Number(card.balance))}`}
-      className="absolute inset-0 rounded-2xl focus-visible:outline-offset-4" />
-    <button onClick={() => actions.openCheckout(card)} aria-label={`Show ${cardLabel(card)} at checkout`}
-      className="tap-44 absolute right-2 bottom-2 h-11 w-11 grid place-items-center rounded-full bg-black/35 text-white hover:bg-black/55 backdrop-blur-sm z-10">
-      <ScanBarcode className="h-5 w-5" aria-hidden="true" />
-    </button>
+      className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-offset-4" />
+    <GiftCardTile card={card}>
+      {/* Above the select overlay (z-20) so it's its own target. */}
+      <button onClick={() => actions.openCheckout(card)} aria-label={`Show ${cardLabel(card)} at checkout`}
+        className="tap-44 relative z-20 -mr-1.5 -mt-1.5 h-11 w-11 grid place-items-center rounded-full bg-black/30 text-white hover:bg-black/50">
+        <ScanBarcode className="h-5 w-5" aria-hidden="true" />
+      </button>
+    </GiftCardTile>
   </div>
 );
 

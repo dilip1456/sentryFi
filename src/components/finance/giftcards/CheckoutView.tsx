@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Copy, Eye, EyeOff, Pencil, Sun, Wallet, X } from "lucide-react";
 import { GiftCardBarcode } from "./GiftCardBarcode";
 import { useWakeLock } from "@/hooks/useWakeLock";
-import { BARCODE_FORMATS, groupDigits, resolveFormat, type BarcodeFormat, type GiftCard } from "@/lib/gift-cards";
+import { BARCODE_FORMATS, barcodeValue, groupDigits, resolveFormat, type BarcodeFormat, type GiftCard } from "@/lib/gift-cards";
 
 const copy = async (text: string, label: string) => {
   try { await navigator.clipboard.writeText(text); toast.success(`${label} copied`); }
@@ -25,6 +25,7 @@ export const CheckoutView = ({ card, onClose, onEdit, onUpdateBalance }: {
   const closeRef = useRef<HTMLButtonElement>(null);
   const wakeHeld = useWakeLock(true);
   const number = card.card_number?.trim() ?? "";
+  const fellBack = number ? barcodeValue(number, format).fellBack : false;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
@@ -50,21 +51,21 @@ export const CheckoutView = ({ card, onClose, onEdit, onUpdateBalance }: {
               Balance {fmtUSD(Number(card.balance))}{card.card_number_last4 ? ` · •••• ${card.card_number_last4}` : ""}
             </DialogDescription>
           </div>
-          <button onClick={() => onUpdateBalance(card)}
+          <button onClick={() => onUpdateBalance(card)} aria-label="Update balance"
             className="tap-44 h-11 px-3 inline-flex items-center gap-1.5 rounded-full border border-neutral-300 text-[13px] font-medium text-neutral-800 hover:bg-neutral-100 shrink-0">
-            <Wallet className="h-4 w-4" aria-hidden="true" /> <span>Update balance</span>
+            <Wallet className="h-4 w-4" aria-hidden="true" /> <span className="hidden min-[380px]:inline">Update balance</span>
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[560px] px-5 py-6 flex flex-col items-center gap-5">
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+          <div className="m-auto w-full max-w-[560px] px-5 py-6 flex flex-col items-center gap-5">
             {number ? (
               <>
                 <GiftCardBarcode number={number} format={format} brand={card.brand_name}
-                  className={cn(format === "qrcode" ? "max-w-[280px]" : "max-w-[520px]", "p-2")} />
+                  className={cn(format === "qrcode" ? "max-w-[280px]" : "max-w-[520px]", "p-2 max-h-[42dvh] [&>div]:max-h-[42dvh] [&>div>svg]:object-contain")} />
 
                 <div className="w-full flex items-center justify-center gap-2">
-                  <div className="font-mono text-[24px] sm:text-[28px] tracking-[0.08em] font-semibold text-neutral-900 text-center break-all tabular"
+                  <div className="font-mono text-[20px] min-[380px]:text-[24px] sm:text-[28px] tracking-[0.06em] font-semibold text-neutral-900 text-center break-all tabular"
                     data-testid="gc-checkout-number">
                     {groupDigits(number)}
                   </div>
@@ -101,6 +102,11 @@ export const CheckoutView = ({ card, onClose, onEdit, onUpdateBalance }: {
                   ))}
                 </div>
 
+                {fellBack && (
+                  <p className="text-[12.5px] text-amber-700 text-center" data-testid="gc-checkout-fallback">
+                    This number isn't a valid EAN-13 code, so it's shown as Code 128.
+                  </p>
+                )}
                 <p className="text-[12.5px] text-neutral-500 text-center inline-flex items-center gap-1.5">
                   <Sun className="h-3.5 w-3.5" aria-hidden="true" />
                   Turn your brightness up for the scanner.{wakeHeld ? " Screen stays on while this is open." : ""}

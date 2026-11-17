@@ -16,7 +16,7 @@ const OPTIONS: Record<BarcodeFormat, Record<string, unknown>> = {
   code128: { bcid: "code128", scale: 3, height: 22, paddingwidth: 0 },
   ean13:   { bcid: "ean13", scale: 3, height: 22, includetext: true, guardwhitespace: true },
   qrcode:  { bcid: "qrcode", scale: 6, eclevel: "M" },
-  pdf417:  { bcid: "pdf417", scale: 3, columns: 4 },
+  pdf417:  { bcid: "pdf417", scale: 3, columns: 4, rowmult: 5 },
 };
 
 /**
@@ -52,13 +52,13 @@ export const GiftCardBarcode = ({ number, format, brand, className }: {
       data-format={used}
       data-fallback={fellBack ? "true" : undefined}
       className={cn(
-        "relative grid place-items-center bg-white",
-        square ? "aspect-square w-full max-w-[260px]" : used === "pdf417" ? "w-full aspect-[3/1]" : "w-full aspect-[2.6/1]",
+        "relative flex items-center justify-center bg-white w-full min-h-16",
+        square && "max-w-[260px]",
         className,
       )}
     >
       {svg ? (
-        <div aria-hidden="true" className="h-full w-full [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+        <div aria-hidden="true" className="w-full [&>svg]:block [&>svg]:w-full [&>svg]:h-auto [&>svg]:max-h-[inherit]" dangerouslySetInnerHTML={{ __html: svg }} />
       ) : error ? (
         <div className="px-3 text-center text-[13px] text-neutral-600">Couldn't draw this barcode. Read the number below to the cashier.</div>
       ) : (
