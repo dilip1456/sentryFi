@@ -54,8 +54,9 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
 
   test("gift card details: X clear of the card art", async ({ page, guard }) => {
     await openView(page, "giftcards");
-    await page.locator("main").getByRole("button", { name: /Domino's/ }).first().click();
-    const dlg = page.getByRole("dialog", { name: "Domino's details" });
+    // Redesigned list: the card row (not its "Show … at checkout" button) opens details.
+    await page.locator("main").getByRole("button", { name: /^IKEA ending 3931/ }).click();
+    const dlg = page.getByRole("dialog", { name: "IKEA details" });
     await expect(dlg).toBeVisible();
     await expectCleanPopup(page, dlg, "Gift card details");
     await shot(page, `${W}-giftcard-details`);
@@ -106,7 +107,10 @@ for (const [W, H] of WIDTHS) test.describe(`${W}px`, () => {
     expect(guard.consoleErrors).toEqual([]);
   });
 
-  test("Money Map: Tag opens and every role can be picked", async ({ page, guard }) => {
+  // Money Map has no entry point since the Gift Cards nav swap and a saved
+  // "moneymap" view now restores to Home, so this can't be reached in /demo.
+  // The Tag dialog itself is still covered by src/test/qa/screens-core-ui.
+  test.skip("Money Map: Tag opens and every role can be picked", async ({ page, guard }) => {
     await openView(page, "moneymap");
     const tag = page.locator("main").getByRole("button", { name: /^(Tag \d+|Edit roles)$/ }).first();
     await expect(tag).toBeVisible();

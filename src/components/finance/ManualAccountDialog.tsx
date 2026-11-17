@@ -119,7 +119,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               {editing ? "Edit account" : "Add account manually"}
             </div>
             <div className="text-[12.5px] text-muted-foreground">
-              {step === "type" ? "Choose account type" : step === "details" ? "Enter details" : step === "role" ? "Assign to Money Map" : "Account saved"}
+              {step === "type" ? "Choose account type" : step === "details" ? "Enter details" : step === "role" ? "Assign a role" : "Account saved"}
             </div>
           </div>
           {/* Step dots */}
@@ -350,7 +350,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
           {step === "role" && (
             <div className="space-y-2">
               <p className="text-[13.5px] text-muted-foreground mb-3">
-                How should this account affect your True Available balance in Money Map?
+                How should this account affect your True Available balance?
               </p>
               {ROLES_FOR_PICKER.map(r => (
                 <button key={r} onClick={() => set("role", r)}
@@ -379,7 +379,7 @@ export const ManualAccountDialog = ({ open, onOpenChange, onSave, editing }: Pro
               </div>
               <div className="font-display text-[16px] text-foreground">Account saved!</div>
               <div className="text-[14px] text-muted-foreground">
-                {form.name} has been added to your dashboard and Money Map.
+                {form.name} has been added to your dashboard.
               </div>
             </div>
           )}
