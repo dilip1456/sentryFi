@@ -126,6 +126,8 @@ export function upcomingWindow(opts: {
   manualItems?: readonly { id: string; label: string; monthly: number; dueDay?: number }[];
   startCash: number;
   days?: number;
+  /** Already-projected events from other sources (e.g. typed-in expenses). */
+  extra?: readonly UpcomingEvent[];
 }): UpcomingWindow {
   const days = opts.days ?? 30;
   const end = addDays(opts.today, days);
@@ -157,6 +159,7 @@ export function upcomingWindow(opts: {
     d = addMonths(d, td > m.dueDay ? 1 : 0, m.dueDay);
     while (d <= end) { events.push({ key: `manual:${m.id}@${d}`, date: d, label: m.label, amount: m.monthly, direction: "outflow", detected: false }); d = addMonths(d, 1, m.dueDay); }
   }
+  for (const e of opts.extra ?? []) if (e.date >= opts.today && e.date <= end) events.push(e);
   events.sort((a, b) => a.date.localeCompare(b.date) || (a.direction === b.direction ? b.amount - a.amount : a.direction === "inflow" ? -1 : 1));
   let bal = opts.startCash, inflow = 0, outflow = 0;
   let low = { date: opts.today, balance: bal };

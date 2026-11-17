@@ -12,12 +12,19 @@ import { FP_UNASSIGNED } from "@/lib/picture/keys";
 import type { BankHistory } from "@/lib/relink/history";
 import { useRecurringDecisions } from "@/hooks/useRecurringDecisions";
 import { decisionFor, type RecurringDecision, type ReviewItem } from "@/lib/recurring";
-import { buildPictureModel, type AcctInfo, type PAccount, type PClass, type PictureGroup, type PictureModel, type PictureRow, type PTxn, type CardInfo } from "@/lib/picture/model";
+import { buildPictureModel, ymd, type AcctInfo, type PAccount, type PClass, type PictureGroup, type PictureModel, type PictureRow, type PTxn, type CardInfo } from "@/lib/picture/model";
 import { taxSnapshot, taxSaverNumbers, matchStatus, type MatchStatus, type TaxSnapshot, type TaxSaverNumbers, type EmployerMatch } from "@/lib/picture/tax";
 import { savingsBreakdown, type SavingsBreakdown, type TierAccount } from "@/lib/picture/savings-breakdown";
 import { riskNote, type RiskLevel, type RiskNote } from "@/lib/picture/risk";
 import { coverage, coverageMap, type CoverageResult, type MapBox } from "@/lib/picture/coverage";
 import { cashflowSteps, flowSplit, type FlowSplit, type WaterfallStep } from "@/lib/picture/cashflow";
+import { giftCardSummary, netWorthBreakdown, savingsRate, upcomingWindow, type GiftCardLike, type GiftCardSummary, type ManualAccountLike, type NetWorth, type SavingsRate, type UpcomingWindow } from "@/lib/picture/overview";
+import { accountedFor, buildObligations, categorize, categoryTotals, perYear, project, type AccountedFor, type CategoryTotal, type ManualObligationLike, type Obligation, type ObligationCategory, type PlanCadence } from "@/lib/picture/obligations";
+import { moneyAllocation, recommendations, taxSummary, type Allocation, type Recommendation, type TaxSummary } from "@/lib/picture/plan-insights";
+import { addDays, pendingReview } from "@/lib/recurring";
+import { demoPlanClass, demoPlanTransactions } from "@/lib/picture/demo-plan";
+import { useBenefitSummary, useGiftCardRows } from "@/hooks/usePictureExtras";
+import type { BenefitSummary } from "@/lib/card-benefits";
 
 export type Shares = NonNullable<FinancialPictureData["shares"]>;
 
@@ -52,8 +59,45 @@ export interface MyFinancialPictureProps {
   today?: Date;
   /** History per connected bank, for the "Extend history" hint. */
   banks?: BankHistory[];
-  /** user_settings.dismissedInsights (the hint's dismissal is stored there). */
+  /** user_settings.dismissedInsights (the hint's and recommendations' dismissals are stored there). */
   dismissedInsights?: string[];
+  /** Accounts added by hand (Accounts screen), for net worth. */
+  manualAccounts?: ManualAccountLike[];
+  /** Open another screen (Accounts, Gift Cards, Benefits, Spending). */
+  onNavigate?: (view: string) => void;
+}
+
+/** A typed-in expense from the "Add an expense" form (amount required). */
+export interface PlanItemInput {
+  label: string;
+  category: ObligationCategory;
+  amount: number;
+  amountKind: "fixed" | "estimated";
+  cadence: PlanCadence;
+  intervalDays?: number;
+  nextDue: string;
+  reminderDays?: number;
+  notes?: string;
+}
+
+/** Everything the plan (anticipated expenses) and overview sections show. */
+export interface PlanState {
+  todayISO: string;
+  obligations: Obligation[];
+  totals: CategoryTotal[];
+  accounted: AccountedFor;
+  next30: UpcomingWindow;
+  toReview: ReviewItem[];
+  nw: NetWorth;
+  cash: number;
+  savingsRate: SavingsRate;
+  allocation: Allocation;
+  taxes: TaxSummary;
+  recs: Recommendation[];
+  giftCards: GiftCardSummary;
+  giftCardsLoaded: boolean;
+  benefits: BenefitSummary | null;
+  creditCardCount: number;
 }
 
 export type ListGroup = Exclude<PictureGroup, "cards">;
@@ -129,7 +173,13 @@ export interface PictureState {
     addGoal: (g: Omit<SavingsGoal, "id" | "createdAt">) => void;
     removeGoal: (id: string) => void;
     setShares: (s: Shares) => void;
+    addPlanItem: (it: PlanItemInput) => void;
+    updatePlanItem: (id: string, it: PlanItemInput) => void;
+    restoreManualItem: (item: FinancialPictureManualItem) => void;
+    dismissRec: (id: string) => void;
+    restoreRec: (id: string) => void;
   };
+  plan: PlanState;
   // "Detected recurring" review
   recurring: {
     /** Confirm, edit or dismiss ("Not recurring"); returns the previous decision for undo. */
@@ -183,11 +233,17 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
 
   const rd = useRecurringDecisions(props.userId, !!demo);
   const today = useMemo(() => props.today ?? new Date(), [props.today]);
+  const todayISO = ymd(today);
+  // Demo: example yearly / twice-a-year / quarterly bills for the plan (Picture only).
+  const txns = useMemo(() => (demo ? [...props.txns, ...demoPlanTransactions(todayISO)] : props.txns), [demo, props.txns, todayISO]);
+  const { classOf: baseClassOf, getEffectiveCategory: baseGetCat } = props;
+  const classOf = useMemo(() => (demo ? (t: PTxn) => demoPlanClass(t) ?? baseClassOf(t) : baseClassOf), [demo, baseClassOf]);
+  const getCat = useMemo(() => (demo ? (t: PTxn) => (t.id.startsWith("dpl-") ? (t.category?.[0] ?? "Other") : baseGetCat(t)) : baseGetCat), [demo, baseGetCat]);
   const m = useMemo(() => buildPictureModel({
     recurringDecisions: rd.decisions,
-    txns: props.txns, accounts: props.accounts, classOf: props.classOf, getEffectiveCategory: props.getEffectiveCategory,
+    txns, accounts: props.accounts, classOf, getEffectiveCategory: getCat,
     formatCat: props.formatCat, manualIncome: props.manualIncome, budgets, cardAutopayFrom: cardsFrom, savingsGoals: goals, fp, today,
-  }), [props.txns, props.accounts, props.classOf, props.getEffectiveCategory, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions]);
+  }), [txns, props.accounts, classOf, getCat, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions]);
 
   const year = today.getFullYear();
   const P = full ? 12 : 1;
@@ -255,6 +311,44 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const risk = fp.riskProfile;
   const riskInfo = useMemo(() => riskNote(risk, bd), [risk, bd]);
 
+  // ── The plan: every anticipated expense, plus the overview around it ──
+  const gc = useGiftCardRows(props.userId, !!demo);
+  const cardNames = useMemo(() => Object.fromEntries(m.accounts.filter(a => a.kind === "card").map(a => [a.id, a.name])), [m.accounts]);
+  const benefits = useBenefitSummary(props.userId, !!demo, cardNames);
+  const plan = useMemo<PlanState>(() => {
+    const manual = (fp.manualItems ?? []) as ManualObligationLike[];
+    const obligations = buildObligations({ today: todayISO, reviewItems: m.review.items, manual, giftCards: gc.rows });
+    const nw = netWorthBreakdown(props.accounts, props.manualAccounts ?? []);
+    const cash = m.accounts.filter(a => a.kind === "bank" || a.kind === "save").reduce((s, a) => s + a.balance, 0);
+    const checking = m.accounts.filter(a => a.kind === "bank").reduce((s, a) => s + a.balance, 0);
+    const toReview = pendingReview(m.review.items);
+    const incomeItems = m.review.items.filter(i => i.direction === "inflow" && i.group === "income");
+    // Typed-in expenses join the 30-day cash run too.
+    const extra = project(obligations.filter(o => o.source === "manual"), todayISO, addDays(todayISO, 30))
+      .map(o => ({ key: `${o.ob.id}@${o.date}`, date: o.date, label: o.ob.label, amount: o.ob.amount, direction: "outflow" as const, detected: false }));
+    const next30 = upcomingWindow({ today: todayISO, items: [...incomeItems, ...m.review.items.filter(i => i.direction === "outflow" && i.group !== "income")], startCash: checking, extra });
+    const savingsMonthly = m.rows.savings.reduce((s, r) => s + r.monthly, 0);
+    const takeHome = m.rows.income.reduce((s, r) => s + r.monthly, 0);
+    const sr = savingsRate({ savingsMonthly, payrollSavingsMonthly: m.payroll.k401 + m.payroll.hsa + m.payroll.espp, grossMonthly: m.gross.annual / 12, takeHomeMonthly: takeHome });
+    const allocation = moneyAllocation({
+      grossMonthly: m.gross.annual / 12, takeHomeMonthly: takeHome, taxMonthly: (tax.fed + tax.fica) / 12,
+      payroll: { k401: m.payroll.k401, hsa: m.payroll.hsa, espp: m.payroll.espp, rsu: m.payroll.rsu },
+      savings: m.rows.savings.map(r => { const to = r.toId ? m.acct.get(r.toId) : undefined; return { monthly: r.monthly, toSubtype: to?.subtype, toType: to?.type }; }),
+      obligations, budgetsMonthly: m.rows.budgets.reduce((s, r) => s + r.monthly, 0),
+    });
+    const taxes = taxSummary({ today: todayISO, year, gross: m.gross.annual, grossEstimated: m.gross.estimated, filing: m.filing, filingSet: fp.overrides?.filingStatusCode != null, tax, savers, reviewItems: m.review.items, hsaMonthly: m.payroll.hsa, k401Monthly: m.payroll.k401 });
+    const giftCards = giftCardSummary(gc.rows, todayISO);
+    const utilityPayments = m.review.items.filter(i => i.direction === "outflow" && categorize(i.label, i.kind, i.subtype, i.cadence) === "utilities").flatMap(i => i.matched.map(t => ({ date: t.date, amount: Math.abs(t.amount) })));
+    const recs = recommendations({
+      today: todayISO, obligations, toReview: toReview.length, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: m.payroll.k401 * 12, year,
+      utilityPayments, giftCardsExpiringSoon: giftCards.expiringSoon, dismissed: props.dismissedInsights ?? [],
+    });
+    return {
+      todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, toReview, nw, cash,
+      savingsRate: sr, allocation, taxes, recs, giftCards, giftCardsLoaded: gc.loaded, benefits, creditCardCount: Object.keys(cardNames).length,
+    };
+  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames]);
+
   // ── writes ──
   const working = useCallback((): Working => ({
     fp: { ...fp, overrides: { ...(fp.overrides ?? {}) }, fundingAccounts: { ...(fp.fundingAccounts ?? {}) } },
@@ -310,11 +404,29 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   }, [findRow]);
 
   const one = useCallback((fn: (w: Working) => void) => { const w = working(); fn(w); commit(w); }, [working, commit]);
+  /** Editing a detected row (amount / covered by) is acting on it: it leaves "to review" as confirmed. */
+  const confirmIfDetected = useCallback((g: string, id: string) => {
+    const r = findRow(g, id) as PictureRow | undefined;
+    const it = r?.reviewKey ? m.review.items.find(i => i.key === r.reviewKey) : undefined;
+    if (!it || it.status !== "suggested") return;
+    const prev = rd.decisions.find(d => d.key === it.key);
+    void rd.save(decisionFor(it, { status: "confirmed", cadence: prev?.cadence, amount: prev?.amount, group: prev?.group, coverAccountId: prev?.coverAccountId }));
+  }, [findRow, m.review.items, rd]);
+  const planToManual = (it: PlanItemInput) => {
+    const monthly = Math.round(((it.amount * perYear(it.cadence, it.intervalDays)) / 12 || 0) * 100) / 100;
+    return {
+      group: (it.category === "debt" || it.category === "housing" ? "obligations" : "fixed") as "obligations" | "fixed",
+      label: it.label.trim(), monthly: it.cadence === "once" ? 0 : monthly, category: it.category, amount: it.amount, amountKind: it.amountKind,
+      cadence: it.cadence, intervalDays: it.cadence === "custom" ? it.intervalDays : undefined, nextDue: it.nextDue,
+      dueDay: it.cadence === "monthly" ? Number(it.nextDue.slice(8, 10)) : undefined,
+      reminderDays: it.reminderDays, notes: it.notes?.trim() || undefined,
+    };
+  };
   const fpPatch = useCallback((patch: Partial<FinancialPictureData>) => one(w => { w.fp = { ...w.fp, ...patch }; w.touched.add("fp"); }), [one]);
 
   const act: PictureState["act"] = useMemo(() => ({
-    setCover: (g, id, a) => one(w => applyCov(w, g, id, a)),
-    setAmount: (g, id, v) => one(w => applyAmt(w, g, id, v)),
+    setCover: (g, id, a) => { one(w => applyCov(w, g, id, a)); confirmIfDetected(g, id); },
+    setAmount: (g, id, v) => { one(w => applyAmt(w, g, id, v)); confirmIfDetected(g, id); },
     setMatch: mm => fpPatch({ employerMatch: mm ? { ...mm, answer: mm.answer ?? "yes", at: new Date().toISOString() } : undefined }),
     setRisk: r => fpPatch({ riskProfile: r }),
     setFiling: f => one(w => { if (f === "married_joint") w.fp.overrides.filingStatusCode = 1; else delete w.fp.overrides.filingStatusCode; w.touched.add("fp"); }),
@@ -332,7 +444,12 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     addGoal: g => one(w => { w.goals.push({ ...g, id: newId("sg"), createdAt: new Date().toISOString() }); w.touched.add("goals"); }),
     removeGoal: id => one(w => { w.goals = w.goals.filter(x => x.id !== id); w.touched.add("goals"); }),
     setShares: s => fpPatch({ shares: s }),
-  }), [one, fpPatch, applyAmt, applyCov]);
+    addPlanItem: it => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []), { ...planToManual(it), id: newId("mi"), createdAt: new Date().toISOString() }]; w.touched.add("fp"); }),
+    updatePlanItem: (id, it) => one(w => { w.fp.manualItems = (w.fp.manualItems ?? []).map(x => (x.id === id ? { ...x, ...planToManual(it) } : x)); w.touched.add("fp"); }),
+    restoreManualItem: item => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []).filter(x => x.id !== item.id), item]; w.touched.add("fp"); }),
+    dismissRec: id => props.onUpdate({ dismissedInsights: [...new Set([...(props.dismissedInsights ?? []), id])] }),
+    restoreRec: id => props.onUpdate({ dismissedInsights: (props.dismissedInsights ?? []).filter(x => x !== id) }),
+  }), [one, fpPatch, applyAmt, applyCov, confirmIfDetected, props]);
 
   const startEdit = useCallback(() => { setDraft({}); setEditing(true); }, []);
   const resetDraft = useCallback(() => setDraft({}), []);
@@ -344,10 +461,11 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
         const id = rest.join(":");
         if (kind === "amt") applyAmt(w, g, id, Number(v));
         else if (kind === "cov") applyCov(w, g, id, v === "" ? null : String(v));
+        confirmIfDetected(g, id);
       }
     });
     setDraft({}); setEditing(false);
-  }, [draft, one, applyAmt, applyCov]);
+  }, [draft, one, applyAmt, applyCov, confirmIfDetected]);
   const draftAmt = useCallback((g: string, id: string) => { const v = draft[`amt:${g}:${id}`]; return v === undefined ? undefined : Number(v); }, [draft]);
   const draftCov = useCallback((g: string, id: string) => { const k = `cov:${g}:${id}`; if (!(k in draft)) return undefined; const v = draft[k]; return v === "" ? null : String(v); }, [draft]);
   const setDraftAmt = useCallback((g: string, id: string, v: number) => setDraft(d => ({ ...d, [`amt:${g}:${id}`]: v })), []);
@@ -369,7 +487,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     rowsFor, sumOf, findRow, acct, pool, tax, savers, match, bd, cov, map, flow, steps, risk, riskInfo,
     shares: { ...sharesRaw, total: sharesTotal, account: sharesAcct },
     editing, startEdit, resetDraft, cancelEdit, saveEdit, draftAmt, draftCov, setDraftAmt, setDraftCov, act,
-    recurring,
+    recurring, plan,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

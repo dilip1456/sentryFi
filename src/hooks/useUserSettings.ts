@@ -114,9 +114,22 @@ export interface FinancialPictureManualItem {
   id: string;
   group: "obligations" | "fixed";
   label: string;
+  /** Monthly equivalent (what the plan rows use). */
   monthly: number;
   dueDay?: number;
   createdAt: string;
+  // One Financial Picture plan (all optional; older items are monthly bills).
+  category?: import("@/lib/picture/obligations").ObligationCategory;
+  /** Per occurrence; manual items always have an amount. */
+  amount?: number;
+  amountKind?: "fixed" | "estimated";
+  cadence?: import("@/lib/picture/obligations").PlanCadence;
+  /** For cadence "custom": every N days. */
+  intervalDays?: number;
+  nextDue?: string;
+  /** Remind this many days before it's due. */
+  reminderDays?: number;
+  notes?: string;
 }
 
 export { FP_UNASSIGNED } from "@/lib/picture/keys";
