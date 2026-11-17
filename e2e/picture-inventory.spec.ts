@@ -113,6 +113,23 @@ test.describe("demo", () => {
     await expect(page.getByTestId("insights-page")).toBeVisible();
   });
 
+  test("savings can be added by hand from the Picture and edited", async ({ page }) => {
+    await openDemo(page);
+    await page.locator("aside").getByRole("button", { name: "My Financial Picture", exact: true }).click();
+    const savings = page.getByTestId("pic-savings");
+    await savings.getByRole("button", { name: "Add savings" }).click();
+    const sheet = page.getByRole("dialog", { name: "Add a savings goal" });
+    await sheet.getByLabel("Goal name").fill("House fund");
+    await sheet.getByLabel("Amount per month").fill("350");
+    await sheet.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(sheet).toBeHidden();
+    const row = savings.getByTestId("inv-saving").filter({ hasText: "House fund" });
+    await expect(row).toContainText("$350");
+    await expect(row).toContainText("$4,200/yr");
+    await row.click();
+    await expect(page.getByRole("dialog").filter({ hasText: "House fund" }).first()).toBeVisible();
+  });
+
   test("manual income can be added, edited and removed", async ({ page }) => {
     await openDemo(page);
     await page.locator("aside").getByRole("button", { name: "My Financial Picture", exact: true }).click();
