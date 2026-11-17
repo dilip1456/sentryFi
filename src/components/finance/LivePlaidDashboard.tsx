@@ -20,7 +20,6 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
-import { MyFinancialPictureRedesign } from "@/components/finance/MyFinancialPictureRedesign";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
@@ -6691,14 +6690,13 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  if (view === "myfinances" || view === "myfinances-redesign") {
+  if (view === "myfinances") {
     // Keep profile-backed editors closed until Supabase has supplied the
     // saved values; otherwise defaults can overwrite the user's first edit.
     if (!settingsLoaded) return null;
-    const PictureScreen = view === "myfinances-redesign" ? MyFinancialPictureRedesign : MyFinancialPicture;
     return (
       <>
-      <PictureScreen
+      <MyFinancialPicture
         txns={txns}
         accounts={accounts}
         getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
@@ -6716,6 +6714,8 @@ export const LivePlaidDashboard = ({
         demo={demo || guestDemo}
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}
+        manualAccounts={manualAccounts}
+        onNavigate={onViewChange}
       />
       {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
