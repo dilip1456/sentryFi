@@ -34,6 +34,7 @@ export interface PictureSettingsPatch {
   cardAutopayFrom?: Record<string, string>;
   savingsGoals?: SavingsGoal[];
   dismissedInsights?: string[];
+  manualIncome?: ManualIncomeItem[];
 }
 
 export interface MyFinancialPictureProps {
@@ -98,6 +99,13 @@ export interface PlanState {
   giftCardsLoaded: boolean;
   benefits: BenefitSummary | null;
   creditCardCount: number;
+  /** 401(k) per month (payroll deductions, else the % typed in) and where it came from. */
+  k401Monthly: number;
+  k401Source: "payroll" | "entered" | "none";
+  /** Take-home income per month (salary, bonus, other, added by hand). */
+  incomeMonthly: number;
+  /** Set aside per month: savings goals & transfers, pre-tax 401(k)/HSA/FSA and ESPP. */
+  savingsMonthly: number;
 }
 
 export type ListGroup = Exclude<PictureGroup, "cards">;
@@ -180,6 +188,11 @@ export interface PictureState {
     restoreManualItem: (item: FinancialPictureManualItem) => void;
     dismissRec: (id: string) => void;
     restoreRec: (id: string) => void;
+    /** Income added by hand (pension, rent from a tenant, side work): take-home per month. */
+    addIncome: (it: { label: string; amount: number; accountId?: string }) => void;
+    updateIncome: (id: string, it: { label: string; amount: number; accountId?: string }) => void;
+    removeIncome: (id: string) => void;
+    restoreIncome: (it: ManualIncomeItem) => void;
     /** Tax inputs bank data can't show; undefined fields are cleared. */
     setTaxInputs: (t: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number }) => void;
   };
@@ -242,15 +255,18 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   // background) past midnight, and a frozen date hid newer payments (posted
   // after it) and kept already-paid bills flagged as missed. Recomputed on
   // every refresh and when the app comes back to the foreground.
-  const [, setWake] = useState(0);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { setNow(new Date()); }, [props.txns]);
   useEffect(() => {
-    const wake = () => { if (document.visibilityState !== "hidden") setWake(n => n + 1); };
+    const wake = () => {
+      if (document.visibilityState === "hidden") return;
+      setNow(prev => (ymd(prev) === ymd(new Date()) ? prev : new Date()));
+    };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
     return () => { document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
   }, []);
-  const dayKey = props.today ? "" : ymd(new Date());
-  const today = useMemo(() => props.today ?? new Date(), [props.today, dayKey, props.txns]);
+  const today = props.today ?? now;
   const todayISO = ymd(today);
   // Demo: example yearly / twice-a-year / quarterly bills for the plan (Picture only).
   const txns = useMemo(() => (demo ? [...props.txns, ...demoPlanTransactions(todayISO)] : props.txns), [demo, props.txns, todayISO]);
@@ -369,8 +385,10 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     return {
       todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, toReview, nw, cash,
       savingsRate: sr, allocation, taxes, recs, giftCards, giftCardsLoaded: gc.loaded, benefits, creditCardCount: Object.keys(cardNames).length,
+      k401Monthly: k401.annual / 12, k401Source: k401.source, incomeMonthly: takeHome,
+      savingsMonthly: savingsMonthly + k401.annual / 12 + m.payroll.hsa + m.payroll.espp + fsaAnnual / 12,
     };
-  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames, k401]);
+  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames, k401, fsaAnnual]);
 
   // ── writes ──
   const working = useCallback((): Working => ({
@@ -470,6 +488,10 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     addPlanItem: it => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []), { ...planToManual(it), id: newId("mi"), createdAt: new Date().toISOString() }]; w.touched.add("fp"); }),
     updatePlanItem: (id, it) => one(w => { w.fp.manualItems = (w.fp.manualItems ?? []).map(x => (x.id === id ? { ...x, ...planToManual(it) } : x)); w.touched.add("fp"); }),
     restoreManualItem: item => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []).filter(x => x.id !== item.id), item]; w.touched.add("fp"); }),
+    addIncome: it => props.onUpdate({ manualIncome: [...(props.manualIncome ?? []), { id: newId("inc"), label: it.label.trim(), amount: Math.round(it.amount * 100) / 100, accountId: it.accountId || undefined }] }),
+    updateIncome: (id, it) => props.onUpdate({ manualIncome: (props.manualIncome ?? []).map(x => (x.id === id ? { ...x, label: it.label.trim(), amount: Math.round(it.amount * 100) / 100, accountId: it.accountId || undefined } : x)) }),
+    removeIncome: id => props.onUpdate({ manualIncome: (props.manualIncome ?? []).filter(x => x.id !== id) }),
+    restoreIncome: it => props.onUpdate({ manualIncome: [...(props.manualIncome ?? []).filter(x => x.id !== it.id), it] }),
     dismissRec: id => props.onUpdate({ dismissedInsights: [...new Set([...(props.dismissedInsights ?? []), id])] }),
     restoreRec: id => props.onUpdate({ dismissedInsights: (props.dismissedInsights ?? []).filter(x => x !== id) }),
     setTaxInputs: t => fpPatch({ taxInputs: { ...t, at: new Date().toISOString() } }),

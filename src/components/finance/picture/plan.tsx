@@ -1,10 +1,10 @@
 /**
- * One Financial Picture: the plan. Everything you have to pay or set money
- * aside for (weekly to yearly, detected or typed in), whether it's all
- * accounted for, where the money goes, taxes and recommendations — with net
- * worth and accounts as context. Data: src/lib/picture/{obligations,
- * overview,plan-insights}.ts via the Picture state; nothing new is fetched
- * here except through usePictureExtras (gift cards, card perks).
+ * My Financial Picture: obligations & expenses (every bill you can expect,
+ * weekly to yearly, detected or typed in), the review queue and whether it's
+ * all accounted for; plus the Insights cards (where the money goes, taxes,
+ * recommendations) shown on the Insights screen. Data: src/lib/picture/
+ * {obligations,overview,plan-insights}.ts via the Picture state; nothing new
+ * is fetched here except through usePictureExtras (gift cards, card perks).
  *
  * Overlay keys: "plan:add", "plan:edit:<manualId>", "plan:item:<obligation id>"
  * (a bottom sheet on phones), "plan:taxes", "plan:nw:<group>".
@@ -44,52 +44,23 @@ function Card({ id, icon, title, sub, right, children, testId }: { id?: string; 
   );
 }
 
-// ── Summary ─────────────────────────────────────────────────────────────────
-
-export function PlanSummary() {
-  const { plan } = usePicture();
-  const outs = plan.next30.events.filter(e => e.direction === "outflow");
-  const setAside = plan.totals.reduce((s, t) => s + t.setAside, 0);
-  const monthly = plan.totals.reduce((s, t) => s + t.monthly, 0);
-  const annual = plan.totals.reduce((s, t) => s + t.annual, 0);
-  const a = plan.accounted;
-  const done = a.paid + a.covered;
-  const pct = a.expected ? Math.round((done / a.expected) * 100) : 100;
-  return (
-    <section className="pl-summary" aria-label="Plan summary" data-testid="plan-summary">
-      <button type="button" className="pl-metric" onClick={() => document.getElementById("plan-upcoming")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-        <span>Due next 30 days</span><strong>{fmt(plan.next30.outflow)}</strong><small>{outs.length} payment{outs.length === 1 ? "" : "s"}</small>
-      </button>
-      <button type="button" className={`pl-metric ${a.missing.length || a.uncovered.length ? "warn" : ""}`} onClick={() => document.getElementById("plan-accounted")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-        <span>Accounted for</span><strong>{done} of {a.expected}</strong><small>{a.missing.length ? `${a.missing.length} not seen yet` : `${pct}% this month`}</small>
-      </button>
-      <button type="button" className="pl-metric" onClick={() => document.getElementById("plan-cats")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-        <span>Set aside each month</span><strong>{fmt(setAside)}</strong><small>for non-monthly bills</small>
-      </button>
-      <button type="button" className="pl-metric" onClick={() => document.getElementById("plan-cats")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-        <span>All expenses</span><strong>{fmt(monthly)}<i>/mo</i></strong><small>{fmt(annual)} a year</small>
-      </button>
-      <p className="pl-context"><Landmark className="h-3.5 w-3.5" aria-hidden="true" />Net worth <b>{fmt(plan.nw.netWorth)}</b> · Cash <b>{fmt(plan.cash)}</b>{plan.savingsRate.pct != null && <> · Savings rate <b>{plan.savingsRate.pct}%</b></>}</p>
-    </section>
-  );
-}
-
 // ── Review queue ────────────────────────────────────────────────────────────
 
 export function ReviewQueue() {
   const pc = usePicture();
   const { open } = useOverlay();
   const list = pc.plan.toReview;
-  const { items } = pc.m.review;
+  // Only when something needs a decision: no "all caught up" card.
+  if (!list.length) return null;
   return (
     <section className="sec rcv-card pl-queue" data-testid="rcv-card" aria-label="To review">
       <div className="sec-h">
         <span className="sec-ico" aria-hidden="true"><Sparkles className="h-[18px] w-[18px]" /></span>
         <div className="min-w-0 flex-1"><h3 className="sec-t">To review</h3>
-          <div className="sec-s" data-testid="rcv-count">{list.length ? `${list.length} detected item${list.length === 1 ? "" : "s"} to confirm or dismiss` : items.length ? "All caught up. Detected items are in your plan." : "Nothing detected yet"}</div></div>
-        <button type="button" className="sec-more tap-44" onClick={() => open("rcv")}>{list.length ? "Review all" : "See all"}<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
+          <div className="sec-s" data-testid="rcv-count">{`${list.length} detected bill${list.length === 1 ? "" : "s"} to confirm or dismiss`}</div></div>
+        <button type="button" className="sec-more tap-44" onClick={() => open("rcv")}>Review all<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
       </div>
-      {list.length > 0 && <div className="rows">{list.slice(0, 4).map(it => <ItemRow key={it.key} it={it} />)}</div>}
+      <div className="rows">{list.slice(0, 4).map(it => <ItemRow key={it.key} it={it} />)}</div>
       {list.length > 4 && <p className="mini mt-2">and {list.length - 4} more</p>}
     </section>
   );
@@ -114,7 +85,7 @@ function ObRow({ ob, date, overdue }: { ob: Obligation; date?: string; overdue?:
       <span className="pl-lbl"><b>{ob.label}</b><small>{sub}</small>
         <span className="pl-tags"><span className={st.cls}>{st.text}</span>{late && <span className="pl-st bad"><CircleAlert className="h-3 w-3" aria-hidden="true" />{ob.source === "giftcard" ? "Expired" : "Overdue"}</span>}{soon && <span className="pl-st warn"><CalendarClock className="h-3 w-3" aria-hidden="true" />{d === t ? "Due today" : `In ${diffDays(d!, t)} day${diffDays(d!, t) === 1 ? "" : "s"}`}</span>}</span>
       </span>
-      <span className="pl-amt">{ob.amountKind === "estimated" ? "~" : ""}{money(ob.amount)}{ob.noCost && <small>balance</small>}</span>
+      <span className="pl-amt">{ob.amountKind === "estimated" ? "~" : ""}{money(ob.amount)}{ob.noCost ? <small>balance</small> : ob.annual > 0 ? <small>{fmt(ob.annual)}/yr</small> : null}</span>
     </button>
   );
 }
@@ -138,11 +109,11 @@ export function UpcomingPlan() {
     return order.map(b => ({ b, list: pc.plan.obligations.filter(o => !o.noCost && cadenceBucket(o) === b) })).filter(x => x.list.length);
   }, [pc.plan.obligations]);
   return (
-    <Card id="plan-upcoming" testId="plan-upcoming" icon={<CalendarClock className="h-[18px] w-[18px]" />} title="Your plan"
-      sub="Everything you can expect to pay: weekly to yearly, detected or added by you."
+    <Card id="plan-upcoming" testId="plan-upcoming" icon={<CalendarClock className="h-[18px] w-[18px]" />} title="Obligations & expenses"
+      sub="Every bill you can expect over the year: insurance, registration, taxes, HOA, utilities, housing, loans & cards, subscriptions and fees. Detected or added by you."
       right={<button type="button" className="btn tap-44 pl-add" onClick={() => open("plan:add")}><Plus className="h-4 w-4" aria-hidden="true" />Add expense</button>}>
       <div className="pl-controls">
-        <Seg<PlanView> label="Plan view" value={view} onChange={setView} options={[["timeline", "Upcoming"], ["cadence", "By cadence"], ["category", "By category"]]} />
+        <Seg<PlanView> label="Obligations view" value={view} onChange={setView} options={[["timeline", "Upcoming"], ["cadence", "By cadence"], ["category", "By category"]]} />
         {view === "timeline" && <Seg<PlanWindow> label="Time range" value={win} onChange={setWin} options={[["week", "Week"], ["month", "Month"], ["quarter", "3 months"], ["year", "Year"]]} />}
       </div>
       {view === "timeline" && <>
@@ -221,7 +192,7 @@ export function RecsCard() {
     if (a === "review") open("rcv");
     else if (a === "match" || a === "taxes") open("taxsavers");
     else if (a === "taxinputs") open("plan:taxes");
-    else if (a === "upcoming") document.getElementById("plan-upcoming")?.scrollIntoView({ behavior: "smooth" });
+    else if (a === "upcoming") { const el = document.getElementById("plan-upcoming"); if (el) el.scrollIntoView({ behavior: "smooth" }); else pc.props.onNavigate?.("myfinances"); }
     else if (a === "giftcards") pc.props.onNavigate?.("giftcards");
   };
   const recs = pc.plan.recs;
@@ -229,7 +200,7 @@ export function RecsCard() {
     <Card testId="plan-recs" icon={<Lightbulb className="h-[18px] w-[18px]" />} title="Recommendations" sub={recs.length ? "Based on your own numbers. Dismiss what doesn't apply." : "Nothing to suggest right now."}>
       {recs.length > 0 && <ul className="pl-recs">{recs.map(r => (
         <li key={r.id} className={`pl-rec ${r.tone}`} data-testid="plan-rec">
-          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go tap-44" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See plan" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
+          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go tap-44" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See obligations" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
           <button type="button" className="icon-btn tap-44 shrink-0" aria-label={`Dismiss: ${r.title}`} onClick={() => { pc.act.dismissRec(r.id); toast("Recommendation dismissed", { id: "fp-rec", action: { label: "Undo", onClick: () => pc.act.restoreRec(r.id) } }); }}><X className="h-4 w-4" /></button>
         </li>
       ))}</ul>}
@@ -333,36 +304,9 @@ export function TaxCard() {
     right={<button type="button" className="sec-more tap-44" onClick={() => open("plan:taxes")}>Details<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>}><TaxBody full={false} /></Card>;
 }
 
-// ── Net worth & more (context) ──────────────────────────────────────────────
+// ── Net worth details ───────────────────────────────────────────────────────
 
 const NW_LABEL: Record<NetWorthGroupKey, string> = { cash: "Cash & savings", credit: "Credit cards", loans: "Loans & mortgage", investments: "Investments" };
-
-export function NetWorthCard() {
-  const { plan } = usePicture();
-  const { open } = useOverlay();
-  const g = plan.nw.groups;
-  return (
-    <Card testId="plan-networth" icon={<Landmark className="h-[18px] w-[18px]" />} title="Net worth" sub={<>Assets {fmt(plan.nw.assets)} · Owed {fmt(plan.nw.liabilities)}</>} right={<b className="kpi text-[22px]">{fmt(plan.nw.netWorth)}</b>}>
-      <div className="rows">{(Object.keys(NW_LABEL) as NetWorthGroupKey[]).filter(k => g[k].accounts.length).map(k => (
-        <button key={k} type="button" className="pl-nw" onClick={() => open(`plan:nw:${k}`)}><span>{NW_LABEL[k]}<small>{g[k].accounts.length} account{g[k].accounts.length === 1 ? "" : "s"}</small></span><b className={k === "credit" || k === "loans" ? "text-negative" : ""}>{k === "credit" || k === "loans" ? "−" : ""}{fmt(g[k].total)}</b><ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></button>
-      ))}</div>
-    </Card>
-  );
-}
-
-export function MoreCard() {
-  const pc = usePicture();
-  const { giftCards: gc, benefits, creditCardCount } = pc.plan;
-  const nav = pc.props.onNavigate;
-  return (
-    <Card testId="plan-more" icon={<Gift className="h-[18px] w-[18px]" />} title="Gift cards & card perks">
-      <div className="rows">
-        <button type="button" className="pl-nw" onClick={() => nav?.("giftcards")} disabled={!nav}><span>Gift cards<small>{gc.count ? `${gc.count} card${gc.count === 1 ? "" : "s"}${gc.issuers[0] ? ` · most at ${gc.issuers[0].name}` : ""}${gc.expiringSoon ? ` · ${gc.expiringSoon} expiring soon` : ""}` : pc.plan.giftCardsLoaded ? "None saved" : "Loading…"}</small></span><b>{fmt(gc.total)}</b><ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></button>
-        <button type="button" className="pl-nw" onClick={() => nav?.("benefits")} disabled={!nav}><span>Card perks<small>{benefits ? `${benefits.totalPerks} perks · ${benefits.pendingActions} to use` : creditCardCount ? `Perks for your ${creditCardCount} credit card${creditCardCount === 1 ? "" : "s"}` : "No credit cards linked"}</small></span><b>{benefits ? benefits.completed : ""}</b><ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" /></button>
-      </div>
-    </Card>
-  );
-}
 
 // ── Details ─────────────────────────────────────────────────────────────────
 
@@ -390,7 +334,7 @@ function ObligationDetail({ ob }: { ob: Obligation }) {
       <div className="rcv-btns mt-4">
         {it && it.status === "suggested" && <button type="button" className="btn-gold" onClick={() => { ra.confirm(it); close(); }}><Check className="h-4 w-4" aria-hidden="true" />Confirm</button>}
         {it && <button type="button" className="btn" onClick={() => open(`rcv:item:${encodeURIComponent(it.key)}`)}>Edit</button>}
-        {it && <button type="button" className="btn" onClick={() => { ra.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />{it.status === "suggested" ? "Not a bill" : "Remove from plan"}</button>}
+        {it && <button type="button" className="btn" onClick={() => { ra.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />{it.status === "suggested" ? "Not a bill" : "Remove"}</button>}
         {manual && <button type="button" className="btn" onClick={() => open(`plan:edit:${manual.id}`)}>Edit</button>}
         {manual && <button type="button" className="btn" onClick={() => {
           pc.act.removeManualItem(manual.id); close();
@@ -424,13 +368,13 @@ function PlanForm({ editId }: { editId?: string }) {
     if (!ok) return;
     const it: PlanItemInput = { label, category, amount: Math.round(amt * 100) / 100, amountKind, cadence, intervalDays: cadence === "custom" ? days : undefined, nextDue, reminderDays: Number(reminder) > 0 ? Math.round(Number(reminder)) : undefined, notes };
     if (ex) pc.act.updatePlanItem(ex.id, it); else pc.act.addPlanItem(it);
-    toast.success(ex ? `${label.trim()} updated` : `${label.trim()} added to your plan`, { id: "fp-plan" });
+    toast.success(ex ? `${label.trim()} updated` : `${label.trim()} added to your Picture`, { id: "fp-plan" });
     close();
   };
   const field = "mt-1 w-full min-h-11 rounded-[10px] border border-border bg-transparent px-3 text-[14px]";
   return (
     <form className="space-y-3" data-testid="plan-form" onSubmit={e => { e.preventDefault(); submit(); }}>
-      <p className="mini">For expenses that don't show up in your bank transactions, or that you want to plan ahead for. Every item needs an amount.</p>
+      <p className="mini">For expenses that don't show up in your bank transactions, or that you want to see coming. Every item needs an amount.</p>
       <label className="block text-[13px]"><span className="text-muted-foreground">Name</span><input className={field} value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Car registration" aria-label="Name" /></label>
       <label className="block text-[13px]"><span className="text-muted-foreground">Category</span>
         <select className={field} value={category} onChange={e => setCategory(e.target.value as ObligationCategory)} aria-label="Category">{OBLIGATION_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</select></label>
@@ -447,7 +391,7 @@ function PlanForm({ editId }: { editId?: string }) {
       {cadence === "custom" && <label className="block text-[13px]"><span className="text-muted-foreground">Every how many days</span><input className={field} inputMode="numeric" value={interval} onChange={e => setInterval(e.target.value)} aria-label="Every how many days" /></label>}
       <label className="block text-[13px]"><span className="text-muted-foreground">Remind me (days before, optional)</span><input className={field} inputMode="numeric" value={reminder} onChange={e => setReminder(e.target.value)} aria-label="Reminder days before" /></label>
       <label className="block text-[13px]"><span className="text-muted-foreground">Notes (optional)</span><textarea className={`${field} py-2`} rows={2} value={notes} onChange={e => setNotes(e.target.value)} aria-label="Notes" /></label>
-      <button type="submit" className="btn-gold w-full" disabled={!ok}>{ex ? "Save" : "Add to plan"}</button>
+      <button type="submit" className="btn-gold w-full" disabled={!ok}>{ex ? "Save" : "Add expense"}</button>
     </form>
   );
 }

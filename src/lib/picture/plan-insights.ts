@@ -225,7 +225,7 @@ export function recommendations(i: RecInput): Recommendation[] {
     out.push({ id: `rec:buffer:${weeks < 4 ? "low" : weeks < 13 ? "mid" : "ok"}`, tone: weeks < 4 ? "warn" : "info", title: `Your cash covers about ${weeks} week${weeks === 1 ? "" : "s"} of bills`, why: `${usd(i.cash)} in checking and savings against about ${usd(weekly)} a week of expected expenses${weeks < 13 ? ". Many people aim for 3–6 months." : "."}` });
   }
 
-  if (i.toReview > 0) out.push({ id: `rec:review:${i.toReview}`, tone: "info", title: `Review ${i.toReview} detected bill${i.toReview === 1 ? "" : "s"}`, why: "We found these repeating in your transactions. Confirm the real ones so your plan and totals are complete.", action: "review" });
+  if (i.toReview > 0) out.push({ id: `rec:review:${i.toReview}`, tone: "info", title: `Review ${i.toReview} detected bill${i.toReview === 1 ? "" : "s"}`, why: "We found these repeating in your transactions. Confirm the real ones so your Picture and totals are complete.", action: "review" });
   if (i.giftCardsExpiringSoon > 0) out.push({ id: `rec:gift:${i.today.slice(0, 7)}`, tone: "info", title: `${i.giftCardsExpiringSoon} gift card${i.giftCardsExpiringSoon === 1 ? " expires" : "s expire"} within 30 days`, why: "Use the balance before it's gone.", action: "giftcards" });
 
   const gone = new Set(i.dismissed);

@@ -20,6 +20,7 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
@@ -4399,6 +4400,10 @@ export const LivePlaidDashboard = ({
   const saveMeta = (accountId: string, meta: Partial<AccountMeta>) => S.setAccountMeta(accountId, meta);
 
   const [loading, setLoading]       = useState(true);
+  // True once transactions have loaded at least once: a later refresh / sync
+  // keeps the Picture on screen (it recomputes in place) instead of
+  // unmounting it behind a skeleton.
+  const [everLoaded, setEverLoaded] = useState(false);
   const [syncing, setSyncing]       = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date|null>(null);
   const [accounts, setAccounts]     = useState<PAccount[]>([]);
@@ -4706,6 +4711,7 @@ export const LivePlaidDashboard = ({
       setItems(demoItems as unknown as PItem[]);
       setCreditDetails([]);
       setLoading(false);
+      setEverLoaded(true);
       return;
     }
     if (!user) return;
@@ -4746,6 +4752,7 @@ export const LivePlaidDashboard = ({
       toast.error("Failed to load data", { description: (e as Error)?.message });
     } finally {
       setLoading(false);
+      setEverLoaded(true);
     }
   },[user, demo]);
 
@@ -5061,6 +5068,8 @@ export const LivePlaidDashboard = ({
   // ── Tick thinning for dense charts ────────────────────────
   const nwTickEvery = { "1W":1,"1M":5,"3M":2,"1Y":1,"ALL":1 }[period];
 
+  const pictureView = view === "myfinances" || view === "insights";
+  if (!demo && !guestDemo && user && !settingsLoaded && pictureView) return <PictureSkeleton insights={view === "insights"} />;
   if (!demo && !guestDemo && user && !settingsLoaded) return (
     <div className="min-h-[40vh] grid place-items-center">
       <div className="flex items-center gap-2 text-muted-foreground text-[13px]">
@@ -5068,8 +5077,9 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading) {
-    if (view === "spending" || view === "myfinances") return <SpendingSkeleton />;
+  if (loading && pictureView && !everLoaded) return <PictureSkeleton insights={view === "insights"} />;
+  if (loading && !pictureView) {
+    if (view === "spending") return <SpendingSkeleton />;
     return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -6690,13 +6700,14 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  if (view === "myfinances") {
+  if (pictureView) {
     // Keep profile-backed editors closed until Supabase has supplied the
     // saved values; otherwise defaults can overwrite the user's first edit.
-    if (!settingsLoaded) return null;
+    if (!settingsLoaded) return <PictureSkeleton insights={view === "insights"} />;
     return (
       <>
       <MyFinancialPicture
+        mode={view === "insights" ? "insights" : "picture"}
         txns={txns}
         accounts={accounts}
         getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}

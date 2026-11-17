@@ -47,17 +47,18 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
+import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import { isLegacyPictureView } from "@/lib/picture/legacy-view";
 import {
   LayoutDashboard, Sparkles, PieChart, Users, Loader2,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical, Lightbulb,
   type LucideIcon,
 } from "lucide-react";
 
-type View = "overall" | "benefits" | "spending" | "myfinances" | "moneymap" | "accounts" | "giftcards" | "admin";
+type View = "overall" | "benefits" | "spending" | "myfinances" | "insights" | "moneymap" | "accounts" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
 // Money Map ("moneymap") still renders if something sets that view, but it
@@ -68,6 +69,9 @@ const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: strin
   { k: "spending",    label: "Spending",           icon: PieChart        },
   { k: "accounts",    label: "Accounts",           icon: Landmark        },
   { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
+  // Taxes, where the money goes, recommendations and the monthly breakdown
+  // (moved off the Picture, which is now the inventory). Desktop nav + More.
+  { k: "insights",    label: "Insights",           icon: Lightbulb       },
   { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
@@ -193,9 +197,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "myfinances";
+  // My Financial Picture and Insights share one full-bleed render path.
+  const pictureView      = view === "myfinances" || view === "insights";
+  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && !pictureView;
   const showLiveSpending = !effectiveDemo && hasItems === true  && view === "spending";
-  const showLiveFinances = !effectiveDemo && hasItems === true  && view === "myfinances";
+  const showLiveFinances = !effectiveDemo && hasItems === true  && pictureView;
   const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -298,7 +304,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </button>
 
           <div className="section-label">Money</div>
-          {TABS.filter(t => ["spending","myfinances"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           <div className="section-label">More</div>
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -543,8 +549,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               container below, so they need their own loading + no-accounts
               states; previously both rendered a blank screen while the
               linked-account check was pending or when nothing was linked. */}
-          {(view === "spending" || view === "myfinances") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
-          {(view === "spending" || view === "myfinances") && showEmpty && (
+          {view === "spending" && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
+          {pictureView && !effectiveDemo && hasItems === null && <PictureSkeleton insights={view === "insights"} />}
+          {(view === "spending" || pictureView) && showEmpty && (
             <div className="content-max px-4 md:px-8 pt-6 pb-10">
               <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
             </div>
@@ -586,8 +593,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </>
           )}
 
-          {/* My Financial Picture — full-bleed, own MyFinancialPicture component */}
-          {view === "myfinances" && (
+          {/* My Financial Picture / Insights — full-bleed, own MyFinancialPicture component */}
+          {pictureView && (
             <>
               {showLiveFinances && (
                 <LivePlaidDashboard
@@ -621,7 +628,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
 
           {/* All other views inside padded container */}
-          {view !== "spending" && view !== "myfinances" && (
+          {view !== "spending" && !pictureView && (
           <div className={cn(
             "content-max px-4 md:px-8 pb-10 md:space-y-5",
             // When the urgent strip is up, don't also keep the old pt-6 / space-y
