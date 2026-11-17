@@ -431,10 +431,10 @@
   .fp .pl-cat.head { font-size:9.5px; }
   .fp .pl-alloc { grid-template-columns:minmax(0,1fr); }
   .fp .pl-card .sec-h > .seg { width:100%; order:3; }
-  .fp .pl-rec-go { min-height:44px; }
+  .fp.fp .pl-rec-go { min-height:44px; min-width:44px; }
   .fp .pl-nw { min-height:56px; }
 }
-@media (pointer:coarse) { .fp .pl-rec-go, .fp .pl-cat { min-height:44px; } }
+@media (pointer:coarse) { .fp.fp .pl-rec-go, .fp.fp .pl-cat { min-height:44px; min-width:44px; } }
 @media (max-width:767px) {
   .fp .pl-card .sec-h > .pl-add { order:3; width:100%; }
   .fp .pl-seg button { white-space:nowrap; }

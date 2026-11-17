@@ -229,7 +229,7 @@ export function RecsCard() {
     <Card testId="plan-recs" icon={<Lightbulb className="h-[18px] w-[18px]" />} title="Recommendations" sub={recs.length ? "Based on your own numbers. Dismiss what doesn't apply." : "Nothing to suggest right now."}>
       {recs.length > 0 && <ul className="pl-recs">{recs.map(r => (
         <li key={r.id} className={`pl-rec ${r.tone}`} data-testid="plan-rec">
-          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See plan" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
+          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go tap-44" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See plan" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
           <button type="button" className="icon-btn tap-44 shrink-0" aria-label={`Dismiss: ${r.title}`} onClick={() => { pc.act.dismissRec(r.id); toast("Recommendation dismissed", { id: "fp-rec", action: { label: "Undo", onClick: () => pc.act.restoreRec(r.id) } }); }}><X className="h-4 w-4" /></button>
         </li>
       ))}</ul>}

@@ -397,7 +397,7 @@ for (const vp of WIDTHS) {
       await expect(page.getByTestId("history-hint")).toHaveCount(0);
       const card = page.getByTestId("rcv-card");
       await expect(card).toBeVisible();
-      await expect(card).toContainText(/to review/);
+      await expect(card).toContainText(/to review/i);
       await noHorizontalOverflow(page);
       await shot(page, `after-picture-${vp.name}`);
       expect(guard.consoleErrors).toEqual([]);

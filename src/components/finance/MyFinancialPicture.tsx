@@ -15,7 +15,7 @@
  * src/lib/classify, src/lib/recurring and src/lib/infer). Edits are one
  * settings patch per action through useUserSettings().update.
  */
-import { ChartNoAxesColumnDecreasing, FlaskConical, Pencil } from "lucide-react";
+import { ChartNoAxesColumnDecreasing, Check, FlaskConical, Pencil } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import "./picture/picture.css";
 import { PictureProvider, usePicture, type MyFinancialPictureProps } from "./picture/state";
@@ -94,7 +94,9 @@ function Page({ isMobile }: { isMobile: boolean }) {
       </div>
       <div className="fp-one-period">
         <div><h2 className="font-display text-[22px] font-semibold">Monthly plan & insights</h2><p className="text-[13px] text-muted-foreground">{periodLabel}. Income, paycheck deductions, bills, budgets, cards and savings — all editable.</p></div>
-        <div className="flex items-center gap-2"><PeriodSeg />{!pc.full && <button type="button" className="btn" onClick={pc.editing ? pc.cancelEdit : pc.startEdit}><Pencil className="h-4 w-4" aria-hidden="true" />{pc.editing ? "Cancel" : "Edit"}</button>}</div>
+        <div className="flex items-center gap-2"><PeriodSeg />{!pc.full && (pc.editing
+          ? <><button type="button" className="btn" onClick={pc.cancelEdit}>Cancel</button><button type="button" className="btn-gold" onClick={pc.saveEdit}><Check className="h-4 w-4" aria-hidden="true" />Done</button></>
+          : <button type="button" className="btn" onClick={pc.startEdit}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</button>)}</div>
       </div>
       <div className="grid grid-cols-2 gap-6 xl:gap-8 items-start mt-2">
         <section aria-labelledby="yd-h"><DataDesktop showEditAction={false} /></section>
