@@ -108,6 +108,10 @@ export interface FinancialPictureData {
   confirmations?: Record<string, "yes" | "no">;
   // Bills and loans added by hand ("Add one") that don't show up in transactions.
   manualItems?: FinancialPictureManualItem[];
+  // Tax inputs bank data can't show (Picture → Taxes): 401(k) % of gross pay
+  // (used only when no payroll 401(k) deduction is found), health FSA per
+  // year and mortgage interest per year (Form 1098). Estimates only.
+  taxInputs?: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number; at?: string };
 }
 
 export interface FinancialPictureManualItem {

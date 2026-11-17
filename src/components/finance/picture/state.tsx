@@ -20,7 +20,7 @@ import { coverage, coverageMap, type CoverageResult, type MapBox } from "@/lib/p
 import { cashflowSteps, flowSplit, type FlowSplit, type WaterfallStep } from "@/lib/picture/cashflow";
 import { giftCardSummary, netWorthBreakdown, savingsRate, upcomingWindow, type GiftCardLike, type GiftCardSummary, type ManualAccountLike, type NetWorth, type SavingsRate, type UpcomingWindow } from "@/lib/picture/overview";
 import { accountedFor, buildObligations, categorize, categoryTotals, perYear, project, type AccountedFor, type CategoryTotal, type ManualObligationLike, type Obligation, type ObligationCategory, type PlanCadence } from "@/lib/picture/obligations";
-import { moneyAllocation, recommendations, taxSummary, type Allocation, type Recommendation, type TaxSummary } from "@/lib/picture/plan-insights";
+import { effectiveK401, moneyAllocation, recommendations, taxSummary, type Allocation, type Recommendation, type TaxSummary } from "@/lib/picture/plan-insights";
 import { addDays, pendingReview } from "@/lib/recurring";
 import { demoPlanClass, demoPlanTransactions } from "@/lib/picture/demo-plan";
 import { useBenefitSummary, useGiftCardRows } from "@/hooks/usePictureExtras";
@@ -178,6 +178,8 @@ export interface PictureState {
     restoreManualItem: (item: FinancialPictureManualItem) => void;
     dismissRec: (id: string) => void;
     restoreRec: (id: string) => void;
+    /** Tax inputs bank data can't show; undefined fields are cleared. */
+    setTaxInputs: (t: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number }) => void;
   };
   plan: PlanState;
   // "Detected recurring" review
@@ -250,9 +252,12 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const per = full ? "/yr" : "/mo";
   const perWord = full ? "a year" : "a month";
 
-  const tax = useMemo(() => taxSnapshot({ gross: m.gross.annual, hsa: m.payroll.hsa * 12, k401: m.payroll.k401 * 12, filing: m.filing, year }), [m, year]);
-  const savers = useMemo(() => taxSaverNumbers(m.gross.annual, m.payroll.hsa * 12, m.payroll.k401 * 12, m.filing, year), [m, year]);
-  const match = useMemo(() => matchStatus(fp.employerMatch, m.gross.annual, m.payroll.k401 * 12), [fp.employerMatch, m]);
+  // 401(k): payroll deductions when found, else the % typed in (Taxes → Your tax inputs). FSA skips income tax and FICA like a payroll HSA.
+  const k401 = useMemo(() => effectiveK401(m.payroll.k401, m.gross.annual, fp.taxInputs), [m, fp.taxInputs]);
+  const fsaAnnual = Math.max(0, fp.taxInputs?.fsaAnnual ?? 0);
+  const tax = useMemo(() => taxSnapshot({ gross: m.gross.annual, hsa: m.payroll.hsa * 12 + fsaAnnual, k401: k401.annual, filing: m.filing, year }), [m, year, k401, fsaAnnual]);
+  const savers = useMemo(() => taxSaverNumbers(m.gross.annual, m.payroll.hsa * 12, k401.annual, m.filing, year), [m, year, k401]);
+  const match = useMemo(() => matchStatus(fp.employerMatch, m.gross.annual, k401.annual), [fp.employerMatch, m, k401]);
 
   const sharesRaw: Shares = fp.shares ?? {};
   const sharesTotal = (sharesRaw.esppValue ?? 0) + (sharesRaw.rsuValue ?? 0);
@@ -329,25 +334,27 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     const next30 = upcomingWindow({ today: todayISO, items: [...incomeItems, ...m.review.items.filter(i => i.direction === "outflow" && i.group !== "income")], startCash: checking, extra });
     const savingsMonthly = m.rows.savings.reduce((s, r) => s + r.monthly, 0);
     const takeHome = m.rows.income.reduce((s, r) => s + r.monthly, 0);
-    const sr = savingsRate({ savingsMonthly, payrollSavingsMonthly: m.payroll.k401 + m.payroll.hsa + m.payroll.espp, grossMonthly: m.gross.annual / 12, takeHomeMonthly: takeHome });
+    const sr = savingsRate({ savingsMonthly, payrollSavingsMonthly: k401.annual / 12 + m.payroll.hsa + m.payroll.espp, grossMonthly: m.gross.annual / 12, takeHomeMonthly: takeHome });
     const allocation = moneyAllocation({
       grossMonthly: m.gross.annual / 12, takeHomeMonthly: takeHome, taxMonthly: (tax.fed + tax.fica) / 12,
-      payroll: { k401: m.payroll.k401, hsa: m.payroll.hsa, espp: m.payroll.espp, rsu: m.payroll.rsu },
+      payroll: { k401: k401.annual / 12, hsa: m.payroll.hsa, espp: m.payroll.espp, rsu: m.payroll.rsu },
       savings: m.rows.savings.map(r => { const to = r.toId ? m.acct.get(r.toId) : undefined; return { monthly: r.monthly, toSubtype: to?.subtype, toType: to?.type }; }),
       obligations, budgetsMonthly: m.rows.budgets.reduce((s, r) => s + r.monthly, 0),
     });
-    const taxes = taxSummary({ today: todayISO, year, gross: m.gross.annual, grossEstimated: m.gross.estimated, filing: m.filing, filingSet: fp.overrides?.filingStatusCode != null, tax, savers, reviewItems: m.review.items, hsaMonthly: m.payroll.hsa, k401Monthly: m.payroll.k401 });
+    const taxes = taxSummary({ today: todayISO, year, gross: m.gross.annual, grossEstimated: m.gross.estimated, filing: m.filing, filingSet: fp.overrides?.filingStatusCode != null, tax, savers, reviewItems: m.review.items, hsaMonthly: m.payroll.hsa, k401Monthly: k401.annual / 12, inputs: fp.taxInputs, k401Source: k401.source });
     const giftCards = giftCardSummary(gc.rows, todayISO);
     const utilityPayments = m.review.items.filter(i => i.direction === "outflow" && categorize(i.label, i.kind, i.subtype, i.cadence) === "utilities").flatMap(i => i.matched.map(t => ({ date: t.date, amount: Math.abs(t.amount) })));
     const recs = recommendations({
-      today: todayISO, obligations, toReview: toReview.length, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: m.payroll.k401 * 12, year,
+      today: todayISO, obligations, toReview: toReview.length, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: k401.annual, year,
       utilityPayments, giftCardsExpiringSoon: giftCards.expiringSoon, dismissed: props.dismissedInsights ?? [],
+      itemize: taxes.mortgageInterest > 0 ? { itemized: taxes.itemized, standard: taxes.standardDeduction, saves: taxes.itemizeSaves } : null,
+      k401Unknown: k401.source === "none",
     });
     return {
       todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, toReview, nw, cash,
       savingsRate: sr, allocation, taxes, recs, giftCards, giftCardsLoaded: gc.loaded, benefits, creditCardCount: Object.keys(cardNames).length,
     };
-  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames]);
+  }, [fp, todayISO, m, gc, props.accounts, props.manualAccounts, props.dismissedInsights, tax, savers, match, year, benefits, cardNames, k401]);
 
   // ── writes ──
   const working = useCallback((): Working => ({
@@ -449,6 +456,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     restoreManualItem: item => one(w => { w.fp.manualItems = [...(w.fp.manualItems ?? []).filter(x => x.id !== item.id), item]; w.touched.add("fp"); }),
     dismissRec: id => props.onUpdate({ dismissedInsights: [...new Set([...(props.dismissedInsights ?? []), id])] }),
     restoreRec: id => props.onUpdate({ dismissedInsights: (props.dismissedInsights ?? []).filter(x => x !== id) }),
+    setTaxInputs: t => fpPatch({ taxInputs: { ...t, at: new Date().toISOString() } }),
   }), [one, fpPatch, applyAmt, applyCov, confirmIfDetected, props]);
 
   const startEdit = useCallback(() => { setDraft({}); setEditing(true); }, []);

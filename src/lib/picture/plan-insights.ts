@@ -6,7 +6,7 @@
  */
 import { addDays, diffDays, type ISODate } from "@/lib/recurring/dates";
 import type { ReviewItem } from "@/lib/recurring/review";
-import type { MatchStatus, TaxSaverNumbers, TaxSnapshot } from "./tax";
+import { taxSaved, type MatchStatus, type TaxSaverNumbers, type TaxSnapshot } from "./tax";
 import { CATEGORY_LABEL, PLAN_CADENCE_LABEL, sinkingFund, type Obligation, type ObligationCategory } from "./obligations";
 
 const r0 = (n: number) => Math.round(n);
@@ -81,11 +81,39 @@ export interface TaxSummary {
   preTaxSaved: number;
   k401Saves: number;
   hsaSaves: number;
+  /** Federal + FICA a health FSA (typed in) saves this year (estimate). */
+  fsaSaves: number;
+  fsa: number;
+  /** Where the 401(k) figure comes from. */
+  k401Source: "payroll" | "entered" | "none";
+  /** Mortgage interest typed in (Form 1098), per year. */
+  mortgageInterest: number;
+  /** Mortgage interest + property tax (SALT-capped): what itemizing would deduct. */
+  itemized: number;
+  /** Extra federal tax saved by itemizing instead of the standard deduction (0 when standard is bigger). */
+  itemizeSaves: number;
   marginalRate: number;
   standardDeduction: number;
   assumptions: string[];
   /** Things we can't see and you'd need to type in for a fuller picture. */
   missing: string[];
+}
+
+/** State and local tax deduction cap (One Big Beautiful Bill Act: $40,000 for 2025, +1% a year; phases down above $500k income). */
+export const saltCap = (year: number) => Math.round(40_000 * Math.pow(1.01, Math.max(0, year - 2025)));
+
+/** Typed-in tax inputs (settings.financialPicture.taxInputs) for what bank data can't show. */
+export interface TaxInputs { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number }
+
+/**
+ * The 401(k) per year the estimates use: payroll deductions when we found
+ * them, otherwise the % of gross pay the person typed in.
+ */
+export function effectiveK401(payrollMonthly: number, gross: number, inputs?: TaxInputs | null): { annual: number; source: "payroll" | "entered" | "none" } {
+  if (payrollMonthly > 0) return { annual: payrollMonthly * 12, source: "payroll" };
+  const pct = inputs?.k401Pct ?? 0;
+  if (pct > 0 && gross > 0) return { annual: Math.round(gross * Math.min(pct, 100)) / 100, source: "entered" };
+  return { annual: 0, source: "none" };
 }
 
 const paidWithin = (items: readonly ReviewItem[], today: ISODate, test: (it: ReviewItem) => boolean) =>
@@ -94,25 +122,35 @@ const paidWithin = (items: readonly ReviewItem[], today: ISODate, test: (it: Rev
 export function taxSummary(i: {
   today: ISODate; year: number; gross: number; grossEstimated: boolean; filing: "single" | "married_joint"; filingSet: boolean;
   tax: TaxSnapshot; savers: TaxSaverNumbers; reviewItems: readonly ReviewItem[]; hsaMonthly: number; k401Monthly: number;
+  inputs?: TaxInputs | null; k401Source?: "payroll" | "entered" | "none";
 }): TaxSummary {
+  const fsa = Math.max(0, i.inputs?.fsaAnnual ?? 0);
+  const mortgageInterest = Math.max(0, i.inputs?.mortgageInterestAnnual ?? 0);
+  const k401Source = i.k401Source ?? (i.k401Monthly > 0 ? "payroll" : "none");
   const isTax = (it: ReviewItem) => it.kind === "tax" && it.status !== "dismissed";
   const estimatedPayments = paidWithin(i.reviewItems, i.today, it => isTax(it) && it.subtype !== "property");
   const propertyTax = paidWithin(i.reviewItems, i.today, it => it.status !== "dismissed" && (it.subtype === "property" || /property\s*tax|county\s*treas|tax\s*collector/i.test(it.label)));
   const assumptions = [
     `${i.year} federal brackets, ${i.filing === "single" ? "single" : "married filing jointly"}${i.filingSet ? "" : " (assumed; change it in the Taxes detail)"}, standard deduction ${usd(i.tax.standardDeduction)}.`,
     `Gross pay ${usd(i.gross)}/yr${i.grossEstimated ? ", estimated from your take-home deposits" : ", as you entered it"}.`,
-    "Pre-tax 401(k) and HSA amounts come from the paycheck deductions we detected or you entered.",
+    k401Source === "entered" ? `401(k) is the ${i.inputs?.k401Pct}% of gross pay you entered; HSA comes from the paycheck deductions we detected.` : "Pre-tax 401(k) and HSA amounts come from the paycheck deductions we detected or you entered.",
+    ...(fsa > 0 ? [`Health FSA ${usd(fsa)}/yr as you entered it (skips income tax and FICA).`] : []),
+    `Itemizing counts mortgage interest you entered plus property tax paid, with state and local taxes capped at ${usd(saltCap(i.year))}.`,
     "State and local income tax are not included. Estimates, not tax advice.",
   ];
   const missing: string[] = [];
   if (i.grossEstimated) missing.push("Your gross salary (we estimate it from take-home pay)");
   if (!i.filingSet) missing.push("Your filing status (we assume single)");
-  if (i.k401Monthly <= 0) missing.push("Your 401(k) contribution % (no payroll 401(k) deduction found)");
-  missing.push("FSA contributions (not visible in bank data)");
-  missing.push("Mortgage interest paid (needs your Form 1098; payments mix interest and principal)");
+  if (k401Source === "none") missing.push("Your 401(k) contribution % (no payroll 401(k) deduction found)");
+  if (!fsa) missing.push("FSA contributions, if any (not visible in bank data)");
+  if (!mortgageInterest) missing.push("Mortgage interest paid, if any (from your Form 1098; payments mix interest and principal)");
+  const fsaSaves = fsa > 0 && i.gross > 0 ? taxSaved(i.gross, fsa, 0, i.filing, i.year) : 0;
+  const itemized = mortgageInterest + Math.min(propertyTax, saltCap(i.year));
+  const itemizeSaves = Math.max(0, itemized - i.tax.standardDeduction) * i.tax.rate;
   return {
     withheld: r0(i.tax.fed + i.tax.fica), fed: r0(i.tax.fed), fica: r0(i.tax.fica), estimatedPayments: r0(estimatedPayments), propertyTax: r0(propertyTax),
-    preTaxSaved: r0(i.savers.now), k401Saves: r0(i.savers.k401Saves), hsaSaves: r0(i.savers.hsaSaves), marginalRate: i.tax.rate, standardDeduction: i.tax.standardDeduction,
+    preTaxSaved: r0(i.savers.now + fsaSaves), k401Saves: r0(i.savers.k401Saves), hsaSaves: r0(i.savers.hsaSaves),
+    fsaSaves: r0(fsaSaves), fsa: r0(fsa), k401Source, mortgageInterest: r0(mortgageInterest), itemized: r0(itemized), itemizeSaves: r0(itemizeSaves), marginalRate: i.tax.rate, standardDeduction: i.tax.standardDeduction,
     assumptions, missing,
   };
 }
@@ -120,7 +158,7 @@ export function taxSummary(i: {
 // ── Recommendations ─────────────────────────────────────────────────────────
 
 export type RecTone = "save" | "warn" | "info";
-export type RecAction = "review" | "match" | "taxes" | "upcoming" | "giftcards";
+export type RecAction = "review" | "match" | "taxes" | "upcoming" | "giftcards" | "taxinputs";
 export interface Recommendation { id: string; tone: RecTone; title: string; why: string; action?: RecAction }
 
 export interface RecInput {
@@ -139,6 +177,10 @@ export interface RecInput {
   utilityPayments: { date: ISODate; amount: number }[];
   giftCardsExpiringSoon: number;
   dismissed: readonly string[];
+  /** From taxSummary: itemizing vs the standard deduction. */
+  itemize?: { itemized: number; standard: number; saves: number } | null;
+  /** No payroll 401(k) found and no % typed in. */
+  k401Unknown?: boolean;
 }
 
 /** Rule-based and explainable: each one says why. Dismissed ids (settings.dismissedInsights) never show again. */
@@ -160,10 +202,12 @@ export function recommendations(i: RecInput): Recommendation[] {
   if (i.match.answer === "yes" && i.match.missing > 0) out.push({ id: "rec:match", tone: "save", title: `You may be leaving ${usd(i.match.missing)}/yr of 401(k) match`, why: `You put in about ${i.match.yourPct.toFixed(1)}% of pay; your employer matches up to ${i.match.upToPct}%. Raising your contribution to ${i.match.upToPct}% gets the full match.`, action: "match" });
   else if (!i.match.answered && i.gross > 0) out.push({ id: "rec:match-ask", tone: "info", title: "Do you get a 401(k) match?", why: "Tell us once and we'll check you're putting in enough to get all of it.", action: "match" });
 
-  if (i.gross > 0 && i.savers.k401Room > 500) {
+  if (i.gross > 0 && i.savers.k401Room > 500 && !i.k401Unknown) {
     const pct = i.gross > 0 ? (i.k401Annual / i.gross) * 100 : 0;
-    out.push({ id: `rec:401k:${i.year}`, tone: "save", title: `${usd(i.savers.k401Room)} of 401(k) room left for ${i.year}`, why: `You're contributing about ${pct.toFixed(1)}% of gross pay (${usd(i.k401Annual)}/yr, from your paycheck deductions). Every extra $1,000 pre-tax cuts this year's federal tax by roughly ${usd(1000 * (i.savers.k401Saves > 0 && i.k401Annual > 0 ? i.savers.k401Saves / i.k401Annual : 0.22))} (estimate).`, action: "taxes" });
+    out.push({ id: `rec:401k:${i.year}`, tone: "save", title: `${usd(i.savers.k401Room)} of 401(k) room left for ${i.year}`, why: `You're contributing about ${pct.toFixed(1)}% of gross pay (${usd(i.k401Annual)}/yr). Every extra $1,000 pre-tax cuts this year's federal tax by roughly ${usd(1000 * (i.savers.k401Saves > 0 && i.k401Annual > 0 ? i.savers.k401Saves / i.k401Annual : 0.22))} (estimate).`, action: "taxes" });
   }
+  if (i.itemize && i.itemize.saves >= 100) out.push({ id: `rec:itemize:${i.year}`, tone: "save", title: `Itemizing may save about ${usd(i.itemize.saves)} for ${i.year}`, why: `Your mortgage interest and property tax add up to about ${usd(i.itemize.itemized)}, more than the ${usd(i.itemize.standard)} standard deduction. Keep your Form 1098 and property tax bills (estimate, not tax advice).`, action: "taxes" });
+  if (i.k401Unknown && i.gross > 0) out.push({ id: "rec:401k-ask", tone: "info", title: "Add your 401(k) contribution %", why: "We didn't find a 401(k) deduction on your paychecks. If you contribute, enter the % so tax and savings estimates are right.", action: "taxinputs" });
   if (i.savers.hsaRoom > 200 && i.savers.hsaSaves > 0) out.push({ id: `rec:hsa:${i.year}`, tone: "save", title: `${usd(i.savers.hsaRoom)} of HSA room left for ${i.year}`, why: `HSA money goes in pre-tax and comes out tax-free for medical costs. Your current HSA saves about ${usd(i.savers.hsaSaves)}/yr in federal tax (estimate, self-only limit ${usd(i.savers.hsaLimit)}).`, action: "taxes" });
 
   // Utilities vs a year ago (same 3-month window).

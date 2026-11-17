@@ -8,7 +8,7 @@ import { Builder, monthly, picture, TODAY } from "./fixtures/picture-scenarios";
 import {
   accountedFor, buildObligations, cadenceBucket, categorize, categoryTotals, fromManual, project, sinkingFund, windowEnd, type Obligation,
 } from "@/lib/picture/obligations";
-import { moneyAllocation, recommendations, taxSummary } from "@/lib/picture/plan-insights";
+import { effectiveK401, moneyAllocation, recommendations, saltCap, taxSummary } from "@/lib/picture/plan-insights";
 import { taxSaverNumbers, taxSnapshot, matchStatus } from "@/lib/picture/tax";
 import type { ReviewItem } from "@/lib/recurring";
 
@@ -195,5 +195,50 @@ describe("recommendations", () => {
   it("a dismissed one vanishes", () => {
     const first = recommendations(input).find(r => r.id.startsWith("rec:sink:"))!;
     expect(recommendations({ ...input, dismissed: [first.id] }).some(r => r.id === first.id)).toBe(false);
+  });
+});
+
+describe("tax inputs (typed in)", () => {
+  const base = (inputs: { k401Pct?: number; fsaAnnual?: number; mortgageInterestAnnual?: number }, k401Monthly = 0) => {
+    const gross = 120000;
+    const k = effectiveK401(k401Monthly, gross, inputs);
+    const fsa = inputs.fsaAnnual ?? 0;
+    const tax = taxSnapshot({ gross, hsa: fsa, k401: k.annual, filing: "single", year: 2026 });
+    const savers = taxSaverNumbers(gross, 0, k.annual, "single", 2026);
+    const prop = { key: "p", kind: "tax", subtype: "property", status: "confirmed", label: "County property tax", matched: [{ id: "4", date: "2026-04-10", amount: 6000, name: "COUNTY", accountId: "chk" }] } as unknown as ReviewItem;
+    return { k, t: taxSummary({ today: "2026-10-20", year: 2026, gross, grossEstimated: false, filing: "single", filingSet: true, tax, savers, hsaMonthly: 0, k401Monthly: k.annual / 12, reviewItems: [prop], inputs, k401Source: k.source }) };
+  };
+  it("uses the typed-in 401(k) % only when no payroll deduction is found", () => {
+    expect(effectiveK401(0, 120000, { k401Pct: 6 })).toEqual({ annual: 7200, source: "entered" });
+    expect(effectiveK401(500, 120000, { k401Pct: 6 })).toEqual({ annual: 6000, source: "payroll" });
+    expect(effectiveK401(0, 120000, {}).source).toBe("none");
+    expect(base({}).t.missing.join(" ")).toMatch(/401\(k\) contribution %/);
+    const { t } = base({ k401Pct: 6 });
+    expect(t.k401Source).toBe("entered");
+    expect(t.k401Saves).toBeGreaterThan(0);
+    expect(t.missing.join(" ")).not.toMatch(/401\(k\) contribution %/);
+  });
+  it("FSA saves tax; mortgage interest + property tax is compared with the standard deduction", () => {
+    const { t } = base({ fsaAnnual: 3000, mortgageInterestAnnual: 14000 });
+    expect(t.fsaSaves).toBeGreaterThan(0);
+    expect(t.preTaxSaved).toBeGreaterThanOrEqual(t.fsaSaves);
+    expect(t.itemized).toBe(20000);
+    expect(t.itemizeSaves).toBe(Math.round((20000 - t.standardDeduction) * t.marginalRate));
+    expect(t.missing.join(" ")).not.toMatch(/FSA|Mortgage interest/);
+    expect(t.assumptions.join(" ")).toMatch(/capped at \$40,400/);
+    expect(saltCap(2026)).toBe(40400);
+    const small = base({ mortgageInterestAnnual: 2000 }).t;
+    expect(small.itemizeSaves).toBe(0);
+  });
+  it("recommends itemizing or asking for the 401(k) %, explainably", () => {
+    const savers = taxSaverNumbers(120000, 0, 0, "single", 2026);
+    const recs = recommendations({
+      today: "2026-10-20", toReview: 0, cash: 10000, low: null, match: matchStatus({ answer: "no" }, 120000, 0), savers, gross: 120000, k401Annual: 0, year: 2026,
+      giftCardsExpiringSoon: 0, dismissed: [], utilityPayments: [], obligations: [], itemize: { itemized: 20000, standard: 16100, saves: 858 }, k401Unknown: true,
+    });
+    const ids = recs.map(r => r.id);
+    expect(ids).toContain("rec:itemize:2026");
+    expect(ids).toContain("rec:401k-ask");
+    expect(ids).not.toContain("rec:401k:2026");
   });
 });

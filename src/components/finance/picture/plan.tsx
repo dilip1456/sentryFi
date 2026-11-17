@@ -220,6 +220,7 @@ export function RecsCard() {
   const go = (a?: string) => {
     if (a === "review") open("rcv");
     else if (a === "match" || a === "taxes") open("taxsavers");
+    else if (a === "taxinputs") open("plan:taxes");
     else if (a === "upcoming") document.getElementById("plan-upcoming")?.scrollIntoView({ behavior: "smooth" });
     else if (a === "giftcards") pc.props.onNavigate?.("giftcards");
   };
@@ -228,7 +229,7 @@ export function RecsCard() {
     <Card testId="plan-recs" icon={<Lightbulb className="h-[18px] w-[18px]" />} title="Recommendations" sub={recs.length ? "Based on your own numbers. Dismiss what doesn't apply." : "Nothing to suggest right now."}>
       {recs.length > 0 && <ul className="pl-recs">{recs.map(r => (
         <li key={r.id} className={`pl-rec ${r.tone}`} data-testid="plan-rec">
-          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See plan" : r.action === "giftcards" ? "Open Gift Cards" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
+          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See plan" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
           <button type="button" className="icon-btn tap-44 shrink-0" aria-label={`Dismiss: ${r.title}`} onClick={() => { pc.act.dismissRec(r.id); toast("Recommendation dismissed", { id: "fp-rec", action: { label: "Undo", onClick: () => pc.act.restoreRec(r.id) } }); }}><X className="h-4 w-4" /></button>
         </li>
       ))}</ul>}
@@ -271,7 +272,9 @@ function TaxBody({ full }: { full: boolean }) {
     ["Social Security & Medicare", t.fica, "from pay, this year"],
     ["Estimated & other tax payments", t.estimatedPayments, "seen in the last 12 months"],
     ["Property tax paid", t.propertyTax, "last 12 months · deductible if you itemize (SALT cap)"],
-    ["Saved by pre-tax 401(k) & HSA", t.preTaxSaved, `401(k) ${fmt(t.k401Saves)} · HSA ${fmt(t.hsaSaves)}`],
+    [t.fsa > 0 ? "Saved by pre-tax 401(k), HSA & FSA" : "Saved by pre-tax 401(k) & HSA", t.preTaxSaved, `401(k) ${fmt(t.k401Saves)}${t.k401Source === "entered" ? " (your %)" : ""} · HSA ${fmt(t.hsaSaves)}${t.fsa > 0 ? ` · FSA ${fmt(t.fsaSaves)}` : ""}`],
+    ...(t.mortgageInterest > 0 ? [[t.itemizeSaves > 0 ? "Saved by itemizing" : "Itemizing (standard is bigger)", t.itemizeSaves,
+      `Mortgage interest + property tax ${fmt(t.itemized)} vs standard ${fmt(t.standardDeduction)}`] as [string, number, string]] : []),
   ];
   return <>
     <div className="pl-tax">{rows.map(([k, v, s]) => <div key={k}><span>{k}<small>{s}</small></span><b>{fmt(v)}</b></div>)}</div>
@@ -279,8 +282,9 @@ function TaxBody({ full }: { full: boolean }) {
     {full && <>
       <div className="h4">How we estimate</div>
       <ul className="pl-list">{t.assumptions.map(x => <li key={x}>{x}</li>)}</ul>
-      <div className="h4">Needs your input</div>
-      <ul className="pl-list">{t.missing.map(x => <li key={x}>{x}</li>)}</ul>
+      {t.missing.length > 0 && <><div className="h4">Needs your input</div>
+      <ul className="pl-list">{t.missing.map(x => <li key={x}>{x}</li>)}</ul></>}
+      <TaxInputsForm />
       <div className="flex flex-wrap gap-2 mt-3">
         <button type="button" className="btn" onClick={() => open("row:income:salary")}>Gross salary</button>
         <button type="button" className="btn" onClick={() => open("bracket")}>Filing status</button>
@@ -288,6 +292,39 @@ function TaxBody({ full }: { full: boolean }) {
       </div>
     </>}
   </>;
+}
+
+/** What bank data can't show: 401(k) % (when no payroll deduction is found), FSA and mortgage interest. Saved in settings.financialPicture.taxInputs. */
+function TaxInputsForm() {
+  const pc = usePicture();
+  const ti = pc.fp.taxInputs ?? {};
+  const payroll401k = pc.plan.taxes.k401Source === "payroll";
+  const [pct, setPct] = useState(ti.k401Pct ? String(ti.k401Pct) : "");
+  const [fsa, setFsa] = useState(ti.fsaAnnual ? String(ti.fsaAnnual) : "");
+  const [mi, setMi] = useState(ti.mortgageInterestAnnual ? String(ti.mortgageInterestAnnual) : "");
+  const num = (v: string) => { const n = Number(v.replace(/[$,%\s]/g, "")); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : undefined; };
+  const bad = (v: string) => { const n = Number(v.replace(/[$,%\s]/g, "")); return v.trim() !== "" && !(Number.isFinite(n) && n >= 0); };
+  const pctN = num(pct);
+  const ok = !bad(pct) && !bad(fsa) && !bad(mi) && (pctN === undefined || pctN <= 100);
+  const field = "mt-1 w-full min-h-11 rounded-[10px] border border-border bg-transparent px-3 text-[14px]";
+  return (
+    <form className="space-y-3 mt-3" data-testid="tax-inputs" aria-label="Your tax inputs" onSubmit={e => {
+      e.preventDefault(); if (!ok) return;
+      pc.act.setTaxInputs({ k401Pct: pctN, fsaAnnual: num(fsa), mortgageInterestAnnual: num(mi) });
+      toast.success("Tax inputs saved", { id: "fp-taxinputs" });
+    }}>
+      <div className="h4">Your tax inputs</div>
+      <label className="block text-[13px]"><span className="text-muted-foreground">401(k) contribution, % of gross pay{payroll401k ? " (we use your paycheck deductions)" : ""}</span>
+        <input className={field} inputMode="decimal" value={pct} onChange={e => setPct(e.target.value)} placeholder="e.g. 6" aria-label="401(k) contribution percent" disabled={payroll401k} /></label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block text-[13px]"><span className="text-muted-foreground">Health FSA per year</span>
+          <input className={field} inputMode="decimal" value={fsa} onChange={e => setFsa(e.target.value)} placeholder="$0" aria-label="FSA per year" /></label>
+        <label className="block text-[13px]"><span className="text-muted-foreground">Mortgage interest per year</span>
+          <input className={field} inputMode="decimal" value={mi} onChange={e => setMi(e.target.value)} placeholder="$0" aria-label="Mortgage interest per year" /></label>
+      </div>
+      <button type="submit" className="btn-gold w-full" disabled={!ok}>Save tax inputs</button>
+    </form>
+  );
 }
 
 export function TaxCard() {
