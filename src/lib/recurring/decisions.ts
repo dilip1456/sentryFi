@@ -101,6 +101,15 @@ export function overlayDecisions(base: readonly RecurringDecision[], local: Read
 /** Items still waiting on the person ("to review"): confirmed and dismissed ones are done. */
 export const pendingReview = <T extends { status: ReviewStatus }>(items: readonly T[]): T[] => items.filter(i => i.status === "suggested");
 
+/**
+ * Detected expenses still waiting on the person: the Picture's review queue.
+ * Paychecks and other income are never offered as bills to confirm or
+ * dismiss; they feed Salary / income directly.
+ */
+export const needsReview = <T extends { status: ReviewStatus; direction?: "inflow" | "outflow"; group?: string }>(i: T): boolean =>
+  i.status === "suggested" && i.direction !== "inflow" && i.group !== "income";
+export const expensesToReview = <T extends { status: ReviewStatus; direction?: "inflow" | "outflow"; group?: string }>(items: readonly T[]): T[] => items.filter(needsReview);
+
 /** Demo / guest decisions live in sessionStorage so they survive a reload (never sent anywhere). */
 export const DEMO_DECISIONS_KEY = "sentryfi:demo-recurring-decisions";
 

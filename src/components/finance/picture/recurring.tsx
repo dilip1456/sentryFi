@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Check, ChevronRight, CircleAlert, RotateCcw, Repeat, X } from "lucide-react";
-import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
+import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, needsReview, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
 import type { Cadence } from "@/lib/recurring/schedule";
 import { usePicture } from "./state";
 import { useOverlay } from "./overlays";
@@ -74,8 +74,9 @@ export function RecurringList() {
   const pc = usePicture();
   const a = useRecurringActions();
   const { items, dismissed } = pc.m.review;
-  const pending = items.filter(i => i.status === "suggested");
-  const confirmed = items.filter(i => i.status !== "suggested");
+  // Income is never a bill to review: suggested paychecks count as pay and sit with the confirmed items.
+  const pending = items.filter(needsReview);
+  const confirmed = items.filter(i => !needsReview(i));
   const [showConfirmed, setShowConfirmed] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   return (

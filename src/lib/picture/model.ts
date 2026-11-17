@@ -360,7 +360,10 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const since365 = daysAgo(today, 365), since90 = daysAgo(today, 90);
   // Pay comes from the review: an employer needs 3+ paychecks across 3+ months
   // in one pattern; a dismissed one never counts, an edited one uses the person's numbers.
-  const salaryItems = review.items.filter(i => i.group === "income" && i.direction === "inflow" && i.kind === "salary").sort((a, b) => b.monthly - a.monthly);
+  // Paychecks are pay whatever happened in the review: a paycheck someone
+  // dismissed (it used to be offered in the bills queue as "Not a bill") or
+  // regrouped still counts, so Salary never drops to $0 while pay arrives.
+  const salaryItems = [...review.items, ...review.dismissed].filter(i => i.direction === "inflow" && i.kind === "salary").sort((a, b) => b.monthly - a.monthly);
   const salaryTxns: PTxn[] = [], bonusTxns: PTxn[] = [], otherTxns: PTxn[] = [];
   for (const t of posted) {
     if (t.date < since365) continue;
@@ -375,6 +378,16 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   if (salaryItems.length) {
     for (const i of salaryItems) salaryMonthly += i.monthly;
     payCadence = salaryItems[0].cadence; perPaycheck = salaryItems[0].amount;
+  }
+  // Payroll deposits that don't (yet) form a clean pattern (new job, amounts
+  // that swing with overtime, under 3 months of history) still are pay:
+  // average the last 90 days instead of showing $0.
+  const recentPay = salaryTxns.filter(t => t.date >= since90);
+  const salaryEstimated = !salaryItems.length && recentPay.length >= 2;
+  if (salaryEstimated) {
+    const span = Math.max(1, Math.min(3, (today.getTime() - new Date(`${recentPay[recentPay.length - 1].date}T12:00:00`).getTime()) / (30.44 * 864e5) + 0.5));
+    salaryMonthly = Math.round((recentPay.reduce((s, t) => s - num(t.amount), 0) / span) * 100) / 100;
+    perPaycheck = Math.round((recentPay.reduce((s, t) => s - num(t.amount), 0) / recentPay.length) * 100) / 100;
   }
   const salaryRowTxns = salaryItems.length ? salaryItems.flatMap(i => i.transactionIds).map(id => byId.get(id)).filter((t): t is PTxn => !!t).sort((a, b) => b.date.localeCompare(a.date)) : salaryTxns;
   const bonusMonthly = bonusTxns.reduce((s, t) => s - num(t.amount), 0) / 12;
@@ -393,12 +406,18 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const employer = salaryItems[0]?.label ?? (salaryTxns[0] ? displayName(salaryTxns[0].merchant_name || salaryTxns[0].name) : null);
   const primaryDeposit = majorityAccount(salaryRowTxns.slice(0, 12), 0.5);
 
-  const eff = (key: string, detected: number) => (key in overrides ? Math.max(0, num(overrides[key])) : detected);
+  const eff = (key: string, detected: number) => {
+    if (!(key in overrides)) return detected;
+    const v = num(overrides[key]);
+    // A blank / zero salary override (an emptied field) never hides pay we can see.
+    if (key === "income.salary" && !(v > 0) && detected > 0) return detected;
+    return Math.max(0, v);
+  };
   const income: PictureRow[] = [];
   const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence] : null;
   income.push({
     group: "income", id: "salary", label: "Salary",
-    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.length} employers` : ` · ${salaryItems[0].pattern}`}` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
+    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.length} employers` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? `Take-home · averaged from ${recentPay.length} paychecks in the last 3 months` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
     coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryRowTxns.slice(0, 6),
     missed: salaryItems.some(i => i.missed), why: salaryItems.map(i => `${i.label}: ${i.why}`).join(" "),
