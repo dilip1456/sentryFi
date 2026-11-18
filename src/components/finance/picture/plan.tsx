@@ -1,7 +1,7 @@
 /**
  * My Financial Picture: obligations & expenses (every bill you can expect,
- * weekly to yearly, detected or typed in), the review queue and whether it's
- * all accounted for; plus the Insights cards (where the money goes, taxes,
+ * weekly to yearly, detected or typed in) and whether it's all accounted for
+ * (detections are settled internally, nothing to review); plus the Insights cards (where the money goes, taxes,
  * recommendations) shown on the Insights screen. Data: src/lib/picture/
  * {obligations,overview,plan-insights}.ts via the Picture state; nothing new
  * is fetched here except through usePictureExtras (gift cards, card perks).
@@ -12,7 +12,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
-  CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, Gift, Landmark, Lightbulb, PieChart, Plus, Receipt, Sparkles, TriangleAlert, Wallet, X,
+  CalendarClock, ChevronRight, CircleAlert, CircleCheck, Gift, Landmark, Lightbulb, PieChart, Plus, Receipt, TriangleAlert, Wallet, X,
 } from "lucide-react";
 import { addDays, diffDays } from "@/lib/recurring/dates";
 import {
@@ -23,12 +23,14 @@ import type { NetWorthGroupKey } from "@/lib/picture/overview";
 import { usePicture, type PictureState, type PlanItemInput } from "./state";
 import { useOverlay, type DetailView } from "./overlays";
 import { fmt } from "./bits";
-import { ItemRow, useRecurringActions } from "./recurring";
+import { useRecurringActions } from "./recurring";
 
 const money = (n: number) => (Math.abs(n) < 100 && n % 1 ? `$${Math.abs(n).toFixed(2)}` : fmt(n));
 const shortDate = (d: string, today?: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: today && d.slice(0, 4) !== today.slice(0, 4) ? "numeric" : undefined });
-const STATUS: Record<Obligation["source"], { text: string; cls: string }> = {
-  detected: { text: "Needs review", cls: "pl-st det" }, confirmed: { text: "Confirmed", cls: "pl-st ok" }, manual: { text: "Added by you", cls: "pl-st man" }, giftcard: { text: "Gift card", cls: "pl-st man" },
+// Detected items are settled internally (no review chips); only where a row
+// came from when it isn't the transactions is worth a tag.
+const STATUS: Record<Obligation["source"], { text: string; cls: string } | null> = {
+  detected: null, confirmed: null, manual: { text: "Added by you", cls: "pl-st man" }, giftcard: { text: "Gift card", cls: "pl-st man" },
 };
 
 function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
@@ -40,28 +42,6 @@ function Card({ id, icon, title, sub, right, children, testId }: { id?: string; 
     <section className="sec pl-card" id={id} data-testid={testId} aria-label={title}>
       <div className="sec-h"><span className="sec-ico" aria-hidden="true">{icon}</span><div className="min-w-0 flex-1"><h3 className="sec-t">{title}</h3>{sub && <div className="sec-s">{sub}</div>}</div>{right}</div>
       {children}
-    </section>
-  );
-}
-
-// ── Review queue ────────────────────────────────────────────────────────────
-
-export function ReviewQueue() {
-  const pc = usePicture();
-  const { open } = useOverlay();
-  const list = pc.plan.toReview;
-  // Only when something needs a decision: no "all caught up" card.
-  if (!list.length) return null;
-  return (
-    <section className="sec rcv-card pl-queue" data-testid="rcv-card" aria-label="To review">
-      <div className="sec-h">
-        <span className="sec-ico" aria-hidden="true"><Sparkles className="h-[18px] w-[18px]" /></span>
-        <div className="min-w-0 flex-1"><h3 className="sec-t">To review</h3>
-          <div className="sec-s" data-testid="rcv-count">{`${list.length} detected item${list.length === 1 ? "" : "s"} to confirm or dismiss`}</div></div>
-        <button type="button" className="sec-more tap-44" onClick={() => open("rcv")}>Review all<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
-      </div>
-      <div className="rows">{list.slice(0, 4).map(it => <ItemRow key={it.key} it={it} />)}</div>
-      {list.length > 4 && <p className="mini mt-2">and {list.length - 4} more</p>}
     </section>
   );
 }
@@ -83,7 +63,7 @@ function ObRow({ ob, date, overdue }: { ob: Obligation; date?: string; overdue?:
     <button type="button" className={`pl-row ${late ? "late" : soon ? "soon" : ""}`} data-testid="plan-row" data-source={ob.source} onClick={() => open(`plan:item:${ob.id}`)} aria-label={`${ob.label}, ${money(ob.amount)}${d ? `, due ${shortDate(d, t)}` : ""}. Details`}>
       <span className="pl-date" aria-hidden="true">{d ? <><b>{new Date(`${d}T12:00:00`).getDate()}</b><small>{new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short" })}</small></> : <small>—</small>}</span>
       <span className="pl-lbl"><b>{ob.label}</b><small>{sub}</small>
-        <span className="pl-tags"><span className={st.cls}>{st.text}</span>{late && <span className="pl-st bad"><CircleAlert className="h-3 w-3" aria-hidden="true" />{ob.source === "giftcard" ? "Expired" : "Overdue"}</span>}{soon && <span className="pl-st warn"><CalendarClock className="h-3 w-3" aria-hidden="true" />{d === t ? "Due today" : `In ${diffDays(d!, t)} day${diffDays(d!, t) === 1 ? "" : "s"}`}</span>}</span>
+        <span className="pl-tags">{st && <span className={st.cls}>{st.text}</span>}{late && <span className="pl-st bad"><CircleAlert className="h-3 w-3" aria-hidden="true" />{ob.source === "giftcard" ? "Expired" : "Overdue"}</span>}{soon && <span className="pl-st warn"><CalendarClock className="h-3 w-3" aria-hidden="true" />{d === t ? "Due today" : `In ${diffDays(d!, t)} day${diffDays(d!, t) === 1 ? "" : "s"}`}</span>}</span>
       </span>
       <span className="pl-amt">{ob.amountKind === "estimated" ? "~" : ""}{money(ob.amount)}{ob.noCost ? <small>balance</small> : ob.annual > 0 ? <small>{fmt(ob.annual)}/yr</small> : null}</span>
     </button>
@@ -117,7 +97,7 @@ export function UpcomingPlan() {
         {view === "timeline" && <Seg<PlanWindow> label="Time range" value={win} onChange={setWin} options={[["week", "Week"], ["month", "Month"], ["quarter", "3 months"], ["year", "Year"]]} />}
       </div>
       {view === "timeline" && <>
-        <p className="mini pl-total" data-testid="plan-window-total">{WINDOW_LABEL[win]}: <b>{fmt(total)}</b> across {occ.filter(o => !o.ob.noCost).length} payment{occ.length === 1 ? "" : "s"} (through {shortDate(end, t)})</p>
+        <p className="mini pl-total" data-testid="plan-window-total">{WINDOW_LABEL[win]}: <b>{fmt(total)}</b> (through {shortDate(end, t)})</p>
         {months.length ? months.map(([k, list]) => (
           <div key={k} className="pl-month">
             <div className="h4">{new Date(`${k}-15T12:00:00`).toLocaleDateString("en-US", { month: "long", year: k.slice(0, 4) !== t.slice(0, 4) ? "numeric" : undefined })}<span>{fmt(list.filter(o => !o.ob.noCost).reduce((s, o) => s + o.ob.amount, 0))}</span></div>
@@ -132,6 +112,7 @@ export function UpcomingPlan() {
         </div>
       ))}
       {view === "category" && <CategoryTable expanded />}
+      {pc.m.review.dismissed.length > 0 && <button type="button" className="sec-more tap-44 !ml-0 mt-2" data-testid="plan-hidden" onClick={() => open("rcv")}>Hidden items<ChevronRight className="h-4 w-4" aria-hidden="true" /></button>}
     </Card>
   );
 }
@@ -189,8 +170,7 @@ export function RecsCard() {
   const pc = usePicture();
   const { open } = useOverlay();
   const go = (a?: string) => {
-    if (a === "review") open("rcv");
-    else if (a === "match" || a === "taxes") open("taxsavers");
+    if (a === "match" || a === "taxes") open("taxsavers");
     else if (a === "taxinputs") open("plan:taxes");
     else if (a === "upcoming") { const el = document.getElementById("plan-upcoming"); if (el) el.scrollIntoView({ behavior: "smooth" }); else pc.props.onNavigate?.("myfinances"); }
     else if (a === "giftcards") pc.props.onNavigate?.("giftcards");
@@ -200,7 +180,7 @@ export function RecsCard() {
     <Card testId="plan-recs" icon={<Lightbulb className="h-[18px] w-[18px]" />} title="Recommendations" sub={recs.length ? "Based on your own numbers. Dismiss what doesn't apply." : "Nothing to suggest right now."}>
       {recs.length > 0 && <ul className="pl-recs">{recs.map(r => (
         <li key={r.id} className={`pl-rec ${r.tone}`} data-testid="plan-rec">
-          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go tap-44" onClick={() => go(r.action)}>{r.action === "review" ? "Review" : r.action === "upcoming" ? "See obligations" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
+          <div className="min-w-0 flex-1"><b>{r.title}</b><p>{r.why}</p>{r.action && <button type="button" className="pl-rec-go tap-44" onClick={() => go(r.action)}>{r.action === "upcoming" ? "See obligations" : r.action === "giftcards" ? "Open Gift Cards" : r.action === "taxinputs" ? "Add it" : "See details"}<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>}</div>
           <button type="button" className="icon-btn tap-44 shrink-0" aria-label={`Dismiss: ${r.title}`} onClick={() => { pc.act.dismissRec(r.id); toast("Recommendation dismissed", { id: "fp-rec", action: { label: "Undo", onClick: () => pc.act.restoreRec(r.id) } }); }}><X className="h-4 w-4" /></button>
         </li>
       ))}</ul>}
@@ -326,15 +306,14 @@ function ObligationDetail({ ob }: { ob: Obligation }) {
   ];
   return (
     <div data-testid="plan-item-detail">
-      <div className="flex flex-wrap items-center gap-2 mb-3"><span className={STATUS[ob.source].cls}>{STATUS[ob.source].text}</span><span className="pl-st">{CATEGORY_LABEL[ob.category]}</span>{ob.missed && <span className="pl-st bad">Overdue</span>}</div>
+      <div className="flex flex-wrap items-center gap-2 mb-3">{STATUS[ob.source] && <span className={STATUS[ob.source]!.cls}>{STATUS[ob.source]!.text}</span>}<span className="pl-st">{CATEGORY_LABEL[ob.category]}</span>{ob.missed && <span className="pl-st bad">Overdue</span>}</div>
       <div className="kv">{kv.map(([k, v, s]) => <div key={k}><div className="k">{k}</div><div className="v">{v}</div>{s && <div className="mini">{s}</div>}</div>)}</div>
       {f && <p className="note mt-3">Set aside <b>{money(f.perMonth)}/mo</b> and this is covered every time{f.toBeReady > f.perMonth + 1 ? ` (${money(f.toBeReady)}/mo to have it all by ${shortDate(ob.nextDue!, t)} starting from zero)` : ""}.</p>}
       {ob.reminderDays ? <p className="mini mt-2">Reminder {ob.reminderDays} day{ob.reminderDays === 1 ? "" : "s"} before it's due{ob.nextDue ? ` (${shortDate(addDays(ob.nextDue, -ob.reminderDays), t)})` : ""}.</p> : null}
       {ob.notes && <p className="note mt-2">{ob.notes}</p>}
       <div className="rcv-btns mt-4">
-        {it && it.status === "suggested" && <button type="button" className="btn-gold" onClick={() => { ra.confirm(it); close(); }}><Check className="h-4 w-4" aria-hidden="true" />Confirm</button>}
         {it && <button type="button" className="btn" onClick={() => open(`rcv:item:${encodeURIComponent(it.key)}`)}>Edit</button>}
-        {it && <button type="button" className="btn" onClick={() => { ra.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />{it.status === "suggested" ? "Not a bill" : "Remove"}</button>}
+        {it && <button type="button" className="btn" onClick={() => { ra.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />Remove</button>}
         {manual && <button type="button" className="btn" onClick={() => open(`plan:edit:${manual.id}`)}>Edit</button>}
         {manual && <button type="button" className="btn" onClick={() => {
           pc.act.removeManualItem(manual.id); close();
