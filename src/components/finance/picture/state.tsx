@@ -21,10 +21,12 @@ import { cashflowSteps, flowSplit, type FlowSplit, type WaterfallStep } from "@/
 import { giftCardSummary, netWorthBreakdown, savingsRate, upcomingWindow, type GiftCardLike, type GiftCardSummary, type ManualAccountLike, type NetWorth, type SavingsRate, type UpcomingWindow } from "@/lib/picture/overview";
 import { accountedFor, buildObligations, categorize, categoryTotals, perYear, project, type AccountedFor, type CategoryTotal, type ManualObligationLike, type Obligation, type ObligationCategory, type PlanCadence } from "@/lib/picture/obligations";
 import { effectiveK401, moneyAllocation, recommendations, taxSummary, type Allocation, type Recommendation, type TaxSummary } from "@/lib/picture/plan-insights";
-import { addDays, expensesToReview } from "@/lib/recurring";
+import { addDays } from "@/lib/recurring";
 import { demoPlanClass, demoPlanTransactions } from "@/lib/picture/demo-plan";
 import { useBenefitSummary, useGiftCardRows } from "@/hooks/usePictureExtras";
 import type { BenefitSummary } from "@/lib/card-benefits";
+
+const NO_TXNS: PTxn[] = [];
 
 export type Shares = NonNullable<FinancialPictureData["shares"]>;
 
@@ -88,7 +90,6 @@ export interface PlanState {
   totals: CategoryTotal[];
   accounted: AccountedFor;
   next30: UpcomingWindow;
-  toReview: ReviewItem[];
   nw: NetWorth;
   cash: number;
   savingsRate: SavingsRate;
@@ -256,7 +257,9 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   // after it) and kept already-paid bills flagged as missed. Recomputed on
   // every refresh and when the app comes back to the foreground.
   const [now, setNow] = useState(() => new Date());
-  useEffect(() => { setNow(new Date()); }, [props.txns]);
+  // Only a new calendar day changes "today": a fresh Date on every refresh
+  // rebuilt the whole model (~300 ms) a second time for nothing.
+  useEffect(() => { setNow(prev => (ymd(prev) === ymd(new Date()) ? prev : new Date())); }, [props.txns]);
   useEffect(() => {
     const wake = () => {
       if (document.visibilityState === "hidden") return;
@@ -273,11 +276,13 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const { classOf: baseClassOf, getEffectiveCategory: baseGetCat } = props;
   const classOf = useMemo(() => (demo ? (t: PTxn) => demoPlanClass(t) ?? baseClassOf(t) : baseClassOf), [demo, baseClassOf]);
   const getCat = useMemo(() => (demo ? (t: PTxn) => (t.id.startsWith("dpl-") ? (t.category?.[0] ?? "Other") : baseGetCat(t)) : baseGetCat), [demo, baseGetCat]);
+  // Until saved decisions arrive the page shows a skeleton (pc.ready), so the
+  // model is built once, with them, instead of once without and once with.
   const m = useMemo(() => buildPictureModel({
     recurringDecisions: rd.decisions,
-    txns, accounts: props.accounts, classOf, getEffectiveCategory: getCat,
+    txns: rd.loaded ? txns : NO_TXNS, accounts: props.accounts, classOf, getEffectiveCategory: getCat,
     formatCat: props.formatCat, manualIncome: props.manualIncome, budgets, cardAutopayFrom: cardsFrom, savingsGoals: goals, fp, today,
-  }), [txns, props.accounts, classOf, getCat, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions]);
+  }), [txns, props.accounts, classOf, getCat, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions, rd.loaded]);
 
   const year = today.getFullYear();
   const P = full ? 12 : 1;
@@ -358,7 +363,6 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     const nw = netWorthBreakdown(props.accounts, props.manualAccounts ?? []);
     const cash = m.accounts.filter(a => a.kind === "bank" || a.kind === "save").reduce((s, a) => s + a.balance, 0);
     const checking = m.accounts.filter(a => a.kind === "bank").reduce((s, a) => s + a.balance, 0);
-    const toReview = expensesToReview(m.review.items);
     const incomeItems = m.review.items.filter(i => i.direction === "inflow" && i.group === "income");
     // Typed-in expenses join the 30-day cash run too.
     const extra = project(obligations.filter(o => o.source === "manual"), todayISO, addDays(todayISO, 30))
@@ -377,13 +381,13 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     const giftCards = giftCardSummary(gc.rows, todayISO);
     const utilityPayments = m.review.items.filter(i => i.direction === "outflow" && categorize(i.label, i.kind, i.subtype, i.cadence) === "utilities").flatMap(i => i.matched.map(t => ({ date: t.date, amount: Math.abs(t.amount) })));
     const recs = recommendations({
-      today: todayISO, obligations, toReview: toReview.length, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: k401.annual, year,
+      today: todayISO, obligations, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: k401.annual, year,
       utilityPayments, giftCardsExpiringSoon: giftCards.expiringSoon, dismissed: props.dismissedInsights ?? [],
       itemize: taxes.mortgageInterest > 0 ? { itemized: taxes.itemized, standard: taxes.standardDeduction, saves: taxes.itemizeSaves } : null,
       k401Unknown: k401.source === "none",
     });
     return {
-      todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, toReview, nw, cash,
+      todayISO, obligations, totals: categoryTotals(obligations, todayISO), accounted: accountedFor(obligations, todayISO, checking), next30, nw, cash,
       savingsRate: sr, allocation, taxes, recs, giftCards, giftCardsLoaded: gc.loaded, benefits, creditCardCount: Object.keys(cardNames).length,
       k401Monthly: k401.annual / 12, k401Source: k401.source, incomeMonthly: takeHome,
       savingsMonthly: savingsMonthly + k401.annual / 12 + m.payroll.hsa + m.payroll.espp + fsaAnnual / 12,

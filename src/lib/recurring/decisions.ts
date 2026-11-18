@@ -110,6 +110,42 @@ export const needsReview = <T extends { status: ReviewStatus; direction?: "inflo
   i.status === "suggested" && i.direction !== "inflow" && i.group !== "income";
 export const expensesToReview = <T extends { status: ReviewStatus; direction?: "inflow" | "outflow"; group?: string }>(items: readonly T[]): T[] => items.filter(needsReview);
 
+/** Detections at least this sure join the Picture without asking. */
+export const AUTO_ACCEPT_CONFIDENCE = 0.75;
+
+/**
+ * Settle detections internally instead of queueing them for review: a
+ * confident suggestion is treated as confirmed (it isn't stored, so a later
+ * detection run can still drop it), a weak one is quietly left out. Items the
+ * person decided on (confirmed / dismissed) are untouched, and paychecks
+ * always count as pay.
+ */
+export function settleSuggestions<T extends { status: ReviewStatus; confidence: number; kind?: string; cadence?: string; direction?: "inflow" | "outflow"; transactionIds?: readonly string[] }>(items: readonly T[]): T[] {
+  const out: T[] = [];
+  for (const i of items) {
+    if (i.status !== "suggested") out.push(i);
+    else if (isConfidentDetection(i)) out.push({ ...i, status: "confirmed" as ReviewStatus });
+  }
+  return out;
+}
+
+/**
+ * Sure enough to count without asking. Yearly / twice-a-year / quarterly
+ * bills can only show 2 payments in a normal history (the review already
+ * demands those 2, or one unmistakably yearly charge), so they need less.
+ */
+export function isConfidentDetection(i: { confidence: number; kind?: string; cadence?: string; direction?: "inflow" | "outflow"; transactionIds?: readonly string[] }): boolean {
+  if (i.kind === "salary") return true;
+  if (i.confidence >= AUTO_ACCEPT_CONFIDENCE) return true;
+  // A steady run (3+ matched payments) whose amount wobbles a little still counts.
+  if ((i.transactionIds?.length ?? 0) >= STEADY_MIN_PAYMENTS && i.confidence >= STEADY_CONFIDENCE) return true;
+  const longCycle = i.cadence === "yearly" || i.cadence === "semiannual" || i.cadence === "quarterly";
+  return longCycle && i.direction !== "inflow" && i.confidence >= LONG_CYCLE_CONFIDENCE;
+}
+export const LONG_CYCLE_CONFIDENCE = 0.5;
+export const STEADY_MIN_PAYMENTS = 3;
+export const STEADY_CONFIDENCE = 0.55;
+
 /** Demo / guest decisions live in sessionStorage so they survive a reload (never sent anywhere). */
 export const DEMO_DECISIONS_KEY = "sentryfi:demo-recurring-decisions";
 

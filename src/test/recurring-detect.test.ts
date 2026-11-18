@@ -250,7 +250,8 @@ describe("yearly items", () => {
     const s = only(detect([tx("2026-02-02", 139, "AMAZON PRIME MEMBERSHIP ANNUAL RENEWAL")]), () => true);
     expect(s.cadence).toBe("yearly");
     expect(s.nextExpectedDate).toBe("2027-02-02");
-    expect(s.confidence).toBeLessThan(0.5);
+    // An unmistakably yearly descriptor is confident enough to plan for.
+    expect(s.confidence).toBeGreaterThanOrEqual(0.75);
   });
 
   it("does not invent a series from a single ordinary purchase", () => {

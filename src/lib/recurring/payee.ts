@@ -93,6 +93,9 @@ export function employerKey(t: { name: string | null; merchant_name: string | nu
 /** A display name for an employer key from its newest deposit. */
 export function employerLabel(t: { name: string | null; merchant_name: string | null }): string {
   const k = employerKey(t);
+  // A cleaned company name ("CGI Technologies") reads better than its first word.
+  const m = (t.merchant_name ?? "").trim();
+  if (m && !PAYROLL_PROCESSOR_RE.test(m) && !isAppOnlyMerchant(m, t.name) && /[a-z]/.test(m) && m.toLowerCase().split(/\s+/)[0] === k) return m;
   const src = [t.merchant_name, t.name].filter(Boolean).join(" ");
   // Keep the original casing when the merchant name already reads well ("DoorDash").
   const word = src.split(/[^A-Za-z&]+/).find(w => w.toLowerCase() === k);
@@ -107,4 +110,55 @@ export function p2pApp(t: { name: string | null; merchant_name: string | null })
   if (!m) return null;
   const l = m.toLowerCase().replace(/\s+/g, " ");
   return l === "cashapp" || l === "cash app" ? "Cash App" : l === "apple cash" ? "Apple Cash" : l === "paypal" ? "PayPal" : l[0].toUpperCase() + l.slice(1);
+}
+
+// ── Payee cleanup for display and grouping ────────────────────────────────
+
+const SMALL_WORDS = new Set(["the", "a", "an", "and", "for", "of", "to", "at", "in", "on", "by"]);
+/** "CGI TECHNOLOGIES" → "CGI Technologies": a short leading all-caps word is usually an acronym. */
+function companyCase(raw: string): string {
+  const words = raw.trim().split(/\s+/).filter(Boolean);
+  return words.map((w, i) => {
+    const l = w.toLowerCase();
+    if (i === 0 && words.length > 1 && /^[A-Z&]{2,3}$/.test(w) && !SMALL_WORDS.has(l)) return w;
+    return l.replace(/(^|[-'(/&])([a-z])/g, (_, p, c) => p + c.toUpperCase());
+  }).join(" ");
+}
+
+/** BofA P2P lines: "Zelle Credit PAY ID:… ORG ID:BAC NAME:CHANDRIKA RA" → "Chandrika Ra". */
+export function bankNameField(name: string | null | undefined): string | null {
+  const m = (name ?? "").match(/\bNAME:\s*([A-Za-z][A-Za-z .,'&-]*?)\s*(?:\b(?:ID|INDN|CO ID|CONF|PAY ID|ORG ID):|$)/);
+  return m ? companyCase(m[1].replace(/[.,]+$/, "")) : null;
+}
+
+/** Payroll ACH: "CGI TECHNOLOGIES DES:PAYROLL ID:… INDN:…" → "CGI Technologies". */
+export function payrollCompany(name: string | null | undefined): string | null {
+  const m = (name ?? "").match(/^(.+?)\s+DES:\s*(?:PAYROLL|PAY|DIR\s*DEP|SALARY)\b/i);
+  if (!m) return null;
+  const co = m[1].replace(new RegExp(PAYROLL_PROCESSOR_RE.source, "gi"), " ").replace(/\s+/g, " ").trim();
+  return co ? companyCase(co) : null;
+}
+
+/**
+ * Merchant names a bank truncated one month and spelled out the next
+ * ("Provident Fundin" / "Provident Funding"): map each truncated form to the
+ * full one so one payee stays one row with its full name.
+ */
+export function canonicalMerchants(names: Iterable<string | null | undefined>): Map<string, string> {
+  const uniq = [...new Set([...names].map(n => (n ?? "").trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const out = new Map<string, string>();
+  for (const short of uniq) {
+    if (short.length < 8) continue;
+    const l = short.toLowerCase();
+    const full = uniq.find(f => f.length > short.length && f.length - short.length <= 4 && f.toLowerCase().startsWith(l) && /^[a-z]/i.test(f.slice(short.length)));
+    if (full) out.set(l, full);
+  }
+  return out;
+}
+
+/** The payee name to group and show a transaction by (raw fields untouched). */
+export function cleanPayee(t: { name: string | null; merchant_name: string | null }, canon?: Map<string, string>): string | null {
+  const m = (t.merchant_name ?? "").trim();
+  if (m && !PAYROLL_PROCESSOR_RE.test(m) && !isAppOnlyMerchant(m, t.name)) return canon?.get(m.toLowerCase()) ?? m;
+  return payrollCompany(t.name) ?? bankNameField(t.name) ?? (m || null);
 }

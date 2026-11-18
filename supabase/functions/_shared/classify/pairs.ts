@@ -94,7 +94,10 @@ export function matchInternalTransfers(
       const gap = Math.abs(dayNum(o.date) - dayNum(i.date));
       const brokerage = BROKERAGE_RE.test(descriptor(o)) || BROKERAGE_RE.test(descriptor(i)) ||
         acct(o.account_id)?.type === "investment" || acct(i.account_id)?.type === "investment";
-      if (gap > (brokerage ? Math.max(baseWindow, 5) : baseWindow)) continue;
+      // Loan servicers often post the payment a few days before the bank
+      // debit settles ("PAYMENT" Oct 23, bank "Ext Trnsfr" Oct 27).
+      const loan = acct(i.account_id)?.type === "loan";
+      if (gap > (loan ? Math.max(baseWindow, 7) : brokerage ? Math.max(baseWindow, 5) : baseWindow)) continue;
       const score = pairScore(o, i, acct, opts.selfNames);
       if (score >= threshold) edges.push({ out: o, inn: i, score, gap });
     }

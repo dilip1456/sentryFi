@@ -19,7 +19,7 @@ const watchFirstPaint = () => {
     mark("insightsOnPicture", document.querySelector('[data-testid="financial-picture"] [data-testid="plan-taxes"], [data-testid="financial-picture"] [data-testid="plan-recs"]'));
     mark("pictureSkeleton", document.querySelector('[data-testid="picture-skeleton"]'));
     mark("picture", document.querySelector('[data-testid="picture-page"]'));
-    mark("mortgageInReview", /Rocket/i.test(document.querySelector('[data-testid="rcv-card"]')?.textContent ?? ""));
+    mark("reviewQueue", document.querySelector('[data-testid="rcv-card"]'));
     mark("skeletonAfterPicture", seen.picture && document.querySelector('[data-testid="picture-skeleton"]'));
     (window as unknown as { __paint: typeof seen }).__paint = seen;
   };
@@ -45,8 +45,8 @@ test.describe("signed in", () => {
     expect(seen.settingsSpinner, "'Loading your settings…' spinner").toBeFalsy();
     expect(seen.oldPicture, "the previous Picture layout").toBeFalsy();
     expect(seen.insightsOnPicture, "tax / recommendation cards on the Picture").toBeFalsy();
-    // The confirmed mortgage must never flash in To review before saved decisions arrive.
-    expect(seen.mortgageInReview, "confirmed item shown in To review").toBeFalsy();
+    // Detections settle internally: no review queue ever paints.
+    expect(seen.reviewQueue, "a To review queue").toBeFalsy();
   });
 
   test("loan paid on the loan account counts as paid; salary comes from paychecks", async ({ page }) => {
@@ -57,8 +57,8 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("plan-accounted")).not.toContainText(/Rocket[^]*not seen|missing/i);
     await expect(page.getByTestId("sum-income")).toContainText("$74,400");
     await expect(page.getByTestId("inv-income").first()).toContainText("$6,200");
-    // Paychecks feed income; they are never offered as bills to review.
-    await expect(page.getByTestId("rcv-card")).not.toContainText(/Globex|payroll/i);
+    // Paychecks feed income; nothing is offered for review.
+    await expect(page.getByTestId("rcv-card")).toHaveCount(0);
   });
 
   test("refresh keeps the Picture on screen", async ({ page }) => {
@@ -71,7 +71,7 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("picture-page")).toBeVisible();
   });
 
-  test("no To review section when nothing needs review", async ({ page }) => {
+  test("no To review section, even with unconfirmed detections", async ({ page }) => {
     const fx = (await import("./signed-in")).liveFixture();
     const confirm = (key: string, kind: string, name: string) => ({
       user_id: "x", series_key: `picture:${key}`, source: "picture", merchant_key: name, display_name: name, direction: "outflow",

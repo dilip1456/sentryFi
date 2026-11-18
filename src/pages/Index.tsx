@@ -135,9 +135,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     open: showInbox,
   });
   const unreadCount = inbox.unreadCount;
-  // Option B in RATIONALE.md: "Numeric badge retained so the count stays visible."
-  const badgeText = unreadCount > 9 ? "9+" : String(unreadCount);
-  const notifLabel = unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications";
+  // Unread is a plain dot: counts stay internal (no numbers on the bell).
+  const notifLabel = unreadCount > 0 ? "Notifications, unread items" : "Notifications";
 
   const TABS = isAdmin && !guestDemo
     ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users }]
@@ -243,9 +242,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true">
-              {badgeText}
-            </span>
+            <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true"></span>
           )}
         </button>
       )}
@@ -352,9 +349,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <Bell className="h-4 w-4" />
               Notifications
               {unreadCount > 0 && (
-                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true">
-                  {badgeText}
-                </span>
+                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true"></span>
               )}
             </button>
           )}
@@ -448,9 +443,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 className="relative tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 && (
-                  <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true">
-                    {badgeText}
-                  </span>
+                  <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true"></span>
                 )}
               </button>
             )}

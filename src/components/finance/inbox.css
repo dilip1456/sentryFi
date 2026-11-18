@@ -1,10 +1,9 @@
 /* Compact notifications (Option B). Tokens follow the rest of the app. */
 
-.nc-badge { position:absolute; top:1px; right:1px; min-width:14px; height:14px; padding:0 3px; border-radius:9999px;
-  font-size:9px; font-weight:700; line-height:14px; text-align:center;
-  background:hsl(var(--negative)); color:#fff; }
-.nc-side-badge { margin-left:auto; min-width:16px; height:16px; padding:0 4px; border-radius:9999px; font-size:10px; font-weight:700;
-  background:hsl(var(--negative)); color:#fff; display:grid; place-items:center; }
+/* Unread: a plain dot, never a number. */
+.nc-badge { position:absolute; top:3px; right:3px; width:9px; height:9px; border-radius:9999px;
+  background:hsl(var(--negative)); box-shadow:0 0 0 2px hsl(var(--background)); }
+.nc-side-badge { margin-left:auto; width:8px; height:8px; border-radius:9999px; background:hsl(var(--negative)); flex:none; }
 
 .nc-strip { display:flex; align-items:center; gap:10px; margin:0; padding:0 10px 0 14px; min-height:44px;
   background:hsl(var(--negative)/.10); border-bottom:1px solid hsl(var(--negative)/.28); font-size:13px; width:100%; text-align:left; }

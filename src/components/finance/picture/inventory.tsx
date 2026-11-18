@@ -97,8 +97,6 @@ function payTags(items: ReviewItem[], edited: boolean, estimated: boolean): Tag[
   const out: Tag[] = [];
   if (edited) out.push({ text: "Set by you", cls: "man" });
   else if (estimated) out.push({ text: "Estimated", cls: "det" });
-  else if (items.some(i => i.status === "confirmed")) out.push({ text: "Confirmed", cls: "ok" });
-  else if (items.length) out.push({ text: "Detected", cls: "det" });
   if (items.some(i => i.missed)) out.push({ text: "Late", cls: "bad" });
   return out;
 }

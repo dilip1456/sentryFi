@@ -22,10 +22,12 @@ describe("pendingReview", () => {
     const list = [{ key: "a", status: "suggested" }, { key: "b", status: "confirmed" }, { key: "c", status: "dismissed" }] as const;
     expect(pendingReview(list).map(i => i.key)).toEqual(["a"]);
   });
-  it("a confirmed item leaves the to-review list and moves into its section", () => {
+  it("a confident detection never waits for review and sits in its section", () => {
     const b = netflix();
     const it = find(review(b).review.items, /netflix/i)!;
-    expect(pendingReview(review(b).review.items).some(i => i.key === it.key)).toBe(true);
+    // Settled internally: nothing is ever "to review".
+    expect(pendingReview(review(b).review.items)).toEqual([]);
+    expect(review(b).rows.fixed.find(r => r.reviewKey === it.key)?.tags).toBeUndefined();
     const m = review(b, [decisionFor(it, { status: "confirmed" })]);
     expect(pendingReview(m.review.items).some(i => i.key === it.key)).toBe(false);
     const row = m.rows.fixed.find(r => r.reviewKey === it.key)!;

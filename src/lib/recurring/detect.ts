@@ -383,7 +383,7 @@ export function detectRecurringSeries(
 
   for (const [key, all] of groups) {
     all.sort((a, b) => a.t.date.localeCompare(b.t.date));
-    const found: { members: Member[]; key: string; schedule: Schedule; score: number; single: boolean }[] = [];
+    const found: { members: Member[]; key: string; schedule: Schedule; score: number; single: boolean; confident?: boolean }[] = [];
 
     const tryFit = (members: Member[], k: string): boolean => {
       const type = majority(members.map(m => m.c.txnType));
@@ -404,13 +404,18 @@ export function detectRecurringSeries(
         found.push({ members: [lastM], key: k, schedule: { cadence: "quarterly", kind: "irs-estimated", shift: "after" }, score: 0.5, single: true });
         return true;
       }
-      if (members.length <= 2 && (YEARLY_HINT_RE.test(text) || taxSub === "property" || taxSub === "irs_federal")) {
+      // A single premium / tax bill Plaid is sure about (HOMEOWNERS INSURANCE
+      // $905, an AMFAM policy) is a yearly item until a second one says otherwise.
+      const plaidSure = /^(HIGH|VERY_HIGH)$/i.test(lastM.t.pfc_confidence ?? "");
+      const yearlyPremium = plaidSure && Math.abs(lastM.t.amount) >= 150 && lastM.direction === "outflow" &&
+        (/^GENERAL_SERVICES_INSURANCE$|^GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT$/i.test(lastM.t.pfc_detailed ?? "") || type === "obligation_tax");
+      if (members.length <= 2 && (YEARLY_HINT_RE.test(text) || taxSub === "property" || taxSub === "irs_federal" || yearlyPremium)) {
         const p = parseDate(lastM.t.date);
         const schedule: Schedule =
           taxSub === "irs_federal" && p.m === 4
             ? { cadence: "yearly", kind: "day-of-month", anchorDay: 15, monthStep: 12, anchorMonth: 4, shift: "after" }
             : yearlyFromSingle(lastM.t.date, defaultShift);
-        found.push({ members: [lastM], key: k, schedule, score: 0.5, single: true });
+        found.push({ members: [lastM], key: k, schedule, score: 0.5, single: true, confident: true });
         return true;
       }
       return false;
@@ -475,7 +480,8 @@ export function detectRecurringSeries(
         occurrenceCount: members.length,
         active,
         mustPay: MUST_PAY_KINDS.has(kind),
-        confidence: f.single ? 0.4 : confidenceFor(members.length, f.score),
+        // Unmistakably yearly single charges are confident; a lone IRS-estimated one is a guess.
+        confidence: f.single ? (f.confident ? 0.8 : 0.4) : confidenceFor(members.length, f.score),
         transactionIds: members.map(m => m.t.transaction_id),
         occurrences,
         reason: f.single
