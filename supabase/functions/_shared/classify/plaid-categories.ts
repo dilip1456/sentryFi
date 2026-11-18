@@ -4,6 +4,9 @@
  * and Supabase edge functions — keep this file free of React / Supabase /
  * "@/..." imports so Deno can load it).
  */
+import { mapPfc, pfcTrusted } from "./pfc.ts";
+import { EMPLOYER_ACH_RE, P2P_RE } from "./patterns.ts";
+
 // ── Plaid → App category mapping ───────────────────────────────────────────
 // Plaid sends category as an array: [level1, level2?, level3?]
 // This table covers every category Plaid can send, mapped to the app's names.
@@ -169,8 +172,8 @@ export const PLAID_CATEGORY_MAP: Record<string, string> = {
   "Shops|Warehouses And Wholesale":          "Shopping",
 
   // ── Tax ───────────────────────────────────────────────────
-  "Tax":                                     "Financial Services",
-  "Tax|Payment":                             "Financial Services",
+  "Tax":                                     "Taxes",
+  "Tax|Payment":                             "Taxes",
   // A tax refund is money back on tax you already paid, not new income —
   // classify it like any other refund so it nets against spend instead of
   // being counted as earnings.
@@ -228,8 +231,11 @@ export const MERCHANT_OVERRIDES: Record<string, string> = {
   "digitalocean": "Bills & Utilities",
 };
 
+/** Plaid's newer personal_finance_category, when the row has it. */
+export interface PfcHint { pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null }
+
 // Resolve a Plaid category array to an app category name.
-export const normalisePlaidCategory = (cats: string[] | null | undefined, merchantName?: string | null, txnName?: string | null): string => {
+export const normalisePlaidCategory = (cats: string[] | null | undefined, merchantName?: string | null, txnName?: string | null, pfc?: PfcHint | null): string => {
 
   // Check merchant overrides first — fixes Plaid ML errors like ParkWhiz → Food
   const merchant = (merchantName ?? txnName ?? "").toLowerCase();
@@ -257,6 +263,19 @@ export const normalisePlaidCategory = (cats: string[] | null | undefined, mercha
 
   const mapped = PLAID_CATEGORY_MAP[nk3] ?? PLAID_CATEGORY_MAP[nk2] ?? PLAID_CATEGORY_MAP[nk1]
                ?? PLAID_CATEGORY_MAP[key3] ?? PLAID_CATEGORY_MAP[key2] ?? PLAID_CATEGORY_MAP[key1];
+
+  // A bare / unknown "Service" (["Service"], ["Service", "Travel Agents…"])
+  // isn't evidence of a bill. When Plaid itself isn't sure (LOW), use its
+  // PFC guess for ordinary spend, else leave it uncategorized.
+  const onlyLevel1 = !(c1 && (PLAID_CATEGORY_MAP[nk2] || PLAID_CATEGORY_MAP[key2])) && !(c2 && (PLAID_CATEGORY_MAP[nk3] || PLAID_CATEGORY_MAP[key3]));
+  if (mapped && onlyLevel1 && nk1 === "Service" && pfc?.pfc_confidence && !pfcTrusted(pfc.pfc_confidence)) {
+    const guess = mapPfc(pfc.pfc_primary, pfc.pfc_detailed);
+    return guess?.type === "spend" && guess.category !== "Bills & Utilities" ? guess.category : "Other";
+  }
+
+  // "Transfer|Payroll" on a Zelle / Venmo deposit is a person sending money
+  // (Plaid tags "Salary" memos that way), not a paycheck.
+  if (mapped === "Salary" && P2P_RE.test(`${merchantName ?? ""} ${txnName ?? ""}`) && !EMPLOYER_ACH_RE.test(txnName ?? "")) return "Transfer In";
 
   if (mapped) return mapped;
 

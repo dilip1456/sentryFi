@@ -95,6 +95,13 @@ export function classifyOne(
     }
   }
 
+  // The loan side of a payment ("PAYMENT" on the loan account) is the
+  // balance going down, not a refund or income; the bank-side leg carries
+  // the obligation.
+  if (acct?.type === "loan" && amt < 0) {
+    return { type: "transfer_internal", subtype: "loan", source: "card", reason: "Payment received on this loan" };
+  }
+
   // Self-payee is as strong as a pair: "Zelle to <you>".
   if (!notInternal && namesSelf(text, ctx.selfNames)) {
     return { type: "transfer_internal", subtype: "self", source: "pattern", reason: "Payee is you" };
@@ -119,7 +126,13 @@ export function classifyOne(
       // transfer, not spending or income; only the user can say otherwise.
       // isPersonToPerson already refuses when Plaid is confident it's a
       // purchase or there's a real merchant, so Plaid wins in those cases.
-      if (p2p && (type === "spend" || type === "income_other")) type = amt > 0 ? "transfer_out" : "transfer_in";
+      // Plaid also files P2P deposits as INCOME_SALARY ("Zelle … for Salary",
+      // money from a relative); a person sending money is never payroll.
+      if (p2p && (type === "spend" || type === "income_other" || type === "income_salary")) type = amt > 0 ? "transfer_out" : "transfer_in";
+      // Payroll ACH that Plaid only knows as generic income is still pay.
+      if (type === "income_other" && amt < 0 && !m.subtype && PAYROLL_RE.test(text)) {
+        return { type: "income_salary", source: "pfc", reason: "Payroll deposit" };
+      }
       if (type === "savings_contribution" && amt < 0) type = "transfer_internal";
       const isP2pTransfer = p2p && (type === "transfer_out" || type === "transfer_in");
       return { type, subtype: isP2pTransfer ? "p2p" : m.subtype, source: "pfc", reason: `Plaid: ${t.pfc_detailed.toLowerCase().replace(/_/g, " ")}` };
@@ -162,11 +175,67 @@ export function classifyOne(
   return { type: "transfer_in", source: "fallback", reason: "Money in from an unknown source — review" };
 }
 
-/** Classify a whole set (runs the pair matcher once). */
+const OBLIGATION_TYPES = new Set<TxnType>(["obligation_loan", "obligation_bill", "obligation_tax"]);
+const USER_SOURCES = new Set<Classification["source"]>(["override", "category_override", "rule"]);
+/** Same payee, same account, same amount: "JPMorgan Chase Ext Trnsfr 30934777414" → "jpmorgan chase ext trnsfr". */
+const seriesKey = (t: ClassifierTxn) =>
+  `${t.account_id}|${Math.abs(signed(t)).toFixed(2)}|${descriptor(t).toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim()}`;
+
+/**
+ * Classify a whole set (runs the pair matcher once), then two whole-set
+ * corrections a single row can't see:
+ *  - a bank transfer that paid a linked loan makes the same transfer in
+ *    other months (before the loan's history starts) a loan payment too;
+ *  - money moved into an account that itself pays bills/loans (a "funding"
+ *    or escrow savings account) is earmarked for those bills, not savings.
+ */
 export function classifyAll(txns: ClassifierTxn[], ctx: ClassifierContext): Map<string, Classification> {
   const pairs = matchInternalTransfers(txns, ctx.accounts ?? [], { selfNames: ctx.selfNames });
   const byId = new Map(txns.map(t => [t.id, t]));
   const out = new Map<string, Classification>();
   for (const t of txns) out.set(t.id, classifyOne(t, ctx, pairs, byId));
+  const accounts = ctx.accounts ?? [];
+  if (!accounts.length) return out;
+  const acctById = new Map(accounts.map(a => [a.account_id, a]));
+
+  // Loan-payment series.
+  const loanKeys = new Map<string, string>();
+  for (const t of txns) {
+    const c = out.get(t.id);
+    if (c?.source === "pair" && c.type === "obligation_loan" && signed(t) > 0) loanKeys.set(seriesKey(t), t.id);
+  }
+  if (loanKeys.size) {
+    for (const t of txns) {
+      const c = out.get(t.id);
+      if (!c || signed(t) <= 0 || USER_SOURCES.has(c.source) || c.source === "pair") continue;
+      if (!/^(transfer_out|transfer_internal|spend)$/.test(c.type)) continue;
+      if (ctx.notInternalIds?.has(t.id)) continue;
+      const pairId = loanKeys.get(seriesKey(t));
+      if (pairId) out.set(t.id, { type: "obligation_loan", subtype: "loan", source: "pair", reason: "Same payment as the one to your linked loan" });
+    }
+  }
+
+  // Accounts that pay obligations (2+ bill/loan/tax payments out of them).
+  const obligationCount = new Map<string, number>();
+  for (const t of txns) {
+    const c = out.get(t.id);
+    const a = acctById.get(t.account_id);
+    if (!c || !a || a.type !== "depository" || signed(t) <= 0 || !OBLIGATION_TYPES.has(c.type)) continue;
+    obligationCount.set(a.account_id, (obligationCount.get(a.account_id) ?? 0) + 1);
+  }
+  const paysBills = (id?: string) => {
+    const a = id ? acctById.get(id) : undefined;
+    // A savings goal / investment role the person picked still wins (a
+    // buffer or reserve that pays the bills is bill money).
+    return !!a && (obligationCount.get(a.account_id) ?? 0) >= 2 && a.role !== "savings_goal" && a.role !== "investment";
+  };
+  for (const t of txns) {
+    const c = out.get(t.id);
+    if (!c || c.source !== "pair" || c.type !== "savings_contribution" || !c.pairId) continue;
+    const inLeg = byId.get(c.pairId);
+    if (inLeg && paysBills(inLeg.account_id)) {
+      out.set(t.id, { ...c, type: "transfer_internal", subtype: "bill_funding", reason: "Moved to the account that pays your bills" });
+    }
+  }
   return out;
 }
