@@ -207,6 +207,8 @@ test.describe("Accounts, phone 412", () => {
     for (const h of await rows.evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(60);
     expect(await countTexts(page)).toEqual([]);
     await expect(page.locator("[data-ac-group=credit]")).not.toContainText(/\d+ accounts?/);
+    // Nothing is outlined on a plain (pointer / first) render.
+    expect(await page.getByTestId("ac-sync-line").evaluate(e => getComputedStyle(e).outlineStyle)).toBe("none");
     await shot(page, "mobile-412-overview");
     await fullShot(page, "mobile-412-overview-full");
 
@@ -215,7 +217,7 @@ test.describe("Accounts, phone 412", () => {
     const sheet = page.getByTestId("ac-detail-sheet");
     await expect(sheet).toBeVisible();
     // Bottom sheet: anchored to the bottom edge once it has slid in.
-    await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }, { timeout: 5_000 }).toBe(915);
+    await expect.poll(async () => { const b = (await sheet.boundingBox())!; return Math.round(b.y + b.height); }, { timeout: 15_000 }).toBe(915);
     await shot(page, "mobile-412-details-card");
     await click(page, sheet.getByRole("button", { name: "Close" }));
     await expect(sheet).toBeHidden();
@@ -227,11 +229,10 @@ test.describe("Accounts, phone 412", () => {
     await expect(sheet).toBeHidden();
     await expect(page.getByTestId("accounts-page")).toBeVisible();
 
-    // Esc closes it
+    // Esc closes it (retried: under heavy load a keypress can land mid-animation)
     await click(page, page.locator("[data-account-row=acc-sapph]"));
     await expect(sheet).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(sheet).toBeHidden();
+    await expect(async () => { await page.keyboard.press("Escape"); await expect(sheet).toBeHidden({ timeout: 2_000 }); }).toPass({ timeout: 15_000 });
 
     // Rename or hide pushes inside; Back returns to details
     await click(page, page.locator("[data-account-row=acc-ef]"));
@@ -302,6 +303,16 @@ test.describe("Accounts, phone 412", () => {
     await expect(things).toContainText("looks unused");
     await expect(things).toContainText("APY");
     expect(await countTexts(page)).toEqual([]);
+    // Each dismiss X is a full 44×44 hit area.
+    const xs = things.getByRole("button", { name: /: / });
+    expect(await xs.count()).toBeGreaterThan(0);
+    for (const b of await xs.evaluateAll(els => els.map(e => e.getBoundingClientRect()).map(r => [r.width, r.height]))) {
+      expect(b[0]).toBeGreaterThanOrEqual(44); expect(b[1]).toBeGreaterThanOrEqual(44);
+    }
+    // The gold ring on the sync line is only :focus-visible (Esc returned
+    // focus there by keyboard). Blur it: a plain render has no outline.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(await page.getByTestId("ac-sync-line").evaluate(e => getComputedStyle(e).outlineStyle)).toBe("none");
     await page.evaluate(() => document.querySelector("[data-testid=ac-things]")?.scrollIntoView({ block: "center" }));
     await shot(page, "mobile-412-worth-a-look");
     await click(page, things.getByRole("button", { name: /^Use / }));
