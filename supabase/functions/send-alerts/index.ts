@@ -195,7 +195,7 @@ Deno.serve(async (req) => {
       const recentAll: Record<string, unknown>[] = [];
       for (let from = 0; from < 20000; from += 1000) {
         const { data: page, error: pageErr } = await admin.from("plaid_transactions")
-          .select("id,transaction_id,account_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence")
+          .select("id,transaction_id,account_id,item_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence")
           .eq("user_id", userId).gte("date", classifyFrom).order("date", { ascending: false }).range(from, from + 999);
         if (pageErr) { console.warn("plaid_transactions page failed", pageErr.message); break; }
         recentAll.push(...(page ?? []));
@@ -205,7 +205,24 @@ Deno.serve(async (req) => {
       if (typeErr) console.warn("txn_overrides unavailable (migration not applied?)", typeErr.message);
       const typeByPlaidId: Record<string, TxnType> = {};
       for (const r of typeRows ?? []) typeByPlaidId[r.transaction_id] = r.txn_type;
-      const ctxTxns = recentAll as unknown as ClassifierTxn[];
+      // Typed mapper (no cast): every field ClassifierTxn reads, item_id included.
+      const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+      const toClassifierTxn = (r: Record<string, unknown>): ClassifierTxn => ({
+        id: String(r.id),
+        transaction_id: strOrNull(r.transaction_id),
+        account_id: String(r.account_id ?? ""),
+        item_id: strOrNull(r.item_id),
+        amount: typeof r.amount === "number" || typeof r.amount === "string" ? r.amount : 0,
+        date: String(r.date ?? ""),
+        name: strOrNull(r.name),
+        merchant_name: strOrNull(r.merchant_name),
+        category: Array.isArray(r.category) ? r.category.filter((c): c is string => typeof c === "string") : null,
+        pending: typeof r.pending === "boolean" ? r.pending : null,
+        pfc_primary: strOrNull(r.pfc_primary),
+        pfc_detailed: strOrNull(r.pfc_detailed),
+        pfc_confidence: strOrNull(r.pfc_confidence),
+      });
+      const ctxTxns: ClassifierTxn[] = recentAll.map(toClassifierTxn);
       const typeOverrides: Record<string, TxnType> = {};
       for (const t of ctxTxns) {
         const ov = t.transaction_id ? typeByPlaidId[t.transaction_id] : undefined;
