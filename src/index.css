@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -163,11 +163,10 @@
 
   body { background-image: var(--gradient-bg); }
 
-  /* Display type — Fraunces for headlines only */
+  /* Inter is used consistently across the product. */
   .font-display {
-    font-family: 'Fraunces', Georgia, serif;
-    font-optical-sizing: auto;
-    letter-spacing: -0.025em;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
     line-height: 1.1;
   }
 
@@ -176,10 +175,9 @@
     font-feature-settings: 'tnum', 'zero';
   }
 
-  /* Spending screen — geometric sans body type per the brand spec, scoped
-     here rather than swapped in globally so the rest of the app is untouched. */
+  /* Keep the spending view aligned with the product-wide Inter typography. */
   .spending-v2 {
-    font-family: 'Manrope', 'Inter', sans-serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
   .spending-insights-panel {
@@ -247,6 +245,93 @@
     overflow: hidden;
   }
 
+  /* Home uses a warm, understated wealth-management canvas while other views
+     continue to follow the user's selected light/dark theme. */
+  .light .home-shell {
+    --background: 40 33% 97.3%;
+    --foreground: 222 24% 14%;
+    --surface: 40 25% 96%;
+    --surface-elevated: 0 0% 100%;
+    --surface-hover: 40 22% 94%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 24% 14%;
+    --primary: 42 89% 38%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 42 89% 38%;
+    --accent-foreground: 0 0% 100%;
+    --positive: 153 62% 34%;
+    --negative: 5 67% 48%;
+    --warning: 34 86% 42%;
+    --info: 212 58% 48%;
+    --muted: 40 20% 94%;
+    --muted-foreground: 216 12% 43%;
+    --secondary: 40 18% 93%;
+    --secondary-foreground: 222 20% 24%;
+    --border: 40 16% 91%;
+    --border-strong: 40 14% 84%;
+    --input: 40 18% 94%;
+    --radius: 1.25rem;
+    --card-border: transparent;
+    --gradient-surface: #fff;
+    --gradient-bg: none;
+    --shadow-card: 0 8px 28px -18px hsl(32 24% 28% / 0.22);
+    --shadow-elevated: 0 12px 36px -22px hsl(32 24% 28% / 0.28);
+    background: #FAF8F4;
+    color: hsl(var(--foreground));
+  }
+
+  .dark .home-shell {
+    --background: 222 25% 8%;
+    --foreground: 210 20% 95%;
+    --surface: 222 22% 11%;
+    --surface-elevated: 222 20% 14%;
+    --surface-hover: 222 18% 17%;
+    --card: 222 22% 11%;
+    --card-foreground: 210 20% 95%;
+    --popover: 222 22% 12%;
+    --popover-foreground: 210 20% 95%;
+    --primary: 43 80% 58%;
+    --primary-foreground: 222 25% 8%;
+    --accent: 43 80% 58%;
+    --accent-foreground: 222 25% 8%;
+    --positive: 153 58% 52%;
+    --negative: 6 55% 60%;
+    --warning: 38 78% 58%;
+    --info: 212 60% 64%;
+    --muted: 222 20% 15%;
+    --muted-foreground: 215 16% 66%;
+    --secondary: 222 18% 17%;
+    --secondary-foreground: 210 18% 88%;
+    --border: 222 18% 19%;
+    --border-strong: 222 18% 26%;
+    --input: 222 20% 15%;
+    --radius: 1.25rem;
+    --card-border: transparent;
+    --gradient-surface: #17191e;
+    --gradient-bg: none;
+    --shadow-card: 0 8px 28px -18px hsl(0 0% 0% / 0.65);
+    --shadow-elevated: 0 12px 36px -22px hsl(0 0% 0% / 0.8);
+    background: hsl(222 25% 8%);
+    color: hsl(var(--foreground));
+  }
+
+  .home-shell .surface-card,
+  .home-shell .surface-elevated {
+    background: #fff;
+    border: 0;
+    border-radius: 20px;
+    box-shadow: var(--shadow-card);
+  }
+  .dark .home-shell .surface-card,
+  .dark .home-shell .surface-elevated { background: #17191e; }
+  .home-shell .surface-elevated::before { display: none; }
+  .home-shell .font-display {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.035em;
+  }
+
   /* Subtle gold shimmer at top of elevated panels */
   .surface-elevated::before {
     content: '';
@@ -276,7 +361,7 @@
   }
 
   .stat-value {
-    font-family: 'Fraunces', Georgia, serif;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-size: 26px;
     font-weight: 600;
     letter-spacing: -0.03em;

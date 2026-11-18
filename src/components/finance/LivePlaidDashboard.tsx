@@ -2196,7 +2196,7 @@ const RulesManager = ({
 };
 
 const TxnDetailModal = ({
-  txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, allTxns,
+  txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, hiddenCategories = [], allTxns,
   accounts, items, initialCatOpen, onClose, onSaveNameOverride, onBulkRename, onSaveNameRule,
   onAddCategory, onAddRule, onRemoveCustom, onRenameCategory, onSelect, onToggleInternal, isManualInternal, isAutoInternal, isManualExternal,
   onFindSimilar,
@@ -2211,6 +2211,7 @@ const TxnDetailModal = ({
   txn: PTxn; overrides: Record<string,string>; getRuleCategory: (m:string|null)=>string|null;
   nameOverride?: string; nameRules: Record<string,string>;
   customCategories: {name:string;type:"income"|"expense"}[];
+  hiddenCategories?: string[];
   allTxns: PTxn[];
   accounts: PAccount[];
   items: PItem[];
@@ -2463,17 +2464,17 @@ const TxnDetailModal = ({
               In" still has its current value represented as a selectable
               option instead of silently falling off the list. */}
           <optgroup label="Expenses">
-            {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
+            {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && (!hiddenCategories.includes(c) || c === rawCat)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
           <optgroup label="Income">
-            {uniqueCategoryNames([...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
+            {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c) || c === rawCat), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
           <optgroup label="Ignored">
-            {IGNORED_CATEGORIES.map(cat => (
+            {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c) || c === rawCat).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
@@ -2723,7 +2724,7 @@ const TxnDetailModal = ({
                       <option value="any">ANY match</option>
                     </select>
                   </div>
-                  <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}/>
+                  <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(cx => cx.name)]}/>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -2750,13 +2751,13 @@ const TxnDetailModal = ({
                             className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
                             <option value="">Category...</option>
                             <optgroup label="Expenses">
-                              {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
                             <optgroup label="Income">
-                              {uniqueCategoryNames([...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
                             <optgroup label="Ignored">
-                              {IGNORED_CATEGORIES.map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c)).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
                           </select>
                         )}
@@ -2854,17 +2855,17 @@ const TxnDetailModal = ({
                   className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
                   <option value="" disabled>Choose the correct category…</option>
                   <optgroup label="Expenses">
-                    {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
+                    {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
                   <optgroup label="Income">
-                    {uniqueCategoryNames([...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
+                    {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
                   <optgroup label="Ignored">
-                    {IGNORED_CATEGORIES.map(cat => (
+                    {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c)).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
@@ -4405,9 +4406,95 @@ export const LivePlaidDashboard = ({
   const addCategory = S.addCustomCat;
   const removeCategory = S.removeCustomCat;
   const renameCategory = S.renameCustomCat;
+  // Built-in categories someone has "deleted" — there's no DB column for this
+  // (adding one risks the same schema-cache outage as financial_picture), so
+  // it's kept local to this browser instead. Every transaction under a
+  // deleted category is reassigned (see deleteCategory below) the moment it's
+  // deleted, so this is only ever a picker/list visibility filter from here on.
+  const [hiddenCategories, setHiddenCategories] = useState<string[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem("sentryfi_hidden_categories") ?? "[]"); } catch { return []; }
+  });
+  const hideCategory = useCallback((name: string) => {
+    setHiddenCategories(prev => {
+      if (prev.includes(name)) return prev;
+      const next = [...prev, name];
+      try { window.localStorage.setItem("sentryfi_hidden_categories", JSON.stringify(next)); } catch { /* best-effort */ }
+      return next;
+    });
+  }, []);
+  // Deletes a category: every transaction currently under it moves to the
+  // generic fallback (Income for an income category, Other for everything
+  // else) via the existing bulk-override path, a custom category is also
+  // removed outright, and a built-in one is hidden from every picker here on.
+  // Returns the count of transactions moved so the caller can offer AI help.
+  const deleteCategory = useCallback((name: string): string[] => {
+    const fallback = INCOME_CATEGORIES.includes(name) ? "Income" : "Other";
+    const map: Record<string, string> = {};
+    const movedIds: string[] = [];
+    txns.forEach(t => {
+      if ((getEffectiveCategory(t, settings.catOverrides, getRuleCategory) ?? "Other") === name) {
+        map[t.id] = fallback;
+        movedIds.push(t.id);
+      }
+    });
+    if (movedIds.length > 0) S.bulkSetCatOverrideMap(map);
+    if (customCategories.some(c => c.name === name)) removeCategory(name);
+    else hideCategory(name);
+    return movedIds;
+  }, [txns, settings.catOverrides, getRuleCategory, customCategories, removeCategory, hideCategory]);
+  // Orchestrates a full "delete this category" action from the UI: reassigns
+  // affected transactions, then offers (via a toast action button) to let AI
+  // try to do better than the flat fallback, picking only from categories
+  // that still exist.
+  const deleteCategoryWithPrompt = useCallback((name: string) => {
+    const movedIds = deleteCategory(name);
+    if (movedIds.length === 0) {
+      toast.success(`Deleted "${formatCat(name)}"`);
+      return;
+    }
+    toast.success(`Deleted "${formatCat(name)}" — ${movedIds.length} transaction${movedIds.length !== 1 ? "s" : ""} moved`, {
+      description: "They're set to the fallback category for now.",
+      action: { label: "Recategorize with AI", onClick: () => recategorizeWithAi(movedIds) },
+    });
+  }, [deleteCategory, formatCat, recategorizeWithAi]);
+  // After a delete, offer to re-run AI categorization for the transactions
+  // that just landed in the fallback bucket, constrained to categories that
+  // still exist (so it can never suggest the one just deleted).
+  const recategorizeWithAi = useCallback(async (txnIds: string[]) => {
+    if (txnIds.length === 0) return;
+    const availableCategories = Array.from(new Set([
+      ...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)),
+      ...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)),
+      ...customCategories.map(c => c.name),
+    ]));
+    const byId = new Map(txns.map(t => [t.id, t]));
+    const chunks: string[][] = [];
+    for (let i = 0; i < txnIds.length; i += 20) chunks.push(txnIds.slice(i, i + 20));
+    let applied = 0;
+    for (const chunk of chunks) {
+      const payload = chunk.map(id => {
+        const t = byId.get(id);
+        return t ? { id: t.id, name: t.name, merchant_name: t.merchant_name, plaid_category: t.category?.[0] ?? "Unknown", amount: Number(t.amount) } : null;
+      }).filter((t): t is NonNullable<typeof t> => t !== null);
+      if (!payload.length) continue;
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-categorize", {
+          body: { mode: "suggest", categories: availableCategories, transactions: payload },
+        });
+        if (error || data?.error) { console.error("[recategorizeWithAi]", error ?? data?.error); continue; }
+        const map: Record<string, string> = {};
+        for (const s of (data?.suggestions ?? [])) {
+          if (s?.id && s?.suggested_category) map[s.id] = s.suggested_category;
+        }
+        if (Object.keys(map).length) { S.bulkSetCatOverrideMap(map); applied += Object.keys(map).length; }
+      } catch (e) { console.error("[recategorizeWithAi]", e); }
+    }
+    if (applied > 0) toast.success(`AI recategorized ${applied} transaction${applied !== 1 ? "s" : ""}`, { description: "From the categories you still have." });
+    else toast("AI couldn't confidently recategorize those", { description: "They're still set to the fallback category — recategorize them by hand anytime." });
+  }, [hiddenCategories, customCategories, txns]);
   const allCategoryNames = useMemo(
-    () => Array.from(new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, ...customCategories.map(c => c.name)])).map(formatCat),
-    [customCategories]
+    () => Array.from(new Set([...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(c => c.name)])).map(formatCat),
+    [customCategories, hiddenCategories]
   );
   const nameOverridesManual = settings.nameOverrides;
   const setNameOverride = S.setNameOverride;
@@ -5720,7 +5807,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6618,9 +6705,9 @@ export const LivePlaidDashboard = ({
           recurringOverrides={settings.recurringOverrides}
           initialSearch={txnSearch}
           categoryIcon={categoryIcon}
-          expenseCategories={EXPENSE_CATEGORIES_PICKER}
-          incomeCategories={INCOME_CATEGORIES_PICKER}
-          ignoredCategories={IGNORED_CATEGORIES}
+          expenseCategories={EXPENSE_CATEGORIES_PICKER.filter(c => !hiddenCategories.includes(c))}
+          incomeCategories={INCOME_CATEGORIES_PICKER.filter(c => !hiddenCategories.includes(c))}
+          ignoredCategories={IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c))}
           customCategories={customCategories}
           onSelectCategory={(t, cat) => {
             setOverride(t.id, cat);
@@ -6638,6 +6725,7 @@ export const LivePlaidDashboard = ({
           onAddCategory={addCategory}
           onRemoveCategory={removeCategory}
           onRenameCategory={renameCategory}
+          onDeleteCategory={deleteCategoryWithPrompt}
           txnTags={settings.txnTags}
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
           onOpenRules={() => setShowRulesManager(true)}
@@ -6672,14 +6760,14 @@ export const LivePlaidDashboard = ({
             smartRules={smartRules}
             evalTxns={evalTxns}
             accounts={accounts}
-            categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}
+            categoryOptions={[...ALL_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(cx => cx.name)]}
             onAddSmartRule={addSmartRule}
             onUpdateSmartRule={updateSmartRule}
             onRemoveSmartRule={removeSmartRule}
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6692,6 +6780,33 @@ export const LivePlaidDashboard = ({
         onSaveSplits={(id,sp)=>S.setTxnSplits(id,sp)}
         />}
       </>
+    );
+  }
+
+  if (view === "insights") {
+    // Keep the dedicated Insights page on the exact same saved profile and
+    // transaction model as My Financial Picture. Insights are derived once
+    // from this shared provider, so edits and answers stay in sync.
+    return (
+      <MyFinancialPicture
+        insightsOnly
+        txns={txns}
+        accounts={accounts}
+        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
+        formatCat={formatCat}
+        catColor={catColor}
+        classOf={classOf}
+        manualIncome={manualIncome}
+        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
+        budgets={budgets}
+        cardAutopayFrom={settings.cardAutopayFrom}
+        savingsGoals={settings.savingsGoals}
+        financialPicture={settings.financialPicture}
+        onUpdate={S.update}
+        demo={demo || guestDemo}
+        banks={bankHist}
+        dismissedInsights={settings.dismissedInsights}
+      />
     );
   }
 
@@ -6719,7 +6834,7 @@ export const LivePlaidDashboard = ({
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}
       />
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}

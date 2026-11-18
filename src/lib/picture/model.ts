@@ -338,12 +338,15 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   // A single recent deposit is not enough evidence to turn it into monthly income.
   const salarySeries = series.filter(s => s.kind === "salary" && s.direction === "inflow" && s.active && s.occurrenceCount >= 2 && s.confidence >= 0.7 && !BONUS_RE.test(s.displayName)).sort((a, b) => b.amount.median * PER_YEAR[b.cadence] - a.amount.median * PER_YEAR[a.cadence]);
   const salaryTxns: PTxn[] = [], bonusTxns: PTxn[] = [], otherTxns: PTxn[] = [];
+  const nonSalaryFlowTypes = new Set<TxnType>(["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan", "obligation_tax", "obligation_bill"]);
   for (const t of posted) {
     if (t.date < since365) continue;
     const c = classOf(t);
-    if (!c || bucketOf.get(t.id) !== "income" || num(t.amount) >= 0) continue;
+    if (!c || num(t.amount) >= 0 || nonSalaryFlowTypes.has(c.type)) continue;
+    const salaryCategory = /\b(salary|payroll|wages)\b/i.test(getEffectiveCategory(t) || "");
+    if (c.type !== "income_salary" && !salaryCategory) continue;
     const desc = `${t.merchant_name ?? ""} ${t.name ?? ""}`;
-    if (c.type === "income_salary") (BONUS_RE.test(desc) ? bonusTxns : salaryTxns).push(t);
+    (BONUS_RE.test(desc) ? bonusTxns : salaryTxns).push(t);
   }
   const newestFirst = (a: PTxn, b: PTxn) => b.date.localeCompare(a.date);
   salaryTxns.sort(newestFirst); bonusTxns.sort(newestFirst); otherTxns.sort(newestFirst);
@@ -351,6 +354,13 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   if (salarySeries.length) {
     for (const s of salarySeries) salaryMonthly += (s.amount.median * PER_YEAR[s.cadence]) / 12;
     payCadence = salarySeries[0].cadence; perPaycheck = salarySeries[0].amount.median;
+  } else {
+    // A user-assigned Salary category is authoritative for what the deposit
+    // represents, even when there isn't enough history to infer a paycheck
+    // schedule. Show the observed 90-day average instead of dropping marked
+    // salary deposits from the monthly picture or pretending a schedule is known.
+    const recentSalaryTxns = salaryTxns.filter(t => t.date >= since90);
+    if (recentSalaryTxns.length >= 2) salaryMonthly = recentSalaryTxns.reduce((sum, t) => sum - num(t.amount), 0) / 3;
   }
   const bonusMonthly = bonusTxns.reduce((s, t) => s - num(t.amount), 0) / 12;
 
@@ -392,9 +402,10 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
 
   const eff = (key: string, detected: number) => (key in overrides ? Math.max(0, num(overrides[key])) : detected);
   const income: PictureRow[] = [];
-  const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence] : null;
+  const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence]
+    : salaryMonthly > 0 ? "recent average · last 90 days" : null;
   income.push({
-    group: "income", id: "salary", label: "Salary", sub: payWord ? `Take-home · ${payWord}` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
+    group: "income", id: "salary", label: "Salary", sub: payCadence ? `Take-home · ${payWord}` : salaryMonthly > 0 ? `Take-home · ${payWord}` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No salary deposits found",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
     coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryTxns.slice(0, 6),
   });

@@ -66,7 +66,7 @@ interface PTxn {
   date: string;
   category?: string[] | null;
   pending?: boolean;
-  [k: string]: any;
+  [k: string]: unknown;
 }
 
 // ─── Bucket metadata ────────────────────────────────────────────────────────

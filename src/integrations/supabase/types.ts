@@ -6,6 +6,38 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+type UserSettingsJsonFields = {
+  budgets: Json
+  account_roles: Json
+  cat_overrides: Json
+  cat_rules: Json
+  smart_rules: Json
+  custom_cats: Json
+  name_overrides: Json
+  name_rules: Json
+  manual_income: Json
+  manual_internal: Json
+  manual_external: Json
+  dismissed_insights: Json
+  dismissed_actions: Json
+  dismissed_recurring: Json
+  recurring_dismissals: Json
+  overage_funding_prefs: Json
+  planned_transfers: Json
+  savings_goals: Json
+  panel_order: Json
+  account_meta: Json
+  benefits_used: Json
+  money_map_feedback: Json
+  txn_tags: Json
+  txn_notes: Json
+  recurring_overrides: Json
+  txn_splits: Json
+  recurring_groups: Json
+  card_autopay_from: Json
+  financial_picture: Json
+}
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -207,13 +239,16 @@ export type Database = {
           id: string
           iso_currency_code: string | null
           item_id: string
+          logo_url: string | null
           merchant_name: string | null
           name: string | null
+          plaid_category: string[] | null
           payment_channel: string | null
           pending: boolean | null
           transaction_id: string
           updated_at: string
           user_id: string
+          website: string | null
         }
         Insert: {
           account_id: string
@@ -225,13 +260,16 @@ export type Database = {
           id?: string
           iso_currency_code?: string | null
           item_id: string
+          logo_url?: string | null
           merchant_name?: string | null
           name?: string | null
+          plaid_category?: string[] | null
           payment_channel?: string | null
           pending?: boolean | null
           transaction_id: string
           updated_at?: string
           user_id: string
+          website?: string | null
         }
         Update: {
           account_id?: string
@@ -243,13 +281,16 @@ export type Database = {
           id?: string
           iso_currency_code?: string | null
           item_id?: string
+          logo_url?: string | null
           merchant_name?: string | null
           name?: string | null
+          plaid_category?: string[] | null
           payment_channel?: string | null
           pending?: boolean | null
           transaction_id?: string
           updated_at?: string
           user_id?: string
+          website?: string | null
         }
         Relationships: [
           {
@@ -350,6 +391,27 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: UserSettingsJsonFields & {
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: Partial<UserSettingsJsonFields> & {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: Partial<UserSettingsJsonFields> & {
+          created_at?: string
+          id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

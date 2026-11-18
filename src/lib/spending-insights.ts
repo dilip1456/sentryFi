@@ -3,6 +3,7 @@ import {
   CREDIT_CARD_PAYMENT_CATEGORY, SAVINGS_CATEGORY, INTERNAL_TRANSFER_CATEGORY,
   type Classification, type ClassifierTxn, type TxnType,
 } from "./classify/index.ts";
+import { merchantKey } from "./merchant-name.ts";
 
 /**
  * Pure helpers behind the Spending page's overview (hero, pace, daily chart,
@@ -24,13 +25,7 @@ export type TxnFlag = "duplicate" | "transfer";
 
 /** Lower-cased, punctuation/number-stripped merchant key ("STARBUCKS #1234" → "starbucks"). */
 export const normalizeMerchant = (s: string | null | undefined): string =>
-  (s ?? "")
-    .toLowerCase()
-    .replace(/[#*].*$/, "")
-    .replace(/\b(des|id|indn|co id|ppd|web|ach)\b.*$/, "")
-    .replace(/[^a-z&+ ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  merchantKey(s);
 
 // Statement text that usually means money moved between the user's own
 // accounts (brokerage funding, P2P to self, savings sweeps) rather than real

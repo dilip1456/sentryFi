@@ -3,6 +3,9 @@ import { cleanBankText, merchantKey } from "../_shared/merchant-name.ts";
 import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
 import { isTrustedServerCaller } from "../_shared/auth.ts";
 
+type AdminClient = ReturnType<typeof createClient>;
+type AlertInsight = { id?: string; severity?: string; title?: string; what?: string };
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -56,7 +59,7 @@ async function sendPush(tokens: string[], title: string, body: string) {
 // SELECT before either INSERT landed, sending the same alert dozens of times
 // a day. ignoreDuplicates makes the upsert a no-op (empty `data`) when the
 // key already exists, so `saveAlert` only ever returns true once per key.
-async function saveAlert(admin: any, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, any> = {}) {
+async function saveAlert(admin: AdminClient, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, unknown> = {}) {
   const { data, error } = await admin.from("alert_log")
     .upsert(
       { user_id: userId, alert_type: alertType, alert_key: alertKey, title, body, payload, created_at: new Date().toISOString() },
@@ -83,7 +86,7 @@ const txnAlertKey = (kind: string, t: { account_id: string; amount: number | str
 // Per-category opt-out — defaults to enabled (`!== false`) so existing users
 // keep getting every alert type they already get today unless they've
 // explicitly turned one off in Notification Preferences.
-function categoryEnabled(pref: any, key: string): boolean {
+function categoryEnabled(pref: Record<string, unknown>, key: string): boolean {
   return pref[key] !== false;
 }
 
@@ -155,7 +158,7 @@ Deno.serve(async (req) => {
       const { data: { user } } = await admin.auth.admin.getUserById(userId);
       const toEmail = pref.email || user?.email;
       const { data: pushTokenRows } = await admin.from("push_tokens").select("token").eq("user_id", userId);
-      const pushTokens = (pushTokenRows ?? []).map((r: any) => r.token);
+      const pushTokens = (pushTokenRows ?? []).map((r: { token: string }) => r.token);
 
       const { data: accounts } = await admin.from("plaid_accounts")
         .select("account_id,item_id,name,mask,current_balance,available_balance,type,subtype")
@@ -239,7 +242,7 @@ Deno.serve(async (req) => {
 
       // ── 2. Low balance ───────────────────────────────────────────────
       if (categoryEnabled(pref, "alert_low_balance")) {
-        for (const acc of (accounts ?? []).filter((a: any) => a.subtype === "checking" || a.subtype === "savings")) {
+        for (const acc of (accounts ?? []).filter((a: { subtype?: string | null }) => a.subtype === "checking" || a.subtype === "savings")) {
           const bal = Number(acc.current_balance ?? 0);
           const threshold = pref.low_balance ?? 100;
           if (bal >= threshold) continue;
@@ -265,7 +268,7 @@ Deno.serve(async (req) => {
           const paidMs = cd.last_payment_date ? new Date(cd.last_payment_date).getTime() : NaN;
           if (Number.isFinite(paidMs) && paidMs >= dueMs - 25 * 86400000 &&
               Number(cd.last_payment_amount ?? 0) >= Number(cd.minimum_payment_amount ?? 0)) continue;
-          const acc = (accounts ?? []).find((a: any) => a.account_id === cd.account_id);
+          const acc = (accounts ?? []).find((a: { account_id: string; name?: string | null }) => a.account_id === cd.account_id);
           const title = `💳 ${acc?.name ?? "Card"} payment due ${daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : shortDate(cd.next_payment_due_date)}`;
           const body = cd.minimum_payment_amount != null ? `Minimum ${usd(cd.minimum_payment_amount)} due ${shortDate(cd.next_payment_due_date)}` : `Due ${shortDate(cd.next_payment_due_date)}`;
           const added = await saveAlert(admin, userId, "payment_due", `payment_due:${cd.account_id}:${cd.next_payment_due_date}`, title, body,
@@ -284,7 +287,7 @@ Deno.serve(async (req) => {
         const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
         const { data: histTxns } = await admin.from("plaid_transactions")
           .select("amount").eq("user_id", userId).gte("date", threeMonthsAgo).lt("date", yesterday).gt("amount", 0);
-        const avgMonthly = (histTxns ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0) / 3;
+        const avgMonthly = (histTxns ?? []).reduce((s: number, t: { amount: number | string }) => s + Number(t.amount), 0) / 3;
         const largeThreshold = Math.max(avgMonthly * 0.15, 150);
 
         for (const t of recentTxns ?? []) {
@@ -320,7 +323,7 @@ Deno.serve(async (req) => {
           if (!categoryEnabled(pref, "alert_cc_payment")) continue;
           // This is a credit card payment being received by the card — not a deposit
           // Notify as a payment confirmation, not deposit
-          const acct = (accounts ?? []).find((a: any) => a.account_id === t.account_id);
+          const acct = (accounts ?? []).find((a: { account_id: string; name?: string | null }) => a.account_id === t.account_id);
           const title = `✅ Payment posted: ${acct?.name ?? merchant}`;
           const body = `${usd(amt)} payment applied to your account`;
           const added = await saveAlert(admin, userId, "cc_payment_posted", txnAlertKey("cc_payment", t), title, body,
@@ -368,10 +371,10 @@ Deno.serve(async (req) => {
         ? await admin.from("ai_insights").select("created_at,insights").eq("user_id", userId).maybeSingle()
         : { data: null };
       if (lastInsight?.insights) {
-        const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as any[] : [];
-        const highSeverity = insights.filter((i: any) => i.severity === "high");
+        const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as AlertInsight[] : [];
+        const highSeverity = insights.filter(i => i.severity === "high");
         if (highSeverity.length > 0) {
-          const hash = highSeverity.map((i: any) => i.id).sort().join(",").slice(0, 60);
+          const hash = highSeverity.map(i => i.id ?? "").sort().join(",").slice(0, 60);
           const title = `💡 ${highSeverity[0].title}`;
           const body = highSeverity[0].what?.slice(0, 100) ?? "Check your Sentry Finance dashboard";
           const added = await saveAlert(admin, userId, "insight", `insights:${hash}`, title, body,

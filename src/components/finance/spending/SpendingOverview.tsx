@@ -14,7 +14,7 @@ import {
   Area, Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
   Pie, PieChart, Cell,
 } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Clock, Copy, ArrowLeftRight, Info, Pencil, Wallet, ChevronRight, Gauge, CreditCard, PiggyBank, Send, HandCoins, Repeat } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Clock, Copy, ArrowLeftRight, Pencil, Wallet, ChevronRight, Gauge, CreditCard, PiggyBank, Send, HandCoins, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtUSD } from "@/lib/format";
 import { fmtShortDate, vivid, withAlpha, type TxnFlag } from "@/lib/spending-insights";
@@ -184,9 +184,6 @@ export function SpendingOverview(p: SpendingOverviewProps) {
               <Clock className="h-3 w-3 text-warning" /> Includes {fmtUSD(p.pendingSpent)} pending ({p.pendingCount})
             </span>
           ) : <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> All posted</span>}
-          <span className="inline-flex items-center gap-1" title="Credit-card payments, savings & investing contributions, money sent to or received from people (Venmo, Zelle, Cash App, PayPal), and transfers between your own accounts are shown under Money movement. They're not counted as spending or income. Change a transaction's type to count it.">
-            <Info className="h-3 w-3" /> Real spending only: no card payments, savings or transfers
-          </span>
         </div>
       </section>
 
@@ -415,7 +412,7 @@ export function FlagChip({ flag, compact = false }: { flag: TxnFlag; compact?: b
   const dup = flag === "duplicate";
   const Icon = dup ? Copy : ArrowLeftRight;
   return (
-    <span title={dup ? "Same amount & merchant within 3 days. Possible duplicate charge." : "Looks like a transfer between your own accounts. It's counted as spending until you recategorize it."}
+    <span title={dup ? "Same amount & merchant within 3 days. Possible duplicate charge." : "Looks like a transfer between your own accounts."}
       className={cn("inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold shrink-0 whitespace-nowrap",
         dup ? "bg-[hsl(var(--negative)/0.12)] text-negative" : "bg-[hsl(210_60%_60%/0.14)] text-[hsl(210_70%_70%)]")}>
       <Icon className="h-2.5 w-2.5" />{compact ? (dup ? "Dup?" : "Transfer?") : (dup ? "Possible duplicate" : "Transfer?")}

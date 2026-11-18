@@ -386,7 +386,7 @@ const CardDetailDialog = ({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent showClose={false} className="max-w-sm md:max-w-2xl surface-elevated border-border p-0 gap-0 overflow-hidden h-[min(88dvh,640px)] flex flex-col md:flex-row">
+      <DialogContent showClose={false} className="max-w-sm md:max-w-2xl surface-elevated border-border p-0 gap-0 overflow-hidden h-[min(72dvh,520px)] flex flex-col md:flex-row">
         <DialogTitle className="sr-only">{card.brand_name} details</DialogTitle>
         <DialogDescription className="sr-only">Full details for this gift card.</DialogDescription>
 
@@ -569,6 +569,12 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  // Table view, large screens: clicking a row updates this side preview
+  // instead of opening the full dialog (which still opens from the Cards
+  // view, and from the table itself below the lg breakpoint where there's
+  // no room for a side-by-side panel).
+  const [selectedCardIndex, setSelectedCardIndex] = useState<number | null>(null);
+  const [panelReveal, setPanelReveal] = useState(false);
   type SortKey = "name" | "expiry" | "balance" | "status";
   const [sortKey, setSortKey] = useState<SortKey>("expiry");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -581,6 +587,16 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+  };
+  // Table column headers are a second way to drive the same sortKey/sortDir
+  // state as the "Sort by" control above (which also works in Cards view).
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return null;
+    return sortDir === "asc" ? <ChevronUp className="h-2.5 w-2.5 inline" /> : <ChevronDown className="h-2.5 w-2.5 inline" />;
   };
 
   // Guest/demo mode never has a real user, so gift_cards can't be queried —
@@ -704,6 +720,14 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
     return sorted.map(g => ({ ...g, cards: [...g.cards].sort((a, b) => expiryCompare(a.card, b.card)) }));
   }, [vendorGroupsRaw, sortKey, sortDir]);
 
+  // Flat "as displayed" order — every card in a vendor group, in the same
+  // order that group renders, before moving to the next vendor group. The
+  // detail dialog's Next/Prev walks this order (not the raw load order) so
+  // browsing matches what's on screen in both Cards and Table view.
+  const displayOrder = useMemo(() => displayGroups.flatMap(g => g.cards.map(c => c.originalIndex)), [displayGroups]);
+  const orderedCards = useMemo(() => displayOrder.map(i => cards?.[i]).filter((c): c is GiftCardRow => !!c), [displayOrder, cards]);
+  const detailPos = detailIndex !== null ? displayOrder.indexOf(detailIndex) : -1;
+
   const removeCard = async (id: string) => {
     if (demo) { demoBlocked(); return; }
     if (legacySchema) {
@@ -745,10 +769,10 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
   const openSpend = (c: GiftCardRow) => { if (demo) { demoBlocked(); return; } setSpendCard(c); };
 
   return (
-    <section className="space-y-3">
+    <section className="h-full min-h-0 flex flex-col gap-3">
       {/* Hero summary — total balance + expiry chips + add, replaces the old
           title row + separate "N expired / N expiring" paragraph banner. */}
-      <div className="surface-card px-4 py-4 md:px-5 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="shrink-0 surface-card px-4 py-4 md:px-5 md:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="h-11 w-11 rounded-xl bg-gold/15 grid place-items-center shrink-0">
             <Gift className="h-5 w-5 text-gold" />
@@ -803,6 +827,9 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         </div>
       </div>
 
+      {/* Everything below the hero scrolls inside this one region, so the
+          outer app page never needs to scroll for this tab — only this area does. */}
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-1">
       {loadError && (
         <div className="surface-card p-6 text-center">
           <AlertCircle className="h-6 w-6 mx-auto text-negative/70 mb-2" />
@@ -837,80 +864,218 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
         </div>
       ) : viewMode === "table" ? (
         /* Table grouped by vendor with a running total per vendor. Click a
-           vendor row to collapse it; the whole table scrolls inside a capped
-           height so a long card list never pushes the outer page into a scroll. */
-        <div className="surface-card overflow-hidden">
-          <div className="overflow-auto max-h-[60vh]">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="sticky top-0 z-[5] bg-card border-b border-border/30">
-                  <th className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Card</th>
-                  <th className="hidden sm:table-cell px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Card number</th>
-                  <th className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">Expiration</th>
-                  <th className="hidden sm:table-cell px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                  <th className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayGroups.map(group => {
-                  const collapsed = collapsedVendors.has(group.key);
-                  return (
-                  <Fragment key={group.vendor}>
-                    <tr className="bg-secondary/20 border-b border-border/20 cursor-pointer hover:bg-secondary/30 transition-colors"
-                      onClick={() => toggleVendorCollapse(group.key)}>
-                      <td colSpan={5} className="px-2.5 py-1.5 text-[12px]">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1.5 min-w-0">
-                            <ChevronRight className={cn("h-3 w-3 text-muted-foreground/60 transition-transform shrink-0", !collapsed && "rotate-90")} />
-                            <BrandLogo domain={group.domain} logoUrl={group.logoUrl} name={group.vendor} size={16} />
-                            <span className="font-medium text-foreground truncate">{group.vendor}</span>
-                            {group.cards.length > 1 && <span className="text-muted-foreground shrink-0">({group.cards.length})</span>}
-                          </span>
-                          <span className="tabular font-semibold text-foreground shrink-0">{fmtUSD(group.total)}</span>
-                        </div>
-                      </td>
-                    </tr>
-                    {!collapsed && group.cards.map(({ card, originalIndex: i }) => {
+           vendor row to collapse it; click a column header to sort within
+           each vendor group (mirrors the Sort by control above). At lg+ a
+           side panel previews whichever card was last clicked (card art,
+           balance, number/PIN, activity log) so most browsing never needs
+           the full dialog — that still opens on narrower screens, and from
+           Cards view everywhere, via the same matchMedia check in the row
+           click handler below. */
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-3 items-start">
+        <div className="surface-card overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="sticky top-0 z-[5] bg-card border-b border-border/30">
+                <th onClick={() => toggleSort("name")} className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                  <span className="inline-flex items-center gap-0.5">Card{sortIndicator("name")}</span>
+                </th>
+                <th className="hidden sm:table-cell px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Card number</th>
+                <th onClick={() => toggleSort("expiry")} className="px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap">
+                  <span className="inline-flex items-center gap-0.5">Expiration{sortIndicator("expiry")}</span>
+                </th>
+                <th onClick={() => toggleSort("status")} className="hidden sm:table-cell px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                  <span className="inline-flex items-center gap-0.5">Status{sortIndicator("status")}</span>
+                </th>
+                <th onClick={() => toggleSort("balance")} className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground text-right cursor-pointer select-none hover:text-foreground transition-colors">
+                  <span className="inline-flex items-center gap-0.5 flex-row-reverse">Balance{sortIndicator("balance")}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayGroups.map(group => {
+                const collapsed = collapsedVendors.has(group.key);
+                return (
+                <Fragment key={group.vendor}>
+                  <tr className="bg-secondary/20 border-b border-border/20 cursor-pointer hover:bg-secondary/30 transition-colors"
+                    onClick={() => toggleVendorCollapse(group.key)}>
+                    <td colSpan={5} className="px-2 py-1 text-[11.5px]">
+                      <div className="w-full flex items-center justify-between gap-2">
+                        <span className="flex flex-1 min-w-0 items-center gap-1.5">
+                          <ChevronRight className={cn("h-3 w-3 text-muted-foreground/60 transition-transform shrink-0", !collapsed && "rotate-90")} />
+                          <BrandLogo domain={group.domain} logoUrl={group.logoUrl} name={group.vendor} size={16} />
+                          <span className="font-medium text-foreground truncate">{group.vendor}</span>
+                          {group.cards.length > 1 && <span className="text-muted-foreground shrink-0">({group.cards.length})</span>}
+                        </span>
+                        <span className="tabular font-semibold text-foreground shrink-0">{fmtUSD(group.total)}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {!collapsed && group.cards.map(({ card, originalIndex: i }) => {
                     const status = expiryStatus(card.expiry_date);
                     const statusLabel = status === "expired" ? "Expired" : status === "soon" ? "Soon" : "Active";
                     const statusClasses = status === "expired" ? "bg-negative/10 text-negative"
                       : status === "soon" ? "bg-warning/10 text-warning" : "bg-positive/10 text-positive";
                     return (
-                      <tr key={card.id} onClick={() => setDetailIndex(i)}
-                        className="cursor-pointer hover:bg-surface-hover/30 transition-colors border-b border-border/10 last:border-b-0">
-                        <td className="px-2.5 py-1.5">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <MiniCardThumb card={card} width={40} height={26} />
-                            <div className="min-w-0 text-[12.5px] font-medium text-foreground truncate">{card.brand_name}</div>
-                          </div>
+                      <tr key={card.id}
+                        onClick={() => {
+                          setSelectedCardIndex(i);
+                          setPanelReveal(false);
+                          // No room for the side panel below lg — open the full dialog there instead.
+                          if (!window.matchMedia("(min-width: 1024px)").matches) setDetailIndex(i);
+                        }}
+                        className={cn(
+                          "cursor-pointer hover:bg-surface-hover/30 transition-colors border-b border-border/10 last:border-b-0",
+                          selectedCardIndex === i && "bg-secondary/30"
+                        )}>
+                        <td className="px-2 py-1">
+                          <div className="min-w-0 text-[12px] font-medium text-foreground truncate">{card.brand_name}</div>
                         </td>
-                        <td className="hidden sm:table-cell px-2 py-1.5 text-[12px] text-muted-foreground tabular whitespace-nowrap">
+                        <td className="hidden sm:table-cell px-1.5 py-1 text-[11.5px] text-muted-foreground tabular whitespace-nowrap">
                           {card.card_number_last4 ? `•••• ${card.card_number_last4}` : "-"}
                         </td>
-                        <td className="px-2 py-1.5 text-[12px] whitespace-nowrap">
+                        <td className="px-1.5 py-1 text-[11.5px] whitespace-nowrap">
                           <span className={status === "expired" ? "text-negative" : status === "soon" ? "text-warning" : "text-muted-foreground"}>
                             {card.expiry_date ? new Date(card.expiry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", year: "2-digit" }) : "-"}
                           </span>
                         </td>
-                        <td className="hidden sm:table-cell px-2 py-1.5">
-                          <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold whitespace-nowrap", statusClasses)}>
+                        <td className="hidden sm:table-cell px-1.5 py-1">
+                          <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap", statusClasses)}>
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="px-2.5 py-1.5 text-right align-middle">
-                          <span className={cn("text-[13px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
+                        <td className="px-2 py-1 text-right align-middle">
+                          <span className={cn("text-[12.5px] tabular font-semibold", Number(card.balance) === 0 ? "text-muted-foreground" : "text-foreground")}>
                             {fmtUSD(Number(card.balance))}
                           </span>
                         </td>
                       </tr>
                     );
                   })}
-                  </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Side preview panel — lg+ only; same card-browsing surface as the
+            full dialog (art, balance, number/PIN, log) without leaving the
+            table. Below lg, row clicks open the dialog instead (see above),
+            so this panel is hidden there and never shown empty. */}
+        <div className="hidden lg:block space-y-3">
+          {(() => {
+            const panelOriginalIndex = selectedCardIndex ?? displayOrder[0] ?? null;
+            const card = panelOriginalIndex !== null ? cards?.[panelOriginalIndex] : null;
+            if (!card) {
+              return (
+                <div className="surface-card p-6 text-center text-[12.5px] text-muted-foreground">
+                  Select a card to preview it here.
+                </div>
+              );
+            }
+            const status = expiryStatus(card.expiry_date);
+            return (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => openEdit(card)}
+                    className="flex-1 inline-flex items-center justify-center gap-1 h-8 rounded-lg border border-border-strong text-[11.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
+                    <Pencil className="h-3 w-3" /> Edit
+                  </button>
+                  {card.balance_check_url && (
+                    <a href={card.balance_check_url} target="_blank" rel="noopener noreferrer"
+                      className="flex-1 inline-flex items-center justify-center gap-1 h-8 rounded-lg border border-border-strong text-[11.5px] font-medium text-foreground hover:bg-secondary/40 transition-colors">
+                      <ExternalLink className="h-3 w-3" /> Balance
+                    </a>
+                  )}
+                  <button onClick={() => openSpend(card)}
+                    className="flex-1 inline-flex items-center justify-center gap-1 h-8 rounded-lg bg-gold text-[11.5px] font-semibold hover:opacity-90 transition-opacity">
+                    <MinusCircle className="h-3 w-3" /> Spend
+                  </button>
+                </div>
+
+                <div className="max-w-[200px] mx-auto">
+                  <GiftCardTile card={card} />
+                </div>
+
+                <div className="surface-card p-3 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[13.5px] font-semibold text-foreground truncate">{card.brand_name}</div>
+                    {card.balance_verified ? (
+                      <span className="inline-flex items-center gap-1 text-[10.5px] text-positive shrink-0"><CheckCircle2 className="h-3 w-3" /> Verified</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground shrink-0"><AlertCircle className="h-3 w-3" /> Estimated</span>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 text-[12.5px]">
+                    {card.expiry_date && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide">Expires</span>
+                        <span className={cn("tabular font-medium", status === "expired" ? "text-negative" : status === "soon" ? "text-warning" : "text-foreground")}>
+                          {humanizeCountdown(card.expiry_date)}
+                        </span>
+                      </div>
+                    )}
+                    {(card.card_number || card.card_number_last4) && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Number</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="tabular">{panelReveal ? (card.card_number ?? `•••• ${card.card_number_last4}`) : `•••• ${card.card_number_last4 ?? "????"}`}</span>
+                          {card.card_number && (
+                            <button onClick={() => copyToClipboard(card.card_number!, "Card number")} aria-label="Copy card number" className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground">
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {card.pin && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">PIN</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="tabular">{panelReveal ? card.pin : "••••"}</span>
+                          <button onClick={() => copyToClipboard(card.pin!, "PIN")} aria-label="Copy PIN" className="h-6 w-6 grid place-items-center rounded text-muted-foreground/60 hover:text-foreground">
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {(card.card_number || card.pin) && (
+                      <button onClick={() => setPanelReveal(v => !v)} className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+                        {panelReveal ? <><EyeOff className="h-3 w-3" /> Hide</> : <><Eye className="h-3 w-3" /> Reveal</>}
+                      </button>
+                    )}
+                    {card.notes && <p className="text-muted-foreground text-[12px] pt-0.5">{card.notes}</p>}
+                  </div>
+                  <ActivityTimeline entries={activity[card.id] ?? []} />
+                </div>
+
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button disabled={removingId === card.id}
+                      className="w-full inline-flex items-center justify-center gap-1.5 h-8 rounded-lg text-[12px] text-negative hover:bg-negative/10 transition-colors disabled:opacity-50">
+                      {removingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove card
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove this gift card?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This moves {card.brand_name}'s {fmtUSD(Number(card.balance))} balance
+                        {(card.card_number || card.card_number_last4 || card.pin) ? " and stored card number/PIN" : ""} to Removed cards. You can restore it anytime from there.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => removeCard(card.id)} className="bg-negative text-negative-foreground hover:bg-negative/90">
+                        Remove
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            );
+          })()}
+        </div>
         </div>
       ) : (
         /* One compact tile per vendor — cards for the same brand no longer
@@ -925,7 +1090,7 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
             const front = group.cards[0];
             const extra = group.cards.length - 1;
             return (
-              <button key={group.vendor} onClick={() => setDetailIndex(front.originalIndex)} className="group text-left">
+              <button key={group.vendor} onClick={() => setDetailIndex(front.originalIndex)} className="group text-left min-w-0 w-full">
                 <div className="relative aspect-[8/5] transition-transform duration-200 group-hover:-translate-y-0.5 group-active:scale-[0.97]">
                   {group.cards.length > 2 && (
                     <div className="absolute inset-0 translate-x-1 translate-y-2.5 -rotate-2 opacity-40">
@@ -988,15 +1153,16 @@ export const GiftCardsSection = ({ demo = false }: { demo?: boolean }) => {
           )}
         </div>
       )}
+      </div>
 
       <AddGiftCardDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
       {spendCard && <LogSpendDialog card={spendCard} onClose={() => setSpendCard(null)} onSaved={load} onRemoveCard={() => removeCard(spendCard.id)} />}
       {editCard && <EditGiftCardDialog card={editCard} onClose={() => setEditCard(null)} onSaved={load} onRemoveCard={() => removeCard(editCard.id)} />}
-      {detailIndex !== null && cards && cards[detailIndex] && (
+      {detailPos >= 0 && (
         <CardDetailDialog
-          cards={cards}
-          index={detailIndex}
-          onIndexChange={setDetailIndex}
+          cards={orderedCards}
+          index={detailPos}
+          onIndexChange={(pos) => setDetailIndex(displayOrder[pos] ?? null)}
           onClose={() => setDetailIndex(null)}
           onEdit={(c) => { openEdit(c); setDetailIndex(null); }}
           onLogSpend={(c) => { openSpend(c); setDetailIndex(null); }}

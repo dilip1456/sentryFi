@@ -20,6 +20,7 @@ import {
 } from "./classifier";
 import { addDays, diffDays, nearestIrsEstimatedDue, parseDate, todayLocal, DEFAULT_TIME_ZONE, type ISODate, type ShiftPolicy } from "./dates";
 import { billSubtype, displayName, loanSubtype, merchantKey, taxSubtype, YEARLY_HINT_RE } from "./patterns";
+import { isPlaidDiscretionaryRecurringExcluded } from "./spending-cadence";
 import {
   fitSchedule,
   matchTolerance,
@@ -151,6 +152,11 @@ export function isRecurringEligible(
 ): boolean {
   if (t.pending) return false;
   if (!t.amount) return false;
+  // A regular convenience-store/retail purchase is not a bill just because
+  // it repeats on a schedule. Plaid's source category remains available even
+  // when its confidence is LOW or the app category was previously mapped as
+  // a bill; recognized subscription merchants are handled by the allowlist.
+  if (isPlaidDiscretionaryRecurringExcluded(t.pfc_primary, t.pfc_detailed, t.merchant_name ?? t.name ?? "")) return false;
   // Money arriving on the user's own card or loan account is the receiving
   // leg of a payment (or a refund), never income — even when unmatched.
   const acctType = (account?.type ?? "").toLowerCase();

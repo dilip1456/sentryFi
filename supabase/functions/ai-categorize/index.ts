@@ -46,6 +46,14 @@ Deno.serve(async (req) => {
     //   looks wrong, since there's nothing more confident to compare against.
     const mode = body?.mode === "suggest" ? "suggest" : "flag";
 
+    // Optional caller-supplied category list — used after someone deletes a
+    // category, so the model is constrained to only categories that still
+    // exist and can never suggest the one just deleted back.
+    const callerCategories = Array.isArray(body?.categories)
+      ? (body!.categories as unknown[]).filter((c): c is string => typeof c === "string" && c.trim().length > 0).slice(0, 60)
+      : null;
+    const categories = callerCategories && callerCategories.length > 0 ? callerCategories : CATEGORIES;
+
     const lines = transactions.map(t =>
       `${String(t.id ?? "")}|"${String(t.merchant_name ?? t.name ?? "Unknown")}"|$${Math.abs(Number(t.amount) || 0)}|${String(t.plaid_category ?? "")}`
     ).join("\n");
@@ -53,7 +61,7 @@ Deno.serve(async (req) => {
     const prompt = mode === "suggest"
       ? `For each bank transaction below, pick the single best-fitting category from the list based on the merchant name and amount. Always pick one, even if the current bank category already looks reasonable.
 
-Categories: ${CATEGORIES.join(", ")}
+Categories: ${categories.join(", ")}
 
 id|name|amount|bank_category
 ${lines}
@@ -61,7 +69,7 @@ ${lines}
 JSON only, no markdown: {"suggestions":[{"id":"","name":"","current_category":"","suggested_category":"","reason":""}]}`
       : `Review these bank transactions. Flag only ones where the category is clearly wrong based on the merchant name. Skip transfers and salary.
 
-Categories: ${CATEGORIES.join(", ")}
+Categories: ${categories.join(", ")}
 
 id|name|amount|bank_category
 ${lines}
