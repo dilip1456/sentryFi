@@ -19,6 +19,8 @@ import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
 import { reconcilePayments } from "./reconcile";
+import { refreshDecisionLabel } from "./labels";
+import { planningAmount, seriesPlanningAmount } from "./planning-amount";
 
 export const REVIEW_GROUPS = ["income", "bills", "insurance_tax", "payments", "savings"] as const;
 export type ReviewGroup = (typeof REVIEW_GROUPS)[number];
@@ -40,8 +42,18 @@ export interface RecurringDecision {
   status: ReviewStatus;
   /** User edits; null/undefined = keep what detection found. */
   cadence?: Cadence | null;
-  /** Typical amount per occurrence (positive). */
-  amount?: number | null;
+  /**
+   * The person's expected amount per occurrence (positive). Wins over the
+   * detected / planning amount everywhere (Picture, Timeline rundown) and is
+   * the baseline alerts compare against. Stored in recurring_streams.user_amount.
+   */
+  expectedAmount?: number | null;
+  /**
+   * The person's own name for this pattern (null = the detected name). Never
+   * replaced by label refreshes. Stored in recurring_streams.schedule.user_name
+   * (picture rows only), and as display_name.
+   */
+  name?: string | null;
   group?: ReviewGroup | null;
   coverAccountId?: string | null;
   decidedAt?: string | null;
@@ -79,6 +91,18 @@ export interface ReviewItem {
   status: ReviewStatus;
   /** True when the person changed cadence, amount, group or covering account. */
   edited: boolean;
+  /** The label is the person's own name (decision.name). */
+  renamed: boolean;
+  /** The detected (automatic) label, whatever the person renamed it to. */
+  autoLabel: string;
+  /** The person's expected amount (decision.expectedAmount), else null. */
+  expectedAmount: number | null;
+  /** The identified pattern, compact: "Monthly on the 9th · 8 charges since Apr", "Yearly in May (seen once)". */
+  patternLine: string;
+  /** Too little history to be sure of the timing (1–2 sightings or irregular gaps); planned for anyway. */
+  estimated: boolean;
+  /** Plain words when estimated: "Not enough history yet · seen once in 7 months, assumed yearly". */
+  estimateNote: string | null;
   /** A confirmed item whose latest expected payment didn't arrive in its grace window. */
   missed: boolean;
   daysLate: number | null;
@@ -93,6 +117,8 @@ export interface ReviewResult {
   items: ReviewItem[];
   dismissed: ReviewItem[];
   series: RecurringSeries[];
+  /** Stored decisions whose automatic label an older parser derived, with the current label (to store back). */
+  relabeled?: RecurringDecision[];
 }
 
 export interface ReviewOptions {
@@ -121,6 +147,7 @@ const INTERNAL_INFLOW_RE =
 
 /** Max coefficient of variation of amounts for an item to count as one pattern. */
 function amountTolerance(group: ReviewGroup, kind: SeriesKind, subtype: string | null): number {
+  if (subtype === "local_eit") return Infinity; // uneven quarterly local tax payments (an estimate)
   if (kind === "bill" && (subtype === "utility" || subtype === "phone" || subtype === "internet")) return 0.6;
   if (group === "insurance_tax") return 0.6; // estimated taxes / premiums change year to year
   if (kind === "card_payment") return 1.5; // card payments follow the statement balance
@@ -195,6 +222,49 @@ export function patternLabel(s: Schedule | null, cadence: Cadence): string {
 }
 
 // ── Building items ────────────────────────────────────────────────────────
+
+const ASSUMED: Record<Cadence, string> = {
+  weekly: "weekly", biweekly: "every 2 weeks", semimonthly: "twice a month", monthly: "monthly",
+  quarterly: "every 3 months", semiannual: "every 6 months", yearly: "yearly",
+};
+const TIMES = ["", "once", "twice"];
+
+const CADENCE_DAYS: Record<Cadence, number> = { weekly: 7, biweekly: 14, semimonthly: 15.2, monthly: 30.4, quarterly: 91.3, semiannual: 182.6, yearly: 365 };
+/** Share of gaps between sightings more than 40% off the cadence (a stray extra charge is one gap, not chaos). */
+function offGaps(dates: readonly ISODate[], cadence: Cadence): number {
+  const d = [...new Set(dates)].sort();
+  if (d.length < 3) return 0;
+  let off = 0;
+  for (let i = 1; i < d.length; i++) if (Math.abs(diffDays(d[i], d[i - 1]) - CADENCE_DAYS[cadence]) > 0.4 * CADENCE_DAYS[cadence]) off++;
+  return off / (d.length - 1);
+}
+
+/**
+ * The identified pattern in plain words, and whether there is enough history
+ * to trust it. `historyStart` is the earliest transaction the person has (the
+ * full available history, so "seen once in 7 months" is honest).
+ */
+export function describePattern(p: {
+  pattern: string; cadence: Cadence; dates: readonly ISODate[]; kind: SeriesKind; direction: "inflow" | "outflow"; historyStart: ISODate | null; today: ISODate;
+}): { patternLine: string; estimated: boolean; estimateNote: string | null } {
+  const n = new Set(p.dates).size; // same-day split payments are one sighting
+  const first = [...p.dates].sort()[0];
+  const pattern = p.pattern.replace(/^Every 2 weeks on (\w+?)s?$/, "Every other $1");
+  const word = p.kind === "salary" ? (n === 1 ? "paycheck" : "paychecks") : p.direction === "inflow" ? (n === 1 ? "deposit" : "deposits") : (n === 1 ? "charge" : "charges");
+  const months = p.historyStart ? Math.max(1, Math.round(diffDays(p.today, p.historyStart) / 30.44)) : null;
+  const span = months ? ` in ${months} month${months === 1 ? "" : "s"}` : "";
+  const short = n >= 3 && offGaps(p.dates, p.cadence) > 1 / 3;
+  const estimated = n < 3 || short;
+  const since = first ? MONTHS[parseDate(first).m - 1] : "";
+  let patternLine: string;
+  if (n === 1) patternLine = `${pattern.replace(/\s*\(around the [^)]*\)/, "")} (seen once)`;
+  else if (n === 2) patternLine = `${pattern.replace(/\s*\(around the [^)]*\)/, "")} (seen twice)`;
+  else patternLine = `${pattern} · ${n} ${word}${since ? ` since ${since}` : ""}`;
+  const estimateNote = !estimated ? null
+    : short ? `Irregular timing · seen ${n} times${span}, assumed ${ASSUMED[p.cadence]}`
+    : `Not enough history yet · seen ${TIMES[n] ?? `${n} times`}${span}, assumed ${ASSUMED[p.cadence]}`;
+  return { patternLine, estimated, estimateNote };
+}
 
 /** Grouping key handed to the detector: one employer per paycheck series, one payee otherwise. */
 export function reviewKeyOf(t: ClassifierTxn, c: TxnClassification): string {
@@ -314,12 +384,15 @@ export function reviewDrafts(series: RecurringSeries[], txnById: Map<string, Cla
       : p2p && payee && !/^(save|pay):/.test(payee) ? titleCase(payee) : s.displayName;
     // One amount cluster for a payee: drop the "|~bucket" so a price change keeps the same key.
     const key = baseCount.get(baseKey(s.seriesKey)) === 1 ? baseKey(s.seriesKey) : s.seriesKey;
-    drafts.push({ s, group, label, amount: typicalAmount(s), key, transactionIds: [...s.transactionIds], text });
+    drafts.push({ s, group, label, amount: (s.subtype === "local_eit"
+        // Split local-tax payments: every member charge counts (same-day parts summed).
+        ? planningAmount({ direction: s.direction, charges: members.map(t => ({ date: t.date, amount: t.amount })), kind: s.kind, subtype: s.subtype })
+        : seriesPlanningAmount(s)) ?? typicalAmount(s), key, transactionIds: [...s.transactionIds], text });
   }
   return dedupe(drafts);
 }
 
-function itemFromDraft(d: Draft, txnById: Map<string, ClassifierTxn>, today: ISODate): ReviewItem {
+function itemFromDraft(d: Draft, txnById: Map<string, ClassifierTxn>, today: ISODate, historyStart: ISODate | null = null): ReviewItem {
   const s = d.s;
   const range: [number, number] = [round2(Math.abs(s.amount.min)), round2(Math.abs(s.amount.max))];
   const amountKind = s.amount.isFixed || s.amount.cv <= 0.05 ? "fixed" : "variable";
@@ -354,6 +427,10 @@ function itemFromDraft(d: Draft, txnById: Map<string, ClassifierTxn>, today: ISO
     coverUserSet: false,
     status: "suggested",
     edited: false,
+    renamed: false,
+    autoLabel: d.label,
+    expectedAmount: null,
+    ...describePattern({ pattern, cadence: s.cadence, dates: matched.map(m => m.date), kind: s.kind, direction: s.direction, historyStart, today }),
     missed: false,
     daysLate: lateInfo.late ? lateInfo.daysLate : null,
     why: whyText(s, d.group, pattern, amountKind, range),
@@ -365,12 +442,21 @@ function itemFromDraft(d: Draft, txnById: Map<string, ClassifierTxn>, today: ISO
 export function applyDecision(item: ReviewItem, dec: RecurringDecision | undefined, today: ISODate): ReviewItem {
   if (!dec) return item;
   const cadence = dec.cadence && (CADENCES as readonly string[]).includes(dec.cadence) ? dec.cadence : item.cadence;
-  const amount = dec.amount != null && dec.amount >= 0 ? round2(dec.amount) : item.amount;
+  const amount = dec.expectedAmount != null && dec.expectedAmount >= 0 ? round2(dec.expectedAmount) : item.amount;
+  const name = dec.name?.trim() || null;
   const group = dec.group && (REVIEW_GROUPS as readonly string[]).includes(dec.group) ? dec.group : item.group;
   const coverAccountId = dec.coverAccountId !== undefined && dec.coverAccountId !== null ? dec.coverAccountId : item.coverAccountId;
   const edited = cadence !== item.cadence || amount !== item.amount || group !== item.group || (dec.coverAccountId != null && dec.coverAccountId !== item.coverAccountId);
   const out: ReviewItem = {
     ...item,
+    label: name ?? item.label,
+    autoLabel: item.autoLabel,
+    // The person set (or confirmed) how often: no longer a guess.
+    estimated: item.estimated && dec.cadence == null,
+    estimateNote: dec.cadence == null ? item.estimateNote : null,
+    patternLine: cadence !== item.cadence ? CADENCE_LABEL[cadence] : item.patternLine,
+    renamed: !!name,
+    expectedAmount: dec.expectedAmount != null && dec.expectedAmount >= 0 ? round2(dec.expectedAmount) : null,
     status: dec.status,
     cadence,
     amount,
@@ -395,7 +481,8 @@ function itemFromSnapshot(dec: RecurringDecision, txnById: Map<string, Classifie
   const cadence = (dec.cadence ?? sn.cadence) as Cadence | undefined;
   const group = (dec.group ?? sn.group) as ReviewGroup | undefined;
   if (!cadence || !group || !(CADENCES as readonly string[]).includes(cadence)) return null;
-  const amount = round2(Math.abs(dec.amount ?? sn.amount ?? 0));
+  const amount = round2(Math.abs(dec.expectedAmount ?? sn.amount ?? 0));
+  const name = dec.name?.trim() || null;
   const ids = sn.transactionIds ?? [];
   const matched = ids.map(id => txnById.get(id)).filter(Boolean)
     .map(t => ({ id: t!.transaction_id, date: t!.date, amount: Math.abs(t!.amount), name: t!.merchant_name || t!.name || "", accountId: t!.account_id }))
@@ -405,10 +492,12 @@ function itemFromSnapshot(dec: RecurringDecision, txnById: Map<string, Classifie
   const kind = (sn.kind ?? "bill") as SeriesKind;
   const item: ReviewItem = {
     key: dec.key, group, kind, subtype: null, direction: sn.direction ?? (group === "income" ? "inflow" : "outflow"),
-    label: sn.label ?? "Recurring item", pattern: sn.pattern ?? CADENCE_LABEL[cadence], cadence, amount, amountKind: "fixed", amountRange: [amount, amount],
+    label: name ?? sn.label ?? "Recurring item", autoLabel: sn.label ?? "Recurring item", renamed: !!name,
+    patternLine: sn.pattern ?? CADENCE_LABEL[cadence], estimated: false, estimateNote: null,
+    expectedAmount: dec.expectedAmount != null && dec.expectedAmount >= 0 ? round2(dec.expectedAmount) : null, pattern: sn.pattern ?? CADENCE_LABEL[cadence], cadence, amount, amountKind: "fixed", amountRange: [amount, amount],
     monthly: monthlyEquivalent(amount, cadence), lastSeen, nextDue, occurrences: matched.length, confidence: 0,
     transactionIds: matched.map(m => m.id), matched, accountId: sn.accountId ?? null, coverAccountId: dec.coverAccountId ?? sn.accountId ?? null,
-    coverUserSet: dec.coverAccountId != null, status: dec.status, edited: dec.cadence != null || dec.amount != null || dec.group != null || dec.coverAccountId != null,
+    coverUserSet: dec.coverAccountId != null, status: dec.status, edited: dec.cadence != null || dec.expectedAmount != null || dec.group != null || dec.coverAccountId != null,
     missed: false, daysLate: null,
     why: "We no longer see this pattern in your recent transactions. It is listed because you made a decision about it.",
     detected: null,
@@ -461,17 +550,26 @@ export const REVIEW_DETECT_OPTIONS = { includeCardPayments: true, includeSavings
 /** Build the review from already-detected series (detected with REVIEW_DETECT_OPTIONS). */
 export function buildReview(series: RecurringSeries[], txns: ClassifierTxn[], opts: ReviewOptions): ReviewResult {
   const txnById = new Map(txns.map(t => [t.transaction_id, t] as const));
+  let historyStart: ISODate | null = null;
+  for (const t of txns) if (!historyStart || t.date < historyStart) historyStart = t.date;
   const decisions = new Map((opts.decisions ?? []).map(d => [d.key, d] as const));
   const items: ReviewItem[] = [];
   const dismissed: ReviewItem[] = [];
   const seen = new Set<string>();
+  const relabeled: RecurringDecision[] = [];
+  const relabel = (dec: RecurringDecision, fresh?: string) => {
+    const next = refreshDecisionLabel(dec, txnById, fresh);
+    if (next !== dec) relabeled.push(next);
+    return next;
+  };
   const drafts = reviewDrafts(series, txnById, opts);
   // Exact keys first, so a carried-over decision never steals one that still matches.
   const used = new Set(drafts.map(d => d.key).filter(k => decisions.has(k)));
   for (const d of drafts) {
     let dec = decisions.get(d.key);
     if (!dec) { dec = carriedDecision(d, decisions, used); if (dec) used.add(dec.key); }
-    const it = applyDecision(itemFromDraft(d, txnById, opts.today), dec, opts.today);
+    const it = applyDecision(itemFromDraft(d, txnById, opts.today, historyStart), dec, opts.today);
+    if (dec) relabel(dec, it.label);
     seen.add(d.key);
     if (dec) seen.add(dec.key);
     (it.status === "dismissed" ? dismissed : items).push(it);
@@ -481,7 +579,7 @@ export function buildReview(series: RecurringSeries[], txns: ClassifierTxn[], op
   // shows "Missed or late" once it is overdue.
   for (const dec of decisions.values()) {
     if (seen.has(dec.key) || dec.status === "suggested") continue;
-    const it = itemFromSnapshot(dec, txnById, opts.today);
+    const it = itemFromSnapshot(relabel(dec), txnById, opts.today);
     if (!it) continue;
     (it.status === "dismissed" ? dismissed : items).push(it);
   }
@@ -491,7 +589,7 @@ export function buildReview(series: RecurringSeries[], txns: ClassifierTxn[], op
   const settled = reconcilePayments(items, txns, { today: opts.today, accounts: opts.accounts });
   settled.sort(byGroupThenMonthly);
   dismissed.sort(byGroupThenMonthly);
-  return { items: settled, dismissed, series };
+  return { items: settled, dismissed, series, relabeled };
 }
 
 /** Detect and review in one call (tests and non-React callers). */
@@ -506,12 +604,13 @@ export function decisionFor(item: ReviewItem, patch: Partial<Omit<RecurringDecis
     key: item.key,
     status: patch.status ?? item.status,
     cadence: patch.cadence !== undefined ? patch.cadence : item.detected && item.cadence !== item.detected.cadence ? item.cadence : null,
-    amount: patch.amount !== undefined ? patch.amount : item.detected && item.amount !== item.detected.amount ? item.amount : null,
+    expectedAmount: patch.expectedAmount !== undefined ? patch.expectedAmount : item.expectedAmount ?? (item.detected && item.amount !== item.detected.amount ? item.amount : null),
+    name: patch.name !== undefined ? (patch.name?.trim() || null) : item.renamed ? item.label : null,
     group: patch.group !== undefined ? patch.group : item.detected && item.group !== item.detected.group ? item.group : null,
     coverAccountId: patch.coverAccountId !== undefined ? patch.coverAccountId : item.edited && item.coverAccountId !== item.accountId ? item.coverAccountId : null,
     decidedAt: now,
     snapshot: {
-      label: item.label, group: item.detected?.group ?? item.group, kind: item.kind, cadence: item.detected?.cadence ?? item.cadence,
+      label: item.autoLabel || item.label, group: item.detected?.group ?? item.group, kind: item.kind, cadence: item.detected?.cadence ?? item.cadence,
       amount: item.detected?.amount ?? item.amount, lastSeen: item.lastSeen, nextDue: item.nextDue, transactionIds: item.transactionIds.slice(0, 60),
       pattern: item.pattern, accountId: item.accountId, direction: item.direction,
     },
