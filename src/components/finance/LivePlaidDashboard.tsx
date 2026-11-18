@@ -20,6 +20,7 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import type { PTxn as PictureTxn } from "@/lib/picture/model";
 import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
@@ -90,19 +91,25 @@ type PTxn = {
 // never deleted, just no longer inside the one page being fetched. Paging
 // through in fixed-size chunks until a page comes back short guarantees every
 // row is retrieved regardless of how many years of history are stored.
+// Only the columns the app reads (PTxn), not "*": less to download and parse
+// on every load. If a column is missing (the PFC migration not applied on
+// some database), fall back to "*" for the rest of the load.
+const TXN_COLUMNS = "id,account_id,item_id,transaction_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence";
 async function fetchAllTransactions(userId: string): Promise<PTxn[]> {
   const PAGE_SIZE = 1000;
   let offset = 0;
+  let columns = TXN_COLUMNS;
   const all: PTxn[] = [];
   for (;;) {
     const { data, error } = await supabase
       .from("plaid_transactions")
-      .select("*")
+      .select(columns)
       .eq("user_id", userId)
       .order("date", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
+    if (error && columns !== "*" && /column/i.test(error.message)) { columns = "*"; continue; }
     if (error) { console.error("[fetchAllTransactions]", error.message); break; }
-    const rows = (data ?? []) as PTxn[];
+    const rows = (data ?? []) as unknown as PTxn[];
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
     offset += PAGE_SIZE;
@@ -563,7 +570,7 @@ const looseClassOf = (
     categoryOverrides: overrides,
     ruleCategory: t => getRuleCategory(t.merchant_name ?? t.name ?? null),
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
   });
   return t => m.get(t.id);
 };
@@ -1152,7 +1159,7 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
   // 3. Normalised Plaid category (with merchant override for known Plaid ML errors)
-  return normalisePlaidCategory(t.category, t.merchant_name, t.name);
+  return normalisePlaidCategory(t.category, t.merchant_name, t.name, t);
 };
 
 /**
@@ -4574,7 +4581,7 @@ export const LivePlaidDashboard = ({
     notInternalIds: manualExternalIds,
     selfNames,
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
@@ -4628,7 +4635,7 @@ export const LivePlaidDashboard = ({
       const c = txnClasses.get(t.id);
       if (!c) continue;
       const amount = Number(t.amount);
-      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name);
+      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t);
       const isIgnoredCat = ignored.has(current.toLowerCase());
       const isIncomeCat = isIncomeCategory(current, customCategories, amount);
       const bucket = bucketOf(c.type);
@@ -4703,6 +4710,7 @@ export const LivePlaidDashboard = ({
     }
   };
 
+  const loadSeq = useRef(0);
   const load = useCallback(async()=>{
     // In demo mode: skip Supabase, seed with realistic local data immediately
     if (demo) {
@@ -4737,9 +4745,22 @@ export const LivePlaidDashboard = ({
       if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
       // Apply whatever succeeded — one failing table shouldn't blank the rest
       setAccounts((accsRes.data ?? []) as PAccount[]);
-      const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
-      const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
-      setTxns(dedupedTxns);
+      // Show what was fetched right away (known duplicates hidden locally);
+      // the description backfill and duplicate delete run off the load path
+      // and only touch state if they changed something.
+      const seq = ++loadSeq.current;
+      const dupNow = new Set(findDuplicateIds(txnsData));
+      const shown = dupNow.size ? txnsData.filter(t => !dupNow.has(t.id)) : txnsData;
+      setTxns(shown);
+      void (async () => {
+        try {
+          const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
+          const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
+          // Names were tidied, or the delete failed (rows still in the DB, so
+          // show them again) or found a different set: use the final list.
+          if (seq === loadSeq.current && (cleanedTxns !== txnsData || dedupedTxns.length !== shown.length)) setTxns(dedupedTxns);
+        } catch (e) { console.error("[load] cleanup:", e); }
+      })();
       setItems((itsRes.data ?? []) as PItem[]);
       setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
       // accountMeta auto-updates from settings
@@ -5067,6 +5088,13 @@ export const LivePlaidDashboard = ({
 
   // ── Tick thinning for dense charts ────────────────────────
   const nwTickEvery = { "1W":1,"1M":5,"3M":2,"1Y":1,"ALL":1 }[period];
+
+  // Stable callbacks for My Financial Picture: an inline arrow is a new
+  // function every render, which busts its model cache (a ~300 ms rebuild
+  // on every dashboard render).
+  const pictureGetCat = useCallback((t: PictureTxn) => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other", [overrides, getRuleCategory]);
+  const pictureOpenTxn = useCallback((t: PictureTxn) => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }, []);
+  const pictureUserId = (demo || guestDemo) ? null : user?.id ?? null;
 
   const pictureView = view === "myfinances" || view === "insights";
   if (!demo && !guestDemo && user && !settingsLoaded && pictureView) return <PictureSkeleton insights={view === "insights"} />;
@@ -6710,18 +6738,18 @@ export const LivePlaidDashboard = ({
         mode={view === "insights" ? "insights" : "picture"}
         txns={txns}
         accounts={accounts}
-        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
+        getEffectiveCategory={pictureGetCat}
         formatCat={formatCat}
         catColor={catColor}
         classOf={classOf}
         manualIncome={manualIncome}
-        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
+        onOpenTxnDetail={pictureOpenTxn}
         budgets={budgets}
         cardAutopayFrom={settings.cardAutopayFrom}
         savingsGoals={settings.savingsGoals}
         financialPicture={settings.financialPicture}
         onUpdate={S.update}
-        userId={(demo || guestDemo) ? null : user?.id ?? null}
+        userId={pictureUserId}
         demo={demo || guestDemo}
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}
