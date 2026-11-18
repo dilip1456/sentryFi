@@ -43,6 +43,11 @@ export function decisionToRow(userId: string, d: RecurringDecision): DecisionRow
     amount_median: num(sn.amount),
     last_seen: sn.lastSeen ?? null,
     next_expected_date: sn.nextDue ?? null,
+    // Amount model (stored so send-alerts and the timeline read the same facts).
+    // The person's amount is what they expect next.
+    is_fixed: sn.isFixed ?? false,
+    price_changed: !!sn.priceChanged,
+    next_expected_amount: d.amount != null && d.amount >= 0 ? d.amount : num(sn.nextAmount) ?? num(sn.amount),
     matched_transaction_ids: sn.transactionIds ?? [],
     user_cadence: d.cadence ?? null,
     user_amount: d.amount ?? null,
@@ -77,6 +82,9 @@ export function rowToDecision(r: DecisionRow): RecurringDecision | null {
       pattern: (r.pattern_label as string) ?? undefined,
       accountId: (r.account_id as string) ?? undefined,
       direction: r.direction === "inflow" ? "inflow" : "outflow",
+      isFixed: typeof r.is_fixed === "boolean" ? r.is_fixed : undefined,
+      priceChanged: typeof r.price_changed === "boolean" ? r.price_changed : undefined,
+      nextAmount: num(r.next_expected_amount),
     },
   };
 }

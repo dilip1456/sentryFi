@@ -12,7 +12,7 @@
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, CircleAlert, RotateCcw, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, CircleAlert, RotateCcw, X } from "lucide-react";
 import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
 import type { Cadence } from "@/lib/recurring/schedule";
 import { usePicture } from "./state";
@@ -43,11 +43,22 @@ export function useRecurringActions() {
       toast(`${it.label} marked not recurring`, { id: TOAST, description: "It won't come back. Restore it from Dismissed.", action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });
     },
     restore: (it: ReviewItem) => { pc.recurring.restore(it.key); toast(`${it.label} restored`, { id: TOAST }); },
+    /** Take the raised price as the amount to expect (shortfalls and alerts use it from now on). */
+    acceptPrice: (it: ReviewItem) => {
+      if (!it.priceChange) return;
+      const prev = pc.recurring.decide(it, { status: "confirmed", amount: it.priceChange.to });
+      toast.success(`${it.label} now expects ${money(it.priceChange.to)}`, { id: TOAST, action: { label: "Undo", onClick: () => pc.recurring.revert(it.key, prev) } });
+    },
   }), [pc.recurring]);
 }
 
+/** The latest charge went up off a steady price, and the person hasn't taken the new price yet. */
+const priceUp = (it: ReviewItem) => (it.priceChange && it.priceChange.delta > 0 ? it.priceChange : null);
+
 function Badge({ it }: { it: ReviewItem }) {
   if (it.missed) return <span className="rcv-badge warn"><CircleAlert className="h-3 w-3" aria-hidden="true" />Missed or late</span>;
+  const up = priceUp(it);
+  if (up) return <span className="rcv-badge warn" data-testid="rcv-price-up"><ArrowUpRight className="h-3 w-3" aria-hidden="true" />Up {money(up.delta)}</span>;
   return null;
 }
 
@@ -127,6 +138,17 @@ export function RecurringItem({ it }: { it: ReviewItem }) {
       <div className="flex flex-wrap items-center gap-2 mb-2"><span className="rcv-badge">{REVIEW_GROUP_LABEL[it.group]}</span><Badge it={it} /><span className="mini">{it.pattern}</span></div>
       <div className="kv">{facts.map(f => <div key={f.k}><div className="k">{f.k}</div><div className="v">{f.v}</div><div className="mini">{f.s}</div></div>)}</div>
       {it.missed && <p className="rcv-missed mt-3"><CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />{it.daysLate ? `Expected ${it.daysLate} day${it.daysLate === 1 ? "" : "s"} ago and not seen yet.` : "The expected payment hasn't shown up."}</p>}
+      {priceUp(it) && (() => {
+        const up = priceUp(it)!;
+        return (
+          <div className="rcv-price mt-3" data-testid="rcv-price-change">
+            <p className="rcv-missed"><ArrowUpRight className="h-4 w-4 shrink-0" aria-hidden="true" />Went up from {money(up.from)} to {money(up.to)} (+{money(up.delta)}) on {shortDate(up.date)}.</p>
+            <div className="rcv-btns !mt-2">
+              <button type="button" className="btn-gold tap-44" onClick={() => a.acceptPrice(it)}>Use new price {money(up.to)}</button>
+            </div>
+          </div>
+        );
+      })()}
       {!editing ? (
         <div className="rcv-btns">
           <button type="button" className="btn" onClick={() => setEditing(true)}>Edit</button>

@@ -455,3 +455,4 @@
   .fp .inv-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .fp .inv-insights { margin-top:14px; }
 }
+.fp .rcv-price .rcv-missed { margin-top:0; }

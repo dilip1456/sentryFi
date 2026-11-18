@@ -1,0 +1,240 @@
+/**
+ * Bill price-change check for the send-alerts edge function ("Armstrong went
+ * from $59.95 to $109.95"). Pure, dependency-free TS: scripts/sync-classifier.mjs
+ * copies it to supabase/functions/_shared/price-change.ts, and
+ * src/test/price-change.test.ts covers it.
+ *
+ * For every outflow SYNCED recently (created_at, not date, so a charge dated
+ * last week that only arrived today still counts), compare it with what this
+ * merchant usually charges:
+ *   - baseline = the amount the person set on the recurring pattern, else the
+ *     median of the merchant's prior >= 3 charges in the last 400 days;
+ *   - alert when it went UP by more than 15% AND more than $10, or for a
+ *     bill whose prior charges already vary (CV >= 8%, e.g. electricity),
+ *     more than 30% AND more than $15.
+ * Scope: bills / subscriptions / loans (classifier type, or a stored
+ * recurring pattern of that kind), or any confirmed outflow pattern. Never
+ * a dismissed pattern, and never a charge the person re-typed to something
+ * that isn't a bill (txn_overrides / "not internal" flags are applied by the
+ * caller through `excluded`).
+ */
+
+export const PRICE_SYNC_WINDOW_DAYS = 3;
+export const PRICE_HISTORY_DAYS = 400;
+export const PRICE_MIN_PRIOR = 3;
+export const PRICE_STABLE_CV = 0.08;
+/** Prior charges noisier than this aren't one bill (shopping at a store). */
+export const PRICE_MAX_CV = 0.5;
+export const PRICE_FIXED = { pct: 0.15, min: 10 } as const;
+export const PRICE_VARIABLE = { pct: 0.3, min: 15 } as const;
+
+/** Classifier types that are bills. */
+export const PRICE_BILL_TYPES = new Set(["obligation_bill", "obligation_loan"]);
+/** Recurring pattern kinds in scope even before the person confirms them. */
+export const PRICE_STREAM_KINDS = new Set(["bill", "subscription", "loan"]);
+/** Pattern kinds never in scope (card payments follow the statement; money moves aren't prices). */
+const NEVER_KINDS = new Set(["card_payment", "transfer", "savings", "salary", "income", "interest"]);
+
+export interface PriceTxn {
+  id: string;
+  transaction_id: string;
+  account_id: string;
+  amount: number | string;
+  date: string;
+  authorized_date?: string | null;
+  created_at?: string | null;
+  pending?: boolean | null;
+  name?: string | null;
+  merchant_name?: string | null;
+}
+
+/** The parts of a recurring_streams row the check reads. */
+export interface PriceStream {
+  series_key?: string | null;
+  merchant_key?: string | null;
+  display_name?: string | null;
+  kind?: string | null;
+  status?: string | null;
+  direction?: string | null;
+  /** User-set amount per occurrence (the Picture edit sheet). */
+  user_amount?: number | string | null;
+  /** Expected amount the person set on the pattern, if that column exists. */
+  user_expected_amount?: number | string | null;
+  matched_transaction_ids?: string[] | null;
+}
+
+export interface PriceChange {
+  merchantKey: string;
+  seriesKey: string | null;
+  displayName: string;
+  transactionId: string;
+  accountId: string;
+  date: string;
+  amount: number;
+  baseline: number;
+  baselineSource: "expected" | "median";
+  delta: number;
+  pct: number;
+  variable: boolean;
+  priorCount: number;
+}
+
+export interface PriceCheckInput {
+  /** Outflows synced in the window (amount > 0). */
+  recent: PriceTxn[];
+  /** The merchant history: every txn in the last ~400 days (any sign, recent ones included). */
+  history: PriceTxn[];
+  streams?: PriceStream[];
+  /** Merchant grouping key (send-alerts: merchantKey(merchant_name ?? name)). */
+  keyOf: (t: PriceTxn) => string;
+  /** Shared-classifier type of a txn, when known. */
+  typeOf?: (t: PriceTxn) => string | null | undefined;
+  /** Fallback display name (send-alerts: cleanBankText). */
+  nameOf?: (t: PriceTxn) => string;
+  /** Txn ids (`id` or `transaction_id`) the person re-typed away from a bill. */
+  excluded?: Set<string>;
+  now: Date;
+}
+
+const DAY = 86400000;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const num = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
+export function median(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+export function coefficientOfVariation(xs: number[]): number {
+  if (!xs.length) return 0;
+  const mean = xs.reduce((s, x) => s + x, 0) / xs.length;
+  if (!mean) return 0;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / xs.length) / mean;
+}
+
+/** The amount a new charge is compared with: what the person set, else the usual charge. */
+export function priceBaseline(expected: number | null | undefined, prior: number[]): { value: number; source: "expected" | "median" } | null {
+  if (expected != null && Number.isFinite(expected) && expected > 0) return { value: expected, source: "expected" };
+  if (prior.length < PRICE_MIN_PRIOR) return null;
+  const m = median(prior);
+  return m > 0 ? { value: m, source: "median" } : null;
+}
+
+/** Went up enough to tell the person? */
+export function isPriceIncrease(amount: number, baseline: number, variable: boolean): boolean {
+  const t = variable ? PRICE_VARIABLE : PRICE_FIXED;
+  const delta = amount - baseline;
+  return baseline > 0 && delta > t.min && delta / baseline > t.pct;
+}
+
+/** Expected amount set on a pattern (user_expected_amount, then user_amount). */
+export function streamExpected(s: PriceStream | null | undefined): number | null {
+  if (!s) return null;
+  const v = num(s.user_expected_amount) ?? num(s.user_amount);
+  return v != null && v > 0 ? v : null;
+}
+
+const normKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+export function findPriceChanges(input: PriceCheckInput): PriceChange[] {
+  const { keyOf, now } = input;
+  const excluded = input.excluded ?? new Set<string>();
+  const isExcluded = (t: PriceTxn) => excluded.has(t.id) || excluded.has(t.transaction_id);
+  const since = now.getTime() - PRICE_SYNC_WINDOW_DAYS * DAY;
+  const byPlaidId = new Map(input.history.map(t => [t.transaction_id, t] as const));
+
+  // Merchant key → stored pattern (via its matched transactions, else its merchant_key).
+  const streamByKey = new Map<string, PriceStream>();
+  for (const s of input.streams ?? []) {
+    if (s.direction && s.direction !== "outflow") continue;
+    const keys = new Set<string>();
+    for (const id of s.matched_transaction_ids ?? []) {
+      const t = byPlaidId.get(id);
+      if (t) keys.add(keyOf(t));
+    }
+    if (s.merchant_key) keys.add(normKey(s.merchant_key));
+    for (const k of keys) {
+      const cur = streamByKey.get(k);
+      // A dismissed pattern wins (never alert on it); then a confirmed one.
+      const rank = (x?: PriceStream) => (x?.status === "dismissed" ? 3 : x?.status === "confirmed" ? 2 : x ? 1 : 0);
+      if (rank(s) > rank(cur)) streamByKey.set(k, s);
+    }
+  }
+  const streamFor = (k: string) => streamByKey.get(k) ?? streamByKey.get(normKey(k)) ?? null;
+
+  // Outflow history per merchant.
+  const hist = new Map<string, PriceTxn[]>();
+  for (const t of input.history) {
+    if (Number(t.amount) <= 0 || isExcluded(t)) continue;
+    const k = keyOf(t);
+    if (!k) continue;
+    (hist.get(k) ?? hist.set(k, []).get(k)!).push(t);
+  }
+
+  // Latest recently-synced charge per merchant.
+  const latest = new Map<string, PriceTxn>();
+  for (const t of input.recent) {
+    if (Number(t.amount) <= 0 || isExcluded(t)) continue;
+    const at = t.created_at ? Date.parse(t.created_at) : NaN;
+    if (!Number.isFinite(at) || at < since) continue;
+    const k = keyOf(t);
+    if (!k) continue;
+    const cur = latest.get(k);
+    if (!cur || t.date > cur.date || (t.date === cur.date && !t.pending && cur.pending)) latest.set(k, t);
+  }
+
+  const out: PriceChange[] = [];
+  for (const [k, t] of latest) {
+    const stream = streamFor(k);
+    if (stream?.status === "dismissed") continue;
+    if (stream?.kind && NEVER_KINDS.has(stream.kind)) continue;
+    const type = input.typeOf?.(t) ?? null;
+    const inScope = (type != null && PRICE_BILL_TYPES.has(type)) ||
+      (!!stream && (PRICE_STREAM_KINDS.has(stream.kind ?? "") || stream.status === "confirmed"));
+    if (!inScope) continue;
+
+    const from = new Date(Date.parse(`${t.date}T00:00:00Z`) - PRICE_HISTORY_DAYS * DAY).toISOString().slice(0, 10);
+    // Prior charges: strictly earlier, posted, not this charge (or its pending twin on the same day).
+    const prior = (hist.get(k) ?? [])
+      .filter(x => x.transaction_id !== t.transaction_id && x.date < t.date && x.date >= from && !x.pending)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(x => Math.abs(Number(x.amount)));
+    const recentPrior = prior.slice(-12);
+    const expected = streamExpected(stream);
+    const base = priceBaseline(expected, recentPrior);
+    if (!base) continue;
+    const cv = coefficientOfVariation(recentPrior);
+    if (base.source === "median" && cv > PRICE_MAX_CV) continue;
+    const variable = recentPrior.length >= PRICE_MIN_PRIOR && cv >= PRICE_STABLE_CV;
+    const amount = Math.abs(Number(t.amount));
+    if (!isPriceIncrease(amount, base.value, variable)) continue;
+    out.push({
+      merchantKey: k,
+      seriesKey: stream?.series_key ?? null,
+      displayName: (stream?.display_name || input.nameOf?.(t) || t.merchant_name || t.name || "A bill").trim(),
+      transactionId: t.transaction_id,
+      accountId: t.account_id,
+      date: t.authorized_date ?? t.date,
+      amount: round2(amount),
+      baseline: round2(base.value),
+      baselineSource: base.source,
+      delta: round2(amount - base.value),
+      pct: Math.round(((amount - base.value) / base.value) * 1000) / 1000,
+      variable,
+      priorCount: prior.length,
+    });
+  }
+  return out.sort((a, b) => b.delta - a.delta);
+}
+
+const usd = (n: number) => Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** alert_log key: once per merchant per charge date. */
+export const priceAlertKey = (c: Pick<PriceChange, "merchantKey" | "date">) => `price:${c.merchantKey}:${c.date}`;
+
+/** "📈 Armstrong went up" / "$59.95 → $109.95 (+$50.00)". */
+export function priceAlertText(c: Pick<PriceChange, "displayName" | "baseline" | "amount" | "delta">): { title: string; body: string } {
+  return { title: `📈 ${c.displayName} went up`, body: `${usd(c.baseline)} → ${usd(c.amount)} (+${usd(c.delta)})` };
+}

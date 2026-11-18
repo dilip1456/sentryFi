@@ -99,7 +99,7 @@ export function classifyPriority(item: {
     if (Number.isFinite(buffer) && bal < buffer) return "urgent";
     return "soon";
   }
-  if (type === "budget_threshold" || type === "large_txn") return "soon";
+  if (type === "budget_threshold" || type === "large_txn" || type === "price_increase") return "soon";
   if (type === "insight" && /duplicate/i.test(item.title ?? "")) return "urgent";
   if (type === "promo" && /history/i.test(item.title ?? "")) return "soon";
   return "info";
