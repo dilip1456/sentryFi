@@ -74,15 +74,20 @@ for (const [w, h] of WIDTHS) {
       await shot(page, `giftcards-${w}`);
     });
 
-    test("Picture Confirm / Not-recurring icons are >= 44px", async ({ page }) => {
+    test("Picture Not-recurring icon and Hidden items link are >= 44px", async ({ page }) => {
       await openView(page, "myfinances");
-      const card = page.getByTestId("rcv-card");
-      await card.scrollIntoViewIfNeeded();
-      await card.getByRole("button", { name: /Review/ }).click();
+      const plan = page.getByTestId("plan-upcoming");
+      await plan.scrollIntoViewIfNeeded();
+      await plan.getByRole("button", { name: "By cadence" }).click();
+      // Hide one detected bill so the Hidden items list (with its rows) is reachable.
+      await plan.locator('[data-testid="plan-row"][data-source="confirmed"]').first().click();
+      await page.getByTestId("plan-item-detail").getByRole("button", { name: "Remove" }).click();
+      const hidden = page.getByTestId("plan-hidden");
+      await assertMin(hidden, "Hidden items");
+      await hidden.click();
       const item = page.getByTestId("rcv-list").getByTestId("rcv-item").first();
       await expect(item).toBeVisible();
       const label = (await item.locator(".rcv-lbl b").innerText()).trim();
-      await assertMin(item.getByRole("button", { name: `Confirm ${label}` }), "Confirm recurring");
       await assertMin(item.getByRole("button", { name: `${label} is not recurring` }), "Not recurring");
       await shot(page, `picture-review-${w}`);
     });

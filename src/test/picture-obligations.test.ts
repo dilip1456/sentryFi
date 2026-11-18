@@ -26,7 +26,8 @@ describe("detecting yearly and twice-a-year bills", () => {
     expect(it).toMatchObject({ cadence: "semiannual", group: "insurance_tax" });
     expect(it.nextDue).toMatch(/^2026-11-1/);
     const [ob] = buildObligations({ today: TODAY, reviewItems: [it] });
-    expect(ob).toMatchObject({ category: "insurance", source: "detected", amount: 612, annual: 1224 });
+    // Two premiums 6 months apart are sure enough to plan for without asking.
+    expect(ob).toMatchObject({ category: "insurance", source: "confirmed", amount: 612, annual: 1224 });
   });
   it("vehicle registration once a year from 2 payments", () => {
     const b = base();
@@ -37,11 +38,11 @@ describe("detecting yearly and twice-a-year bills", () => {
     expect(it.nextDue).toMatch(/^2026-12-0/);
     expect(buildObligations({ today: TODAY, reviewItems: [it] })[0].category).toBe("vehicle");
   });
-  it("a single registration charge with a clearly yearly descriptor is suggested a year on", () => {
+  it("a single registration charge with a clearly yearly descriptor is planned a year on", () => {
     const b = base();
     b.tx("chk", "2026-03-14", 96, "STATE DMV TAG RENEWAL");
     const it = find(items(b), /dmv|tag/i)!;
-    expect(it).toMatchObject({ cadence: "yearly", status: "suggested", occurrences: 1 });
+    expect(it).toMatchObject({ cadence: "yearly", status: "confirmed", occurrences: 1 });
     expect(it.nextDue).toMatch(/^2027-03-1/);
   });
   it("two one-off purchases a year apart at a store are not a bill", () => {
@@ -176,7 +177,7 @@ describe("taxes (estimates)", () => {
 describe("recommendations", () => {
   const savers = taxSaverNumbers(120000, 1200, 6000, "single", 2026);
   const input = {
-    today: "2026-10-20", toReview: 2, cash: 3000, low: { date: "2026-11-02", balance: -150 }, match: matchStatus({ answer: "yes", pct: 50, upToPct: 6 }, 120000, 6000),
+    today: "2026-10-20", cash: 3000, low: { date: "2026-11-02", balance: -150 }, match: matchStatus({ answer: "yes", pct: 50, upToPct: 6 }, 120000, 6000),
     savers, gross: 120000, k401Annual: 6000, year: 2026, giftCardsExpiringSoon: 1, dismissed: [] as string[],
     utilityPayments: [{ date: "2026-09-10", amount: 240 }, { date: "2025-09-10", amount: 180 }],
     obligations: [ob({ id: "car", label: "Car insurance", category: "insurance", cadence: "semiannual", amount: 600, annual: 1200, monthly: 100, nextDue: "2027-01-10" }), ob({ id: "rent", label: "Rent", amount: 1500, monthly: 1500, annual: 18000 })],
@@ -233,7 +234,7 @@ describe("tax inputs (typed in)", () => {
   it("recommends itemizing or asking for the 401(k) %, explainably", () => {
     const savers = taxSaverNumbers(120000, 0, 0, "single", 2026);
     const recs = recommendations({
-      today: "2026-10-20", toReview: 0, cash: 10000, low: null, match: matchStatus({ answer: "no" }, 120000, 0), savers, gross: 120000, k401Annual: 0, year: 2026,
+      today: "2026-10-20", cash: 10000, low: null, match: matchStatus({ answer: "no" }, 120000, 0), savers, gross: 120000, k401Annual: 0, year: 2026,
       giftCardsExpiringSoon: 0, dismissed: [], utilityPayments: [], obligations: [], itemize: { itemized: 20000, standard: 16100, saves: 858 }, k401Unknown: true,
     });
     const ids = recs.map(r => r.id);

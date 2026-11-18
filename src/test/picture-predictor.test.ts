@@ -113,10 +113,18 @@ describe("salary and paychecks", () => {
     return b;
   };
   const salary = (m: ReturnType<typeof picture>["m"]) => m.rows.income.find(r => r.id === "salary")!;
+  it("INCOME_SALARY paychecks (Plaid's newer taxonomy) fill Salary, not Other income", () => {
+    const b = new Builder().acct("chk", "Everyday Checking", "depository", "checking", "1111", 8000);
+    b.series("chk", semimonthly("2026-03"), -3100, "CGI TECHNOLOGIES DES:PAYROLL ID:211908 INDN:NAIK,DILIP PPD", { pfc: "INCOME", pfcd: "INCOME_SALARY" });
+    const { m } = picture(b.fx());
+    expect(salary(m).monthly).toBeCloseTo(6200, 0);
+    expect(m.pay.employer).toBe("CGI Technologies");
+    expect(m.rows.income.find(r => r.id === "other")).toBeUndefined();
+  });
   it("paychecks are never offered as bills to review", () => {
     const { m } = picture(pay().fx());
     const it = m.review.items.find(i => i.kind === "salary")!;
-    expect(it.status).toBe("suggested");
+    expect(it.status).toBe("confirmed"); // pay counts without asking
     expect(expensesToReview(m.review.items)).not.toContainEqual(expect.objectContaining({ key: it.key }));
     expect(salary(m).monthly).toBeCloseTo(6200, 0);
   });
