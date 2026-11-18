@@ -114,7 +114,8 @@ describe("amounts and evidence", () => {
     expect(it.matched[0].date >= it.matched[1].date).toBe(true);
     expect(it.nextDue).toMatch(/^2026-11-1/);
     expect(it.monthly).toBe(15.49);
-    expect(it.why).toMatch(/13 payments/);
+    expect(it.why).toMatch(/^Payments seen from/);
+    expect(it.why).not.toMatch(/\d+ payments|Confidence/);
   });
 });
 
@@ -194,7 +195,8 @@ describe("decisions", () => {
     const b = netflix();
     const it = find(review(b).review.items, /netflix/i)!;
     const m = review(b, [{ ...decisionFor(it, { status: "dismissed" }), status: "suggested" }]);
-    expect(find(m.review.items, /netflix/i)!.status).toBe("suggested");
+    // Restored = back to what detection says; a confident one counts without asking.
+    expect(find(m.review.items, /netflix/i)!.status).toBe("confirmed");
   });
   it("an edited item keeps the person's cadence, amount, group and account", () => {
     const b = netflix();

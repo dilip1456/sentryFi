@@ -5,8 +5,8 @@ import type { Page } from "@playwright/test";
  * The one My Financial Picture (Nov 2026): no Preview tab, the old
  * "myfinances-redesign" view opens the Picture, obligations & expenses
  * (Upcoming windows, By cadence, By category), adding an expense by hand,
- * detected items vanishing from "To review" once acted on (and staying gone
- * after a reload). Taxes, recommendations and category totals live on
+ * no review queue (detections settle internally), a removed detected item
+ * staying gone after a reload and coming back from Hidden items. Taxes, recommendations and category totals live on
  * Insights. Demo data, backend stubbed, test clock 2026-10-20.
  */
 async function openPicture(page: Page, view = "myfinances") {
@@ -36,7 +36,8 @@ test.describe("desktop 1440", () => {
     await expect(page.getByRole("button", { name: /Picture Preview|^Preview$/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "My Financial Picture" }).first()).toBeVisible();
     expect(await page.evaluate(() => sessionStorage.getItem("sentryfi_view"))).toBe("myfinances");
-    for (const id of ["plan-summary", "rcv-card", "pic-income", "plan-upcoming", "plan-accounted", "pic-savings", "plan-networth", "plan-more"]) {
+    await expect(page.getByTestId("rcv-card")).toHaveCount(0);
+    for (const id of ["plan-summary", "pic-income", "plan-upcoming", "plan-accounted", "pic-savings", "plan-networth", "plan-more"]) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
     await noOverflow(page, 1440);
@@ -106,39 +107,37 @@ test.describe("desktop 1440", () => {
     await expect(row.first()).toBeVisible();
   });
 
-  test("acted-on detected items vanish from To review and stay gone after reload", async ({ page }) => {
+  test("a removed detected item stays gone after reload and comes back from Hidden items", async ({ page }) => {
     await openPicture(page);
-    const card = page.getByTestId("rcv-card");
-    const count = async () => Number(((await page.getByTestId("rcv-count").innerText()).match(/\d+/) ?? ["0"])[0]);
-    const n0 = await count();
-    // A bill (HOA dues) to confirm, and the first other item to dismiss.
-    const firstLabel = (await card.getByTestId("rcv-item").filter({ hasText: /hoa/i }).first().locator(".rcv-lbl b").innerText()).trim();
-    await card.getByRole("button", { name: `Confirm ${firstLabel}` }).click();
-    await expect(card.getByTestId("rcv-item").filter({ hasText: firstLabel })).toHaveCount(0);
-    const secondLabel = (await card.getByTestId("rcv-item").first().locator(".rcv-lbl b").innerText()).trim();
-    await card.getByRole("button", { name: `${secondLabel} is not recurring` }).click();
-    await expect(card.getByTestId("rcv-item").filter({ hasText: secondLabel })).toHaveCount(0);
-    expect(await count()).toBe(n0 - 2);
+    const plan = page.getByTestId("plan-upcoming");
+    await realClick(page, plan.getByRole("button", { name: "By cadence" }));
+    const rows = plan.locator('[data-testid="plan-row"][data-source="confirmed"]');
+    const hoa = rows.filter({ hasText: /pine ridge/i });
+    await expect(hoa.first()).toBeVisible(); // detected, already in the plan without a review step
+    await realClick(page, hoa.first());
+    await realClick(page, page.getByTestId("plan-item-detail").getByRole("button", { name: "Remove" }));
+    await expect(hoa).toHaveCount(0);
 
     await page.reload();
     await expect(page.getByTestId("financial-picture")).toBeVisible();
-    await expect(page.getByTestId("rcv-count")).toContainText(String(n0 - 2));
-    await expect(card.getByTestId("rcv-item").filter({ hasText: firstLabel })).toHaveCount(0);
-    await expect(card.getByTestId("rcv-item").filter({ hasText: secondLabel })).toHaveCount(0);
-    // Confirmed lands in the plan as Confirmed; dismissed is not in the plan.
-    const plan = page.getByTestId("plan-upcoming");
-    await plan.getByRole("button", { name: "By cadence" }).click();
-    await expect(plan.getByTestId("plan-row").filter({ hasText: firstLabel }).first()).toHaveAttribute("data-source", "confirmed");
+    await realClick(page, plan.getByRole("button", { name: "By cadence" }));
+    await expect(hoa).toHaveCount(0);
+    await realClick(page, page.getByTestId("plan-hidden"));
+    const list = page.getByTestId("rcv-list");
+    await realClick(page, list.getByRole("button", { name: "Show" }));
+    await realClick(page, list.getByTestId("rcv-dismissed").filter({ hasText: /pine ridge/i }).getByRole("button", { name: "Restore" }));
+    await page.keyboard.press("Escape");
+    await expect(hoa.first()).toBeVisible();
   });
 
-  test("confirming a detected item offers Undo, which brings it back to review", async ({ page }) => {
+  test("no review queue, counts or review chips on the Picture", async ({ page }) => {
     await openPicture(page);
-    const card = page.getByTestId("rcv-card");
-    const label = (await card.getByTestId("rcv-item").first().locator(".rcv-lbl b").innerText()).trim();
-    await realClick(page, card.getByRole("button", { name: `Confirm ${label}` }));
-    await expect(card.getByTestId("rcv-item").filter({ hasText: label })).toHaveCount(0);
-    await realClick(page, page.locator("[data-sonner-toast]").filter({ hasText: "confirmed" }).getByRole("button", { name: "Undo" }));
-    await expect(card.getByTestId("rcv-item").filter({ hasText: label }).first()).toBeVisible();
+    const pic = page.getByTestId("picture-page");
+    await expect(page.getByTestId("rcv-card")).toHaveCount(0);
+    await expect(page.getByTestId("rcv-count")).toHaveCount(0);
+    await expect(pic).not.toContainText(/to review|needs review|recurring deposit patterns?|across \d+ payments?/i);
+    await expect(pic.locator(".pl-st, .rcv-badge").filter({ hasText: /^(needs review|confirmed|edited)$/i }).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId("plan-upcoming").locator(".pl-st.det, .pl-st.ok")).toHaveCount(0);
   });
 
   test("tax inputs: 401(k) %, FSA and mortgage interest change the estimates (real mouse)", async ({ page }) => {

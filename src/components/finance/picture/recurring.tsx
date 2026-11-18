@@ -1,18 +1,19 @@
 /**
- * "Detected recurring" review: what the app found repeating in the person's
- * transactions (src/lib/recurring/review.ts), grouped into Income, Bills &
- * utilities, Insurance & tax, Payments & loans and Savings. Each item can be
- * confirmed, edited (cadence, amount, group, covered-by account) or marked
- * "Not recurring" (undo toast; restore from the Dismissed list). Decisions are
- * stored per user and respected by future detection runs.
+ * Detected recurring items: what the app found repeating in the person's
+ * transactions (src/lib/recurring/review.ts). Confident detections are
+ * accepted automatically and weak ones left out (decisions.ts
+ * settleSuggestions), so there is nothing to review and no counts. Each item
+ * can still be edited (cadence, amount, group, covered-by account) or marked
+ * "Not recurring" (undo toast; restore from Hidden). Decisions are stored per
+ * user and respected by future detection runs.
  *
  * Overlay keys: "rcv" (the list) and "rcv:item:<encoded key>" (one item, a
  * bottom sheet on mobile).
  */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Check, ChevronRight, CircleAlert, RotateCcw, Repeat, X } from "lucide-react";
-import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, needsReview, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
+import { ChevronRight, CircleAlert, RotateCcw, X } from "lucide-react";
+import { REVIEW_GROUPS, REVIEW_GROUP_LABEL, type ReviewGroup, type ReviewItem } from "@/lib/recurring";
 import type { Cadence } from "@/lib/recurring/schedule";
 import { usePicture } from "./state";
 import { useOverlay } from "./overlays";
@@ -47,7 +48,6 @@ export function useRecurringActions() {
 
 function Badge({ it }: { it: ReviewItem }) {
   if (it.missed) return <span className="rcv-badge warn"><CircleAlert className="h-3 w-3" aria-hidden="true" />Missed or late</span>;
-  if (it.status === "confirmed") return <span className="rcv-badge ok"><Check className="h-3 w-3" aria-hidden="true" />{it.edited ? "Edited" : "Confirmed"}</span>;
   return null;
 }
 
@@ -63,7 +63,6 @@ export function ItemRow({ it }: { it: ReviewItem }) {
         <ChevronRight className="h-4 w-4 rcv-chev" aria-hidden="true" />
       </button>
       <div className="rcv-acts">
-        {it.status !== "confirmed" && <button type="button" className="rcv-icon ok tap-44" onClick={() => a.confirm(it)} aria-label={`Confirm ${it.label}`} title="Confirm"><Check className="h-4 w-4" /></button>}
         <button type="button" className="rcv-icon no tap-44" onClick={() => a.dismiss(it)} aria-label={`${it.label} is not recurring`} title="Not recurring"><X className="h-4 w-4" /></button>
       </div>
     </div>
@@ -74,32 +73,22 @@ export function RecurringList() {
   const pc = usePicture();
   const a = useRecurringActions();
   const { items, dismissed } = pc.m.review;
-  // Income is never a bill to review: suggested paychecks count as pay and sit with the confirmed items.
-  const pending = items.filter(needsReview);
-  const confirmed = items.filter(i => !needsReview(i));
-  const [showConfirmed, setShowConfirmed] = useState(false);
   const [showDismissed, setShowDismissed] = useState(false);
   return (
     <div className="rcv-list" data-testid="rcv-list">
-      <p className="note mb-3">Payments and deposits that repeat on a schedule. Confirm the real ones and they move into your Picture; mark the rest “Not recurring” and they're gone. Income needs 3+ months; bills 3+ times; yearly and every-6-months bills, insurance and tax count from 2 (a clearly yearly charge like a DMV registration from 1). Food, groceries, shopping and gas are never treated as recurring.</p>
-      <div className="h4" data-testid="rcv-pending-head">To review <span className="rcv-n">{pending.length}</span></div>
-      {!pending.length && <p className="mini">All caught up. New detections show up here.</p>}
+      <p className="note mb-3">Payments and deposits that repeat on a schedule. They are already in your Picture; open one to correct it, or mark it “Not recurring”.</p>
       {REVIEW_GROUPS.map(g => {
-        const list = pending.filter(i => i.group === g);
+        const list = items.filter(i => i.group === g);
         if (!list.length) return null;
         return (
           <section key={g} aria-label={REVIEW_GROUP_LABEL[g]}>
-            <div className="h4 !mt-3 !text-[12.5px] text-muted-foreground">{REVIEW_GROUP_LABEL[g]} <span className="rcv-n">{list.length}</span></div>
+            <div className="h4 !mt-3 !text-[12.5px] text-muted-foreground">{REVIEW_GROUP_LABEL[g]}</div>
             <div className="rows">{list.map(it => <ItemRow key={it.key} it={it} />)}</div>
           </section>
         );
       })}
-      <div className="h4 flex items-center justify-between"><span>Confirmed <span className="rcv-n">{confirmed.length}</span></span>
-        {confirmed.length > 0 && <button type="button" className="sec-more !ml-0 tap-44" onClick={() => setShowConfirmed(v => !v)} aria-expanded={showConfirmed}>{showConfirmed ? "Hide" : "Show"}</button>}</div>
-      {showConfirmed && <div className="rows" data-testid="rcv-confirmed">{confirmed.map(it => <ItemRow key={it.key} it={it} />)}</div>}
-      <div className="h4 flex items-center justify-between"><span>Dismissed <span className="rcv-n">{dismissed.length}</span></span>
-        {dismissed.length > 0 && <button type="button" className="sec-more !ml-0 tap-44" onClick={() => setShowDismissed(v => !v)} aria-expanded={showDismissed}>{showDismissed ? "Hide" : "Show"}</button>}</div>
-      {!dismissed.length && <p className="mini">Items you mark “Not recurring” go here, so you can restore them.</p>}
+      {dismissed.length > 0 && <div className="h4 flex items-center justify-between"><span>Hidden</span>
+        <button type="button" className="sec-more !ml-0 tap-44" onClick={() => setShowDismissed(v => !v)} aria-expanded={showDismissed}>{showDismissed ? "Hide" : "Show"}</button></div>}
       {showDismissed && <div className="rows mb-24">{dismissed.map(it => (
         <div className="rcv-row dismissed" key={it.key} data-testid="rcv-dismissed">
           <span className="rcv-main static"><span className="rcv-lbl"><b>{it.label}</b><small>{it.pattern || CADENCE_LABEL[it.cadence]} · {money(it.amount)}</small></span></span>
@@ -140,7 +129,6 @@ export function RecurringItem({ it }: { it: ReviewItem }) {
       {it.missed && <p className="rcv-missed mt-3"><CircleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />{it.daysLate ? `Expected ${it.daysLate} day${it.daysLate === 1 ? "" : "s"} ago and not seen yet.` : "The expected payment hasn't shown up."}</p>}
       {!editing ? (
         <div className="rcv-btns">
-          {it.status !== "confirmed" && <button type="button" className="btn-gold" onClick={() => a.confirm(it)}><Check className="h-4 w-4" aria-hidden="true" />Confirm</button>}
           <button type="button" className="btn" onClick={() => setEditing(true)}>Edit</button>
           <button type="button" className="btn" onClick={() => { a.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />Not recurring</button>
         </div>
@@ -155,11 +143,9 @@ export function RecurringItem({ it }: { it: ReviewItem }) {
       )}
       <div className="h4">How we found this</div>
       <p className="note">{it.why}</p>
-      <p className="mini mt-1">Confidence {Math.round(it.confidence * 100)}% · {it.occurrences} match{it.occurrences === 1 ? "" : "es"}</p>
       {it.matched.length > 0 && <ul className="rcv-txns" aria-label="Matched transactions">{it.matched.slice(0, 24).map(t => (
         <li key={t.id}><span>{shortDate(t.date)}</span><span className="truncate">{t.name}</span><span className="amt">{money(Math.abs(t.amount))}</span></li>
       ))}</ul>}
-      {it.matched.length > 24 && <p className="mini mt-1">and {it.matched.length - 24} more</p>}
     </div>
   );
 }

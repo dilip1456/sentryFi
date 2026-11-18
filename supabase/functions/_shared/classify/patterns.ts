@@ -5,7 +5,7 @@ export const PATTERN_LIBRARY_VERSION = 1;
 export const PAYROLL_RE = /payroll|\bdes:\s*pay\b|dir(ect)?\s?dep|\bsalary\b|paycheck|\badp\b|gusto|paychex|\bpayrl\b/i;
 export const INTEREST_RE = /\binterest\s+(earned|paid|payment|credit|deposit)\b|\bint(erest)?\s+earned\b|\bapy\s+earned\b|^interest$|\binterest\s+income\b/i;
 export const DIVIDEND_RE = /\bdividend|\bdiv\s+(paid|credit)\b/i;
-export const TAX_RE = /\birs\b|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
+export const TAX_RE = /\birs\b|berkheimer|keystone\s+collect|jordan\s+tax|\b(local|city|school)\s+(eit|earned\s+income)|\beit\b|\btax\b(?!\s*(ref|refund|return\s+prep|prep|software|act))|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
 export const TAX_REFUND_RE = /tax\s+ref(und)?|\btreas\s+310\b|irs\s+treas\s+310/i;
 /**
  * Person-to-person payment apps (descriptor evidence only; see

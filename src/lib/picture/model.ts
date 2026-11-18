@@ -12,7 +12,7 @@
  * Every number stays editable: overrides and "Covered by" picks live in
  * settings.financialPicture and always win over detection.
  */
-import { detectRecurringSeries, merchantKey, displayName, buildReview, REVIEW_DETECT_OPTIONS, type RecurringDecision, type ReviewItem, type ReviewResult, type RecurringSeries, type TransactionClassifier, type TxnClassification, type ClassifierTxn, type Cadence } from "@/lib/recurring";
+import { detectRecurringSeries, merchantKey, displayName, buildReview, settleSuggestions, canonicalMerchants, cleanPayee, REVIEW_DETECT_OPTIONS, type RecurringDecision, type ReviewItem, type ReviewResult, type RecurringSeries, type TransactionClassifier, type TxnClassification, type ClassifierTxn, type Cadence } from "@/lib/recurring";
 import { detectBillAutopays, detectedAsAutopay } from "@/lib/infer";
 import type { TxnType } from "@/lib/classify";
 import type { FinancialPictureData, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
@@ -24,7 +24,8 @@ import { grossUpFromNet } from "@/lib/tax-calc";
 export interface PTxn {
   id: string; account_id: string; amount: number | string; date: string;
   name: string | null; merchant_name: string | null; category?: string[] | null;
-  pending?: boolean | null; payment_channel?: string | null; [k: string]: unknown;
+  pending?: boolean | null; payment_channel?: string | null;
+  pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null; [k: string]: unknown;
 }
 export interface PAccount {
   id: string; account_id: string; name: string | null; official_name: string | null;
@@ -309,12 +310,32 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   for (const t of posted) bucketOf.set(t.id, resolveBucket(classOf(t), getEffectiveCategory(t) || ""));
 
   // ── Recurring series, fed the same (re-bucketed) classification ──
+  // Payee names cleaned for grouping and display only (stored rows untouched):
+  // truncated merchant names joined to their full form, BofA "NAME:" and
+  // payroll "DES:PAYROLL" descriptors parsed, and a bank transfer that pays a
+  // linked loan named after the loan ("Chase Auto Loan").
+  const canon = canonicalMerchants(posted.map(t => t.merchant_name));
+  const loanPayee = new Map<string, string>();
+  const loanSeries = (t: PTxn) => `${t.account_id}|${Math.abs(num(t.amount)).toFixed(2)}|${(t.name ?? "").toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim()}`;
+  for (const t of posted) {
+    const c = classOf(t);
+    const other = c?.type === "obligation_loan" && c.pairId ? byId.get(c.pairId) : undefined;
+    const loanAcct = other ? acct.get(other.account_id) : undefined;
+    // Only when the bank line says nothing about the lender ("JPMorgan Chase
+    // Ext Trnsfr 3093…"); a servicer's own name ("Rocket Mortgage") stays.
+    if (loanAcct?.kind === "loan" && !t.merchant_name && /transfer|trnsfr|xfer/i.test(t.name ?? "")) loanPayee.set(loanSeries(t), loanAcct.name);
+  }
+  const payeeOf = (t: PTxn) => {
+    if (loanPayee.size && classOf(t)?.type === "obligation_loan") { const n = loanPayee.get(loanSeries(t)); if (n) return n; }
+    return cleanPayee({ name: t.name, merchant_name: t.merchant_name }, canon);
+  };
   const ctxns: ClassifierTxn[] = posted.map(t => ({
     transaction_id: t.id, account_id: t.account_id, amount: num(t.amount), date: t.date,
-    name: t.name, merchant_name: t.merchant_name, category: t.category ?? null, pending: false,
+    name: t.name, merchant_name: payeeOf(t), category: t.category ?? null, pending: false,
     payment_channel: (t.payment_channel as string | null | undefined) ?? null,
     pfc_primary: (t.pfc_primary as string | null | undefined) ?? null,
     pfc_detailed: (t.pfc_detailed as string | null | undefined) ?? null,
+    pfc_confidence: (t.pfc_confidence as string | null | undefined) ?? null,
   }));
   const classifier: TransactionClassifier = {
     classifyAll(list) {
@@ -350,6 +371,8 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
       categoryOf: ct => { const t = byId.get(ct.transaction_id); return t ? getEffectiveCategory(t) : null; },
     });
   } catch { /* detection must never break the page */ }
+  // Nothing waits on the person: confident detections count, weak ones don't.
+  review = { ...review, items: settleSuggestions(review.items) };
   const seriesByKey = new Map<string, RecurringSeries>();
   for (const s of series) { seriesByKey.set(s.seriesKey, s); const b = s.seriesKey.replace(/\|~\d+$/, ""); if (!seriesByKey.has(b)) seriesByKey.set(b, s); }
   let autopays: ReturnType<typeof detectBillAutopays> = [];
@@ -417,7 +440,7 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence] : null;
   income.push({
     group: "income", id: "salary", label: "Salary",
-    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.length} employers` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? `Take-home · averaged from ${recentPay.length} paychecks in the last 3 months` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
+    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.map(i => i.label).join(" & ")}` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? "Take-home · averaged over the last 3 months" : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
     coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryRowTxns.slice(0, 6),
     missed: salaryItems.some(i => i.missed), why: salaryItems.map(i => `${i.label}: ${i.why}`).join(" "),
@@ -433,7 +456,7 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   }
   if (otherMonthly > 0 || "income.other" in overrides) {
     income.push({
-      group: "income", id: "other", label: "Other recurring income", sub: otherIncomeItems.length ? `${otherIncomeItems.length} recurring deposit pattern${otherIncomeItems.length === 1 ? "" : "s"} · one-time deposits excluded` : "User adjustment",
+      group: "income", id: "other", label: "Other recurring income", sub: otherIncomeItems.length ? "Recurring deposits · one-time deposits excluded" : "User adjustment",
       monthly: eff("income.other", otherMonthly), detected: otherMonthly, overrideKey: "income.other", edited: "income.other" in overrides,
       coverId: majorityAccount(otherTxns, 0.5), coverSource: otherTxns.length ? "detected" : "none", txns: otherTxns.slice(0, 6),
     });
