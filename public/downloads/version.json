@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1242,
-  "sha256": "5151c3ad27d29353948b2b804dfe492a63d2ba65aebb640abc7b2453073f2bc0",
-  "size": 7486179,
-  "releaseNotes": "Recurring: label refresh, Berkheimer taxes, one-tap pattern edit, planning amount, pattern lines, inbox priority",
+  "versionCode": 1243,
+  "sha256": "85a60ee10bc2f77fd40768f17a23864505e81d8385830c6240004ed735b1334d",
+  "size": 7487431,
+  "releaseNotes": "Bill price-change alerts (Armstrong $59.95 → $109.95)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-18T09:02:31.752Z"
+  "publishedAt": "2026-11-18T09:38:12.928Z"
 }
