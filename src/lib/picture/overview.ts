@@ -8,6 +8,8 @@ import { addDays, addMonths, diffDays, parseDate, type ISODate } from "@/lib/rec
 import type { ReviewItem } from "@/lib/recurring/review";
 import { nextOccurrence } from "./obligations";
 import { acctKind, toAcctInfo, type AcctKind, type PAccount } from "./model";
+import { netWorthTotals } from "@/lib/accounts/totals";
+import type { LinkedAccount, ManualAccountLike as AccountsManualLike } from "@/lib/accounts/types";
 
 // ── Net worth ───────────────────────────────────────────────────────────────
 
@@ -43,14 +45,12 @@ export function netWorthBreakdown(accounts: readonly PAccount[], manual: readonl
     cash: { key: "cash", total: 0, accounts: [] }, credit: { key: "credit", total: 0, accounts: [] },
     loans: { key: "loans", total: 0, accounts: [] }, investments: { key: "investments", total: 0, accounts: [] },
   };
-  let assets = 0, liabilities = 0;
   for (const a of accounts) {
     const info = toAcctInfo(a);
     const g = KIND_GROUP[acctKind(a)];
     const bal = num(a.current_balance);
     groups[g].accounts.push({ id: info.id, name: info.name, label: info.label, sub: SUB_LABEL[info.subtype] ?? (info.subtype ? title(info.subtype) : title(info.type || "account")), balance: bal });
     groups[g].total += bal;
-    if (g === "credit" || g === "loans") liabilities += bal; else assets += bal;
   }
   for (const m of manual) {
     const bal = num(m.current_balance);
@@ -59,17 +59,19 @@ export function netWorthBreakdown(accounts: readonly PAccount[], manual: readonl
       const equity = num(m.property_value) ? num(m.property_value) - Math.abs(bal) : null;
       groups.loans.accounts.push({ id: `manual-${m.id}`, name: m.name, label: m.name, sub: equity == null ? sub : `${sub} · equity ${Math.round(equity).toLocaleString("en-US")}`, balance: Math.abs(bal), manual: true });
       groups.loans.total += Math.abs(bal);
-      if (equity != null) { if (equity >= 0) assets += equity; else liabilities += -equity; }
       continue;
     }
     const debt = m.role === "debt";
     const g: NetWorthGroupKey = debt ? (/(card|credit)/i.test(m.type) ? "credit" : "loans") : /(invest|brokerage|401|ira|retire|stock|crypto)/i.test(m.type) ? "investments" : "cash";
     groups[g].accounts.push({ id: `manual-${m.id}`, name: m.name, label: m.name, sub, balance: bal, manual: true });
     groups[g].total += bal;
-    if (debt) liabilities += bal; else assets += bal;
   }
   for (const g of Object.values(groups)) g.accounts.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-  return { assets, liabilities, netWorth: assets - liabilities, groups };
+  // Headline totals come from the shared maths so Picture, Home and Accounts
+  // always show the same net worth (src/lib/accounts/totals.ts). The groups
+  // above are Picture's own breakdown of the same accounts.
+  const t = netWorthTotals(accounts as unknown as LinkedAccount[], manual as unknown as AccountsManualLike[], {});
+  return { assets: t.assets, liabilities: t.liabilities, netWorth: t.netWorth, groups };
 }
 
 // ── Savings rate ────────────────────────────────────────────────────────────

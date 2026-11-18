@@ -1,11 +1,13 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock } from "lucide-react";
 import { fmtUSD, fmtUSDCompact } from "@/lib/format";
 import { NET_WORTH_GROUP_LABEL, NET_WORTH_GROUP_ORDER, type NetWorthTotals } from "@/lib/accounts/totals";
-import { agoLabel } from "@/lib/accounts/grouping";
+import { agoLabel, signInLabel } from "@/lib/accounts/grouping";
 
 export interface SyncSummary {
   banks: number;
   broken: number;
+  /** Names of banks that need sign-in (shown instead of a count). */
+  brokenNames?: string[];
   /** Newest successful sync across banks, ISO (null = unknown). */
   lastSync: string | null;
   stale: boolean;
@@ -44,12 +46,12 @@ export function NetWorthHero({ t, sync, now, onConnections }: { t: NetWorthTotal
       {sync.banks > 0 && (
         <button type="button" className="ac-sync" onClick={onConnections} data-testid="ac-sync-line">
           {sync.broken > 0 ? (
-            <span className="bad inline-flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" aria-hidden />{sync.broken} bank{sync.broken === 1 ? "" : "s"} need{sync.broken === 1 ? "s" : ""} sign-in</span>
+            <span className="bad inline-flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" aria-hidden />{signInLabel(sync.brokenNames ?? [], "A bank needs sign-in")}</span>
           ) : sync.stale ? (
             <span className="stale inline-flex items-center gap-1.5"><Clock className="h-4 w-4" aria-hidden />Synced {ago}</span>
           ) : (
             <span className="inline-flex items-center gap-1.5 min-w-0"><CheckCircle2 className="ok h-4 w-4 shrink-0" aria-hidden /><span className="ok">Synced</span>
-              <span className="text-muted-foreground truncate">· {sync.banks} bank{sync.banks === 1 ? "" : "s"}{ago ? ` · ${ago}` : ""}</span></span>
+              {ago && <span className="text-muted-foreground truncate">· {ago}</span>}</span>
           )}
           <span className="more">Connections<ChevronRight className="h-4 w-4" aria-hidden /></span>
         </button>

@@ -14,7 +14,7 @@ export function ReconnectSheet({ bank, views, onClose, onReconnect, onSnooze, bu
   return (
     <AccountsSheet open={!!bank} onClose={onClose} testId="ac-reconnect-sheet"
       title={bank ? `Reconnect ${bank.bankName}` : "Reconnect"}
-      subtitle={bank ? `${bank.accounts} account${bank.accounts === 1 ? "" : "s"} paused${bank.since ? ` since ${shortDate(bank.since)}` : ""}` : ""}>
+      subtitle={bank ? (bank.since ? `Paused since ${shortDate(bank.since)}` : "Paused") : ""}>
       {bank && (
         <>
           <div className="ac-pay">

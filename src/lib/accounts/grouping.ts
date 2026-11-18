@@ -247,3 +247,9 @@ export const agoLabel = (iso: string | null, now: Date) => {
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
 };
+
+/** "Fidelity needs sign-in" / "Some banks need sign-in" — no counts in the UI. */
+export function signInLabel(names: readonly string[], none: string): string {
+  if (!names.length) return none;
+  return names.length === 1 ? `${names[0]} needs sign-in` : "Some banks need sign-in";
+}

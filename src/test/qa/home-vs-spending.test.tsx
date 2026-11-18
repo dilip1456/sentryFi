@@ -123,11 +123,12 @@ describe("QA account group balances & net worth (rendered)", () => {
     expect((await screen.findByTestId("ac-networth")).textContent).toMatch(/^\$44,800(?![\d,])/);
     const text = (r.container.textContent ?? "").replace(/\s+/g, " ");
     expect(text).not.toMatch(/Net Cash/);
-    expect(text).toMatch(/Checking\s*1 account\s*\$5,000/);
-    expect(text).toMatch(/Savings\s*1 account\s*\$20,000/);
+    expect(text).not.toMatch(/\d+ accounts?\b/); // no counts in the UI
+    expect(text).toMatch(/Checking\s*\$5,000/);
+    expect(text).toMatch(/Savings\s*\$20,000/);
     expect(text).toMatch(/Credit cards\s*12% of \$10K limit used\s*[−-]\$1,200/);
-    expect(text).toMatch(/Loans\s*1 account\s*[−-]\$9,000/);
-    expect(text).toMatch(/Investments\s*1 account\s*\$30,000/);
+    expect(text).toMatch(/Loans\s*[−-]\$9,000/);
+    expect(text).toMatch(/Investments\s*\$30,000/);
   });
   it("renders no null/undefined/NaN text on Home or Spending", async () => {
     for (const v of ["overall", "spending"] as const) {

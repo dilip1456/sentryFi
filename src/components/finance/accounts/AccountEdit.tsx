@@ -68,7 +68,11 @@ export function AccountEdit({ v, meta, instUrl, onCancel, onSave, onDisconnect, 
 
       <div className="ac-sec-t">Visibility</div>
       <Toggle checked={hidden} onChange={h => { setHidden(h); if (!h) setCountNw(true); }} title="Hide this account" sub="Removes it from lists, Home and alerts" testId="ac-hide-toggle" />
-      <Toggle checked={countNw} disabled={!hidden} onChange={setCountNw} title="Still count it in net worth" sub="Off for duplicates or accounts that aren't yours" testId="ac-nw-toggle" />
+      {hidden && (
+        <div className="ac-reveal">
+          <Toggle checked={countNw} onChange={setCountNw} title="Still count it in net worth" sub="Off for duplicates or accounts that aren't yours" testId="ac-nw-toggle" />
+        </div>
+      )}
       <p className="ac-note"><Info className="h-3.5 w-3.5" aria-hidden />Hidden accounts keep syncing and can be shown again from "Hidden accounts" at the bottom of the list.</p>
 
       {linked && (
@@ -94,7 +98,8 @@ export function AccountEdit({ v, meta, instUrl, onCancel, onSave, onDisconnect, 
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button type="button" className="btn-gold" onClick={save} data-testid="ac-edit-save">Save</button>
       </div>
-      <div className="mt-3 grid gap-2">
+      {/* Destructive actions sit apart from Cancel / Save (24px+). */}
+      <div className="ac-danger-zone grid gap-2">
         {linked && onDisconnect && (
           <button type="button" className="btn-danger" onClick={onDisconnect}><Unlink className="h-4 w-4" aria-hidden />Disconnect {v.bankName}…</button>
         )}
