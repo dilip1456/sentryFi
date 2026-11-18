@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1240,
-  "sha256": "2a0ac8d84f78e37e0b1464d5746cbd707404bf682d78cc95b1d4f6083d1dddbf",
-  "size": 7481639,
-  "releaseNotes": "fix: Picture is the full picture: accurate predictor, salary, review queue; Insights screen",
+  "versionCode": 1241,
+  "sha256": "e44023bb38c6175d5548c345665820960c92ed6d92cc024f36cef38e211ea583",
+  "size": 7482567,
+  "releaseNotes": "Fix salary mapping; settle detections internally (no review queue or counts)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-17T08:08:04.613Z"
+  "publishedAt": "2026-11-18T06:48:08.006Z"
 }
