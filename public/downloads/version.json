@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1245,
-  "sha256": "bfad6f894de182d80f4d0b93d9f069148cf24bec270593df09d3b19358a96c5b",
-  "size": 7495804,
-  "releaseNotes": "Fix insights page initialization error",
+  "versionCode": 1246,
+  "sha256": "47d025248a56308c6eb4c392342e41c122ca144a22d21b65642c05f3c3126303",
+  "size": 7495780,
+  "releaseNotes": "Avoid early transaction reference in dashboard callbacks",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-18T23:23:34.333Z"
+  "publishedAt": "2026-11-18T23:39:17.389Z"
 }
