@@ -78,9 +78,9 @@ describe("client: Armstrong price_increase", () => {
     const r = reviewRecurring(armstrongTxns(), ACCOUNTS, { today: TODAY });
     const it = r.items.find(i => /armstrong/i.test(i.label))!;
     expect(it.priceChange).toEqual({ from: 59.95, to: 109.95, delta: 50, date: "2026-11-12" });
-    expect(it.amount).toBe(59.95); // typical stays until the person takes the new price
+    expect(it.amount).toBe(109.95); // planning amount is the worst case, so it already plans for the new price
 
-    const dec = decisionFor(it, { status: "confirmed", amount: it.priceChange!.to });
+    const dec = decisionFor(it, { status: "confirmed", expectedAmount: it.priceChange!.to });
     const after = applyDecision(it, dec, TODAY);
     expect(after.amount).toBe(109.95);
     expect(after.priceChange).toBeNull();

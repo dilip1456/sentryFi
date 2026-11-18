@@ -19,7 +19,7 @@ const loanItem = (over: Partial<ReviewItem> = {}): ReviewItem => ({
   lastSeen: "2026-09-01", nextDue: "2026-10-01", occurrences: 1, confidence: 0.9, transactionIds: ["p9"],
   matched: [{ id: "p9", date: "2026-09-01", amount: 2150, name: "ROCKET MORTGAGE", accountId: "chk" }],
   accountId: "chk", coverAccountId: "chk", coverUserSet: false, status: "confirmed", edited: false, missed: true, daysLate: 28,
-  why: "", detected: { cadence: "monthly", amount: 2150, group: "payments" }, ...over,
+  why: "", renamed: false, autoLabel: String(over.label ?? "Rocket Mortgage"), expectedAmount: null, patternLine: "", estimated: false, estimateNote: null, detected: { cadence: "monthly", amount: 2150, group: "payments" }, ...over,
 });
 const tx = (id: string, account: string, date: string, amount: number, name: string): ClassifierTxn =>
   ({ transaction_id: id, account_id: account, date, amount, name, merchant_name: null, category: null, pending: false });

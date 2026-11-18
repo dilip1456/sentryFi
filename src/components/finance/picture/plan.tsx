@@ -23,7 +23,7 @@ import type { NetWorthGroupKey } from "@/lib/picture/overview";
 import { usePicture, type PictureState, type PlanItemInput } from "./state";
 import { useOverlay, type DetailView } from "./overlays";
 import { fmt } from "./bits";
-import { useRecurringActions } from "./recurring";
+import { EditPatternButton, editKey, useRecurringActions } from "./recurring";
 
 const money = (n: number) => (Math.abs(n) < 100 && n % 1 ? `$${Math.abs(n).toFixed(2)}` : fmt(n));
 const shortDate = (d: string, today?: string) => new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: today && d.slice(0, 4) !== today.slice(0, 4) ? "numeric" : undefined });
@@ -58,16 +58,19 @@ function ObRow({ ob, date, overdue }: { ob: Obligation; date?: string; overdue?:
   const soon = !!d && !overdue && d >= t && diffDays(d, t) <= 7;
   const late = overdue || (ob.missed && !date);
   const st = STATUS[ob.source];
-  const sub = [CATEGORY_LABEL[ob.category], PLAN_CADENCE_LABEL[ob.cadence] + (ob.cadence === "custom" && ob.intervalDays ? ` (${ob.intervalDays} days)` : ""), ob.lastPaid ? `last ${money(ob.lastPaid.amount)} on ${shortDate(ob.lastPaid.date, t)}` : null].filter(Boolean).join(" · ");
-  return (
+  const rv = ob.reviewKey ? pc.m.review.items.find(i => i.key === ob.reviewKey) : undefined;
+  const sub = ob.patternLine ? `${CATEGORY_LABEL[ob.category]} · ${ob.patternLine}` : [CATEGORY_LABEL[ob.category], PLAN_CADENCE_LABEL[ob.cadence] + (ob.cadence === "custom" && ob.intervalDays ? ` (${ob.intervalDays} days)` : ""), ob.lastPaid ? `last ${money(ob.lastPaid.amount)} on ${shortDate(ob.lastPaid.date, t)}` : null].filter(Boolean).join(" · ");
+  const row = (
     <button type="button" className={`pl-row ${late ? "late" : soon ? "soon" : ""}`} data-testid="plan-row" data-source={ob.source} onClick={() => open(`plan:item:${ob.id}`)} aria-label={`${ob.label}, ${money(ob.amount)}${d ? `, due ${shortDate(d, t)}` : ""}. Details`}>
       <span className="pl-date" aria-hidden="true">{d ? <><b>{new Date(`${d}T12:00:00`).getDate()}</b><small>{new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short" })}</small></> : <small>—</small>}</span>
       <span className="pl-lbl"><b>{ob.label}</b><small>{sub}</small>
-        <span className="pl-tags">{st && <span className={st.cls}>{st.text}</span>}{late && <span className="pl-st bad"><CircleAlert className="h-3 w-3" aria-hidden="true" />{ob.source === "giftcard" ? "Expired" : "Overdue"}</span>}{soon && <span className="pl-st warn"><CalendarClock className="h-3 w-3" aria-hidden="true" />{d === t ? "Due today" : `In ${diffDays(d!, t)} day${diffDays(d!, t) === 1 ? "" : "s"}`}</span>}</span>
+        <span className="pl-tags">{st && <span className={st.cls}>{st.text}</span>}{ob.estimated && <span className="pl-st est" title={ob.estimateNote ?? undefined}>Estimated</span>}{late && <span className="pl-st bad"><CircleAlert className="h-3 w-3" aria-hidden="true" />{ob.source === "giftcard" ? "Expired" : "Overdue"}</span>}{soon && <span className="pl-st warn"><CalendarClock className="h-3 w-3" aria-hidden="true" />{d === t ? "Due today" : `In ${diffDays(d!, t)} day${diffDays(d!, t) === 1 ? "" : "s"}`}</span>}</span>
       </span>
       <span className="pl-amt">{ob.amountKind === "estimated" ? "~" : ""}{money(ob.amount)}{ob.noCost ? <small>balance</small> : ob.annual > 0 ? <small>{fmt(ob.annual)}/yr</small> : null}</span>
     </button>
   );
+  // Detected patterns: one tap on the pencil edits the name and expected amount.
+  return rv ? <div className="pl-wrap">{row}<EditPatternButton it={rv} className="pl-edit" /></div> : row;
 }
 
 export function UpcomingPlan() {
@@ -306,13 +309,15 @@ function ObligationDetail({ ob }: { ob: Obligation }) {
   ];
   return (
     <div data-testid="plan-item-detail">
-      <div className="flex flex-wrap items-center gap-2 mb-3">{STATUS[ob.source] && <span className={STATUS[ob.source]!.cls}>{STATUS[ob.source]!.text}</span>}<span className="pl-st">{CATEGORY_LABEL[ob.category]}</span>{ob.missed && <span className="pl-st bad">Overdue</span>}</div>
+      <div className="flex flex-wrap items-center gap-2 mb-3">{STATUS[ob.source] && <span className={STATUS[ob.source]!.cls}>{STATUS[ob.source]!.text}</span>}<span className="pl-st">{CATEGORY_LABEL[ob.category]}</span>{ob.missed && <span className="pl-st bad">Overdue</span>}{ob.estimated && <span className="pl-st est">Estimated</span>}</div>
+      {ob.patternLine && <p className="mini mb-2" data-testid="plan-pattern">{ob.patternLine}</p>}
+      {ob.estimateNote && <p className="note mb-3">{ob.estimateNote}</p>}
       <div className="kv">{kv.map(([k, v, s]) => <div key={k}><div className="k">{k}</div><div className="v">{v}</div>{s && <div className="mini">{s}</div>}</div>)}</div>
       {f && <p className="note mt-3">Set aside <b>{money(f.perMonth)}/mo</b> and this is covered every time{f.toBeReady > f.perMonth + 1 ? ` (${money(f.toBeReady)}/mo to have it all by ${shortDate(ob.nextDue!, t)} starting from zero)` : ""}.</p>}
       {ob.reminderDays ? <p className="mini mt-2">Reminder {ob.reminderDays} day{ob.reminderDays === 1 ? "" : "s"} before it's due{ob.nextDue ? ` (${shortDate(addDays(ob.nextDue, -ob.reminderDays), t)})` : ""}.</p> : null}
       {ob.notes && <p className="note mt-2">{ob.notes}</p>}
       <div className="rcv-btns mt-4">
-        {it && <button type="button" className="btn" onClick={() => open(`rcv:item:${encodeURIComponent(it.key)}`)}>Edit</button>}
+        {it && <button type="button" className="btn" onClick={() => open(editKey(it.key))}>Edit</button>}
         {it && <button type="button" className="btn" onClick={() => { ra.dismiss(it); close(); }}><X className="h-4 w-4" aria-hidden="true" />Remove</button>}
         {manual && <button type="button" className="btn" onClick={() => open(`plan:edit:${manual.id}`)}>Edit</button>}
         {manual && <button type="button" className="btn" onClick={() => {

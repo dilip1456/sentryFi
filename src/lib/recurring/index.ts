@@ -18,4 +18,5 @@ export * from "./spending-cadence";
 export * from "./review";
 export { payeeKey, employerKey, employerLabel, payeeText, payeeBrand, p2pApp, isP2PText, PAYROLL_PROCESSOR_RE, canonicalMerchants, cleanPayee, bankNameField, payrollCompany } from "./payee";
 export * from "./decisions";
+export { autoLabelCandidates, currentLabel, isAutoLabel, keyPayee, refreshDecisionLabel } from "./labels";
 export { reconcilePayments, rollNextDue, currentDue, payeeTokens, type ReconcileOptions } from "./reconcile";

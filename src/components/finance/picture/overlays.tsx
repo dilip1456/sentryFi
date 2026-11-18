@@ -45,7 +45,7 @@ export const useOverlay = () => {
   return c;
 };
 
-export const isSheetKey = (k: string) => /^(row|pick|add|rcv:item|plan:item):/.test(k);
+export const isSheetKey = (k: string) => /^(row|pick|add|rcv:item|rcv:edit|plan:item):/.test(k);
 const HISTORY_TAG = "fpOverlay";
 const EXIT_MS = 320;
 
