@@ -4427,7 +4427,7 @@ export const LivePlaidDashboard = ({
   // else) via the existing bulk-override path, a custom category is also
   // removed outright, and a built-in one is hidden from every picker here on.
   // Returns the count of transactions moved so the caller can offer AI help.
-  const deleteCategory = useCallback((name: string): string[] => {
+  const deleteCategory = (name: string): string[] => {
     const fallback = INCOME_CATEGORIES.includes(name) ? "Income" : "Other";
     const map: Record<string, string> = {};
     const movedIds: string[] = [];
@@ -4441,11 +4441,11 @@ export const LivePlaidDashboard = ({
     if (customCategories.some(c => c.name === name)) removeCategory(name);
     else hideCategory(name);
     return movedIds;
-  }, [txns, settings.catOverrides, getRuleCategory, customCategories, removeCategory, hideCategory]);
+  };
   // After a delete, offer to re-run AI categorization for the transactions
   // that just landed in the fallback bucket, constrained to categories that
   // still exist (so it can never suggest the one just deleted).
-  const recategorizeWithAi = useCallback(async (txnIds: string[]) => {
+  const recategorizeWithAi = async (txnIds: string[]) => {
     if (txnIds.length === 0) return;
     const availableCategories = Array.from(new Set([
       ...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)),
@@ -4476,7 +4476,7 @@ export const LivePlaidDashboard = ({
     }
     if (applied > 0) toast.success(`AI recategorized ${applied} transaction${applied !== 1 ? "s" : ""}`, { description: "From the categories you still have." });
     else toast("AI couldn't confidently recategorize those", { description: "They're still set to the fallback category — recategorize them by hand anytime." });
-  }, [hiddenCategories, customCategories, txns]);
+  };
   // Orchestrates a full "delete this category" action from the UI: reassigns
   // affected transactions, then offers (via a toast action button) to let AI
   // try to do better than the flat fallback, picking only from categories
