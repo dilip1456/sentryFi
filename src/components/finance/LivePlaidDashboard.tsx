@@ -4442,21 +4442,6 @@ export const LivePlaidDashboard = ({
     else hideCategory(name);
     return movedIds;
   }, [txns, settings.catOverrides, getRuleCategory, customCategories, removeCategory, hideCategory]);
-  // Orchestrates a full "delete this category" action from the UI: reassigns
-  // affected transactions, then offers (via a toast action button) to let AI
-  // try to do better than the flat fallback, picking only from categories
-  // that still exist.
-  const deleteCategoryWithPrompt = useCallback((name: string) => {
-    const movedIds = deleteCategory(name);
-    if (movedIds.length === 0) {
-      toast.success(`Deleted "${formatCat(name)}"`);
-      return;
-    }
-    toast.success(`Deleted "${formatCat(name)}" — ${movedIds.length} transaction${movedIds.length !== 1 ? "s" : ""} moved`, {
-      description: "They're set to the fallback category for now.",
-      action: { label: "Recategorize with AI", onClick: () => recategorizeWithAi(movedIds) },
-    });
-  }, [deleteCategory, formatCat, recategorizeWithAi]);
   // After a delete, offer to re-run AI categorization for the transactions
   // that just landed in the fallback bucket, constrained to categories that
   // still exist (so it can never suggest the one just deleted).
@@ -4492,6 +4477,22 @@ export const LivePlaidDashboard = ({
     if (applied > 0) toast.success(`AI recategorized ${applied} transaction${applied !== 1 ? "s" : ""}`, { description: "From the categories you still have." });
     else toast("AI couldn't confidently recategorize those", { description: "They're still set to the fallback category — recategorize them by hand anytime." });
   }, [hiddenCategories, customCategories, txns]);
+  // Orchestrates a full "delete this category" action from the UI: reassigns
+  // affected transactions, then offers (via a toast action button) to let AI
+  // try to do better than the flat fallback, picking only from categories
+  // that still exist. Keep this after recategorizeWithAi because the callback
+  // dependency list reads it during initialization.
+  const deleteCategoryWithPrompt = useCallback((name: string) => {
+    const movedIds = deleteCategory(name);
+    if (movedIds.length === 0) {
+      toast.success(`Deleted "${formatCat(name)}"`);
+      return;
+    }
+    toast.success(`Deleted "${formatCat(name)}" — ${movedIds.length} transaction${movedIds.length !== 1 ? "s" : ""} moved`, {
+      description: "They're set to the fallback category for now.",
+      action: { label: "Recategorize with AI", onClick: () => recategorizeWithAi(movedIds) },
+    });
+  }, [deleteCategory, formatCat, recategorizeWithAi]);
   const allCategoryNames = useMemo(
     () => Array.from(new Set([...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(c => c.name)])).map(formatCat),
     [customCategories, hiddenCategories]
