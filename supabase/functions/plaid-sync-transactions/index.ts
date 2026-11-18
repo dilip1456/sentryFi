@@ -1,6 +1,6 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
-import { syncItemTransactions } from '../_shared/plaid-sync.ts';
+import { recordItemHealth, syncItemTransactions } from '../_shared/plaid-sync.ts';
 import { plaidAccountRows, upsertPlaidAccounts } from '../_shared/plaid-accounts.ts';
 import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     try { fullResync = !!(await req.json())?.full_resync; } catch { /* no body */ }
 
     let total = 0;
-    const failures: { item: string; error: string }[] = [];
+    const failures: { item: string; error: string; error_code: string | null }[] = [];
     for (const item of items ?? []) {
       await syncAccounts(admin, item.id, user.id, item.access_token);
       const r = await syncItemTransactions(admin, SYNC_CFG, {
@@ -57,7 +57,8 @@ Deno.serve(async (req) => {
         cursor: fullResync ? null : item.cursor,
       });
       total += r.count;
-      if (!r.ok) failures.push({ item: item.id, error: r.error ?? 'sync failed' });
+      await recordItemHealth(admin, item.id, r); // never throws
+      if (!r.ok) failures.push({ item: item.id, error: r.error ?? 'sync failed', error_code: r.errorCode ?? null });
       await syncLiabilities(admin, user.id, item.access_token);
     }
     return json({ ok: failures.length === 0, items: items?.length ?? 0, synced: total, failures });
