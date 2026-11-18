@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test";
-import { test, expect, openDemo, QA_NOW } from "./fixtures";
+import { test, expect, openDemo, QA_NOW, toHistory } from "./fixtures";
 
 /**
  * Timeline sidebar (demo data). Mirrors the approved prototype's interaction
@@ -65,6 +65,7 @@ test.describe("Timeline · desktop 1440x900", () => {
         .observe(document.body, { childList: true, subtree: true });
     });
     await navBtn(page).click();
+    await toHistory(page);
     await expect(panel(page)).toBeVisible();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __tlSkel?: boolean }).__tlSkel)).toBe(true); // D2 skeletons first
     expect((await panel(page).boundingBox())!.width).toBe(400);
@@ -100,6 +101,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D8-D15 filters popover: Escape, chips, Upcoming-only, transfers toggle, Reset, click outside", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     const filtersBtn = panel(page).getByRole("button", { name: "Filters" });
     await filtersBtn.click();
     const pop = page.getByTestId("tl-pop-filters");
@@ -139,6 +141,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D16-D18 jump to date: Jan 1, date picker + Go, Today", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Jump to date" }).click();
     await page.getByTestId("tl-pop-jump").getByRole("button", { name: "Jan 1" }).click(); await waitLoaded(page);
     await expect(page.getByTestId("tl-jumped")).toContainText("Thu, Jan 1, 2026"); // D16
@@ -160,6 +163,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("D19-D24 detail dialog: X, Escape, backdrop; sidebar Escape + X, focus return", async ({ page, guard }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     const dlg = page.getByTestId("tl-detail-dialog");
     const ev = history(page).first();
     await ev.click();
@@ -194,6 +198,7 @@ test.describe("Timeline · desktop 1440x900", () => {
     await expect(navBtn(page)).toBeFocused();
     await expect(navBtn(page)).toHaveAttribute("aria-expanded", "false");
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Close timeline" }).click(); // D24
     await expect(panel(page)).toBeHidden();
     expect(guard.consoleErrors).toEqual([]); // D25
@@ -201,6 +206,7 @@ test.describe("Timeline · desktop 1440x900", () => {
 
   test("empty filter state + Clear filters", async ({ page }) => {
     await navBtn(page).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).getByRole("button", { name: "Jump to date" }).click();
     await page.getByTestId("tl-pop-jump").getByRole("button", { name: "Start of history" }).click(); await waitLoaded(page);
     await panel(page).locator(".tl-chips").getByRole("button", { name: "Taxes" }).click(); await waitLoaded(page);
@@ -217,9 +223,10 @@ test.describe("Timeline · phone 390x844", () => {
 
   async function openFromMore(page: Page) {
     await page.getByRole("button", { name: "More", exact: true }).click();
-    const item = page.getByRole("button", { name: "Timeline", exact: true }).last();
+    const item = page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true });
     await expect(item).toBeVisible(); // M1
     await item.click();
+    await toHistory(page);
     await expect(panel(page)).toBeVisible();
     await waitLoaded(page);
   }
@@ -230,7 +237,7 @@ test.describe("Timeline · phone 390x844", () => {
     expect([box.x, box.y, box.width, box.height]).toEqual([0, 0, 390, 844]); // M2 full screen
     await page.goBack(); // M3
     await expect(panel(page)).toBeHidden();
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible(); // still on /demo
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible(); // still on /demo
     await page.locator("header").getByRole("button", { name: "Timeline" }).click(); // M4
     await expect(panel(page)).toBeVisible();
     await waitLoaded(page);
@@ -259,7 +266,7 @@ test.describe("Timeline · phone 390x844", () => {
     await expect(page.locator("nav").getByRole("button", { name: "Picture", exact: true })).toBeVisible();
     await open();
     expect(await menu.evaluate(el => el.parentElement === document.body)).toBe(true);
-    expect(await menu.locator(":scope > button").allInnerTexts()).toEqual(["Timeline", "Gift Cards", "Benefits"]);
+    expect(await menu.getByRole("menuitem").allInnerTexts()).toEqual(["Timeline", "Gift Cards", "Benefits"]);
     const bd = (await page.getByTestId("more-backdrop").boundingBox())!;
     expect([bd.x, bd.y, bd.width, bd.height]).toEqual([0, 0, 390, 844]);
     await page.mouse.click(195, 300); // M22 backdrop, top half
@@ -275,7 +282,7 @@ test.describe("Timeline · phone 390x844", () => {
     await page.goBack(); // M25 Android/browser Back closes the menu, stays on /demo
     await expect(menu).toBeHidden();
     expect(new URL(page.url()).pathname).toBe("/demo");
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
     await open();
     const x = menu.getByRole("button", { name: "Close" });
     const xb = (await x.boundingBox())!;
@@ -284,14 +291,14 @@ test.describe("Timeline · phone 390x844", () => {
     await closed("x");
     // M27 menu item still opens the Timeline (reusing the menu's history entry); Back closes only the Timeline
     await open();
-    await menu.getByRole("button", { name: "Timeline", exact: true }).click();
+    await menu.getByRole("menuitem", { name: "Timeline", exact: true }).click();
     await expect(panel(page)).toBeVisible();
     await expect(menu).toBeHidden();
     await expect.poll(layer).toBe(1);
     await page.goBack();
     await expect(panel(page)).toBeHidden();
     expect(new URL(page.url()).pathname).toBe("/demo");
-    await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+    await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
     // M28 header Timeline tap target
     const hb = (await page.locator("header").getByRole("button", { name: "Timeline" }).boundingBox())!;
     expect(Math.min(hb.width, hb.height)).toBeGreaterThanOrEqual(44);

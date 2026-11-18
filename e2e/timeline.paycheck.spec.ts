@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test";
-import { test, expect, openDemo, QA_NOW } from "./fixtures";
+import { test, expect, openDemo, QA_NOW, toHistory } from "./fixtures";
 
 /**
  * Paycheck anomaly alerts in the Timeline (demo): they appear under the
@@ -16,7 +16,7 @@ async function checkDetail(d: Locator) {
   await expect(d.getByTestId("tl-detail")).toContainText("Usually ~2 paychecks land per month based on recent history — only 1 found so far this month.");
   await expect(d.getByTestId("tl-detail")).toContainText("Paychecks this month");
   await expect(d.getByTestId("tl-detail")).toContainText("1 of usual ~2");
-  await expect(d.getByTestId("tl-detail")).toContainText("SentryFi paycheck check");
+  await expect(d.getByTestId("tl-detail")).toContainText("Sentry Finance paycheck check");
   await expect(d.getByTestId("tl-detail")).toContainText("Tue, Oct 20, 2026");
 }
 
@@ -32,6 +32,7 @@ test.describe("Timeline paycheck alerts · desktop 1440x900", () => {
 
   test("P1-P5 Alerts filter shows the paycheck alert; dialog; Mark as seen; closes", async ({ page, guard }) => {
     await page.locator("aside").getByRole("button", { name: "Timeline" }).click(); await waitLoaded(page);
+    await toHistory(page);
     await expect(panel(page).locator(PAY)).toBeVisible(); // P1 in All, near the top
     await alertsOnly(page, panel(page).locator(".tl-chips"));
     const card = panel(page).locator(PAY);
@@ -65,6 +66,7 @@ test.describe("Timeline paycheck alerts · desktop 1440x900", () => {
 
   test("P6 not shown for other filters or a jump before the 20th", async ({ page }) => {
     await page.locator("aside").getByRole("button", { name: "Timeline" }).click(); await waitLoaded(page);
+    await toHistory(page);
     await panel(page).locator(".tl-chips").getByRole("button", { name: "Income" }).click(); await waitLoaded(page);
     await expect(panel(page).locator(PAY)).toHaveCount(0);
     await panel(page).locator(".tl-chips").getByRole("button", { name: "All" }).click(); await waitLoaded(page);
@@ -80,7 +82,8 @@ test.describe("Timeline paycheck alerts · phone 390x844", () => {
 
   test("P7-P9 Alerts chip in the filter sheet, detail sheet, Mark as seen, close methods", async ({ page, guard }) => {
     await page.getByRole("button", { name: "More", exact: true }).click();
-    await page.getByRole("button", { name: "Timeline", exact: true }).last().click();
+    await page.getByTestId("more-menu").getByRole("menuitem", { name: "Timeline", exact: true }).click();
+    await toHistory(page);
     await expect(panel(page)).toBeVisible(); await waitLoaded(page);
     await panel(page).getByRole("button", { name: "Filters" }).click();
     const fs = page.getByTestId("tl-sheet-filters");

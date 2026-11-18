@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1216,
-  "sha256": "6d37e88893fae8ebf37bf6e93b5f9386e398bc0987f1f7cd5e1f640710df09ed",
-  "size": 7181473,
-  "releaseNotes": "Polish spending screen and persist financial profile",
+  "versionCode": 1243,
+  "sha256": "85a60ee10bc2f77fd40768f17a23864505e81d8385830c6240004ed735b1334d",
+  "size": 7487431,
+  "releaseNotes": "Bill price-change alerts (Armstrong $59.95 → $109.95)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-10-30T04:52:38.530Z"
+  "publishedAt": "2026-11-18T09:38:12.928Z"
 }

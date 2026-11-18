@@ -12,6 +12,7 @@ import {
   useTimelineUpcoming,
 } from "@/hooks/useTimeline";
 import { addDays, todayLocal } from "@/lib/recurring/dates";
+import { RundownView } from "./Rundown";
 import {
   activeFilterCount, buildTimelineRows, DEFAULT_FILTERS, isComputedAlert, matchesUpcoming, mergeComputedEvents,
   paycheckAlertEvent, seenStore, showHistory, showUpcoming, TIMELINE_CHIPS,
@@ -54,6 +55,9 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
   const [detail, setDetail] = useState<TimelineEvent | null>(null);
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
   const [live, setLive] = useState("");
+  // Rundown (cash-flow, default) | History (the existing feed, unchanged)
+  const [tab, setTab] = useState<"rundown" | "history">("rundown");
+  const [rdLayer, setRdLayer] = useState(false);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -86,13 +90,13 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (pop) { e.preventDefault(); setPop(null); panelRef.current?.querySelector<HTMLElement>(`[data-tl-pop="${pop}"]`)?.focus(); return; }
-      if (detail || sheet) return;
+      if (detail || sheet || rdLayer) return;
       e.preventDefault();
       close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, pop, detail, sheet, close]);
+  }, [open, pop, detail, sheet, rdLayer, close]);
 
   // click outside a desktop popover closes it
   useEffect(() => {
@@ -108,12 +112,12 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
   // ── data ──
   const wantHistory = showHistory(filters);
   const wantUpcoming = showUpcoming(filters);
-  const feed = useTimelineFeed(src, filters, open && wantHistory);
-  const upcomingQ = useTimelineUpcoming(src, open && wantUpcoming);
+  const feed = useTimelineFeed(src, filters, open && tab === "history" && wantHistory);
+  const upcomingQ = useTimelineUpcoming(src, open && tab === "history" && wantUpcoming);
   const accountsQ = useTimelineAccounts(src);
   const oldestQ = useTimelineOldest(src, open);
   const realtime = useTimelineRealtime(src, open);
-  const paycheckQ = useTimelinePaycheckAlerts(src, open && wantHistory);
+  const paycheckQ = useTimelinePaycheckAlerts(src, open && tab === "history" && wantHistory);
 
   const history = useMemo(() => {
     const paged = feed.data?.pages.flatMap(p => p.items) ?? [];
@@ -137,14 +141,14 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
 
   // ── infinite scroll: sentinel 400px before the end of the scroller ──
   const { hasNextPage, isFetchingNextPage, fetchNextPage, isFetching } = feed;
-  const canLoad = open && wantHistory && hasNextPage && !isFetchingNextPage && !feed.isError;
+  const canLoad = open && tab === "history" && wantHistory && hasNextPage && !isFetchingNextPage && !feed.isError;
   useEffect(() => {
     const root = bodyRef.current, target = sentinelRef.current;
     if (!root || !target || !canLoad) return;
     const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) fetchNextPage(); }, { root, rootMargin: "0px 0px 400px 0px" });
     io.observe(target);
     return () => io.disconnect();
-  }, [canLoad, fetchNextPage, history.length]);
+  }, [canLoad, fetchNextPage, history.length, tab]);
 
   // screen-reader progress
   const pages = feed.data?.pages.length ?? 0;
@@ -230,6 +234,7 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
           )}
           <h2 id="tl-title"><History className="h-5 w-5 text-primary hidden md:block" aria-hidden />Timeline</h2>
           {demo && <span className="chip chip-gold !text-[11px] !py-0.5" data-testid="tl-demo-tag">Demo</span>}
+          {tab === "history" && <>
           <button type="button" className="tl-ib" data-tl-pop="jump" aria-label="Jump to date" aria-expanded={pop === "jump" || sheet === "jump"} onClick={() => openPop("jump")}>
             <CalendarSearch className="h-[18px] w-[18px]" />
           </button>
@@ -237,6 +242,7 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
             <SlidersHorizontal className="h-[18px] w-[18px]" />
             {count > 0 && <span className="tl-badge" data-testid="tl-badge">{count}</span>}
           </button>
+          </>}
           {!isMobile && (
             <button type="button" className="tl-ib" data-tl-close="" aria-label="Close timeline" onClick={close} data-testid="tl-close">
               <X className="h-5 w-5" />
@@ -244,6 +250,14 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
           )}
         </div>
 
+        <div className="rd-tabs" role="tablist" aria-label="Timeline view">
+          <button type="button" role="tab" aria-selected={tab === "rundown"} data-testid="tl-tab-rundown" onClick={() => { setTab("rundown"); setPop(null); }}>Rundown</button>
+          <button type="button" role="tab" aria-selected={tab === "history"} data-testid="tl-tab-history" onClick={() => setTab("history")}>History</button>
+        </div>
+
+        {tab === "rundown" ? (
+          <RundownView userId={userId} demo={demo} today={today} enabled={open} onLayerChange={setRdLayer} />
+        ) : <>
         <div className="tl-chips" role="group" aria-label="Show">
           <ChipButtons filters={filters} onChange={applyFilters} />
         </div>
@@ -297,6 +311,7 @@ function TimelinePanelInner({ open, onOpenChange, userId, demo }: TimelinePanelP
           )}
           <div ref={sentinelRef} style={{ height: 1 }} data-testid="tl-sentinel" />
         </div>
+        </>}
         <div className="sr-only" aria-live="polite">{live}</div>
 
         {pop && !isMobile && (

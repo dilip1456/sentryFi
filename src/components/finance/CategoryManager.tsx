@@ -18,6 +18,7 @@ import type { CategoryOverrides } from "@/hooks/useCategoryOverrides";
 import type { CategoryRule } from "@/hooks/useCategoryRules";
 import { UNASSIGNED } from "@/hooks/useCategoryOverrides";
 import { fmtShortDate } from "@/lib/format-date";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // ── Types ──────────────────────────────────────────────────────
 type PTxn = {
@@ -278,11 +279,10 @@ export const CategoryManager = ({
                     placeholder="Category name…"
                     onKeyDown={e => { if (e.key === "Enter" && newCatName.trim()) { onAddCategory(newCatName.trim(), newCatType); setNewCatName(""); setShowNewCat(false); toast.success(`Category "${newCatName.trim()}" created`); } if (e.key === "Escape") setShowNewCat(false); }}
                     className="flex-1 bg-secondary/40 border border-border/60 rounded-md px-3 py-1.5 text-[13px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]" />
-                  <select value={newCatType} onChange={e => setNewCatType(e.target.value as "income"|"expense")}
-                    className="bg-secondary/40 border border-border/60 rounded-md px-2 py-1.5 text-[13px] text-foreground outline-none">
+                  <NativeSelect wrapperClassName="shrink-0" size="sm" aria-label="Category type" value={newCatType} onChange={e => setNewCatType(e.target.value as "income"|"expense")}>
                     <option value="expense">Expense</option>
                     <option value="income">Income</option>
-                  </select>
+                  </NativeSelect>
                   <button onClick={() => { if (newCatName.trim()) { onAddCategory(newCatName.trim(), newCatType); setNewCatName(""); setShowNewCat(false); toast.success(`Created "${newCatName.trim()}"`); } }}
                     aria-label="Add category"
                     className="h-7 w-7 rounded-md bg-gold grid place-items-center hover:opacity-90">
@@ -435,8 +435,7 @@ export const CategoryManager = ({
                 </label>
                 {selected.size > 0 && (
                   <>
-                    <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
-                      className="flex-1 bg-secondary/40 border border-border/60 rounded-md px-2 py-1 text-[12.5px] text-foreground outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                    <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Assign selected to category" value={bulkCat} onChange={e => setBulkCat(e.target.value)}>
                       <option value="">Assign to…</option>
                       <optgroup label="Expense">
                         {builtInExpense.map(c => <option key={c} value={c}>{c}</option>)}
@@ -446,7 +445,7 @@ export const CategoryManager = ({
                         {builtInIncome.map(c => <option key={c} value={c}>{c}</option>)}
                         {customCategories.filter(c => c.type === "income").map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                       </optgroup>
-                    </select>
+                    </NativeSelect>
                     <button onClick={applyBulk} disabled={!bulkCat}
                       className="h-7 px-3 rounded-md bg-gold text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50">
                       Apply

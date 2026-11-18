@@ -586,7 +586,7 @@ main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 /* ── Reduce motion ──────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-up, .animate-fade-in, .animate-count-in, .animate-pop-in,
-  .shield-glow-img, .shield-glow-wrap::before, .shield-glow-wrap::after {
+  .shield-glow-img, .shield-glow-wrap::before, .shield-glow-wrap::after, .skeleton {
     animation: none;
   }
 }
@@ -605,6 +605,25 @@ main { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
   a[role="button"]:not(.no-min-h) {
     min-height: 40px;
     min-width: 40px;
+  }
+  /* Opt-in full 44px target (WCAG 2.5.5 / Android guideline) for icon buttons & chips. */
+  .tap-44 {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+  /* The 40px floor is button:not(.no-min-h):not(.nav-item) (0,2,1), which
+     outranks a lone Tailwind utility. Restate 44px utilities at the same
+     specificity and later in the file so they win, without !important, so a
+     larger explicit size still applies. */
+  button.min-h-11:not(.no-min-h), button.h-11:not(.no-min-h), button.size-11:not(.no-min-h), button.min-h-\[44px\]:not(.no-min-h),
+  [role="button"].min-h-11:not(.no-min-h), [role="button"].h-11:not(.no-min-h), [role="button"].size-11:not(.no-min-h), [role="button"].min-h-\[44px\]:not(.no-min-h),
+  a[role="button"].min-h-11:not(.no-min-h), a[role="button"].h-11:not(.no-min-h), a[role="button"].size-11:not(.no-min-h), a[role="button"].min-h-\[44px\]:not(.no-min-h) {
+    min-height: 44px;
+  }
+  button.min-w-11:not(.no-min-h), button.w-11:not(.no-min-h), button.size-11:not(.no-min-h), button.min-w-\[44px\]:not(.no-min-h),
+  [role="button"].min-w-11:not(.no-min-h), [role="button"].w-11:not(.no-min-h), [role="button"].size-11:not(.no-min-h), [role="button"].min-w-\[44px\]:not(.no-min-h),
+  a[role="button"].min-w-11:not(.no-min-h), a[role="button"].w-11:not(.no-min-h), a[role="button"].size-11:not(.no-min-h), a[role="button"].min-w-\[44px\]:not(.no-min-h) {
+    min-width: 44px;
   }
 }
 

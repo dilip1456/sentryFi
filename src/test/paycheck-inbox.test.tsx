@@ -1,5 +1,5 @@
 /** Paycheck anomaly alerts show in the notification inbox (on-device, no alert_log write). */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
 import { setDerivedAlerts, derivedUnreadCount } from "@/lib/derived-alerts";
@@ -18,6 +18,7 @@ function fakeSupabase(rows: unknown[] = []) {
 const txns = ["2026-08-14", "2026-08-28", "2026-09-11", "2026-09-25", "2026-10-09"].map((d, i) => ({ id: `p${i}`, date: d, amount: -2500 }));
 const alerts = () => paycheckAlerts(txns, () => ({ type: "income_salary" }), new Date(2026, 9, 22, 12));
 
+beforeEach(() => { localStorage.setItem("sentryfi_apk_banner_dismissed", "1"); });
 afterEach(() => { cleanup(); localStorage.clear(); act(() => setDerivedAlerts([])); });
 
 describe("NotificationInbox + paycheck anomaly", () => {

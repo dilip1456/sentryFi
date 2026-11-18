@@ -5,7 +5,7 @@ export const PATTERN_LIBRARY_VERSION = 1;
 export const PAYROLL_RE = /payroll|\bdes:\s*pay\b|dir(ect)?\s?dep|\bsalary\b|paycheck|\badp\b|gusto|paychex|\bpayrl\b/i;
 export const INTEREST_RE = /\binterest\s+(earned|paid|payment|credit|deposit)\b|\bint(erest)?\s+earned\b|\bapy\s+earned\b|^interest$|\binterest\s+income\b/i;
 export const DIVIDEND_RE = /\bdividend|\bdiv\s+(paid|credit)\b/i;
-export const TAX_RE = /\birs\b|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
+export const TAX_RE = /\birs\b|berkheimer|keystone\s+collect|jordan\s+tax|\b(local|city|school)\s+(eit|earned\s+income)|\beit\b|\btax\b(?!\s*(ref|refund|return\s+prep|prep|software|act))|usataxpymt|treas\s+tax|\beftps\b|\btax\s+(pymt|payment|pmt)\b|state\s+tax|dept\.?\s+of\s+revenue|department\s+of\s+revenue|franchise\s+tax|property\s+tax|county\s+treas|comptroller|\bftb\b/i;
 export const TAX_REFUND_RE = /tax\s+ref(und)?|\btreas\s+310\b|irs\s+treas\s+310/i;
 /**
  * Person-to-person payment apps (descriptor evidence only; see
@@ -14,8 +14,10 @@ export const TAX_REFUND_RE = /tax\s+ref(und)?|\btreas\s+310\b|irs\s+treas\s+310/
  * so "PAYPAL *NETFLIX", "PAYPAL *MONEY LION" and "PAYPAL *SEND GRID" (a
  * merchant name that happens to contain money/send) never match.
  */
-export const P2P_RE = /\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\s+(inst(ant)?\s+xfer|xfer|transfer|p2p|sent|received|send\s+money|money\s+(sent|received))\b|apple\s+cash|\bp2p\b/i;
+export const P2P_RE = /\bpaypal\b[^@]*\b[\w.+-]+@(gmail|yahoo|hotmail|outlook|icloud|aol|me|live|msn|proton(mail)?)\.|\bzelle\b|\bvenmo\b|cash\s?app|\bsquare\s+cash\b|\bpaypal\s+(inst(ant)?\s+xfer|xfer|transfer|p2p|sent|received|send\s+money|money\s+(sent|received))\b|apple\s+cash|\bp2p\b/i;
 
+/** "PAYPAL *JOHNDOE@GMAIL.COM": PayPal to a personal (webmail) address. */
+const PAYPAL_TO_PERSON_RE = /\bpaypal\b[^@]*\b[\w.+-]+@(gmail|yahoo|hotmail|outlook|icloud|aol|me|live|msn|proton(mail)?)\./i;
 /** merchant_name values that are just the P2P app, not a real merchant. */
 const P2P_APP_MERCHANT_RE = /^(venmo|zelle|cash\s?app|square\s+cash|paypal|apple\s+cash)$/i;
 /**
@@ -44,11 +46,15 @@ export function isPersonToPerson(t: {
 }): boolean {
   const text = descriptor(t);
   if (!P2P_RE.test(text) || EMPLOYER_ACH_RE.test(text)) return false;
+  // Zelle has no merchant checkout: Plaid puts the other person's name in
+  // merchant_name ("Zelle payment to JOHN SMITH" / merchant "John Smith").
+  if (/\bzelle\b/i.test(t.name ?? "")) return true;
   const merchant = (t.merchant_name ?? "").trim();
   if (merchant && !P2P_APP_MERCHANT_RE.test(merchant)) return false;
   const transferPfc = /^TRANSFER_(IN|OUT)$/i.test(t.pfc_primary ?? "");
   if (t.pfc_primary && !transferPfc && /^(HIGH|VERY_HIGH)$/i.test(t.pfc_confidence ?? "")) return false;
-  if (!transferPfc && P2P_APP_PURCHASE_RE.test(t.name ?? "")) return false;
+  // PayPal to a personal email address is money sent to a person, not checkout.
+  if (!transferPfc && P2P_APP_PURCHASE_RE.test(t.name ?? "") && !PAYPAL_TO_PERSON_RE.test(t.name ?? "")) return false;
   return true;
 }
 export const BROKERAGE_RE =

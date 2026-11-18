@@ -16,7 +16,7 @@ const HEIGHT: Record<number, number> = { 360: 780, 390: 844, 430: 932 };
 const WIDTHS = (process.env.POPUP_WIDTHS ?? "390").split(",").map(Number);
 
 const TABS: [string, string][] = [
-  ["Home", "overall"], ["Money Map", "moneymap"], ["Spending", "spending"],
+  ["Home", "overall"], ["Spending", "spending"],
   ["Picture", "myfinances"], ["Gift Cards", "giftcards"], ["Benefits", "benefits"],
 ];
 const OPEN = "[role=dialog][data-state=open], [role=alertdialog][data-state=open], [role=menu][data-state=open], [role=listbox][data-state=open]";
@@ -24,7 +24,7 @@ const OPEN = "[role=dialog][data-state=open], [role=alertdialog][data-state=open
 async function load(page: Page, view: string) {
   await page.addInitScript(v => sessionStorage.setItem("sentryfi_view", v), view);
   await page.goto("/demo");
-  await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+  await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
   await page.waitForTimeout(500);
 }
 

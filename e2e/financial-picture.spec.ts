@@ -8,10 +8,12 @@ import type { Locator, Page } from "@playwright/test";
  * dialog closes. Demo data only; the fixture stubs every backend request.
  */
 
+// The monthly breakdown (section screens, insight dialogs, edit) moved from
+// the Picture to the Insights screen.
 async function openPicture(page: Page) {
-  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
+  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "insights"));
   await openDemo(page);
-  await expect(page.getByTestId("financial-picture")).toBeVisible();
+  await expect(page.getByTestId("financial-insights")).toBeVisible();
 }
 
 
@@ -166,7 +168,7 @@ test.describe("phone (390x844)", () => {
   });
 
   test("edit screen: pick sheet, cancel and save", async ({ page, guard }) => {
-    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     const screen = page.getByRole("dialog", { name: "Edit your data" });
     await expect(screen).toBeVisible();
     await noHorizontalOverflow(screen);
@@ -184,7 +186,7 @@ test.describe("phone (390x844)", () => {
     await expect(screen).toBeHidden();
     await expect(page.getByText("Saved. Your picture is updated.")).toBeVisible();
     // Cancel path
-    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await screen.getByRole("button", { name: "Cancel" }).click();
     await expect(screen).toBeHidden();
     expect(guard.consoleErrors).toEqual([]);
@@ -266,24 +268,47 @@ for (const vp of [{ name: "390", width: 390, height: 844, mobile: true }, { name
     test.use({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.mobile, hasTouch: vp.mobile });
     test.beforeEach(async ({ page }) => openPicture(page));
 
-    test("history hint links to Settings → Banks and can be dismissed", async ({ page, guard }) => {
-      const hint = page.getByTestId("history-hint");
-      await expect(hint).toBeVisible();
-      await expect(hint).toContainText(/less than 2 years of history|months of history/);
-      await hint.getByRole("button", { name: "Extend history" }).click();
+    test("history hint lives in the inbox, links to Settings → Banks, and can be dismissed", async ({ page, guard }) => {
+      await expect(page.getByTestId("history-hint")).toHaveCount(0);
+      await page.getByRole("button", { name: "Notifications" }).first().click();
+      const panel = page.getByTestId("inbox-panel");
+      await expect(panel).toBeVisible();
+      // Unread digest may stack product notices; switch to All and expand if needed.
+      const hist = panel.getByRole("button", { name: /Extend bank history/ });
+      if (await panel.getByTestId("inbox-stack").count()) {
+        const stacks = panel.getByTestId("inbox-stack");
+        const n = await stacks.count();
+        for (let i = 0; i < n; i++) {
+          const s = stacks.nth(i);
+          if ((await s.getAttribute("aria-expanded")) !== "true") await s.click();
+        }
+      }
+      await expect(hist).toBeVisible();
+      await hist.click();
+      const detail = page.getByTestId("inbox-detail");
+      await expect(detail).toBeVisible();
+      await detail.getByRole("button", { name: "Extend history" }).click();
       const dlg = page.getByRole("dialog").filter({ hasText: "Settings" });
       await expect(dlg).toBeVisible();
+      await expect(page.getByTestId("inbox-panel")).toBeHidden();
       await expect(dlg.getByRole("button", { name: "Banks", pressed: true })).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dlg).toBeHidden();
-      await hint.getByRole("button", { name: "Dismiss history hint" }).click();
-      await expect(hint).toBeHidden();
-      // Demo is a guest: settings live in memory, so the dismissal holds while the page does.
-      if (vp.mobile) {
-        await page.getByRole("button", { name: /^Income/ }).first().click();
-        await page.getByRole("button", { name: "Back" }).first().click();
+      // Re-open and dismiss. Opening the item marked it read, so use All.
+      await page.getByRole("button", { name: "Notifications" }).first().click();
+      await expect(panel).toBeVisible();
+      await panel.locator('[data-nc-filter="all"]').click();
+      if (await panel.getByTestId("inbox-stack").count()) {
+        const stacks = panel.getByTestId("inbox-stack");
+        const n = await stacks.count();
+        for (let i = 0; i < n; i++) {
+          const s = stacks.nth(i);
+          if ((await s.getAttribute("aria-expanded")) !== "true") await s.click();
+        }
       }
-      await expect(page.getByTestId("history-hint")).toBeHidden();
+      await panel.getByRole("button", { name: /Extend bank history/ }).click();
+      await page.getByTestId("inbox-detail").getByRole("button", { name: "Dismiss" }).click();
+      await expect(page.getByRole("button", { name: /Extend bank history/ })).toHaveCount(0);
       expect(guard.consoleErrors).toEqual([]);
     });
 

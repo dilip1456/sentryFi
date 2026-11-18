@@ -6,6 +6,7 @@ import {
   withOverrides,
   detectRecurringSeries,
   mergeStreamRow,
+  merchantKey,
   occurrenceOverridesFromRows,
   toOccurrenceRows,
   toStreamRow,
@@ -145,6 +146,11 @@ describe("bills", () => {
     expect(s.nextExpectedDate).toBe("2026-11-12");
   });
 
+  it("collapses a truncated trailing descriptor word but keeps the brand word whole", () => {
+    expect(merchantKey("PROVIDENT FUNDING")).toBe(merchantKey("PROVIDENT FUNDIN"));
+    expect(merchantKey("NETFLIX.COM", "Netflix")).toBe("netflix");
+  });
+
   it("finds a monthly charge hidden among one-off purchases at the same merchant", () => {
     const prime = ["2026-05-03", "2026-06-03", "2026-07-03", "2026-08-03", "2026-09-03", "2026-10-03"].map(d =>
       tx(d, 14.99, "AMAZON PRIME*2K4", { merchant_name: "Amazon" }),
@@ -244,7 +250,8 @@ describe("yearly items", () => {
     const s = only(detect([tx("2026-02-02", 139, "AMAZON PRIME MEMBERSHIP ANNUAL RENEWAL")]), () => true);
     expect(s.cadence).toBe("yearly");
     expect(s.nextExpectedDate).toBe("2027-02-02");
-    expect(s.confidence).toBeLessThan(0.5);
+    // An unmistakably yearly descriptor is confident enough to plan for.
+    expect(s.confidence).toBeGreaterThanOrEqual(0.75);
   });
 
   it("does not invent a series from a single ordinary purchase", () => {

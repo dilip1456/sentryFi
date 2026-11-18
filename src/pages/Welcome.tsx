@@ -11,8 +11,8 @@ import {
 const FEATURES: { icon: LucideIcon; title: string; desc: string }[] = [
   {
     icon: Compass,
-    title: "Money Map",
-    desc: "Tag every account with a purpose: Spending, Emergency Buffer, Reserve, Investment. Your emergency fund never bleeds into your spendable balance.",
+    title: "My Financial Picture",
+    desc: "Your income, bills, loans, savings and balances in one place, with every obligation for the year, what's due next and whether it's covered.",
   },
   {
     icon: Wallet,
@@ -249,11 +249,11 @@ export default function Welcome() {
       <footer className="border-t border-border px-6 py-7">
         <div className="max-w-[1100px] mx-auto flex items-center justify-between flex-wrap gap-3">
           <div className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)]">© 2026 Sentry Finance · v{APP_VERSION}</div>
-          <div className="flex gap-5">
-            <Link to="/auth" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Sign in</Link>
-            <Link to="/pricing" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Pricing</Link>
-            <Link to="/terms" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Terms</Link>
-            <Link to="/privacy" className="text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Privacy</Link>
+          <div className="flex gap-3">
+            <Link to="/auth" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Sign in</Link>
+            <Link to="/pricing" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Pricing</Link>
+            <Link to="/terms" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Terms</Link>
+            <Link to="/privacy" className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[13px] text-[hsl(var(--muted-foreground)/0.7)] no-underline hover:text-foreground transition-colors">Privacy</Link>
           </div>
         </div>
       </footer>

@@ -2,6 +2,7 @@
  * Detail views: the same content renders in the desktop dialog, a mobile
  * full screen or a mobile bottom sheet (see overlays.tsx).
  */
+import { RecurringItem, RecurringList } from "./recurring";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
@@ -739,7 +740,7 @@ function CashflowDetail() {
       </div>
       <p className="note mt-3 flex gap-2">
         {left.amount >= 0 ? <CircleCheck className="h-4 w-4 text-positive shrink-0" aria-hidden="true" /> : <TriangleAlert className="h-4 w-4 shrink-0" style={NEG} aria-hidden="true" />}
-        {left.amount >= 0 ? `${fmt(left.amount * P)} is left for unbudgeted spending, about ${pctOf(left.amount, gross)}% of gross pay.` : `You're ${fmt(-left.amount * P)} short; your plan spends more than comes in.`}
+        {left.amount >= 0 ? `${fmt(left.amount * P)} is left for unbudgeted spending, about ${pctOf(left.amount, gross)}% of gross pay.` : `You're ${fmt(-left.amount * P)} short; your budgets spend more than comes in.`}
       </p>
       <p className="note mt-1">RSU tax is withheld in shares at vest, so it isn't in this cash flow. "Other payroll" is whatever the gross estimate can't explain: state tax, benefits and rounding.</p>
     </>
@@ -797,9 +798,27 @@ function EditFooter() {
   );
 }
 
+// ── Detected recurring ──
+
+function renderRecurring(key: string, pc: PictureState): DetailView | null {
+  if (key === "rcv") return { title: "Detected recurring", wide: true, body: <RecurringList /> };
+  if (key.startsWith("rcv:item:")) {
+    const k = decodeURIComponent(key.slice("rcv:item:".length));
+    const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);
+    return it ? { title: it.label, body: <RecurringItem key={`${k}|${it.status}|${it.edited}|${it.label}`} it={it} /> } : null;
+  }
+  if (key.startsWith("rcv:edit:")) {
+    const k = decodeURIComponent(key.slice("rcv:edit:".length));
+    const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);
+    return it ? { title: `Edit ${it.label}`, body: <RecurringItem key={`edit|${k}`} it={it} startEditing /> } : null;
+  }
+  return null;
+}
+
 // ── Router ─────────────────────────────────────────────────────────────────
 
 export function renderDetail(key: string, pc: PictureState): DetailView | null {
+  if (key === "rcv" || key.startsWith("rcv:")) return renderRecurring(key, pc);
   const [a, b, ...rest] = key.split(":");
   const viaEdit = rest[rest.length - 1] === "edit" && a === "pick";
   const c = (viaEdit ? rest.slice(0, -1) : rest).join(":");

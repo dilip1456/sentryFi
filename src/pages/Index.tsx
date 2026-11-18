@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -19,18 +18,24 @@ import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
 import { AdminUsersSection } from "@/components/finance/AdminUsersSection";
 import { GiftCardsSection } from "@/components/finance/GiftCardsSection";
 import { EmptyDashboard } from "@/components/finance/EmptyDashboard";
+import { PageHeader } from "@/components/ui/headers";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 import { ManualAccountDialog } from "@/components/finance/ManualAccountDialog";
 import { NotificationInbox } from "@/components/finance/NotificationInbox";
+import { UrgentStrip } from "@/components/finance/UrgentStrip";
 import { ProfileDialog } from "@/components/finance/ProfileDialog";
 import { TimelinePanel } from "@/components/timeline/TimelinePanel";
 import { MobileMoreMenu } from "@/components/nav/MobileMoreMenu";
+import { HeaderMenu } from "@/components/nav/HeaderMenu";
+import { menuItem, menuItemActive, menuItemGroupStart as rowSep } from "@/components/ui/menu-styles";
 import { OPEN_SETTINGS_EVENT, type SettingsTab } from "@/lib/settings-nav";
+import { openTransaction } from "@/lib/txn-nav";
 import { AppUpdateSettings } from "@/components/app-update/AppUpdateSettings";
 import { useAppUpdate } from "@/contexts/AppUpdateContext";
 import { Onboarding } from "@/components/Onboarding";
 import { useManualAccounts } from "@/hooks/useManualAccounts";
 import { useUnreadAlerts } from "@/hooks/useUnreadAlerts";
+import { useInboxItems } from "@/hooks/useInboxItems";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -42,41 +47,51 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { isNative } from "@/lib/capacitor-oauth";
 import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
+import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
+import { isLegacyPictureView } from "@/lib/picture/legacy-view";
 import {
   LayoutDashboard, Sparkles, PieChart, Users, Loader2, TrendingUp,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
-  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, ChevronLeft, ChevronRight,
+  LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical, Lightbulb,
   type LucideIcon,
 } from "lucide-react";
 
 type View = "overall" | "benefits" | "spending" | "myfinances" | "insights" | "moneymap" | "accounts" | "giftcards" | "admin";
 
 // "overall" is the landing view — reached via the logo, not a nav tab.
+// Money Map ("moneymap") still renders if something sets that view, but it
+// has no nav entry anywhere (Dilip, Nov 16: "Remove moneymap and show gift
+// card in menu below itself"); Gift Cards took its bottom-bar slot.
 const BASE_TABS: { k: View; label: string; icon: LucideIcon; mobileLabel?: string }[] = [
   { k: "overall",     label: "Home",               icon: LayoutDashboard },
-  { k: "moneymap",    label: "Money Map",          icon: Compass         },
   { k: "spending",    label: "Spending",           icon: PieChart        },
   { k: "accounts",    label: "Accounts",           icon: Landmark        },
   { k: "myfinances",  label: "My Financial Picture", icon: Wallet, mobileLabel: "Picture" },
-  { k: "insights",    label: "Insights",             icon: TrendingUp },
+  // Taxes, where the money goes, recommendations and the monthly breakdown
+  // (moved off the Picture, which is now the inventory). Desktop nav + More.
+  { k: "insights",    label: "Insights",           icon: Lightbulb       },
   { k: "giftcards",   label: "Gift Cards",         icon: Gift            },
   { k: "benefits",    label: "Benefits",           icon: Sparkles        },
 ];
 
-const MOBILE_PRIMARY: View[] = ["overall", "spending", "myfinances", "moneymap"];
+// Bottom-bar order. Gift Cards sits in the slot Money Map used to hold.
+const MOBILE_PRIMARY: View[] = ["overall", "giftcards", "spending", "myfinances"];
 
 const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   // Persist the active view so a background auth-token refresh (which can remount
   // this tree when the window regains focus) doesn't bounce the user back to Home.
   const [view, setView] = useState<View>(() => {
     const saved = sessionStorage.getItem("sentryfi_view");
-    if (saved === "myfinances-redesign") return "myfinances";
-    if (saved && !["overall", "benefits", "spending", "myfinances", "insights", "moneymap", "accounts", "giftcards", "admin"].includes(saved)) return "overall";
-    return (saved as View) || "overall";
+    // Money Map has no entry point any more, so don't restore a session onto it.
+    if (!saved || saved === "moneymap") return "overall";
+    return saved as View;
   });
   useEffect(() => { sessionStorage.setItem("sentryfi_view", view); }, [view]);
+  // "Picture Preview" was merged into My Financial Picture: a saved or
+  // deep-linked "myfinances-redesign" opens the single Picture.
+  if (isLegacyPictureView(view)) setView("myfinances");
   const [linkOpen, setLinkOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncTrigger, setSyncTrigger] = useState(0);
@@ -96,13 +111,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     return () => window.removeEventListener(OPEN_SETTINGS_EVENT, on);
   }, []);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // The header menu is a hand-rolled popover (not Radix), so Escape is wired here.
-  useEffect(() => {
-    if (!headerMenuOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setHeaderMenuOpen(false); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [headerMenuOpen]);
+  const closeHeaderMenu = useCallback(() => setHeaderMenuOpen(false), []);
   const [showAppUpdates, setShowAppUpdates] = useState(false);
   const appUpdate = useAppUpdate();
   const updateSupported = appUpdate.supported;
@@ -110,22 +119,33 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [editingManual, setEditingManual] = useState<import("@/hooks/useManualAccounts").ManualAccount | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showAppBanner, setShowAppBanner] = useState(() => !localStorage.getItem("sentryfi_apk_banner_dismissed"));
   const { isAdmin, user, signOut, profile } = useAuth();
   usePushNotifications(user?.id);
   const { demo, setDemo, onHasItemsResolved } = useDemo();
   const { theme, toggle: toggleTheme } = useTheme();
   const dark = theme === "dark";
   const { accounts: manualAccounts, save: saveManual, remove: removeManual } = useManualAccounts(guestDemo ? undefined : user?.id);
-  const { unreadCount, refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
+  const { refreshUnread } = useUnreadAlerts(guestDemo ? undefined : user?.id);
   const navigate = useNavigate();
 
   const effectiveDemo = demo || guestDemo;
+  const inboxUserId = guestDemo || effectiveDemo ? (user?.id ?? "demo") : (user?.id ?? "");
+  const inbox = useInboxItems({
+    userId: inboxUserId,
+    demo: effectiveDemo,
+    supabase: effectiveDemo ? null : supabase,
+    open: showInbox,
+  });
+  const unreadCount = inbox.unreadCount;
+  // Unread is a plain dot: counts stay internal (no numbers on the bell).
+  const notifLabel = unreadCount > 0 ? "Notifications, unread items" : "Notifications";
 
   const TABS = isAdmin && !guestDemo
     ? [...BASE_TABS, { k: "admin" as View, label: "Admin", icon: Users }]
     : BASE_TABS;
-  const mobilePrimary = TABS.filter(t => MOBILE_PRIMARY.includes(t.k));
+  const mobilePrimary = MOBILE_PRIMARY
+    .map(k => TABS.find(t => t.k === k))
+    .filter((t): t is typeof TABS[0] => !!t);
   const mobileOverflow = TABS.filter(t => !MOBILE_PRIMARY.includes(t.k));
 
 
@@ -178,9 +198,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     setMoreOpen(false);
   };
 
-  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && view !== "myfinances";
+  // My Financial Picture and Insights share one full-bleed render path.
+  const pictureView      = view === "myfinances" || view === "insights";
+  const showLive         = !effectiveDemo && hasItems === true  && view !== "admin" && view !== "giftcards" && view !== "spending" && !pictureView;
   const showLiveSpending = !effectiveDemo && hasItems === true  && view === "spending";
-  const showLiveFinances = !effectiveDemo && hasItems === true  && view === "myfinances";
+  const showLiveFinances = !effectiveDemo && hasItems === true  && pictureView;
   const showEmpty        = !effectiveDemo && hasItems === false && view !== "admin" && view !== "giftcards";
 
   // Sidebar nav item
@@ -216,15 +238,14 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
         </button>
       )}
-      {user && (
+      {(user || effectiveDemo) && (
         <button onClick={() => setShowInbox(true)}
           title="Notifications"
+          aria-label={notifLabel}
           className="relative h-9 w-9 rounded-full border border-border grid place-items-center text-muted-foreground hover:text-foreground hover:border-border-strong transition-colors">
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
+            <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true"></span>
           )}
         </button>
       )}
@@ -254,23 +275,20 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         style={{ WebkitOverflowScrolling: "touch" }}>
 
         {/* Logo — click to return to the landing view */}
-        <div className={cn("flex items-center border-b border-[hsl(var(--sidebar-border))]", sidebarCollapsed ? "flex-col gap-1 px-1 py-2" : "gap-1 px-2 py-3")}>
-          <button onClick={() => go("overall")} title="Sentry Finance — Home"
-            className={cn("flex items-center hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors rounded-lg", sidebarCollapsed ? "justify-center h-10 w-10" : "flex-1 min-w-0 gap-3 px-2 py-2 text-left")}>
-            <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-              <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
-            </div>
-            {!sidebarCollapsed && <div className="min-w-0">
-              <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
-              {guestDemo && <div className="text-[12px] text-[hsl(var(--warning))] font-medium">Demo mode</div>}
-            </div>}
-          </button>
-          <button onClick={() => setSidebarCollapsed(v => !v)} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="h-8 w-8 shrink-0 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-[hsl(var(--surface-hover)/0.5)] transition-colors">
-            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
-        </div>
+        <button onClick={() => go("overall")}
+          className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))] w-full text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors">
+          <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
+            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
+          </div>
+          <div>
+            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
+            {effectiveDemo && (
+              <div className="nc-example mt-0.5" data-testid="example-data">
+                <FlaskConical className="h-3 w-3" aria-hidden="true" />Example data
+              </div>
+            )}
+          </div>
+        </button>
 
         {/* Nav */}
         <nav className={cn("flex-1 overflow-y-auto py-3 space-y-0.5 scrollbar-none", sidebarCollapsed ? "px-1.5" : "px-2")}>
@@ -279,14 +297,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
             {!sidebarCollapsed && <span>Home</span>}
           </button>
-          {TABS.filter(t => ["moneymap"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
-          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open title={sidebarCollapsed ? "Timeline" : undefined}
-            className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", timelineOpen && "active")}>
+          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open
+            className={cn("nav-item w-full text-left", timelineOpen && "active")}>
             <History className="h-4 w-4 flex-shrink-0" />
             {!sidebarCollapsed && <span>Timeline</span>}
           </button>
 
-          {!sidebarCollapsed && <div className="section-label">Money</div>}
+          <div className="section-label">Money</div>
           {TABS.filter(t => ["spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           {!sidebarCollapsed && <div className="section-label">More</div>}
@@ -330,14 +347,12 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {user && (
-            <button onClick={() => setShowInbox(true)} className={cn("nav-item w-full", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? "Notifications" : undefined}>
+          {(user || effectiveDemo) && (
+            <button onClick={() => setShowInbox(true)} className="nav-item w-full" aria-label={notifLabel}>
               <Bell className="h-4 w-4" />
               {!sidebarCollapsed && "Notifications"}
               {unreadCount > 0 && (
-                <span className="ml-auto min-w-[16px] h-4 px-1 rounded-full bg-negative text-white text-[10.5px] font-bold grid place-items-center leading-none">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
+                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true"></span>
               )}
             </button>
           )}
@@ -400,17 +415,22 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             paddingLeft: "max(1rem, env(safe-area-inset-left))",
             paddingRight: "max(1rem, env(safe-area-inset-right))",
           }}>
-          <button onClick={() => go("overall")} className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="" className="h-7 w-7 object-contain" />
-            <span className="text-[15px] font-semibold text-foreground">
-              {/* Always the current page's name; demo mode is already signalled by the banner below. */}
-              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
+          <button onClick={() => go("overall")} className="tap-44 flex min-w-0 items-center gap-2.5">
+            <img src="/logo.png" alt="" className="h-7 w-7 object-contain shrink-0" />
+            <span className="text-[15px] font-semibold text-foreground truncate">
+              {view === "overall" ? "Sentry Finance" : (TABS.find(t => t.k === view)?.mobileLabel ?? TABS.find(t => t.k === view)?.label ?? "Sentry Finance")}
             </span>
+            {effectiveDemo && (
+              <span className="nc-example shrink-0 relative" data-testid="example-data" title="Example data">
+                <FlaskConical className="h-3 w-3" aria-hidden="true" />
+                <span className="nc-example-label">Example data</span>
+              </span>
+            )}
           </button>
           <div className="flex items-center gap-1.5">
             {/* Not logged in */}
             {!user && !effectiveDemo && (
-              <button onClick={() => navigate("/auth")} className="h-8 px-3 rounded-full bg-gold text-[13px] font-semibold">
+              <button onClick={() => navigate("/auth")} className="tap-44 h-8 px-3 rounded-full bg-gold text-[13px] font-semibold">
                 Sign in
               </button>
             )}
@@ -419,21 +439,19 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               <span className="h-8 w-8 rounded-full border border-border grid place-items-center"><History className="h-3.5 w-3.5" /></span>
             </button>
             {/* Notifications */}
-            {user && (
-              <button onClick={() => setShowInbox(true)}
-                className="relative h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+            {(user || effectiveDemo) && (
+              <button onClick={() => setShowInbox(true)} aria-label={notifLabel}
+                className="relative tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <Bell className="h-3.5 w-3.5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-negative text-white text-[11px] font-bold grid place-items-center leading-none">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
+                  <span className="nc-badge" data-testid="inbox-badge" aria-hidden="true"></span>
                 )}
               </button>
             )}
             {/* Sync */}
             {!effectiveDemo && hasItems === true && (
               <button onClick={() => setSyncTrigger(t => t + 1)} disabled={syncing}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
+                className="tap-44 h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
                 <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
             </button>
             )}
@@ -441,54 +459,43 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {/* Settings gear — always visible on mobile */}
             <div className="relative">
               <button onClick={() => setHeaderMenuOpen(o => !o)} aria-label="Menu" aria-haspopup="dialog" aria-expanded={headerMenuOpen}
-                className="h-8 w-8 rounded-full border border-border grid place-items-center text-muted-foreground">
-                <Settings className="h-3.5 w-3.5" />
+                className="h-11 w-11 -mr-1 rounded-full grid place-items-center text-muted-foreground hover:bg-surface-hover no-min-h">
+                <span className="h-8 w-8 rounded-full border border-border grid place-items-center"><Settings className="h-3.5 w-3.5" /></span>
               </button>
-              {headerMenuOpen && createPortal(
-                <>
-                  <div className="fixed inset-0 z-[9998]" onClick={() => setHeaderMenuOpen(false)} />
-                  <div role="dialog" aria-label="Menu" data-state="open" data-header-menu
-                    style={{ top: "calc(3.5rem + env(safe-area-inset-top))" }} className="fixed right-2 z-[9999] w-56 max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-4.5rem-env(safe-area-inset-top))] overflow-y-auto overscroll-contain rounded-xl shadow-2xl bg-[hsl(var(--popover))] border border-border/30">
-                    <div className="flex items-center justify-between pl-4 pr-0.5 h-11 border-b border-border/30">
-                      <span className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">Menu</span>
-                      <button type="button" aria-label="Close" onClick={() => setHeaderMenuOpen(false)}
-                        className="h-11 w-11 grid place-items-center rounded-full text-muted-foreground hover:text-foreground">
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    </div>
+              <HeaderMenu open={headerMenuOpen} onClose={closeHeaderMenu}>
                     {!user && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] font-semibold text-[hsl(var(--primary))] hover:bg-muted/50">
+                        className={cn(menuItem, "font-semibold text-[hsl(var(--primary))]")}>
                         <LogOut className="h-4 w-4" /> Sign in / Create account
                       </button>
                     )}
                     {user && !effectiveDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setLinkOpen(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
+                        className={cn(menuItem, "text-foreground")}>
                         <Plus className="h-4 w-4 opacity-60" /> Link account
                       </button>
                     )}
-                    {user && (
+                    {(user || effectiveDemo) && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowInbox(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
+                        className={cn(menuItem, "text-foreground")}>
                         <Bell className="h-4 w-4 opacity-60" /> Notifications
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setShowProfile(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50">
-                        <Settings className="h-4 w-4 opacity-60" /> Settings
+                        className={cn(menuItem, "text-foreground")}>
+                        <Settings className="opacity-60" /> Settings
                       </button>
                     )}
                     <button onClick={toggleTheme}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                      className={cn(menuItem, "text-foreground", rowSep)}>
                       {theme === "dark" ? <Sun className="h-4 w-4 opacity-60" /> : <Moon className="h-4 w-4 opacity-60" />}
                       {theme === "dark" ? "Light mode" : "Dark mode"}
                     </button>
                     {updateSupported ? (
                       // Inside the APK: in-app update settings instead of a download link.
                       <button onClick={() => { setHeaderMenuOpen(false); setShowAppUpdates(true); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30">
+                        className={cn(menuItem, "text-foreground", rowSep)}>
                         <Download className="h-4 w-4 opacity-60" /> App updates
                         {appUpdate.checkStatus === "available" && (
                           <span className="ml-auto h-2 w-2 rounded-full bg-[hsl(var(--primary))]" aria-label="Update available" />
@@ -496,68 +503,36 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                       </button>
                     ) : (
                     <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-foreground hover:bg-muted/50 border-t border-border/30"
+                      className={cn(menuItem, "text-foreground", rowSep)}
                       onClick={() => setHeaderMenuOpen(false)}>
                       <Download className="h-4 w-4 opacity-60" /> Download Android app
                     </a>
                     )}
                     {demo && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); setDemo(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-warning hover:bg-muted/50 border-t border-border/30">
+                        className={cn(menuItem, "text-warning", rowSep)}>
                         <Sparkles className="h-4 w-4" /> Exit demo
                       </button>
                     )}
                     {guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); navigate("/auth"); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-[hsl(var(--primary))] font-semibold hover:bg-white/5 border-t border-border/30">
+                        className={cn(menuItem, "text-[hsl(var(--primary))] font-semibold", rowSep)}>
                         <LogOut className="h-4 w-4" /> Create free account
                       </button>
                     )}
                     {user && !guestDemo && (
                       <button onClick={() => { setHeaderMenuOpen(false); signOut().then(() => navigate("/welcome")); }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-[14px] text-red-400 font-medium hover:bg-white/5 border-t border-border/30">
+                        className={cn(menuItem, "text-negative-text font-medium", rowSep)}>
                         <LogOut className="h-4 w-4" /> Sign out
                       </button>
                     )}
-                  </div>
-                </>,
-                document.body
-              )}
+              </HeaderMenu>
             </div>
           </div>
         </header>
 
-        {/* APK banner — shown once, dismissed forever via localStorage */}
-        {!isNative() && showAppBanner && (
-          <div className="md:hidden shrink-0 bg-[hsl(var(--primary)/0.10)] border-b border-[hsl(var(--primary)/0.20)] px-4 py-2.5 flex items-center gap-3">
-            <Download className="h-4 w-4 text-[hsl(var(--primary))] shrink-0" />
-            <span className="text-[13px] text-foreground flex-1 font-medium">Get the Sentry Finance Android app</span>
-            <a href={APK_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer"
-              className="shrink-0 text-[12.5px] font-bold px-3 py-1.5 rounded-full bg-gold">
-              Download
-            </a>
-            <button onClick={() => { setShowAppBanner(false); localStorage.setItem("sentryfi_apk_banner_dismissed", "1"); }}
-              className="shrink-0 text-muted-foreground hover:text-foreground p-1 -mr-1">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Demo banner */}
-        {effectiveDemo && (
-          <div className="shrink-0 bg-[hsl(var(--warning)/0.08)] border-b border-[hsl(var(--warning)/0.15)] px-4 py-2 flex items-center gap-2.5">
-            <Sparkles className="h-3.5 w-3.5 text-[hsl(var(--warning))] shrink-0" />
-            <span className="text-[13px] text-foreground flex-1">You're viewing demo data.</span>
-            <button onClick={() => navigate("/auth")}
-              className="text-[13px] font-semibold px-3 py-1 rounded-full bg-gold shrink-0">
-              Create account
-            </button>
-            <button onClick={() => { setDemo(false); navigate("/welcome"); }}
-              className="text-[12.5px] text-muted-foreground shrink-0 underline underline-offset-2">
-              Exit
-            </button>
-          </div>
-        )}
+        {/* Option B: one slim urgent strip. APK / demo banners live in the inbox. */}
+        <UrgentStrip selection={inbox.strip} onOpen={() => setShowInbox(true)} />
 
         {/* Main scroll area */}
         <main
@@ -568,8 +543,9 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               container below, so they need their own loading + no-accounts
               states; previously both rendered a blank screen while the
               linked-account check was pending or when nothing was linked. */}
-          {(view === "spending" || view === "myfinances") && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
-          {(view === "spending" || view === "myfinances") && showEmpty && (
+          {view === "spending" && !effectiveDemo && hasItems === null && <SpendingSkeleton />}
+          {pictureView && !effectiveDemo && hasItems === null && <PictureSkeleton insights={view === "insights"} />}
+          {(view === "spending" || pictureView) && showEmpty && (
             <div className="content-max px-4 md:px-8 pt-6 pb-10">
               <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />
             </div>
@@ -611,8 +587,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </>
           )}
 
-          {/* My Financial Picture — full-bleed, own MyFinancialPicture component */}
-          {view === "myfinances" && (
+          {/* My Financial Picture / Insights — full-bleed, own MyFinancialPicture component */}
+          {pictureView && (
             <>
               {showLiveFinances && (
                 <LivePlaidDashboard
@@ -646,33 +622,25 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           )}
 
           {/* All other views inside padded container */}
-          {view !== "spending" && view !== "myfinances" && (
-          <div className={cn("content-max", (view === "overall" || view === "giftcards")
-            ? "h-full min-h-0 flex flex-col gap-3 overflow-hidden px-4 md:px-8 pt-3 pb-3"
-            : "px-4 md:px-8 pt-6 pb-10 space-y-5")}>
+          {view !== "spending" && !pictureView && (
+          <div className={cn(
+            "content-max px-4 md:px-8 pb-10 md:space-y-5",
+            // When the urgent strip is up, don't also keep the old pt-6 / space-y
+            // gap that used to sit under the header (or the hidden desktop
+            // PageHeader, which still received space-y-5 on mobile).
+            inbox.strip ? "pt-2" : "pt-6",
+          )}>
 
             {/* Page header on desktop — Spending/My Financial Picture skip the title+date row
                 since the in-page toolbar (period nav, Manage/Rules/CSV) already
                 covers it and the space is better spent on content. */}
-            <div className="hidden md:flex items-center justify-between shrink-0">
-              {view === "overall" ? (
-                <p className="text-[11.5px] text-muted-foreground">
-                  {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                </p>
-              ) : (
-                <div>
-                  <h1 className="font-display text-2xl text-foreground">
-                    {TABS.find(t => t.k === view)?.label ?? "Dashboard"}
-                  </h1>
-                  <p className="text-[13px] text-muted-foreground mt-0.5">
-                    {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                  </p>
-                </div>
-              )}
-
-              {/* Top button bar */}
-              {topButtons}
-            </div>
+            {/* Shared PageHeader (docs/ui-style.md). "Home" matches the nav label
+                (was "Dashboard", a name used nowhere else). */}
+            <PageHeader className="hidden md:flex"
+              title={view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Home") : (TABS.find(t => t.k === view)?.label ?? "Home")}
+              subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              actions={topButtons}
+            />
 
             {/* Loading state */}
             {!effectiveDemo && hasItems === null && (
@@ -766,7 +734,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </button>
             <MobileMoreMenu open={moreOpen} onClose={closeMore}>
                   <button onClick={() => { setMoreOpen(false); setTimelineOpen(true); }} data-tl-open
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors">
+                    role="menuitem" className={menuItem}>
                     <History className="h-4 w-4 opacity-60" />
                     Timeline
                   </button>
@@ -774,8 +742,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                     const Icon = t.icon;
                     return (
                       <button key={t.k} onClick={() => go(t.k)}
-                        className={cn("w-full flex items-center gap-3 px-4 py-3 text-left text-[14px] text-foreground hover:bg-muted/50 transition-colors",
-                          view === t.k ? "text-[hsl(var(--primary))] font-semibold" : "text-foreground")}>
+                        role="menuitem" aria-current={view === t.k ? "page" : undefined}
+                        className={cn(menuItem, view === t.k && menuItemActive)}>
                         <Icon className="h-4 w-4 opacity-60" />
                         {t.label}
                       </button>
@@ -787,10 +755,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       </div>
 
       <NotificationInbox
-        supabase={supabase}
-        userId={user?.id ?? ""}
-        open={showInbox && !!user}
+        supabase={effectiveDemo ? null : supabase}
+        userId={inboxUserId}
+        demo={effectiveDemo}
+        inbox={inbox}
+        open={showInbox && !!(user || effectiveDemo)}
         onClose={() => { setShowInbox(false); refreshUnread(); }}
+        onOpenTransaction={openTransaction}
       />
       <TimelinePanel open={timelineOpen} onOpenChange={setTimelineOpen} userId={user?.id ?? null} demo={effectiveDemo} />
       <LinkAccountDialog open={linkOpen} onOpenChange={setLinkOpen} onLinked={checkItems} />

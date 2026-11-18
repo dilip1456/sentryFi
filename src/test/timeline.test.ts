@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
+// The demo transactions (src/lib/finance-data) are generated relative to the
+// clock at IMPORT time and demoPage() reads "today" from the clock, while these
+// assertions are written for 2026-10-28. Pin the clock before any import runs
+// (vi.hoisted) so the suite doesn't drift with the calendar.
+vi.hoisted(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-10-28T12:00:00")); });
+afterAll(() => { vi.useRealTimers(); });
 import fs from "node:fs";
 import path from "node:path";
 import { TXN_TYPES, type Classification } from "@/lib/classify";

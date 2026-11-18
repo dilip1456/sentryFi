@@ -1,0 +1,220 @@
+import { test, expect, openDemo } from "./fixtures";
+import type { Page } from "@playwright/test";
+
+/**
+ * The one My Financial Picture (Nov 2026): no Preview tab, the old
+ * "myfinances-redesign" view opens the Picture, obligations & expenses
+ * (Upcoming windows, By cadence, By category), adding an expense by hand,
+ * no review queue (detections settle internally), a removed detected item
+ * staying gone after a reload and coming back from Hidden items. Taxes, recommendations and category totals live on
+ * Insights. Demo data, backend stubbed, test clock 2026-10-20.
+ */
+async function openPicture(page: Page, view = "myfinances") {
+  await page.addInitScript(v => { if (!sessionStorage.getItem("onepic_init")) { sessionStorage.setItem("onepic_init", "1"); sessionStorage.setItem("sentryfi_view", v); } }, view);
+  await openDemo(page);
+  await expect(page.getByTestId(view === "insights" ? "financial-insights" : "financial-picture")).toBeVisible();
+}
+
+/** A real pointer click at the element's center (not locator.click({force}) / dispatchEvent). */
+async function realClick(page: Page, loc: import("@playwright/test").Locator) {
+  await loc.scrollIntoViewIfNeeded();
+  const b = await loc.boundingBox();
+  if (!b) throw new Error("not visible");
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+}
+
+async function noOverflow(page: Page, width: number) {
+  const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(sw, "page horizontal overflow").toBeLessThanOrEqual(width + 1);
+}
+
+test.describe("desktop 1440", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("one Picture: no Preview tab; legacy view id opens it", async ({ page }) => {
+    await openPicture(page, "myfinances-redesign");
+    await expect(page.getByRole("button", { name: /Picture Preview|^Preview$/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "My Financial Picture" }).first()).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem("sentryfi_view"))).toBe("myfinances");
+    await expect(page.getByTestId("rcv-card")).toHaveCount(0);
+    for (const id of ["plan-summary", "pic-income", "plan-upcoming", "plan-accounted", "pic-savings", "plan-networth", "plan-more"]) {
+      await expect(page.getByTestId(id)).toBeVisible();
+    }
+    await noOverflow(page, 1440);
+    await page.getByTestId("open-insights").first().click();
+    for (const id of ["plan-recs", "plan-allocation", "plan-taxes", "plan-cats"]) await expect(page.getByTestId(id)).toBeVisible();
+    await noOverflow(page, 1440);
+  });
+
+  test("plan views: windows, cadence and category", async ({ page }) => {
+    await openPicture(page);
+    const plan = page.getByTestId("plan-upcoming");
+    const total = page.getByTestId("plan-window-total");
+    await plan.getByRole("button", { name: "Week", exact: true }).click();
+    await expect(total).toContainText("This week");
+    await plan.getByRole("button", { name: "Year", exact: true }).click();
+    await expect(total).toContainText("This year");
+    // Semiannual insurance and yearly registration are projected forward.
+    await expect(plan.getByTestId("plan-row").filter({ hasText: /geico/i }).first()).toBeVisible();
+    await expect(plan.getByTestId("plan-row").filter({ hasText: /registration/i }).first()).toBeVisible();
+    await plan.getByRole("button", { name: "3 months", exact: true }).click();
+    await expect(total).toContainText("Next 3 months");
+    // Quarterly estimated tax (next IRS date Jan 15) falls in the next 3 months.
+    await expect(plan.getByTestId("plan-row").filter({ hasText: /1040es|irs/i }).first()).toBeVisible();
+
+    await plan.getByRole("button", { name: "By cadence" }).click();
+    await expect(plan.getByTestId("plan-bucket-monthly")).toBeVisible();
+    await expect(plan.getByTestId("plan-bucket-quarterly")).toBeVisible();
+    await expect(plan.getByTestId("plan-bucket-annual")).toContainText(/registration/i);
+
+    await plan.getByRole("button", { name: "By category" }).click();
+    await expect(plan.getByTestId("plan-categories")).toContainText("Insurance");
+    await expect(plan.getByTestId("plan-categories")).toContainText("Taxes");
+    await expect(plan.getByTestId("plan-categories")).toContainText("Set aside");
+
+    // A row opens its detail with a sinking-fund line.
+    await plan.getByRole("button", { name: "By cadence" }).click();
+    await plan.getByTestId("plan-bucket-annual").getByTestId("plan-row").first().click();
+    await expect(page.getByTestId("plan-item-detail")).toContainText("Set aside");
+  });
+
+  test("add an expense by hand", async ({ page }) => {
+    await openPicture(page);
+    const plan = page.getByTestId("plan-upcoming");
+    await plan.getByRole("button", { name: "Add expense" }).click();
+    const form = page.getByTestId("plan-form");
+    await expect(form.getByRole("button", { name: "Add expense" })).toBeDisabled();
+    await form.getByLabel("Name").fill("Kids swim lessons");
+    await form.getByLabel("Category").selectOption("family");
+    await form.getByLabel("Amount", { exact: true }).fill("240");
+    await form.getByLabel("How often").selectOption("quarterly");
+    await form.getByLabel("Next due date").fill("2026-11-05");
+    await form.getByLabel("Reminder days before").fill("7");
+    await form.getByRole("button", { name: "Add expense" }).click();
+    await expect(page.getByTestId("plan-form")).toBeHidden();
+    const row = plan.getByTestId("plan-row").filter({ hasText: "Kids swim lessons" });
+    await plan.getByRole("button", { name: "3 months", exact: true }).click();
+    await expect(row.first()).toHaveAttribute("data-source", "manual");
+    await expect(row.first()).toContainText("$240");
+    await plan.getByRole("button", { name: "By category" }).click();
+    await expect(plan.getByTestId("plan-categories")).toContainText(/Childcare|Family|kids/i);
+    await plan.getByRole("button", { name: "Upcoming" }).click();
+    // Remove + Undo.
+    await row.first().click();
+    await page.getByTestId("plan-item-detail").getByRole("button", { name: "Remove" }).click();
+    await expect(row).toHaveCount(0);
+    await page.locator("[data-sonner-toast]").filter({ hasText: "removed" }).getByRole("button", { name: "Undo" }).click();
+    await expect(row.first()).toBeVisible();
+  });
+
+  test("a removed detected item stays gone after reload and comes back from Hidden items", async ({ page }) => {
+    await openPicture(page);
+    const plan = page.getByTestId("plan-upcoming");
+    await realClick(page, plan.getByRole("button", { name: "By cadence" }));
+    const rows = plan.locator('[data-testid="plan-row"][data-source="confirmed"]');
+    const hoa = rows.filter({ hasText: /pine ridge/i });
+    await expect(hoa.first()).toBeVisible(); // detected, already in the plan without a review step
+    await realClick(page, hoa.first());
+    await realClick(page, page.getByTestId("plan-item-detail").getByRole("button", { name: "Remove" }));
+    await expect(hoa).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.getByTestId("financial-picture")).toBeVisible();
+    await realClick(page, plan.getByRole("button", { name: "By cadence" }));
+    await expect(hoa).toHaveCount(0);
+    await realClick(page, page.getByTestId("plan-hidden"));
+    const list = page.getByTestId("rcv-list");
+    await realClick(page, list.getByRole("button", { name: "Show" }));
+    await realClick(page, list.getByTestId("rcv-dismissed").filter({ hasText: /pine ridge/i }).getByRole("button", { name: "Restore" }));
+    await page.keyboard.press("Escape");
+    await expect(hoa.first()).toBeVisible();
+  });
+
+  test("no review queue, counts or review chips on the Picture", async ({ page }) => {
+    await openPicture(page);
+    const pic = page.getByTestId("picture-page");
+    await expect(page.getByTestId("rcv-card")).toHaveCount(0);
+    await expect(page.getByTestId("rcv-count")).toHaveCount(0);
+    await expect(pic).not.toContainText(/to review|needs review|recurring deposit patterns?|across \d+ payments?/i);
+    await expect(pic.locator(".pl-st, .rcv-badge").filter({ hasText: /^(needs review|confirmed|edited)$/i }).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId("plan-upcoming").locator(".pl-st.det, .pl-st.ok")).toHaveCount(0);
+  });
+
+  test("tax inputs: 401(k) %, FSA and mortgage interest change the estimates (real mouse)", async ({ page }) => {
+    await openPicture(page, "insights");
+    await realClick(page, page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }));
+    const form = page.getByTestId("tax-inputs");
+    await expect(form).toBeVisible();
+    await form.getByLabel("FSA per year").fill("2500");
+    await form.getByLabel("Mortgage interest per year").fill("18000");
+    const pct = form.getByLabel("401(k) contribution percent");
+    if (await pct.isEnabled()) await pct.fill("6");
+    await realClick(page, form.getByRole("button", { name: "Save tax inputs" }));
+    await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Tax inputs saved" })).toBeVisible();
+    const dlg = page.getByRole("dialog").filter({ has: page.getByTestId("tax-inputs") });
+    await expect(dlg).toContainText("FSA");
+    await expect(dlg).toContainText(/itemizing/i);
+    await expect(dlg).toContainText(/estimate/i);
+    await expect(dlg).not.toContainText("FSA contributions, if any");
+  });
+
+  test("dismiss a recommendation, then undo", async ({ page }) => {
+    await openPicture(page, "insights");
+    const recs = page.getByTestId("plan-rec");
+    const n = await recs.count();
+    expect(n).toBeGreaterThan(0);
+    const title = (await recs.first().locator("b").first().innerText()).trim();
+    await recs.first().getByRole("button", { name: `Dismiss: ${title}` }).click();
+    await expect(recs).toHaveCount(n - 1);
+    await page.locator("[data-sonner-toast]").filter({ hasText: "Recommendation dismissed" }).getByRole("button", { name: "Undo" }).click();
+    await expect(recs).toHaveCount(n);
+  });
+});
+
+for (const width of [360, 390, 412, 430]) {
+  test.describe(`phone ${width}`, () => {
+    test.use({ viewport: { width, height: 844 }, isMobile: true, hasTouch: true });
+    test("plan fits and a row opens as a bottom sheet", async ({ page }) => {
+      await openPicture(page);
+      await noOverflow(page, width);
+      const plan = page.getByTestId("plan-upcoming");
+      await plan.getByRole("button", { name: "Year", exact: true }).click();
+      await noOverflow(page, width);
+      await plan.getByTestId("plan-row").first().click();
+      const sheet = page.getByRole("dialog").filter({ has: page.getByTestId("plan-item-detail") });
+      await expect(sheet.locator(".grab")).toHaveCount(1);
+      await noOverflow(page, width);
+    });
+    for (const view of ["myfinances", "insights"]) {
+      test(`${view === "insights" ? "Insights" : "Picture"}: nothing wider than the screen, 44px tap targets`, async ({ page }) => {
+        await openPicture(page, view);
+        const root = page.getByTestId(view === "insights" ? "insights-page" : "picture-page");
+        await expect(root).toBeVisible();
+        await noOverflow(page, width);
+        const bad = await root.evaluate((el, w) => {
+          const out: string[] = [];
+          for (const n of el.querySelectorAll<HTMLElement>("*")) {
+            const r = n.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            if (!n.closest(".recharts-wrapper, [data-allow-x-scroll]") && r.right > w + 1) out.push(`overflow ${n.tagName}.${n.className} ${Math.round(r.right)}`);
+            if (n.matches("button, a[href], [role='button'], input, select") && (r.height < 43.5 || r.width < 43.5)) out.push(`small ${(n.getAttribute("aria-label") ?? n.textContent ?? "").trim().slice(0, 30)} ${Math.round(r.width)}x${Math.round(r.height)}`);
+          }
+          return out;
+        }, width);
+        expect(bad, `${view} at ${width}`).toEqual([]);
+      });
+    }
+    test("taxes detail: tax inputs fit with 44px targets", async ({ page }) => {
+      await openPicture(page, "insights");
+      await page.getByTestId("plan-taxes").getByRole("button", { name: "Details" }).tap();
+      const form = page.getByTestId("tax-inputs");
+      await form.scrollIntoViewIfNeeded();
+      for (const el of [form.getByLabel("FSA per year"), form.getByLabel("Mortgage interest per year"), form.getByRole("button", { name: "Save tax inputs" })]) {
+        const b = await el.boundingBox();
+        expect(b!.height).toBeGreaterThanOrEqual(44);
+        expect(b!.x + b!.width).toBeLessThanOrEqual(width + 1);
+      }
+      await noOverflow(page, width);
+    });
+  });
+}

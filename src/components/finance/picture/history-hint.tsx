@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { historyHintBanks, historyHintKey, historyLabel } from "@/lib/relink/history";
 import { openSettings } from "@/lib/settings-nav";
 import { usePicture } from "./state";
+import { setHistoryHintNotice } from "@/lib/notifications/extras-store";
 
 const names = (xs: string[]) => xs.length <= 2 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
 
@@ -50,5 +51,23 @@ export function HistoryToast() {
       action: { label: "Extend history", onClick: () => openSettings("banks") },
     });
   }, [key, show.length, text]);
+  return null;
+}
+
+/** Publishes the history hint into the compact inbox; renders nothing on the page. */
+export function HistoryHintPublisher() {
+  const pc = usePicture();
+  const { banks = [], dismissedInsights = [] } = pc.props;
+  const { show, text, key } = getReminder(banks, dismissedInsights);
+  useEffect(() => {
+    if (!show.length) { setHistoryHintNotice(null); return; }
+    setHistoryHintNotice({ text, banks: show.map(b => b.institution) });
+  }, [key, text, show.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onDismiss = () => pc.props.onUpdate({ dismissedInsights: [...new Set([...dismissedInsights, ...show.map(b => historyHintKey(b.itemId))])] });
+    window.addEventListener("sentryfi:history-hint-dismiss", onDismiss);
+    return () => window.removeEventListener("sentryfi:history-hint-dismiss", onDismiss);
+  }, [pc.props, dismissedInsights, show]);
+  useEffect(() => () => setHistoryHintNotice(null), []);
   return null;
 }

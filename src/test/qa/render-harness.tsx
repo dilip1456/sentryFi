@@ -5,7 +5,7 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import { LivePlaidDashboard } from "@/components/finance/LivePlaidDashboard";
 
-export type View = "overall" | "spending" | "myfinances" | "moneymap" | "benefits";
+export type View = "overall" | "accounts" | "spending" | "myfinances" | "moneymap" | "benefits";
 
 export function renderDashboard(view: View) {
   cleanup();

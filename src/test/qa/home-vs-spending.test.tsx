@@ -37,10 +37,11 @@ beforeAll(() => {
 afterAll(() => { vi.useRealTimers(); });
 
 const homeSpent = async () => { renderDashboard("overall"); return parseUSD((await valueAfterLabel(/^spent this month$/i))[0]); };
-// Spending's month view (default) shows the total in the "Month summary" hero
-// ("Spent so far in October" → value); the old "Total spent" panel is only
-// rendered for day/week/year since the Spending redesign (#8).
-const spendingTotal = async () => { renderDashboard("spending"); return parseUSD((await valueAfterLabel(/^spent so far in /i))[0]); };
+// Spending's month view (default) shows its totals in the compact
+// "Spending by period" summary ("In $X" / "Out $Y") since the Oct 29-30
+// Spending redesign (faa69e5 / 509906f) replaced the "Month summary" hero.
+const periodSummary = async () => { renderDashboard("spending"); return (await screen.findByRole("region", { name: "Spending by period" })).textContent ?? ""; };
+const spendingTotal = async () => parseUSD(/Out\s*([−-]?\$[\d,.]+)/.exec(await periodSummary())?.[1] ?? "NaN");
 
 describe("QA Home cash-flow strip (rendered)", () => {
   it("income this month = salary only; internal transfer leg and refunds are not income", async () => {
@@ -86,18 +87,15 @@ describe("QA Home cash-flow strip (rendered)", () => {
 });
 
 describe("QA Spending page totals (rendered)", () => {
-  it("Spent (month hero) excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
+  it("Spent (period summary 'Out') excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
     expect(await spendingTotal()).toBe(1790);
   });
   it("Earned matches Home income", async () => {
-    renderDashboard("spending");
-    const hero = await screen.findByRole("region", { name: "Month summary" });
-    expect(hero.textContent).toMatch(/Earned\s*\$3,000(?![\d.])/);
+    expect(await periodSummary()).toMatch(/In\s*\$3,000(?![\d.])/);
   });
-  it("one Month summary hero serves every width (the separate mobile 'Spent' card was removed in #8)", async () => {
+  it("one period summary serves every width (no duplicate mobile 'Spent' card)", async () => {
     renderDashboard("spending");
-    expect(await screen.findAllByRole("region", { name: "Month summary" })).toHaveLength(1);
-    expect(screen.queryAllByText(/^spent so far in /i)).toHaveLength(1);
+    expect(await screen.findAllByRole("region", { name: "Spending by period" })).toHaveLength(1);
   });
 });
 
@@ -118,8 +116,9 @@ describe("QA account group balances & net worth (rendered)", () => {
     expect((await valueAfterLabel(/^net worth$/i))[0]).toMatch(/^\$44,800(?![\d.])/);
   });
   it("group subtotals per bucket and Net Cash = cash − credit cards", async () => {
-    const r = renderDashboard("overall");
-    await screen.findByText(/^accounts$/i);
+    // Account groups moved from Home into their own Accounts tab (3d547d5).
+    const r = renderDashboard("accounts");
+    await screen.findByText(/Net Cash/);
     const text = (r.container.textContent ?? "").replace(/\s+/g, " ");
     expect(text).toMatch(/Net Cash\s*\$23,800/);
     expect(text).toMatch(/Checking\s*1 account\s*\$5,000/);
@@ -131,7 +130,8 @@ describe("QA account group balances & net worth (rendered)", () => {
   it("renders no null/undefined/NaN text on Home or Spending", async () => {
     for (const v of ["overall", "spending"] as const) {
       const r = renderDashboard(v);
-      await screen.findAllByText(v === "overall" ? /^spent this month$/i : /^spent so far in /i);
+      if (v === "overall") await screen.findAllByText(/^spent this month$/i);
+      else await screen.findByRole("region", { name: "Spending by period" });
       expect(r.container.textContent).not.toMatch(/\b(null|undefined|NaN)\b/);
     }
   });

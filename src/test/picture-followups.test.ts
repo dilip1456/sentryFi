@@ -245,8 +245,8 @@ describe("derived alerts in the inbox", () => {
     expect(store).not.toMatch(/alert_log|push_tokens|functions\.invoke/);
     expect(read("supabase/functions/send-alerts/index.ts")).not.toMatch(/paycheck_anomaly/);
     const inbox = read("src/components/finance/NotificationInbox.tsx");
-    expect(inbox).toContain("useDerivedAlerts");
-    expect(inbox).toContain('selected.alert_type === "paycheck_anomaly"');
+    expect(read("src/hooks/useInboxItems.ts")).toContain("useDerivedAlerts");
+    expect(inbox).toContain("paycheck_anomaly");
     expect(read("src/hooks/useUnreadAlerts.ts")).toContain("derivedUnreadCount");
   });
 });

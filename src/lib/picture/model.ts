@@ -12,8 +12,8 @@
  * Every number stays editable: overrides and "Covered by" picks live in
  * settings.financialPicture and always win over detection.
  */
-import { detectRecurringSeries, merchantKey, displayName, type RecurringSeries, type TransactionClassifier, type TxnClassification, type ClassifierTxn, type Cadence } from "@/lib/recurring";
-import { detectBillAutopays, detectedAsAutopay } from "@/lib/infer";
+import { detectRecurringSeries, merchantKey, displayName, buildReview, settleSuggestions, canonicalMerchants, cleanPayee, REVIEW_DETECT_OPTIONS, type RecurringDecision, type ReviewItem, type ReviewResult, type RecurringSeries, type TransactionClassifier, type TxnClassification, type ClassifierTxn, type Cadence } from "@/lib/recurring";
+import { detectBillAutopays, detectedAsAutopay, priceIncreaseFinding, type Finding, type PriceIncreasePayload } from "@/lib/infer";
 import type { TxnType } from "@/lib/classify";
 import type { FinancialPictureData, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "./keys";
@@ -24,7 +24,8 @@ import { grossUpFromNet } from "@/lib/tax-calc";
 export interface PTxn {
   id: string; account_id: string; amount: number | string; date: string;
   name: string | null; merchant_name: string | null; category?: string[] | null;
-  pending?: boolean | null; payment_channel?: string | null; [k: string]: unknown;
+  pending?: boolean | null; payment_channel?: string | null;
+  pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null; [k: string]: unknown;
 }
 export interface PAccount {
   id: string; account_id: string; name: string | null; official_name: string | null;
@@ -45,6 +46,8 @@ export interface PictureInputs {
   savingsGoals: SavingsGoal[];
   fp: FinancialPictureData;
   today: Date;
+  /** The person's decisions on detected recurring items (recurring_streams, source 'picture'). */
+  recurringDecisions?: RecurringDecision[];
 }
 
 // ─── Output shapes ──────────────────────────────────────────────────────────
@@ -109,6 +112,10 @@ export interface PictureRow {
   have?: number;
   by?: string;
   detectedOnly?: boolean;
+  /** The "Detected recurring" item this row comes from. */
+  reviewKey?: string;
+  /** Confirmed, but the latest expected payment didn't arrive. */
+  missed?: boolean;
 }
 
 export interface CardInfo {
@@ -139,6 +146,14 @@ export interface PictureModel {
   nextMonthLabel: string;
   nextMonthKey: string;
   series: RecurringSeries[];
+  /** "Detected recurring" review: suggested + confirmed items, and the dismissed list. */
+  review: ReviewResult;
+  /**
+   * `price_increase` findings: listed bills whose latest charge went up off
+   * a steady price, the new price not yet taken as the amount. Payload adds
+   * `reviewKey` (the Picture row).
+   */
+  priceIncreases: Finding<PriceIncreasePayload & { reviewKey: string }>[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -257,6 +272,7 @@ function dueTextFor(s: RecurringSeries | undefined, fallbackDate: string | null)
       if (sc.monthStep === 1) return { dueDay: day, dueText: day ? ORDINAL(day) : "Last day", nextDate: s.nextExpectedDate };
       return { dueDay: day, dueText: s.nextExpectedDate ? `Next ${shortDate(s.nextExpectedDate)}` : undefined, nextDate: s.nextExpectedDate };
     }
+    if (sc.kind === "irs-estimated") return { dueDay: null, dueText: s.nextExpectedDate ? `Next ${shortDate(s.nextExpectedDate)}` : "IRS dates", nextDate: s.nextExpectedDate };
     if (sc.kind === "semimonthly") return { dueDay: sc.anchorDays[0], dueText: `${ORDINAL(sc.anchorDays[0])} & ${ORDINAL(sc.anchorDays[1])}`, nextDate: s.nextExpectedDate };
     return { dueDay: null, dueText: sc.cadence === "weekly" ? "Weekly" : "Every 2 weeks", nextDate: s.nextExpectedDate };
   }
@@ -300,10 +316,32 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   for (const t of posted) bucketOf.set(t.id, resolveBucket(classOf(t), getEffectiveCategory(t) || ""));
 
   // ── Recurring series, fed the same (re-bucketed) classification ──
+  // Payee names cleaned for grouping and display only (stored rows untouched):
+  // truncated merchant names joined to their full form, BofA "NAME:" and
+  // payroll "DES:PAYROLL" descriptors parsed, and a bank transfer that pays a
+  // linked loan named after the loan ("Chase Auto Loan").
+  const canon = canonicalMerchants(posted.map(t => t.merchant_name));
+  const loanPayee = new Map<string, string>();
+  const loanSeries = (t: PTxn) => `${t.account_id}|${Math.abs(num(t.amount)).toFixed(2)}|${(t.name ?? "").toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim()}`;
+  for (const t of posted) {
+    const c = classOf(t);
+    const other = c?.type === "obligation_loan" && c.pairId ? byId.get(c.pairId) : undefined;
+    const loanAcct = other ? acct.get(other.account_id) : undefined;
+    // Only when the bank line says nothing about the lender ("JPMorgan Chase
+    // Ext Trnsfr 3093…"); a servicer's own name ("Rocket Mortgage") stays.
+    if (loanAcct?.kind === "loan" && !t.merchant_name && /transfer|trnsfr|xfer/i.test(t.name ?? "")) loanPayee.set(loanSeries(t), loanAcct.name);
+  }
+  const payeeOf = (t: PTxn) => {
+    if (loanPayee.size && classOf(t)?.type === "obligation_loan") { const n = loanPayee.get(loanSeries(t)); if (n) return n; }
+    return cleanPayee({ name: t.name, merchant_name: t.merchant_name }, canon);
+  };
   const ctxns: ClassifierTxn[] = posted.map(t => ({
     transaction_id: t.id, account_id: t.account_id, amount: num(t.amount), date: t.date,
-    name: t.name, merchant_name: t.merchant_name, category: t.category ?? null, pending: false,
+    name: t.name, merchant_name: payeeOf(t), category: t.category ?? null, pending: false,
     payment_channel: (t.payment_channel as string | null | undefined) ?? null,
+    pfc_primary: (t.pfc_primary as string | null | undefined) ?? null,
+    pfc_detailed: (t.pfc_detailed as string | null | undefined) ?? null,
+    pfc_confidence: (t.pfc_confidence as string | null | undefined) ?? null,
   }));
   const classifier: TransactionClassifier = {
     classifyAll(list) {
@@ -313,30 +351,48 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
         const c = t ? classOf(t) : undefined;
         if (!t || !c) continue;
         const b = bucketOf.get(t.id);
-        const txnType = (b && BUCKET_TYPE[b]) || c.type;
-        out.set(ct.transaction_id, { txnType, subtype: c.subtype ?? null, confidence: 0.9, source: "rule", pairId: c.pairId ?? null });
+        let txnType = (b && BUCKET_TYPE[b]) || c.type;
+        let subtype = c.subtype ?? null;
+        // A bonus is pay, but not part of the paycheck pattern.
+        if (txnType === "income_salary" && BONUS_RE.test(`${t.merchant_name ?? ""} ${t.name ?? ""}`)) { txnType = "income_other"; subtype = "bonus"; }
+        const other = c.pairId ? byId.get(c.pairId) : undefined;
+        out.set(ct.transaction_id, {
+          txnType, subtype, confidence: 0.9, source: "rule", pairId: c.pairId ?? null,
+          category: getEffectiveCategory(t) || null, counterpartAccountId: other?.account_id ?? null,
+        });
       }
       return out;
     },
   };
   const classAccounts = accounts.map(a => ({ account_id: a.account_id, type: a.type, subtype: a.subtype, name: a.name, mask: a.mask ?? null }));
   let series: RecurringSeries[] = [];
-  try { series = detectRecurringSeries(ctxns, classAccounts, { today: todayStr, classifier }); } catch { series = []; }
-  const seriesByMerchant = new Map<string, RecurringSeries>();
-  for (const s of series) {
-    const k = `${s.txnType}|${s.merchantKey}`;
-    const prev = seriesByMerchant.get(k);
-    if (!prev || (s.active && !prev.active) || s.occurrenceCount > prev.occurrenceCount) seriesByMerchant.set(k, s);
-  }
+  // Grouped by canonical payee / employer (one mortgage, one employer), card
+  // payments and savings transfers kept, then the recurring policy and the
+  // person's decisions (src/lib/recurring/review.ts).
+  try { series = detectRecurringSeries(ctxns, classAccounts, { today: todayStr, classifier, ...REVIEW_DETECT_OPTIONS }); } catch { series = []; }
+  let review: ReviewResult = { items: [], dismissed: [], series };
+  try {
+    review = buildReview(series, ctxns, {
+      today: todayStr, decisions: inp.recurringDecisions ?? [], accounts: classAccounts,
+      categoryOf: ct => { const t = byId.get(ct.transaction_id); return t ? getEffectiveCategory(t) : null; },
+    });
+  } catch { /* detection must never break the page */ }
+  // Nothing waits on the person: confident detections count, weak ones don't.
+  review = { ...review, items: settleSuggestions(review.items) };
+  const seriesByKey = new Map<string, RecurringSeries>();
+  for (const s of series) { seriesByKey.set(s.seriesKey, s); const b = s.seriesKey.replace(/\|~\d+$/, ""); if (!seriesByKey.has(b)) seriesByKey.set(b, s); }
   let autopays: ReturnType<typeof detectBillAutopays> = [];
   try { autopays = detectBillAutopays(series, ctxns, { accounts: classAccounts }); } catch { autopays = []; }
   const autopayBySeries = new Map(autopays.map(a => [a.seriesKey, a]));
 
   // ── Income ──
   const since365 = daysAgo(today, 365), since90 = daysAgo(today, 90);
-  // Only project pay when the recurring detector found a real, active cadence.
-  // A single recent deposit is not enough evidence to turn it into monthly income.
-  const salarySeries = series.filter(s => s.kind === "salary" && s.direction === "inflow" && s.active && s.occurrenceCount >= 2 && s.confidence >= 0.7 && !BONUS_RE.test(s.displayName)).sort((a, b) => b.amount.median * PER_YEAR[b.cadence] - a.amount.median * PER_YEAR[a.cadence]);
+  // Pay comes from the review: an employer needs 3+ paychecks across 3+ months
+  // in one pattern; a dismissed one never counts, an edited one uses the person's numbers.
+  // Paychecks are pay whatever happened in the review: a paycheck someone
+  // dismissed (it used to be offered in the bills queue as "Not a bill") or
+  // regrouped still counts, so Salary never drops to $0 while pay arrives.
+  const salaryItems = [...review.items, ...review.dismissed].filter(i => i.direction === "inflow" && i.kind === "salary").sort((a, b) => b.monthly - a.monthly);
   const salaryTxns: PTxn[] = [], bonusTxns: PTxn[] = [], otherTxns: PTxn[] = [];
   const nonSalaryFlowTypes = new Set<TxnType>(["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan", "obligation_tax", "obligation_bill"]);
   for (const t of posted) {
@@ -351,63 +407,53 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const newestFirst = (a: PTxn, b: PTxn) => b.date.localeCompare(a.date);
   salaryTxns.sort(newestFirst); bonusTxns.sort(newestFirst); otherTxns.sort(newestFirst);
   let salaryMonthly = 0, payCadence: Cadence | null = null, perPaycheck = 0;
-  if (salarySeries.length) {
-    for (const s of salarySeries) salaryMonthly += (s.amount.median * PER_YEAR[s.cadence]) / 12;
-    payCadence = salarySeries[0].cadence; perPaycheck = salarySeries[0].amount.median;
-  } else {
-    // A user-assigned Salary category is authoritative for what the deposit
-    // represents, even when there isn't enough history to infer a paycheck
-    // schedule. Show the observed 90-day average instead of dropping marked
-    // salary deposits from the monthly picture or pretending a schedule is known.
-    const recentSalaryTxns = salaryTxns.filter(t => t.date >= since90);
-    if (recentSalaryTxns.length >= 2) salaryMonthly = recentSalaryTxns.reduce((sum, t) => sum - num(t.amount), 0) / 3;
+  if (salaryItems.length) {
+    for (const i of salaryItems) salaryMonthly += i.monthly;
+    payCadence = salaryItems[0].cadence; perPaycheck = salaryItems[0].amount;
   }
+  // Payroll deposits that don't (yet) form a clean pattern (new job, amounts
+  // that swing with overtime, under 3 months of history) still are pay:
+  // average the last 90 days instead of showing $0.
+  const recentPay = salaryTxns.filter(t => t.date >= since90);
+  const salaryEstimated = !salaryItems.length && recentPay.length >= 2;
+  if (salaryEstimated) {
+    const span = Math.max(1, Math.min(3, (today.getTime() - new Date(`${recentPay[recentPay.length - 1].date}T12:00:00`).getTime()) / (30.44 * 864e5) + 0.5));
+    salaryMonthly = Math.round((recentPay.reduce((s, t) => s - num(t.amount), 0) / span) * 100) / 100;
+    perPaycheck = Math.round((recentPay.reduce((s, t) => s - num(t.amount), 0) / recentPay.length) * 100) / 100;
+  }
+  const salaryRowTxns = salaryItems.length ? salaryItems.flatMap(i => i.transactionIds).map(id => byId.get(id)).filter((t): t is PTxn => !!t).sort((a, b) => b.date.localeCompare(a.date)) : salaryTxns;
   const bonusMonthly = bonusTxns.reduce((s, t) => s - num(t.amount), 0) / 12;
 
-  // Recurring, non-payroll inflows are income too (for example pension, side
-  // work, or a regular contribution from another person). Keep them out of the
-  // monthly projection until the detector has enough evidence for an active
-  // pattern. Never count known account transfers, investment withdrawals, or
-  // borrowed funds as new income.
-  const INTERNAL_INFLOW_SUBTYPES = new Set(["account_transfer", "from_savings", "from_investments", "loan_proceeds"]);
-  const INTERNAL_INFLOW_RE = /\b(internal|account)\s+(transfer|xfer)\b|\bonline\s+(transfer|xfer)\b|\btransfer\s+between\s+accounts\b|\bfrom\s+(checking|chk|savings|sav|brokerage|investment)\b|\b(cash\s+advance|loan\s+proceeds)\b/i;
-  const recurringIncomeSeries = series.filter(s => {
-    if (s.direction !== "inflow" || !s.active || s.occurrenceCount < 2 || s.confidence < 0.7) return false;
-    if (s.txnType === "income_salary") return false; // already counted above
-    if (s.kind !== "income" && s.kind !== "interest") return false;
-    if (s.txnType !== "transfer_in") return s.txnType === "income_other" || s.txnType === "income_interest";
-    if (s.subtype && INTERNAL_INFLOW_SUBTYPES.has(s.subtype)) return false;
-    // P2P deposits from someone else can be genuine recurring income. Require
-    // a stable sender so unrelated Zelle/Venmo payments cannot form a pattern.
-    if (s.subtype === "p2p") {
-      const senders = s.transactionIds.map(id => {
-        const t = byId.get(id);
-        return t ? p2pCounterparty(t) : null;
-      });
-      return senders.length >= 2 && senders.every(Boolean) && new Set(senders).size === 1;
-    }
-    return !INTERNAL_INFLOW_RE.test(s.displayName);
-  });
-  const recurringIncomeTxnIds = new Set(recurringIncomeSeries.flatMap(s => s.transactionIds));
-  for (const id of recurringIncomeTxnIds) {
+  // Recurring, non-payroll inflows are income too (pension, side work, a
+  // roommate's regular rent share). The review already keeps out internal
+  // transfers, refunds and one-off deposits, and needs 3+ months of pattern.
+  const otherIncomeItems = review.items.filter(i => i.group === "income" && i.direction === "inflow" && i.kind !== "salary");
+  for (const id of otherIncomeItems.flatMap(i => i.transactionIds)) {
     const t = byId.get(id);
     if (t && t.date >= since365) otherTxns.push(t);
   }
   otherTxns.sort(newestFirst);
-  const otherDetectedMonthly = recurringIncomeSeries.reduce((sum, s) => sum + (s.amount.median * PER_YEAR[s.cadence]) / 12, 0);
-  const otherMonthly = otherDetectedMonthly;
+  const otherMonthly = otherIncomeItems.reduce((sum, i) => sum + i.monthly, 0);
   const perMonth = payCadence ? PER_YEAR[payCadence] / 12 : 0;
-  const employer = salarySeries[0]?.displayName ?? (salaryTxns[0] ? displayName(salaryTxns[0].merchant_name || salaryTxns[0].name) : null);
-  const primaryDeposit = majorityAccount(salaryTxns.slice(0, 12), 0.5);
+  const employer = salaryItems[0]?.label ?? (salaryTxns[0] ? displayName(salaryTxns[0].merchant_name || salaryTxns[0].name) : null);
+  const primaryDeposit = majorityAccount(salaryRowTxns.slice(0, 12), 0.5);
 
-  const eff = (key: string, detected: number) => (key in overrides ? Math.max(0, num(overrides[key])) : detected);
+  const eff = (key: string, detected: number) => {
+    if (!(key in overrides)) return detected;
+    const v = num(overrides[key]);
+    // A blank / zero salary override (an emptied field) never hides pay we can see.
+    if (key === "income.salary" && !(v > 0) && detected > 0) return detected;
+    return Math.max(0, v);
+  };
   const income: PictureRow[] = [];
   const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence]
     : salaryMonthly > 0 ? "recent average · last 90 days" : null;
   income.push({
-    group: "income", id: "salary", label: "Salary", sub: payCadence ? `Take-home · ${payWord}` : salaryMonthly > 0 ? `Take-home · ${payWord}` : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No salary deposits found",
+    group: "income", id: "salary", label: "Salary",
+    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.map(i => i.label).join(" & ")}` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? "Take-home · averaged over the last 3 months" : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
-    coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryTxns.slice(0, 6),
+    coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryRowTxns.slice(0, 6),
+    missed: salaryItems.some(i => i.missed), why: salaryItems.map(i => `${i.label}: ${i.why}`).join(" "),
   });
   if (bonusMonthly > 0 || "income.bonus" in overrides) {
     const total = bonusTxns.reduce((s, t) => s - num(t.amount), 0);
@@ -420,7 +466,7 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   }
   if (otherMonthly > 0 || "income.other" in overrides) {
     income.push({
-      group: "income", id: "other", label: "Other recurring income", sub: recurringIncomeSeries.length ? `${recurringIncomeSeries.length} recurring deposit pattern${recurringIncomeSeries.length === 1 ? "" : "s"} · one-time deposits excluded` : "User adjustment",
+      group: "income", id: "other", label: "Other recurring income", sub: otherIncomeItems.length ? "Recurring deposits · one-time deposits excluded" : "User adjustment",
       monthly: eff("income.other", otherMonthly), detected: otherMonthly, overrideKey: "income.other", edited: "income.other" in overrides,
       coverId: majorityAccount(otherTxns, 0.5), coverSource: otherTxns.length ? "detected" : "none", txns: otherTxns.slice(0, 6),
     });
@@ -468,71 +514,57 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
     dedRow("rsu", "RSU shares withheld", "deduction.rsu", 0, "post", brkAcct, "Shares your employer keeps to cover tax when RSUs vest. Enter it from your pay stub.", []),
   ];
 
-  // ── Obligations, fixed expenses and tax bills ──
-  const since400 = daysAgo(today, 400), since45 = daysAgo(today, 45);
-  type G = { bucket: Bucket; key: string; txns: PTxn[]; cat: string };
-  const groups = new Map<string, G>();
-  for (const t of posted) {
-    const b = bucketOf.get(t.id);
-    if (t.date < since400 || num(t.amount) <= 0) continue;
-    if (b !== "obligation_loan" && b !== "obligation_bill" && b !== "obligation_tax" && b !== "p2p_out") continue;
-    const mk = merchantKey(t.name, t.merchant_name);
-    const gk = `${b}|${mk}`;
-    const g = groups.get(gk) ?? { bucket: b, key: mk, txns: [], cat: getEffectiveCategory(t) || "" };
-    g.txns.push(t); groups.set(gk, g);
-  }
-  // A category key maps to one row only when exactly one row has that category (legacy overrides).
+  // ── Obligations, fixed expenses and tax bills (from the recurring review) ──
+  // One row per reviewed item: 3+ payments in a pattern (insurance & tax 2+),
+  // no ad-hoc spending, duplicates collapsed, dismissed items gone.
+  const firstCat = (it: ReviewItem) => { const t = byId.get(it.transactionIds[0]); return t ? getEffectiveCategory(t) || "" : ""; };
   const catCount = new Map<string, number>();
-  for (const g of groups.values()) catCount.set(`${g.bucket}|${g.cat}`, (catCount.get(`${g.bucket}|${g.cat}`) ?? 0) + 1);
+  for (const it of review.items) catCount.set(firstCat(it), (catCount.get(firstCat(it)) ?? 0) + 1);
 
   const goals = inp.savingsGoals ?? [];
   const obligations: PictureRow[] = [], fixed: PictureRow[] = [], taxBills: PictureRow[] = [];
-  for (const g of groups.values()) {
-    g.txns.sort(newestFirst);
-    const type: TxnType = g.bucket === "p2p_out" ? "transfer_out" : (BUCKET_TYPE[g.bucket!] as TxnType);
-    const s = seriesByMerchant.get(`${type}|${g.key}`);
-    let monthly = 0, cadence: Cadence | null = null, perPayment = 0, sub: string | undefined;
-    if (s) {
-      if (!s.active) continue;
-      if (g.bucket === "p2p_out" && !(PER_YEAR[s.cadence] <= 12 && s.occurrenceCount >= 3)) continue;
-      cadence = s.cadence; perPayment = s.amount.expected || s.amount.median;
-      monthly = (perPayment * PER_YEAR[s.cadence]) / 12;
-      if (s.cadence !== "monthly") sub = `$${Math.round(perPayment).toLocaleString("en-US")} ${CADENCE_WORD[s.cadence]}`;
-    } else {
-      if (g.bucket === "p2p_out") continue; // a one-off Zelle isn't a bill
-      const latest = g.txns[0];
-      if (!latest || latest.date < since45) continue;
-      monthly = num(latest.amount); perPayment = monthly; sub = "Seen once · assumed monthly";
-    }
-    const group: "obligations" | "fixed" | "taxes" = g.bucket === "obligation_loan" ? "obligations" : g.bucket === "obligation_tax" ? "taxes" : "fixed";
-    const id = slug(g.key);
+  for (const it of review.items) {
+    if (it.direction !== "outflow" || it.kind === "card_payment") continue; // cards have their own section
+    if (it.group === "income" || it.group === "savings") continue;
+    const group: "obligations" | "fixed" | "taxes" =
+      it.group === "insurance_tax" ? (it.kind === "tax" ? "taxes" : "fixed") : it.group === "payments" && it.kind !== "transfer" ? "obligations" : "fixed";
+    const txs = it.transactionIds.map(id => byId.get(id)).filter((t): t is PTxn => !!t).sort(newestFirst);
+    const s = seriesByKey.get(it.key);
+    const id = slug(it.key.split("|").slice(1).join(" "));
     const ovPrefix = group === "obligations" ? "obligation" : group === "taxes" ? "tax" : "expense";
     const overrideKey = `${ovPrefix}:${id}`;
-    const legacyKey = `${ovPrefix}:${g.cat}`;
-    const legacyOk = catCount.get(`${g.bucket}|${g.cat}`) === 1;
-    const ovKey = overrideKey in overrides ? overrideKey : legacyOk && legacyKey in overrides ? legacyKey : overrideKey;
+    // Keys earlier versions used (raw merchant key / category), so saved edits keep applying.
+    const cat = firstCat(it);
+    const legacyMk = txs[0] ? `${ovPrefix}:${slug(merchantKey(txs[0].name, txs[0].merchant_name))}` : overrideKey;
+    const legacyCat = `${ovPrefix}:${cat}`;
+    const legacyOk = catCount.get(cat) === 1;
+    const ovKey = [overrideKey, legacyMk, legacyOk ? legacyCat : ""].find(k => k && k in overrides) ?? overrideKey;
     const fundingKey = `funding:${overrideKey}`;
-    const legacyFunding = `funding:${legacyKey}`;
-    const userCover = funding[fundingKey] ?? (legacyOk ? funding[legacyFunding] : undefined);
-    const label = s?.displayName ?? displayName(g.txns[0].merchant_name || g.txns[0].name);
-    const isP2P = g.bucket === "p2p_out" || g.txns.some(t => P2P_RE.test(`${t.name ?? ""} ${t.merchant_name ?? ""}`));
+    const userCover = funding[fundingKey] ?? funding[`funding:${legacyMk}`] ?? (legacyOk ? funding[`funding:${legacyCat}`] : undefined);
+    const label = it.label;
+    const isP2P = it.kind === "transfer" || txs.some(t => P2P_RE.test(`${t.name ?? ""} ${t.merchant_name ?? ""}`));
     const goal = goals.find(x => x.kind === "obligation" && x.obligationId === id && x.accountId);
     let coverId: string | null = null, coverSource: PictureRow["coverSource"] = "none", unassignedReason: string | undefined;
-    if (userCover) { coverId = userCover === FP_UNASSIGNED ? null : userCover; coverSource = "user"; if (!coverId) unassignedReason = "You left this unassigned."; }
+    if (it.coverUserSet) { coverId = it.coverAccountId; coverSource = "user"; }
+    else if (userCover) { coverId = userCover === FP_UNASSIGNED ? null : userCover; coverSource = "user"; if (!coverId) unassignedReason = "You left this unassigned."; }
     else if (goal?.accountId) { coverId = goal.accountId; coverSource = "detected"; }
-    else if (isP2P) { unassignedReason = `${label} is paid by ${(g.txns.map(t => `${t.name} ${t.merchant_name}`).join(" ").match(P2P_RE)?.[0] ?? "Zelle").replace(/^./, c => c.toUpperCase())}, so we can't tell which account it should come from. Pick one so it counts in your plan.`; }
+    else if (isP2P) { unassignedReason = `${label} is paid by ${(txs.map(t => `${t.name} ${t.merchant_name}`).join(" ").match(P2P_RE)?.[0] ?? "Zelle").replace(/^./, c => c.toUpperCase())}, so we can't tell which account it should come from. Pick one so it counts in your plan.`; }
     else {
-      coverId = majorityAccount(g.txns.slice(0, 6));
+      coverId = majorityAccount(txs.slice(0, 6));
       coverSource = coverId ? "detected" : "none";
       if (!coverId) unassignedReason = `${label} is paid from different accounts, so we can't tell which one covers it. Pick one so it counts in your plan.`;
     }
-    const due = dueTextFor(s, g.txns[0]?.date ?? null);
+    const cadence = it.cadence, perPayment = it.amount, monthly = it.monthly;
+    let sub = cadence !== "monthly" ? `$${Math.round(perPayment).toLocaleString("en-US")} ${CADENCE_WORD[cadence]}` : undefined;
+    if (it.missed) sub = `Missed or late${it.daysLate ? ` · ${it.daysLate} day${it.daysLate === 1 ? "" : "s"}` : ""}${sub ? ` · ${sub}` : ""}`;
+    const due = dueTextFor(s && s.cadence === cadence ? s : undefined, txs[0]?.date ?? null);
     const ap = s ? autopayBySeries.get(s.seriesKey) : undefined;
     const row: PictureRow = {
       group, id, label, sub, monthly: eff(ovKey, monthly), detected: monthly, overrideKey: ovKey, edited: ovKey in overrides,
-      fundingKey, coverId, coverSource, unassignedReason, cadence, perPayment, ...due,
-      autopay: ap?.autopay ?? "unknown", autopayDetected: detectedAsAutopay(ap), txns: g.txns.slice(0, 6), category: g.cat,
+      fundingKey, coverId, coverSource, unassignedReason, cadence, perPayment, ...due, nextDate: it.nextDue ?? due.nextDate,
+      autopay: ap?.autopay ?? "unknown", autopayDetected: detectedAsAutopay(ap), txns: txs.slice(0, 6), category: cat,
       setAside: goal?.accountId && coverId === goal.accountId ? { goalId: goal.id, accountId: goal.accountId, monthly: goal.monthlyTarget } : undefined,
+      reviewKey: it.key, missed: it.missed, why: it.why, tags: it.status === "suggested" ? ["det"] : undefined,
     };
     (group === "obligations" ? obligations : group === "taxes" ? taxBills : fixed).push(row);
   }
@@ -639,10 +671,42 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
     });
   }
 
+  // Savings from the review: a dismissed pattern hides its detected row; a
+  // confirmed one that no goal or detected row shows yet gets its own row.
+  const dismissedIds = new Set(review.dismissed.flatMap(i => i.transactionIds));
+  for (let i = savings.length - 1; i >= 0; i--) {
+    const r = savings[i];
+    if (r.detectedOnly && r.txns.length && r.txns.filter(t => dismissedIds.has(t.id)).length / r.txns.length >= 0.5) savings.splice(i, 1);
+  }
+  for (const it of review.items) {
+    if (it.group !== "savings" || it.direction !== "outflow") continue;
+    const ids = new Set(it.transactionIds);
+    const hit = savings.find(r => r.txns.some(t => ids.has(t.id)) || (!!r.toId && r.toId === seriesByKey.get(it.key)?.counterpartAccountId));
+    if (hit) { if (hit.detectedOnly) { hit.reviewKey = it.key; if (it.edited) { hit.monthly = it.monthly; hit.detected = it.monthly; } } continue; }
+    if (it.status !== "confirmed") continue;
+    const to = seriesByKey.get(it.key)?.counterpartAccountId ?? null;
+    const txs = it.transactionIds.map(id => byId.get(id)).filter((t): t is PTxn => !!t).sort(newestFirst);
+    savings.push({
+      group: "savings", id: `rv-${slug(it.key)}`, label: it.label, monthly: it.monthly, detected: it.monthly, toId: to, fromId: it.coverAccountId,
+      coverId: it.coverAccountId, coverSource: it.coverUserSet ? "user" : "detected", have: to ? acct.get(to)?.balance : undefined,
+      tags: ["det"], detectedOnly: true, txns: txs.slice(0, 6), reviewKey: it.key,
+    });
+  }
+
   // ── Gross pay & payroll ──
   const nm = nextMonth(today);
   const filing = overrides["filingStatusCode"] === 1 ? "married_joint" : "single";
   const grossOverride = overrides["income.grossSalaryAnnual"];
+  // ── Price increases (INFERENCES §3.9) on the listed, not-yet-updated bills ──
+  const priceIncreases: PictureModel["priceIncreases"] = [];
+  const txnByIdForPrice = new Map(ctxns.map(t => [t.transaction_id, t] as const));
+  for (const it of review.items) {
+    if (!it.priceChange || !(it.priceChange.delta > 0)) continue;
+    const s = seriesByKey.get(it.key);
+    const f = s ? priceIncreaseFinding(s, txnByIdForPrice) : null;
+    if (f) priceIncreases.push({ ...f, payload: { ...f.payload, displayName: it.label, reviewKey: it.key } });
+  }
+
   return {
     accounts: acctList, acct,
     rows: { income, deductions, obligations, fixed, taxes: taxBills, budgets, savings },
@@ -657,6 +721,6 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
       hsaEmployer: Math.max(0, num(overrides["benefit.hsaEmployer"])),
     },
     nextMonthLabel: nm.label, nextMonthKey: nm.key,
-    series,
+    series, review, priceIncreases,
   };
 }

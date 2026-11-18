@@ -1,0 +1,115 @@
+/* Compact notifications (Option B). Tokens follow the rest of the app. */
+
+/* Unread: a plain dot, never a number. */
+.nc-badge { position:absolute; top:3px; right:3px; width:9px; height:9px; border-radius:9999px;
+  background:hsl(var(--negative)); box-shadow:0 0 0 2px hsl(var(--background)); }
+.nc-side-badge { margin-left:auto; width:8px; height:8px; border-radius:9999px; background:hsl(var(--negative)); flex:none; }
+
+.nc-strip { display:flex; align-items:center; gap:10px; margin:0; padding:0 10px 0 14px; min-height:44px;
+  background:hsl(var(--negative)/.10); border-bottom:1px solid hsl(var(--negative)/.28); font-size:13px; width:100%; text-align:left; }
+.nc-strip .nc-strip-ico { color:hsl(var(--negative)); flex-shrink:0; }
+.nc-strip b { color:hsl(var(--negative-text)); font-weight:700; }
+.nc-strip .nc-strip-msg { flex:1; min-width:0; color:hsl(var(--foreground)); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nc-strip .nc-strip-view { color:hsl(var(--foreground)); font-weight:600; font-size:12.5px; text-decoration:underline; text-underline-offset:2px; min-height:44px; min-width:44px; padding:0 8px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; }
+
+/* 400px desktop panel; full-screen on mobile (used when not rendering as a vaul sheet). */
+.nc-panel { position:fixed; z-index:55; top:0; right:0; bottom:0; width:400px; display:flex; flex-direction:column;
+  background:hsl(var(--surface)); border-left:1px solid hsl(var(--border-strong)); box-shadow:-24px 0 60px -20px hsl(222 40% 2% / .8);
+  transform:translateX(102%); transition:transform .3s cubic-bezier(.2,.8,.2,1); visibility:hidden; }
+.nc-panel.on { transform:none; visibility:visible; }
+@media (prefers-reduced-motion: reduce){ .nc-panel, .nc-sheet, .nc-bd, .nc-detail { transition:none !important; } }
+
+/* Desktop detail: a real card dialog next to the 400px panel. Not a vaul
+   bottom sheet — vaul's outside-pointerdown / drag-dismiss treated clicks on
+   the visually-centered card as outside the sheet. Portaled to document.body
+   so ancestor overflow/transform cannot trap it under the inbox panel. */
+.nc-detail { position:fixed; z-index:60; right:420px; top:50%; transform:translateY(-50%);
+  width:min(420px,calc(100vw - 500px)); max-height:min(760px,86dvh); display:flex; flex-direction:column;
+  background:hsl(var(--background)); border:1px solid hsl(var(--border-strong)); border-radius:18px;
+  box-shadow:0 24px 60px -20px hsl(222 40% 2% / .8); overflow:hidden; }
+.nc-detail-body { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
+
+
+.nc-head { display:flex; align-items:center; gap:6px; padding:10px 10px 10px 16px; border-bottom:1px solid hsl(var(--border)); }
+.nc-head h2 { font-family:Fraunces,serif; font-size:21px; font-weight:600; flex:1; min-width:0; }
+@media (max-width:767px){ .nc-head h2 { font-family:Inter,sans-serif; font-size:17px; } }
+.nc-ib { height:40px; width:40px; border-radius:9999px; display:grid; place-items:center; color:hsl(var(--muted-foreground)); flex-shrink:0; }
+.nc-ib:hover { color:hsl(var(--foreground)); background:hsl(var(--surface-hover)); }
+@media (max-width:767px){ .nc-ib { height:44px; width:44px; } }
+
+.nc-tools { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid hsl(var(--border)); }
+.nc-seg { display:inline-flex; padding:3px; border-radius:12px; border:1px solid hsl(var(--border)); background:hsl(var(--muted)/.5); }
+.nc-seg button { min-height:32px; padding:0 12px; border-radius:9px; font-size:13px; font-weight:600; color:hsl(var(--muted-foreground)); }
+.nc-seg button[aria-pressed="true"] { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+@media (max-width:767px){ .nc-seg button { min-height:44px; min-width:44px; padding:0 16px; } }
+.nc-mark { margin-left:auto; font-size:13px; font-weight:600; color:hsl(var(--primary)); display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 8px; }
+.nc-mark:disabled { opacity:.4; }
+
+.nc-body { flex:1; overflow-y:auto; overscroll-behavior:contain; padding:0 0 28px; min-height:0; }
+.nc-day { padding:12px 16px 4px; font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:hsl(var(--muted-foreground));
+  position:sticky; top:0; z-index:2; background:linear-gradient(hsl(var(--surface)) 70%, hsl(var(--surface)/0)); }
+
+.nc-row { position:relative; display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:0 16px; text-align:left;
+  border-bottom:1px solid hsl(var(--border)/.6); background:transparent; touch-action:pan-y; }
+.nc-row:hover { background:hsl(var(--surface-hover)/.45); }
+.nc-row.unread { background:hsl(var(--primary)/.04); }
+.nc-row.read { opacity:.72; }
+.nc-row .ic { height:28px; width:28px; border-radius:8px; display:grid; place-items:center; flex-shrink:0; }
+.nc-row .t { flex:1; min-width:0; font-size:13.5px; font-weight:600; line-height:1.25; display:flex; align-items:center; gap:8px; }
+.nc-row .t > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nc-row.unread .t { color:hsl(var(--foreground)); }
+.nc-row.read .t { font-weight:500; color:hsl(var(--foreground)/.85); }
+.nc-row .amt { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; flex-shrink:0; }
+.nc-row .when { font-size:11.5px; color:hsl(var(--muted-foreground)); flex-shrink:0; width:36px; text-align:right; }
+.nc-row .dot { height:7px; width:7px; border-radius:99px; background:hsl(var(--primary)); flex-shrink:0; }
+.nc-row.swiping { z-index:3; background:hsl(var(--surface)); }
+.nc-swipe-bg { position:absolute; inset:0; display:flex; align-items:center; pointer-events:none; font-size:12px; font-weight:700; padding:0 16px; }
+.nc-swipe-bg.left { justify-content:flex-end; background:hsl(var(--muted)); color:hsl(var(--foreground)); }
+.nc-swipe-bg.right { justify-content:flex-start; background:hsl(var(--positive)/.25); color:hsl(var(--positive)); }
+
+.nc-stack { display:flex; align-items:center; gap:10px; width:100%; min-height:48px; padding:0 16px; text-align:left;
+  border-bottom:1px solid hsl(var(--border)/.6); }
+.nc-stack:hover { background:hsl(var(--surface-hover)/.45); }
+.nc-stack .stack-ics { display:flex; }
+.nc-stack .stack-ics .ic { height:24px; width:24px; margin-left:-6px; border:2px solid hsl(var(--surface)); }
+.nc-stack .stack-ics .ic:first-child { margin-left:0; }
+.nc-stack .t { flex:1; min-width:0; font-size:13.5px; font-weight:600; }
+.nc-stack .amt { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+.nc-stack-kids { border-bottom:1px solid hsl(var(--border)/.6); background:hsl(var(--surface-elevated)/.35); }
+.nc-stack-kids .nc-row { padding-left:28px; min-height:44px; }
+
+.fl-red { --fc: hsl(var(--negative-text)); color:var(--fc); background:hsl(var(--negative)/.12); }
+.fl-amber { --fc: hsl(var(--warning)); color:var(--fc); background:hsl(var(--warning)/.12); }
+.fl-green { --fc: hsl(var(--positive)); color:var(--fc); background:hsl(var(--positive)/.12); }
+.fl-gold { --fc: hsl(var(--primary)); color:var(--fc); background:hsl(var(--primary)/.12); }
+.fl-info { --fc: hsl(var(--info)); color:var(--fc); background:hsl(var(--info)/.12); }
+.fl-mute { --fc: hsl(var(--muted-foreground)); color:var(--fc); background:hsl(var(--muted)); }
+
+.nc-digest { margin:10px 12px; padding:10px 12px; border-radius:14px; border:1px solid hsl(var(--border)); background:hsl(var(--surface-elevated)); min-width:0; }
+.nc-digest h3 { font-size:13px; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
+.nc-digest .nc-row, .nc-digest .nc-stack { padding-left:4px; padding-right:4px; border-bottom:0; min-height:44px; }
+.nc-digest .nc-stack-kids { border-bottom:0; border-radius:10px; }
+
+.nc-bd { position:fixed; inset:0; z-index:54; background:hsl(222 40% 3% / .62); opacity:0; transition:opacity .22s; pointer-events:none; }
+.nc-bd.on { opacity:1; pointer-events:auto; }
+
+.nc-example { display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
+  padding:3px 8px; border-radius:9999px; border:1px solid hsl(var(--primary)/.45); color:hsl(var(--primary)); background:hsl(var(--primary)/.08); white-space:nowrap; }
+
+.nc-kv { display:grid; grid-template-columns:110px minmax(0,1fr); gap:0; border-top:1px solid hsl(var(--border)); margin-top:14px; }
+.nc-kv > div { padding:10px 0; border-bottom:1px solid hsl(var(--border)); font-size:14px; min-width:0; word-break:break-word; }
+.nc-kv > div:nth-child(odd) { color:hsl(var(--muted-foreground)); font-size:13px; }
+
+.nc-sheet-actions { display:flex; gap:8px; margin-top:16px; }
+.nc-sheet-actions button { flex:1; min-height:44px; border-radius:12px; font-size:14px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.nc-sheet-actions .primary { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+.nc-sheet-actions .ghost { border:1px solid hsl(var(--border-strong)); color:hsl(var(--foreground)); }
+
+/* Mobile header is tight (logo + title + trailing icons). Icon-only chip
+   keeps "Sentry Finance" from truncating at 412. */
+@media (max-width: 767px){
+  header .nc-example { padding: 3px 6px; gap: 0; }
+  header .nc-example .nc-example-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  header .nc-example svg { width: 12px; height: 12px; }
+  .nc-strip { padding: 0 8px 0 14px; gap: 8px; font-size: 12.5px; }
+}

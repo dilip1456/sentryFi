@@ -18,10 +18,12 @@ const WIDTHS = [360, 390, 430] as const;
 const SHOTS = process.env.FP_SHOTS;
 const TOP = "[data-fp-screen][data-state=open], [data-fp-sheet][data-state=open]";
 
+// The monthly breakdown (section screens, insight screens, edit and their
+// sheets) moved from the Picture to the Insights screen.
 async function openPicture(page: Page) {
-  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
+  await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "insights"));
   await openDemo(page);
-  await expect(page.getByTestId("financial-picture")).toBeVisible();
+  await expect(page.getByTestId("financial-insights")).toBeVisible();
 }
 
 const settle = (page: Page) => page.waitForFunction(() => document.getAnimations().filter(a => a.playState === "running").length === 0);
@@ -37,7 +39,7 @@ async function audit(page: Page): Promise<Audit> {
   return page.evaluate((TOP) => {
     const vw = document.documentElement.clientWidth;
     const tops = [...document.querySelectorAll<HTMLElement>(TOP)];
-    const scope = tops[tops.length - 1] ?? document.querySelector<HTMLElement>("[data-testid=financial-picture]")!;
+    const scope = tops[tops.length - 1] ?? document.querySelector<HTMLElement>("[data-testid=financial-insights]")!;
     const body = scope.querySelector<HTMLElement>(".scr-b, .ov-b") ?? (scope.closest("main") as HTMLElement | null) ?? scope;
     const name = (el: Element) => {
       const l = el.getAttribute("aria-label") || (el as HTMLElement).innerText?.trim().split("\n")[0] || el.getAttribute("name") || el.tagName;

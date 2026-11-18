@@ -54,12 +54,14 @@ export const test = base.extend<{ guard: Guard }>({
 });
 export { expect };
 
-export const VIEWS = ["Home", "Money Map", "Spending", "My Financial Picture", "Gift Cards", "Benefits"] as const;
+// Money Map has no nav entry since the Gift Cards nav swap (it is still
+// rendered by LivePlaidDashboard, just unreachable), so it is not a VIEW.
+export const VIEWS = ["Home", "Spending", "My Financial Picture", "Gift Cards", "Benefits"] as const;
 export type ViewName = (typeof VIEWS)[number];
 
 export async function openDemo(page: Page) {
   await page.goto("/demo");
-  await expect(page.getByText("You're viewing demo data.")).toBeVisible();
+  await expect(page.locator("[data-testid='example-data']:visible")).toBeVisible();
 }
 
 export async function goTo(page: Page, view: ViewName) {
@@ -86,12 +88,17 @@ export async function homeSpent(page: Page): Promise<number> {
   return usd(await card.innerText());
 }
 
-/** Reads Spending's current-month total from the "Month summary" hero
- *  ("Spent so far in <Month>" → value), after any count-up settles. */
+/** Reads Spending's current-month total from the "Spending by period"
+ *  summary ("In $X" / "Out $Y"). The Oct 29-30 redesign replaced the
+ *  "Month summary" / "Spent so far in <Month>" hero. */
 export async function spendingTotal(page: Page): Promise<number> {
-  const val = page.getByRole("region", { name: "Month summary" }).getByText(/^Spent so far in /).locator("xpath=following-sibling::div[1]");
-  await expect(val).toHaveText(/\$[\d,]+/);
-  let prev = -1, cur = usd(await val.innerText());
-  for (let i = 0; i < 20 && cur !== prev; i++) { await page.waitForTimeout(150); prev = cur; cur = usd(await val.innerText()); }
-  return cur;
+  const region = page.getByRole("region", { name: "Spending by period" });
+  await expect(region).toBeVisible();
+  const text = await region.innerText();
+  const m = /Out\s*([−-]?\$[\d,.]+)/.exec(text);
+  expect(m, "Spending period 'Out' total").toBeTruthy();
+  return usd(m![1]);
 }
+
+/** The Timeline opens on the Rundown tab; the History feed is one tap away. */
+export async function toHistory(p: import("@playwright/test").Page) { await p.getByTestId("tl-tab-history").click(); }

@@ -12,17 +12,17 @@ test.describe("phone sheets close on Escape", () => {
   });
 
   test("filter bottom sheet", async ({ page, guard }) => {
-    await page.getByRole("button", { name: "Filter", exact: true }).click();
+    await page.getByRole("button", { name: "Filter transactions" }).click();
     const sheet = page.getByRole("dialog", { name: "Filters" });
     await expect(sheet).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
-    await expect(page.getByRole("button", { name: "Filter", exact: true })).toBeFocused();
+    await expect(page.getByRole("button", { name: "Filter transactions" })).toBeFocused();
     expect(guard.consoleErrors).toEqual([]);
   });
 
   test("sort sheet", async ({ page }) => {
-    await page.getByRole("button", { name: "Sort", exact: true }).click();
+    await page.getByRole("button", { name: "Sort transactions" }).click();
     const menu = page.getByRole("menu", { name: "Sort transactions" });
     await expect(menu).toBeVisible();
     await page.keyboard.press("Escape");
