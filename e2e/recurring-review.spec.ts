@@ -5,8 +5,8 @@ import type { Locator, Page } from "@playwright/test";
  * Detected recurring items on the one My Financial Picture at 360/390/430
  * (phone: item opens as a bottom sheet) and 1440 (dialog). Detections are
  * settled internally: no "To review" queue, no counts, no review chips.
- * Each plan row still opens its detail, where Edit corrects it ("How we
- * found this" + the edit form), Remove hides it (Undo), and Hidden items
+ * Each plan row still opens its detail, where Edit opens the compact edit
+ * sheet (form + recent charges), Remove hides it (Undo), and Hidden items
  * restores it. No horizontal overflow. Demo data; backend stubbed.
  */
 const SHOTS = process.env.FP_SHOTS_DIR;
@@ -55,19 +55,19 @@ for (const width of [360, 390, 430, 1440]) {
       expect(start).toBeGreaterThan(3);
       await shot(page, `${tag}-01-plan`);
 
-      // Detail → Edit: "How we found this" and the correction form.
+      // Detail → Edit opens the compact edit sheet (form + recent charges).
       const label = (await rows.first().locator(".pl-lbl b").innerText()).trim();
       await realClick(page, rows.first());
       const detail = page.getByTestId("plan-item-detail");
       await expect(detail).toBeVisible();
       await expect(detail.getByRole("button", { name: "Confirm" })).toHaveCount(0);
-      await realClick(page, detail.getByRole("button", { name: "Edit" }));
+      await realClick(page, detail.getByRole("button", { name: "Edit", exact: true }));
       const item = page.getByTestId("rcv-item-detail");
       await expect(item).toBeVisible();
-      await expect(item.getByText("How we found this")).toBeVisible();
+      await expect(item.getByTestId("rcv-edit-form")).toBeVisible();
+      await expect(item.getByTestId("rcv-history")).toBeVisible();
       await expect(item).not.toContainText(/Confidence \d+%|\d+ match/);
-      await realClick(page, item.getByRole("button", { name: "Edit" }));
-      await item.getByLabel("Amount each time").fill("123.45");
+      await item.getByLabel("Expected amount").fill("123.45");
       await page.waitForTimeout(300);
       await noOverflow(page, width);
       await shot(page, `${tag}-02-edit`);
@@ -118,7 +118,7 @@ test("phone: an item's edit view opens as a bottom sheet", async ({ page }) => {
   await openPicture(page);
   await realClick(page, page.getByTestId("plan-upcoming").getByRole("button", { name: "By cadence" }));
   await realClick(page, detectedRows(page).first());
-  await realClick(page, page.getByTestId("plan-item-detail").getByRole("button", { name: "Edit" }));
+  await realClick(page, page.getByTestId("plan-item-detail").getByRole("button", { name: "Edit", exact: true }));
   const sheet = page.getByRole("dialog").filter({ has: page.getByTestId("rcv-item-detail") });
   await expect(sheet.locator(".grab")).toHaveCount(1);
 });

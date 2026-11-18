@@ -46,7 +46,7 @@ const item = (p: Partial<ReviewItem>): ReviewItem => ({
   key: "k", group: "bills", kind: "bill", subtype: null, direction: "outflow", label: "Bill", pattern: "", cadence: "monthly", amount: 100,
   amountKind: "fixed", amountRange: [100, 100], monthly: 100, lastSeen: "2026-10-01", nextDue: "2026-11-01", occurrences: 3, confidence: 1,
   transactionIds: [], matched: [], accountId: null, coverAccountId: null, coverUserSet: false, status: "confirmed", edited: false, missed: false,
-  daysLate: null, why: "", detected: null, ...p,
+  daysLate: null, why: "", detected: null, renamed: false, autoLabel: String(p.label ?? "Item"), expectedAmount: null, patternLine: "", estimated: false, estimateNote: null, ...p,
 });
 
 describe("upcomingWindow", () => {

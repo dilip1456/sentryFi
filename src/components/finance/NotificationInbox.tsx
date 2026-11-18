@@ -4,7 +4,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import {
   Bell, X, CheckCheck, CreditCard, TrendingUp, AlertTriangle,
   Wallet, Lightbulb, DollarSign, RotateCcw, ArrowLeft, ArrowLeftRight,
-  Sparkles, ChevronDown, ChevronUp, FlaskConical,
+  Sparkles, ChevronDown, ChevronUp, FlaskConical, ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { fmtShortDate } from "@/lib/format-date";
@@ -56,6 +56,7 @@ const ALERT_ICON: Record<string, React.ElementType> = {
   paycheck_anomaly: AlertTriangle,
   promo: Sparkles,
   shortfall: AlertTriangle,
+  price_increase: ArrowUpRight,
 };
 
 const ALERT_COLOR: Record<string, string> = {
@@ -71,6 +72,7 @@ const ALERT_COLOR: Record<string, string> = {
   paycheck_anomaly: "fl-amber",
   promo: "fl-info",
   shortfall: "fl-red",
+  price_increase: "fl-amber",
 };
 
 function useNarrow() {
@@ -553,6 +555,14 @@ function DetailSheet({
             <div>Status</div><div>{dueLabel({ id: item.id, alert_type: "payment_due", title: item.title, body: item.body, payload: item.payload ?? {}, read_at: item.read ? item.at : null, created_at: item.at }, now) ?? item.status ?? "—"}</div>
             {(p.min_payment != null || p.minimum != null) && <><div>Minimum</div><div>{fmtUSD(Number(p.min_payment ?? p.minimum), { cents: true })}</div></>}
             {p.due_date != null && <><div>Due date</div><div>{fmtShortDate(String(p.due_date))}</div></>}
+          </>
+        )}
+        {item.type === "price_increase" && p.previous != null && (
+          <>
+            <div>{p.baseline_source === "expected" ? "You expect" : "Usually"}</div><div>{fmtUSD(Number(p.previous), { cents: true })}</div>
+            {p.amount != null && <><div>This charge</div><div>{fmtUSD(Number(p.amount), { cents: true })}</div></>}
+            {p.delta != null && <><div>Went up</div><div>+{fmtUSD(Number(p.delta), { cents: true })}{p.pct != null ? ` (${Math.round(Number(p.pct) * 100)}%)` : ""}</div></>}
+            {p.date != null && <><div>Charged</div><div>{fmtShortDate(String(p.date))}</div></>}
           </>
         )}
         {item.type === "paycheck_anomaly" && (

@@ -18,6 +18,7 @@ import type { NetWorthGroupKey } from "@/lib/picture/overview";
 import { usePicture, type PictureState } from "./state";
 import { useOverlay, type DetailView } from "./overlays";
 import { fmt } from "./bits";
+import { EditPatternButton } from "./recurring";
 
 const CADENCE_WORD: Record<string, string> = {
   weekly: "Weekly", biweekly: "Every 2 weeks", semimonthly: "Twice a month", monthly: "Monthly", quarterly: "Every 3 months", semiannual: "Every 6 months", yearly: "Yearly",
@@ -27,8 +28,10 @@ const shortDate = (d: string, today: string) => new Date(`${d}T12:00:00`).toLoca
 export type Tag = { text: string; cls: "det" | "ok" | "man" | "bad" | "warn" | "" };
 
 /** One inventory line: next date, name + how often, status tags, amount and yearly total. */
-export function InvRow({ label, sub, amount, per, annual, next, tags, onClick, testId }: {
+export function InvRow({ label, sub, amount, per, annual, next, tags, onClick, testId, edit }: {
   label: string; sub?: string; amount: number; per: string; annual: number; next?: string | null; tags: Tag[]; onClick?: () => void; testId: string;
+  /** A row that is one detected pattern: a pencil edits its name and expected amount in one tap. */
+  edit?: ReviewItem;
 }) {
   const t = usePicture().plan.todayISO;
   const soon = !!next && next >= t && diffDays(next, t) <= 7;
@@ -40,9 +43,10 @@ export function InvRow({ label, sub, amount, per, annual, next, tags, onClick, t
     <span className="pl-amt">{fmt(amount)}<i className="pl-per">{per}</i><small>{fmt(annual)}/yr</small></span>
   </>;
   const aria = `${label}, ${fmt(amount)}${per}, ${fmt(annual)} a year${next ? `, next ${shortDate(next, t)}` : ""}`;
-  return onClick
+  const row = onClick
     ? <button type="button" className={`pl-row ${soon ? "soon" : ""}`} data-testid={testId} onClick={onClick} aria-label={`${aria}. Details`}>{body}</button>
     : <div className="pl-row static" data-testid={testId} aria-label={aria}>{body}</div>;
+  return edit ? <div className="pl-wrap">{row}<EditPatternButton it={edit} className="pl-edit" /></div> : row;
 }
 
 function Section({ id, icon, title, sub, right, children, testId }: { id?: string; icon: ReactNode; title: string; sub?: ReactNode; right?: ReactNode; children?: ReactNode; testId: string }) {
@@ -120,12 +124,12 @@ export function IncomeSection() {
             const estimated = !pay.length && r.monthly > 0 && !r.edited;
             const cad = pay[0] ? (pay[0].pattern || CADENCE_WORD[pay[0].cadence]) : estimated ? "Averaged from recent paychecks" : "No paychecks found yet";
             return <InvRow key={r.id} testId="inv-income" label={pay.length > 1 ? `Salary · ${pay.length} employers` : pay[0] ? `Salary · ${pay[0].label}` : "Salary"} sub={cad}
-              amount={r.monthly} per="/mo" annual={r.monthly * 12} next={nextOf(pay)} tags={payTags(pay, !!r.edited, estimated)} onClick={() => open("row:income:salary")} />;
+              amount={r.monthly} per="/mo" annual={r.monthly * 12} next={nextOf(pay)} tags={payTags(pay, !!r.edited, estimated)} onClick={() => open("row:income:salary")} edit={pay.length === 1 && pay[0].status !== "dismissed" ? pay[0] : undefined} />;
           }
           if (r.manualId) return <InvRow key={r.id} testId="inv-income" label={r.label} sub="Monthly" amount={r.monthly} per="/mo" annual={r.monthly * 12} tags={[{ text: "Added by you", cls: "man" }]} onClick={() => open(`inv:income:${r.manualId}`)} />;
           const list = r.id === "other" ? other : [];
           return <InvRow key={r.id} testId="inv-income" label={r.label} sub={r.sub} amount={r.monthly} per="/mo" annual={r.monthly * 12} next={nextOf(list)}
-            tags={r.edited ? [{ text: "Set by you", cls: "man" }] : r.id === "bonus" ? [{ text: "Averaged", cls: "det" }] : payTags(list, false, false)} onClick={() => open(`row:income:${r.id}`)} />;
+            tags={r.edited ? [{ text: "Set by you", cls: "man" }] : r.id === "bonus" ? [{ text: "Averaged", cls: "det" }] : payTags(list, false, false)} onClick={() => open(`row:income:${r.id}`)} edit={list.length === 1 ? list[0] : undefined} />;
         })}
       </div>
     </Section>

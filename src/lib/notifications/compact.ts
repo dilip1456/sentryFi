@@ -68,8 +68,10 @@ const BUFFER_DEFAULT = 500;
  *   shortfall; missed/overdue payment; payment due today or tomorrow;
  *   paycheck anomaly; available balance below $0 or the buffer;
  *   a "possible duplicate" insight.
- * Soon: due in 2–7 days; budget exceeded; history hint; large txn.
- * Info: deposits, payments posted, product notices, other insights.
+ * Soon: due in 2–7 days; budget exceeded; a recurring price increase;
+ *   balance under the buffer but positive-ish; history hint; large charge.
+ * Info: deposits, payments posted, budget nearing (not yet over), product
+ *   notices, other insights.
  */
 export function classifyPriority(item: {
   type: string;
@@ -99,7 +101,16 @@ export function classifyPriority(item: {
     if (Number.isFinite(buffer) && bal < buffer) return "urgent";
     return "soon";
   }
-  if (type === "budget_threshold" || type === "large_txn") return "soon";
+  if (type === "price_increase" || type === "price_change") return "soon";
+  if (type === "budget_threshold" || type === "budget_exceeded" || type === "budget") {
+    const spent = Number(item.payload?.spent);
+    const budget = Number(item.payload?.budget);
+    // Nearing the budget is informational; at or over it needs a look soon.
+    if (Number.isFinite(spent) && Number.isFinite(budget) && budget > 0 && spent < budget) return "info";
+    return "soon";
+  }
+  if (type === "large_txn" || type === "large_charge" || type === "large_transaction") return "soon";
+  if (type === "paycheck_shortfall" || type === "duplicate") return "urgent";
   if (type === "insight" && /duplicate/i.test(item.title ?? "")) return "urgent";
   if (type === "promo" && /history/i.test(item.title ?? "")) return "soon";
   return "info";
@@ -256,7 +267,26 @@ export function buildCompactInbox(
   return { urgent, groups };
 }
 
-/** Build a CompactItem from an alert_log / derived row. */
+const PRIORITIES: readonly InboxPriority[] = ["urgent", "soon", "info"];
+const SEVERITY: Record<string, InboxPriority> = { critical: "urgent", high: "urgent", warning: "soon", medium: "soon", low: "info" };
+
+/** The alert's own priority, when its row or payload states one (priority / severity). */
+export function ownPriority(a: AlertLike & { priority?: unknown; severity?: unknown }): InboxPriority | null {
+  const payload = (a.payload ?? {}) as Record<string, unknown>;
+  for (const v of [a.priority, payload.priority]) {
+    if (typeof v === "string" && (PRIORITIES as readonly string[]).includes(v)) return v as InboxPriority;
+  }
+  for (const v of [a.severity, payload.severity]) {
+    if (typeof v === "string" && SEVERITY[v.toLowerCase()]) return SEVERITY[v.toLowerCase()];
+  }
+  return null;
+}
+
+/**
+ * Build a CompactItem from an alert_log / derived row. Priority: an explicit
+ * `extras.priority`, else the alert's own priority/severity, else worked out
+ * from its type (classifyPriority). Never pre-seeded, so it isn't lost.
+ */
 export function fromAlertLike(a: AlertLike, now: Date = new Date(), extras: Partial<CompactItem> = {}): CompactItem {
   const type = a.alert_type;
   const payload = (a.payload ?? {}) as Record<string, unknown>;
@@ -279,7 +309,7 @@ export function fromAlertLike(a: AlertLike, now: Date = new Date(), extras: Part
     payload,
     ...extras,
   };
-  draft.priority = classifyPriority(draft, now);
+  draft.priority = classifyPriority({ ...draft, priority: extras.priority ?? ownPriority(a) }, now);
   draft.stack = inferStack(draft);
   return draft;
 }

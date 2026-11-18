@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Mail, Smartphone, CalendarDays, Save, Loader2,
-  AlertTriangle, Wallet, CreditCard, Receipt, ArrowDownToLine, Undo2, ArrowLeftRight, CheckCircle2, Sparkles,
+  AlertTriangle, Wallet, CreditCard, Receipt, ArrowDownToLine, Undo2, ArrowLeftRight, CheckCircle2, Sparkles, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -13,7 +13,7 @@ import { Switch as UISwitch } from "@/components/ui/switch";
 
 type AlertTypeKey =
   | "alert_budget_threshold" | "alert_low_balance" | "alert_payment_due" | "alert_large_txn"
-  | "alert_deposit" | "alert_refund" | "alert_transfer" | "alert_cc_payment" | "alert_insight";
+  | "alert_deposit" | "alert_refund" | "alert_transfer" | "alert_cc_payment" | "alert_insight" | "alert_price_change";
 
 interface AlertPrefs {
   email_enabled: boolean;
@@ -32,6 +32,7 @@ interface AlertPrefs {
   alert_transfer: boolean;
   alert_cc_payment: boolean;
   alert_insight: boolean;
+  alert_price_change: boolean;
 }
 
 const DEFAULTS: AlertPrefs = {
@@ -39,6 +40,7 @@ const DEFAULTS: AlertPrefs = {
   budget_pct: 90, low_balance: 100, payment_days: 3, weekly_summary: true,
   alert_budget_threshold: true, alert_low_balance: true, alert_payment_due: true, alert_large_txn: true,
   alert_deposit: true, alert_refund: true, alert_transfer: true, alert_cc_payment: true, alert_insight: true,
+  alert_price_change: true,
 };
 
 // Every alert category the send-alerts function can generate — each one is
@@ -50,6 +52,7 @@ const ALERT_TYPES: { key: AlertTypeKey; icon: typeof AlertTriangle; label: strin
   { key: "alert_low_balance", icon: Wallet, label: "Low balance", desc: "Checking or savings running low" },
   { key: "alert_budget_threshold", icon: AlertTriangle, label: "Budget threshold", desc: "A category nears or exceeds budget" },
   { key: "alert_large_txn", icon: Receipt, label: "Large charge", desc: "Unusually large transaction" },
+  { key: "alert_price_change", icon: TrendingUp, label: "Bill went up", desc: "A bill or subscription charged more than usual" },
   { key: "alert_refund", icon: Undo2, label: "Refund", desc: "Money credited back to you" },
   { key: "alert_transfer", icon: ArrowLeftRight, label: "Transfer", desc: "Money moved between accounts" },
   { key: "alert_cc_payment", icon: CheckCircle2, label: "Payment posted", desc: "A card payment was applied" },
@@ -94,7 +97,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
   const save = async () => {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from("alert_preferences").upsert({
+    const row = {
       user_id: user.id,
       email_enabled: prefs.email_enabled,
       push_enabled: prefs.push_enabled,
@@ -112,7 +115,14 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
       alert_transfer: prefs.alert_transfer,
       alert_cc_payment: prefs.alert_cc_payment,
       alert_insight: prefs.alert_insight,
-    }, { onConflict: "user_id" });
+      alert_price_change: prefs.alert_price_change,
+    };
+    let { error } = await supabase.from("alert_preferences").upsert(row, { onConflict: "user_id" });
+    // Before 20261118000200 is applied the column doesn't exist yet: save the rest.
+    if (error && /alert_price_change/.test(error.message ?? "")) {
+      const { alert_price_change: _skip, ...rest } = row;
+      ({ error } = await supabase.from("alert_preferences").upsert(rest, { onConflict: "user_id" }));
+    }
     setSaving(false);
     if (error) {
       // Surface the real Postgres error (e.g. "column does not exist") instead

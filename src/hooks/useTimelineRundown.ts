@@ -5,6 +5,8 @@ import type { ClassifierAccount, TxnTypeOverride } from "@/lib/recurring/classif
 import { addDays, todayLocal } from "@/lib/recurring/dates";
 import { detectRecurringSeries } from "@/lib/recurring/detect";
 import { toStreamRow } from "@/lib/recurring/rows";
+import { applyPatternOverrides, type DecisionRow } from "@/lib/recurring/decisions";
+import { seriesPlanningAmount } from "@/lib/recurring/planning-amount";
 import {
   accountsFromPlaid, buildUpcoming, demoRundown, eligibleStreams, LOOKBACK_DAYS, mergeStreams, normalizeRundownSettings, plannedFromEvents,
   txnsFromPlaid, DEFAULT_RUNDOWN_SETTINGS,
@@ -54,8 +56,11 @@ export function useTimelineRundown({ userId, demo }: TimelineSourceOpts, enabled
       const upAccounts: UpcomingAccount[] = accounts.map(a => ({ account_id: a.id, name: a.name, mask: a.mask, type: a.type, subtype: a.subtype, current_balance: a.balance }));
       const clsAccounts: ClassifierAccount[] = accounts.map(a => ({ account_id: a.id, name: a.name, mask: a.mask ?? null, type: a.type ?? null, subtype: a.subtype ?? null }));
       const series = detectRecurringSeries(history, clsAccounts, { today, overrides: overrides as TxnTypeOverride[] });
-      const detected = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen })) as UpcomingStream[];
-      const streams = eligibleStreams(mergeStreams(stored as UpcomingStream[], detected));
+      const detected = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen, matched_transaction_ids: s.transactionIds })) as UpcomingStream[];
+      // Plan for the worst case (planningAmount); the person's own expected amount / name win.
+      const planning = new Map<string, number>();
+      for (const s of series) { const p = seriesPlanningAmount(s); if (p != null) planning.set(s.seriesKey, p); }
+      const streams = eligibleStreams(applyPatternOverrides(mergeStreams(stored as UpcomingStream[], detected), stored as DecisionRow[]), planning);
       const events = buildUpcoming({ today: from, through, streams, obligations: obligations as UpcomingObligation[], statements: statements as UpcomingStatement[], milestones: milestones as UpcomingMilestone[], accounts: upAccounts });
       return { items: plannedFromEvents(events, { streams, occurrences: occurrences as OccurrenceRow[] }), txns: txnsFromPlaid(recent as never), accounts };
     },
