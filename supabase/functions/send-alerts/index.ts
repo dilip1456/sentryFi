@@ -191,13 +191,21 @@ Deno.serve(async (req) => {
       };
       // Look back a few extra days so transfer legs that straddle the 1st still pair.
       const classifyFrom = new Date(Math.min(Date.parse(monthStart), now - 2 * 86400000) - 6 * 86400000).toISOString().slice(0, 10);
-      const { data: recentAll } = await admin.from("plaid_transactions")
-        .select("*").eq("user_id", userId).gte("date", classifyFrom);
+      // Narrow columns, paged past the 1000-row default.
+      const recentAll: Record<string, unknown>[] = [];
+      for (let from = 0; from < 20000; from += 1000) {
+        const { data: page, error: pageErr } = await admin.from("plaid_transactions")
+          .select("id,transaction_id,account_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence")
+          .eq("user_id", userId).gte("date", classifyFrom).order("date", { ascending: false }).range(from, from + 999);
+        if (pageErr) { console.warn("plaid_transactions page failed", pageErr.message); break; }
+        recentAll.push(...(page ?? []));
+        if (!page || page.length < 1000) break;
+      }
       const { data: typeRows, error: typeErr } = await admin.from("txn_overrides").select("transaction_id,txn_type").eq("user_id", userId);
       if (typeErr) console.warn("txn_overrides unavailable (migration not applied?)", typeErr.message);
       const typeByPlaidId: Record<string, TxnType> = {};
       for (const r of typeRows ?? []) typeByPlaidId[r.transaction_id] = r.txn_type;
-      const ctxTxns = (recentAll ?? []) as ClassifierTxn[];
+      const ctxTxns = recentAll as unknown as ClassifierTxn[];
       const typeOverrides: Record<string, TxnType> = {};
       for (const t of ctxTxns) {
         const ov = t.transaction_id ? typeByPlaidId[t.transaction_id] : undefined;
@@ -213,10 +221,10 @@ Deno.serve(async (req) => {
         categoryOverrides: catOverrides,
         ruleCategory,
         notInternalIds: manualExternal,
-        plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+        plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
       });
       const categoryOf = (t: ClassifierTxn) =>
-        catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name) ?? "Other";
+        catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t) ?? "Other";
       const catTotals: Record<string, number> = {};
       for (const t of ctxTxns) {
         if (t.date < monthStart) continue;
