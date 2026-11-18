@@ -6,7 +6,7 @@
  * copy of the current settings, so a multi-field save (the Edit form) can't
  * lose an earlier field to a stale read.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { FinancialPictureData, FinancialPictureManualItem, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "@/lib/picture/keys";
 import type { BankHistory } from "@/lib/relink/history";
@@ -283,6 +283,20 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     txns: rd.loaded ? txns : NO_TXNS, accounts: props.accounts, classOf, getEffectiveCategory: getCat,
     formatCat: props.formatCat, manualIncome: props.manualIncome, budgets, cardAutopayFrom: cardsFrom, savingsGoals: goals, fp, today,
   }), [txns, props.accounts, classOf, getCat, props.formatCat, props.manualIncome, budgets, cardsFrom, goals, fp, today, rd.decisions, rd.loaded]);
+  // Labels an older parser derived ("Credit Org Name") are stored back with
+  // the current name, once each, so the Timeline (which reads the stored
+  // name) shows it too. Names the person chose are never in this list.
+  const relabeled = useRef(new Set<string>());
+  const saveDecision = rd.save;
+  useEffect(() => {
+    if (!rd.loaded) return;
+    for (const d of m.review.relabeled ?? []) {
+      const k = `${d.key}\u0000${d.snapshot?.label ?? ""}`;
+      if (relabeled.current.has(k)) continue;
+      relabeled.current.add(k);
+      void saveDecision(d, { quiet: true });
+    }
+  }, [m.review.relabeled, rd.loaded, saveDecision]);
 
   const year = today.getFullYear();
   const P = full ? 12 : 1;
@@ -379,7 +393,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     });
     const taxes = taxSummary({ today: todayISO, year, gross: m.gross.annual, grossEstimated: m.gross.estimated, filing: m.filing, filingSet: fp.overrides?.filingStatusCode != null, tax, savers, reviewItems: m.review.items, hsaMonthly: m.payroll.hsa, k401Monthly: k401.annual / 12, inputs: fp.taxInputs, k401Source: k401.source });
     const giftCards = giftCardSummary(gc.rows, todayISO);
-    const utilityPayments = m.review.items.filter(i => i.direction === "outflow" && categorize(i.label, i.kind, i.subtype, i.cadence) === "utilities").flatMap(i => i.matched.map(t => ({ date: t.date, amount: Math.abs(t.amount) })));
+    const utilityPayments = m.review.items.filter(i => i.direction === "outflow" && categorize(i.autoLabel || i.label, i.kind, i.subtype, i.cadence) === "utilities").flatMap(i => i.matched.map(t => ({ date: t.date, amount: Math.abs(t.amount) })));
     const recs = recommendations({
       today: todayISO, obligations, cash, low: next30.low, match, savers, gross: m.gross.annual, k401Annual: k401.annual, year,
       utilityPayments, giftCardsExpiringSoon: giftCards.expiringSoon, dismissed: props.dismissedInsights ?? [],
@@ -455,7 +469,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
     const it = r?.reviewKey ? m.review.items.find(i => i.key === r.reviewKey) : undefined;
     if (!it || it.status !== "suggested") return;
     const prev = rd.decisions.find(d => d.key === it.key);
-    void rd.save(decisionFor(it, { status: "confirmed", cadence: prev?.cadence, amount: prev?.amount, group: prev?.group, coverAccountId: prev?.coverAccountId }));
+    void rd.save(decisionFor(it, { status: "confirmed", cadence: prev?.cadence, expectedAmount: prev?.expectedAmount, name: prev?.name, group: prev?.group, coverAccountId: prev?.coverAccountId }));
   }, [findRow, m.review.items, rd]);
   const planToManual = (it: PlanItemInput) => {
     const monthly = Math.round(((it.amount * perYear(it.cadence, it.intervalDays)) / 12 || 0) * 100) / 100;
@@ -524,7 +538,7 @@ export function PictureProvider({ props, children }: { props: MyFinancialPicture
   const recurring = useMemo<PictureState["recurring"]>(() => ({
     decide: (item, patch) => {
       const prev = rd.decisions.find(d => d.key === item.key);
-      void rd.save(decisionFor(item, { status: item.status, cadence: prev?.cadence, amount: prev?.amount, group: prev?.group, coverAccountId: prev?.coverAccountId, ...patch }));
+      void rd.save(decisionFor(item, { status: item.status, cadence: prev?.cadence, expectedAmount: prev?.expectedAmount, name: prev?.name, group: prev?.group, coverAccountId: prev?.coverAccountId, ...patch }));
       return prev;
     },
     revert: (key, prev) => { void (prev ? rd.save(prev) : rd.remove(key)); },
