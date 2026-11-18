@@ -29,12 +29,12 @@ export function AccountRow({ v, today, onOpen }: { v: AccountView; today: Date; 
       <span className="min-w-0">
         <span className="nm">{v.name}</span>
         <span className="sb">
-          {fact?.kind === "signin" && <span className="st-bad"><AlertTriangle className="h-3 w-3" aria-hidden />{fact.text}</span>}
+          {fact?.kind === "signin" && <span className="st-bad"><AlertTriangle className="h-3 w-3" aria-hidden />{fact.text.replace(/as of .+$/, m => m.replace(/ /g, "\u00a0"))}</span>}
           {fact?.kind === "manual" && <span><Pencil className="h-3 w-3" aria-hidden />{fact.text}</span>}
           {fact?.kind === "due" && <span className={cn("due", fact.soon && "soon")}><CalendarDays className="h-3 w-3" aria-hidden />{fact.text}</span>}
           {fact?.kind === "apy" && <span>{fact.text}</span>}
-          {fact && fact.kind !== "manual" && <span aria-hidden>·</span>}
-          {fact?.kind !== "manual" && <span className="id">{identifierOf(v)}</span>}
+          {fact && fact.kind !== "manual" && fact.kind !== "signin" && <span aria-hidden>·</span>}
+          {fact?.kind !== "manual" && fact?.kind !== "signin" && <span className="id">{identifierOf(v)}</span>}
         </span>
       </span>
       <span className="rt">

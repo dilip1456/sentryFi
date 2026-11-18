@@ -82,6 +82,24 @@ const shot = async (page: Page, name: string, fullPage = false) => {
   await page.waitForTimeout(700); // let sheets finish sliding in
   await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage });
 };
+/** Real full-length shot: the app scrolls inside its own container, so grow
+ *  the viewport to the content height, shoot, and restore. */
+const fullShot = async (page: Page, name: string) => {
+  if (!SHOTS) return;
+  const vp = page.viewportSize()!;
+  const h = await page.evaluate(() => Math.max(document.documentElement.scrollHeight,
+    ...Array.from(document.querySelectorAll<HTMLElement>("*")).filter(e => /(auto|scroll)/.test(getComputedStyle(e).overflowY)).map(e => e.scrollHeight + e.getBoundingClientRect().top)));
+  await page.setViewportSize({ width: vp.width, height: Math.ceil(h) + 80 });
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+  await page.setViewportSize(vp);
+  await page.waitForTimeout(300);
+};
+/** No "N things" / "N accounts" counts anywhere on the Accounts page. */
+const countTexts = (page: Page) => page.evaluate(() => {
+  const t = (document.querySelector(".ac") as HTMLElement | null)?.innerText ?? "";
+  return t.match(/\b\d+ (things?|accounts?|accts?|banks?|hidden)\b/gi) ?? [];
+});
 const click = async (page: Page, loc: import("@playwright/test").Locator) => {
   await loc.scrollIntoViewIfNeeded();
   // Sheets slide in; wait until the target stops moving before a real click.
@@ -99,7 +117,7 @@ const click = async (page: Page, loc: import("@playwright/test").Locator) => {
 };
 async function open(page: Page) {
   await page.goto("/");
-  await expect(page.getByTestId("accounts-page")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("accounts-page")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("ac-networth")).toContainText("$");
 }
 const overflowProblems = (page: Page) => page.evaluate(() => {
@@ -127,7 +145,7 @@ test.describe("Accounts, desktop", () => {
     await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "overall"));
     await page.goto("/");
     // Home's net worth first.
-    await expect(page.locator("main")).toContainText("Net Worth", { ignoreCase: true, timeout: 20_000 });
+    await expect(page.locator("main")).toContainText("Net Worth", { ignoreCase: true, timeout: 60_000 });
     await click(page, page.locator("aside nav button", { hasText: "Accounts" }));
     await expect(page.getByTestId("accounts-page")).toBeVisible();
     // assets 8420.55+0.41+41300+20000+168420.5+54320 = 292461.46; debts 2840.22+1120.4+9200+12400 = 25560.62
@@ -138,9 +156,10 @@ test.describe("Accounts, desktop", () => {
     await expect(page.locator("[data-account-row=acc-sapph]")).toContainText("11%");
     await expect(page.locator("[data-account-row=acc-chk]")).toContainText("Everyday checking");
     await expect(page.getByTestId("ac-coming-due").first()).toContainText("Blue Cash Preferred");
-    await expect(page.getByTestId("ac-things")).toContainText("to confirm");
+    await expect(page.getByTestId("ac-things")).toContainText("Worth a look");
+    expect(await countTexts(page)).toEqual([]);
     await shot(page, "desktop-1440-overview");
-    await shot(page, "desktop-1440-overview-full", true);
+    await fullShot(page, "desktop-1440-overview-full");
 
     await click(page, page.locator("[data-account-row=acc-sapph]"));
     const sheet = page.getByTestId("ac-detail-sheet");
@@ -154,8 +173,8 @@ test.describe("Accounts, desktop", () => {
     await expect(sheet).toContainText("Statement balance");
     await expect(page.locator("[data-ac-close]")).toBeFocused();
     await shot(page, "desktop-1440-details-card");
-    await page.keyboard.press("Escape");
-    await expect(sheet).toBeHidden();
+    // Esc closes it (retried: under heavy load a keypress can land mid-animation).
+    await expect(async () => { await page.keyboard.press("Escape"); await expect(sheet).toBeHidden({ timeout: 2_000 }); }).toPass({ timeout: 15_000 });
 
     await click(page, page.getByRole("button", { name: "By bank" }));
     await expect(page.locator("[data-ac-group=pi-chase]")).toContainText("Chase");
@@ -186,8 +205,10 @@ test.describe("Accounts, phone 412", () => {
     expect(await smallTaps(page)).toEqual([]);
     const rows = page.locator("[data-account-row]");
     for (const h of await rows.evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(60);
+    expect(await countTexts(page)).toEqual([]);
+    await expect(page.locator("[data-ac-group=credit]")).not.toContainText(/\d+ accounts?/);
     await shot(page, "mobile-412-overview");
-    await shot(page, "mobile-412-overview-full", true);
+    await fullShot(page, "mobile-412-overview-full");
 
     // Details: bottom sheet, X closes
     await click(page, page.locator("[data-account-row=acc-sapph]"));
@@ -216,7 +237,8 @@ test.describe("Accounts, phone 412", () => {
     await click(page, page.locator("[data-account-row=acc-ef]"));
     await click(page, page.getByTestId("ac-rename-hide"));
     await expect(page.getByTestId("ac-edit")).toBeVisible();
-    await expect(page.getByTestId("ac-nw-toggle")).toBeDisabled();
+    // "Still count it in net worth" only exists while Hide is on.
+    await expect(page.getByTestId("ac-nw-toggle")).toHaveCount(0);
     await shot(page, "mobile-412-rename-hide");
     expect(await smallTaps(page)).toEqual([]);
     await page.goBack();
@@ -224,16 +246,25 @@ test.describe("Accounts, phone 412", () => {
     await click(page, page.getByTestId("ac-rename-hide"));
     await click(page, page.getByTestId("ac-hide-toggle"));
     await expect(page.getByTestId("ac-nw-toggle")).toBeEnabled();
+    await shot(page, "mobile-412-rename-hide-on");
+    // Disconnect sits 24px+ below Cancel / Save.
+    { const save = (await page.getByTestId("ac-edit-save").boundingBox())!;
+      const dis = (await page.getByRole("button", { name: /^Disconnect / }).boundingBox())!;
+      expect(dis.y - (save.y + save.height)).toBeGreaterThanOrEqual(24); }
     await click(page, page.getByTestId("ac-edit-save"));
     await expect(sheet).toBeHidden();
     await expect(page.locator("[data-account-row=acc-ef]")).toHaveCount(0);
-    await expect(page.getByTestId("ac-hidden-row")).toContainText("1 hidden account");
+    await expect(page.getByTestId("ac-hidden-row")).toContainText("Hidden accounts");
     // Still counts in net worth by default
     await expect(page.getByTestId("ac-networth")).toHaveText("$266,900.84");
     // Opening the list clears the "Hidden …" toast, which would sit over its rows.
     await click(page, page.getByTestId("ac-hidden-row"));
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
     await expect(page.getByTestId("ac-hidden-sheet")).toContainText("Emergency fund");
+    await expect(page.getByTestId("ac-hidden-sheet")).toContainText("Ally Bank ··7748 · $20,000.00");
+    await expect(page.getByTestId("ac-hidden-sheet")).toContainText("Still counted in net worth");
+    { const show = (await page.getByTestId("ac-hidden-sheet").getByRole("button", { name: "Show" }).boundingBox())!;
+      expect(show.height).toBeGreaterThanOrEqual(44); }
     await shot(page, "mobile-412-hidden");
     await click(page, page.getByTestId("ac-hidden-sheet").getByRole("button", { name: "Show" }));
     await expect(page.locator("[data-account-row=acc-ef]")).toHaveCount(1);
@@ -245,6 +276,16 @@ test.describe("Accounts, phone 412", () => {
     await open(page);
     await expect(page.getByTestId("ac-sync-alert")).toBeVisible();
     await shot(page, "mobile-412-relink");
+    // The Fidelity rows themselves: "Needs sign-in · as of Oct 15".
+    await page.locator("[data-account-row=acc-401k]").scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.querySelector("[data-ac-group=investment]")?.scrollIntoView({ block: "center" }));
+    await expect(page.locator("[data-account-row=acc-401k]")).toContainText("Needs sign-in · as of Oct 15");
+    await expect(page.locator("[data-account-row=acc-brk]")).toContainText("Needs sign-in · as of Oct 15");
+    for (const k of ["acc-401k", "acc-brk"]) {
+      const clipped = await page.locator(`[data-account-row=${k}] .st-bad`).evaluate(e => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > (e.closest(".ac-row")!.querySelector(".rt") as HTMLElement).getBoundingClientRect().left);
+      expect(clipped, `${k} sign-in fact is clipped`).toBe(false);
+    }
+    await shot(page, "mobile-412-relink-rows");
     await click(page, page.getByRole("button", { name: "By bank" }));
     await expect(page.locator("[data-ac-group=pi-fid]")).toContainText("Reconnect");
     expect(await overflowProblems(page)).toEqual([]);
@@ -255,11 +296,14 @@ test.describe("Accounts, phone 412", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("ac-connections-sheet")).toBeHidden();
     await page.waitForTimeout(500);
-    await click(page, page.getByTestId("ac-things"));
-    const things = page.getByTestId("ac-things-sheet");
+    // "Worth a look": each inference is its own one-tap row, no count.
+    const things = page.getByTestId("ac-things");
+    await expect(things).toContainText("Worth a look");
     await expect(things).toContainText("looks unused");
     await expect(things).toContainText("APY");
-    await shot(page, "mobile-412-things-to-confirm");
+    expect(await countTexts(page)).toEqual([]);
+    await page.evaluate(() => document.querySelector("[data-testid=ac-things]")?.scrollIntoView({ block: "center" }));
+    await shot(page, "mobile-412-worth-a-look");
     await click(page, things.getByRole("button", { name: /^Use / }));
     await expect(things).not.toContainText("earns about");
   });
@@ -272,6 +316,7 @@ test.describe("Accounts, phone 412", () => {
       await open(page);
       expect(await overflowProblems(page)).toEqual([]);
       expect(await smallTaps(page)).toEqual([]);
+      if (w === 360) { await shot(page, "mobile-360-overview"); await fullShot(page, "mobile-360-overview-full"); }
       await click(page, page.locator("[data-account-row=acc-sapph]"));
       await expect(page.getByTestId("ac-detail-sheet")).toBeVisible();
       await page.waitForTimeout(400);

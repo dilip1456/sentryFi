@@ -12,7 +12,7 @@ export function SyncAlert({ b, onReconnect, onWhy, busy }: { b: BrokenBank; onRe
       <div className="min-w-0">
         <h3>{b.bankName} stopped syncing</h3>
         <p>
-          {b.bankName} needs you to sign in again. {b.accounts} account{b.accounts === 1 ? "" : "s"} ({fmtUSD(Math.round(b.total))})
+          {b.bankName} needs you to sign in again. {b.accounts === 1 ? "Its account" : "Its accounts"} ({fmtUSD(Math.round(b.total))})
           {b.since ? ` ${b.accounts === 1 ? "is" : "are"} showing ${shortDate(b.since)} balances.` : " may be out of date."}
         </p>
         <div className="acts">

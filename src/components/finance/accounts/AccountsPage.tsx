@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeImpliedApy } from "@/lib/accounts/interest";
 import { getInstitutionUrl } from "@/lib/accounts/institutions";
 import { netWorthTotals } from "@/lib/accounts/totals";
-import { buildAccountViews, groupByBank, groupByType, MANUAL_BANK, STALE_DAYS, type AccountView } from "@/lib/accounts/grouping";
+import { buildAccountViews, groupByBank, groupByType, MANUAL_BANK, STALE_DAYS, type AccountView, signInLabel } from "@/lib/accounts/grouping";
 import {
   apyFindings, autopayFindings, autopayState, comingDue, detectCardAutopays, dormantFindings, duplicateFindings, KEEP_DAYS,
   type AccountFinding, type ComingDueItem,
@@ -31,7 +31,7 @@ import { HiddenAccountsSheet } from "./HiddenAccountsSheet";
 import { NetWorthHero, type SyncSummary } from "./NetWorthHero";
 import { ReconnectSheet } from "./ReconnectSheet";
 import { SyncAlert, type BrokenBank } from "./SyncAlert";
-import { ThingsToConfirmCard, ThingsToConfirmSheet } from "./ThingsToConfirm";
+import { ThingsToConfirmCard } from "./ThingsToConfirm";
 import { usePlaidUpdate } from "./usePlaidUpdate";
 import "./accounts.css";
 
@@ -157,7 +157,7 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
   const lastSyncs = items.map(i => lastSyncOf(i.id)).filter((x): x is string => !!x).sort();
   const lastSync = lastSyncs.length ? lastSyncs[lastSyncs.length - 1] : p.loadedAt?.toISOString() ?? null;
   const isStale = (iso: string | null) => !!iso && now.getTime() - new Date(iso).getTime() > STALE_DAYS * 86_400_000;
-  const sync: SyncSummary = { banks: items.length, broken: brokenBanks.length, lastSync, stale: isStale(lastSync) };
+  const sync: SyncSummary = { banks: items.length, broken: brokenBanks.length, brokenNames: brokenBanks.map(b => b.bankName), lastSync, stale: isStale(lastSync) };
   const connections: ConnectionRow[] = [
     ...items.map(i => {
       const n = views.filter(v => v.itemId === i.id).length;
@@ -170,7 +170,6 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
 
   // Sheets
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [thingsOpen, setThingsOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [connOpen, setConnOpen] = useState(false);
   const [relinkItem, setRelinkItem] = useState<string | null>(null);
@@ -229,7 +228,7 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
         <div className="min-w-0">
           <NetWorthHero t={totals} sync={sync} now={now} onConnections={() => setConnOpen(true)} />
           {alertBanks.map(b => <SyncAlert key={b.itemId} b={b} busy={reconnecting} onReconnect={() => reconnect(b.itemId)} onWhy={() => setRelinkItem(b.itemId)} />)}
-          <ThingsToConfirmCard findings={findings} onOpen={() => setThingsOpen(true)} />
+          <ThingsToConfirmCard findings={findings} onAccept={acceptFinding} onDismiss={dismissFinding} />
 
           <div className="ac-bar">
             <div className="seg" role="group" aria-label="Group accounts">
@@ -244,7 +243,7 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
 
           {hiddenViews.length > 0 && (
             <button type="button" className="ac-foot" onClick={() => { toast.dismiss(); setHiddenOpen(true); }} data-testid="ac-hidden-row">
-              <EyeOff className="h-4 w-4" aria-hidden />{hiddenViews.length} hidden account{hiddenViews.length === 1 ? "" : "s"}<ChevronRight className="r h-4 w-4" aria-hidden />
+              <EyeOff className="h-4 w-4" aria-hidden />Hidden accounts<ChevronRight className="r h-4 w-4" aria-hidden />
             </button>
           )}
           <button type="button" className="ac-foot add md:hidden" onClick={p.onAddAccount}><Plus className="h-4 w-4" aria-hidden />Add or link an account</button>
@@ -279,10 +278,9 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
         onReload={p.onReload}
         onSeeAll={p.onSeeSpending}
       />
-      <ThingsToConfirmSheet open={thingsOpen} findings={findings} onClose={() => setThingsOpen(false)} onAccept={acceptFinding} onDismiss={dismissFinding} />
       <HiddenAccountsSheet open={hiddenOpen && hiddenViews.length > 0} views={hiddenViews} onClose={() => setHiddenOpen(false)}
         onShow={v => { p.onSaveMeta(v.key, { hidden: false, excludeFromNetWorth: false }); toast.success(`${v.name} is back in the list`); }} />
-      <AccountsSheet open={connOpen} onClose={() => setConnOpen(false)} title="Connections" subtitle={sync.broken ? `${sync.broken} need${sync.broken === 1 ? "s" : ""} sign-in` : "All banks synced · Plaid"} testId="ac-connections-sheet">
+      <AccountsSheet open={connOpen} onClose={() => setConnOpen(false)} title="Connections" subtitle={signInLabel(brokenBanks.map(b => b.bankName), "All banks synced · Plaid")} testId="ac-connections-sheet">
         <ConnectionsList rows={connections} now={now} onRefresh={p.onSync} refreshing={p.syncing} onReconnect={id => { setConnOpen(false); setRelinkItem(id); }} />
       </AccountsSheet>
       <ReconnectSheet bank={relinkBank} views={views} busy={reconnecting} onClose={() => setRelinkItem(null)}

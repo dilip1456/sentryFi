@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, Clock, Link2, Pencil, RefreshCw } from "lucide-react";
 import { BankAvatar } from "./AccountRow";
-import { agoLabel } from "@/lib/accounts/grouping";
+import { agoLabel, signInLabel } from "@/lib/accounts/grouping";
 
 export interface ConnectionRow {
   key: string;
@@ -31,7 +31,6 @@ export function ConnectionsList({ rows, now, onRefresh, onReconnect, refreshing 
                 {r.status === "broken" && <span className="st-bad inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" aria-hidden />Needs sign-in</span>}
                 {r.status === "manual" && <span className="inline-flex items-center gap-1"><Pencil className="h-3 w-3" aria-hidden />Manual · update anytime</span>}
                 {r.status === "ok" && ago && <span>· {ago}</span>}
-                <span>· {r.accounts} acct{r.accounts === 1 ? "" : "s"}</span>
               </div>
             </div>
             {r.status === "broken" && r.itemId
@@ -47,11 +46,10 @@ export function ConnectionsList({ rows, now, onRefresh, onReconnect, refreshing 
 }
 
 export function ConnectionsCard(props: Parameters<typeof ConnectionsList>[0]) {
-  const broken = props.rows.filter(r => r.status === "broken").length;
   return (
     <section className="ac-card" aria-label="Connections">
       <h3><Link2 className="h-4 w-4 text-primary" aria-hidden />Connections</h3>
-      <p className="hs">{broken ? `${broken} bank${broken === 1 ? "" : "s"} need${broken === 1 ? "s" : ""} sign-in` : "All banks synced"} · Plaid</p>
+      <p className="hs">{signInLabel(props.rows.filter(r => r.status === "broken").map(r => r.bankName), "All banks synced")} · Plaid</p>
       <ConnectionsList {...props} />
     </section>
   );

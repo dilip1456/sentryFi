@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { netWorthTotals, NET_WORTH_GROUP_ORDER } from "@/lib/accounts/totals";
 import type { LinkedAccount, ManualAccountLike } from "@/lib/accounts/types";
 import { demoAccounts } from "@/lib/finance-data";
+import { netWorthBreakdown } from "@/lib/picture/overview";
 
 /**
  * Home's net worth exactly as LivePlaidDashboard computed it inline before it
@@ -90,5 +91,23 @@ describe("accounts/totals: net worth equals Home's", () => {
     expect(noCard.liabilities).toBeCloseTo(base.liabilities - 2840.22, 6);
     const noStudent = netWorthTotals(linked, manuals, { "manual:student": { hidden: true, excludeFromNetWorth: true } });
     expect(noStudent.netWorth).toBeCloseTo(base.netWorth + 12400, 6);
+  });
+});
+
+describe("Picture uses the same net worth as Home", () => {
+  it("netWorthBreakdown totals = netWorthTotals, including a mortgage with no property value", () => {
+    const accounts = [
+      { id: "1", account_id: "a", name: "Chk", official_name: null, mask: "1", type: "depository", subtype: "checking", current_balance: 5000, available_balance: 5000 },
+      { id: "2", account_id: "b", name: "Card", official_name: null, mask: "2", type: "credit", subtype: "credit card", current_balance: 1200, available_balance: 8800 },
+    ];
+    const manual = [
+      { id: "m1", name: "Mortgage", institution_name: null, type: "mortgage", role: "debt", current_balance: 200000, property_value: null },
+      { id: "m2", name: "House 2", institution_name: null, type: "mortgage", role: "debt", current_balance: 100000, property_value: 150000 },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pic = netWorthBreakdown(accounts as any, manual as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const home = netWorthTotals(accounts as any, manual as any, {});
+    expect({ a: pic.assets, l: pic.liabilities, n: pic.netWorth }).toEqual({ a: home.assets, l: home.liabilities, n: home.netWorth });
   });
 });
