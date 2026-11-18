@@ -2,53 +2,6 @@ import { Button } from "@/components/ui/button";
 import { Eyebrow } from "@/components/ui/headers";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-/** The alert_preferences row this screen writes. The table isn't in the
- *  generated Database types yet, so the write goes through a client typed
- *  for just this table (same runtime client, no `any`). */
-type AlertPrefsWrite = {
-  user_id: string;
-  email_enabled: boolean;
-  push_enabled: boolean;
-  email: string | null;
-  budget_pct: number;
-  low_balance: number;
-  payment_days: number;
-  weekly_summary: boolean;
-  alert_budget_threshold: boolean;
-  alert_low_balance: boolean;
-  alert_payment_due: boolean;
-  alert_large_txn: boolean;
-  alert_deposit: boolean;
-  alert_refund: boolean;
-  alert_transfer: boolean;
-  alert_cc_payment: boolean;
-  alert_insight: boolean;
-  /** Added by 20261118000200; omitted when that migration isn't applied yet. */
-  alert_price_change?: boolean;
-};
-type AlertPrefsRow = {
-  [K in keyof AlertPrefsWrite]-?: AlertPrefsWrite[K];
-} & { id: string; created_at: string; updated_at: string };
-type AlertPrefsDb = {
-  __InternalSupabase: { PostgrestVersion: "14.5" };
-  public: {
-    Tables: {
-      alert_preferences: {
-        Row: AlertPrefsRow;
-        Insert: AlertPrefsWrite;
-        Update: Partial<AlertPrefsWrite>;
-        Relationships: [];
-      };
-    };
-    Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
-    Enums: { [_ in never]: never };
-    CompositeTypes: { [_ in never]: never };
-  };
-};
-const alertPrefsClient = supabase as unknown as SupabaseClient<AlertPrefsDb>;
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Mail, Smartphone, CalendarDays, Save, Loader2,
@@ -144,7 +97,7 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
   const save = async () => {
     if (!user) return;
     setSaving(true);
-    const row: AlertPrefsWrite = {
+    const row = {
       user_id: user.id,
       email_enabled: prefs.email_enabled,
       push_enabled: prefs.push_enabled,
@@ -164,11 +117,11 @@ export const NotificationPreferences = ({ onClose }: { onClose: () => void }) =>
       alert_insight: prefs.alert_insight,
       alert_price_change: prefs.alert_price_change,
     };
-    let { error } = await alertPrefsClient.from("alert_preferences").upsert(row, { onConflict: "user_id" });
+    let { error } = await supabase.from("alert_preferences").upsert(row, { onConflict: "user_id" });
     // Before 20261118000200 is applied the column doesn't exist yet: save the rest.
     if (error && /alert_price_change/.test(error.message ?? "")) {
       const { alert_price_change: _skip, ...rest } = row;
-      ({ error } = await alertPrefsClient.from("alert_preferences").upsert(rest, { onConflict: "user_id" }));
+      ({ error } = await supabase.from("alert_preferences").upsert(rest, { onConflict: "user_id" }));
     }
     setSaving(false);
     if (error) {
