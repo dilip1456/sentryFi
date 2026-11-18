@@ -186,11 +186,11 @@ for (const vp of WIDTHS) {
       await expect(strip).toContainText(/Paycheck may be missing/);
       await expect(strip).toContainText(/\+1 more/);
       await expect(strip).not.toContainText(/Joint Checking|duplicate|over budget/i);
-      // Option B in RATIONALE.md keeps a numeric badge so the unread count stays visible.
+      // Unread is a plain dot: no number on the bell (counts stay internal).
       const badge = page.locator("[data-testid='inbox-badge'], [data-testid='inbox-badge-side']").filter({ visible: true });
       await expect(badge.first()).toBeVisible();
-      await expect(badge.first()).toHaveText(/^\d+\+?$/);
-      await expect(page.getByRole("button", { name: /Notifications, \d+ unread/ }).first()).toBeVisible();
+      await expect(badge.first()).toHaveText("");
+      await expect(page.getByRole("button", { name: "Notifications, unread items" }).first()).toBeVisible();
       await expect(page.getByText("Get the Sentry Finance Android app")).toHaveCount(0);
       await expect(page.getByText("You're viewing demo data.")).toBeHidden();
       await expect(page.getByRole("heading", { name: "Action items" })).toHaveCount(0);
@@ -390,14 +390,14 @@ for (const vp of WIDTHS) {
       });
     }
 
-    test("Picture no longer shows the history hint card; review card is compact", async ({ page, guard }) => {
+    test("Picture no longer shows the history hint card or a review queue", async ({ page, guard }) => {
       await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "myfinances"));
       await openDemo(page);
       await expect(page.getByTestId("financial-picture")).toBeVisible();
       await expect(page.getByTestId("history-hint")).toHaveCount(0);
-      const card = page.getByTestId("rcv-card");
-      await expect(card).toBeVisible();
-      await expect(card).toContainText(/to review/i);
+      await expect(page.getByTestId("plan-upcoming")).toBeVisible();
+      await expect(page.getByTestId("rcv-card")).toHaveCount(0);
+      await expect(page.getByTestId("picture-page")).not.toContainText(/to review|needs review/i);
       await noHorizontalOverflow(page);
       await shot(page, `after-picture-${vp.name}`);
       expect(guard.consoleErrors).toEqual([]);

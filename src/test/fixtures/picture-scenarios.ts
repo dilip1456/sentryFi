@@ -82,12 +82,12 @@ export class Builder {
 export function picture(fx: Fx, extra: Partial<PictureInputs> & { fp?: FinancialPictureData } = {}) {
   const classes = classifyAll(fx.txns as unknown as ClassifierTxn[], {
     accounts: fx.accounts.map(a => ({ account_id: a.account_id, item_id: (a.item_id as string) ?? null, name: a.name, mask: a.mask ?? null, type: a.type, subtype: a.subtype })),
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
   });
   const classOf = (t: PTxn) => classes.get(t.id) as PClass | undefined;
   const m = buildPictureModel({
     txns: fx.txns, accounts: fx.accounts, classOf,
-    getEffectiveCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    getEffectiveCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
     budgets: {}, cardAutopayFrom: {}, savingsGoals: [], fp: extra.fp ?? { overrides: {}, fundingAccounts: {} }, today: new Date(2026, 9, 29, 12),
     ...extra,
   });

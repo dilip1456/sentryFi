@@ -221,13 +221,12 @@ function latestDue(s: RecurringSeries, today: ISODate): { late: boolean; daysLat
 }
 
 function whyText(s: RecurringSeries, group: ReviewGroup, pattern: string, amountKind: "fixed" | "variable", range: [number, number]): string {
-  const n = s.occurrenceCount;
   const amt = amountKind === "fixed"
     ? `the same amount each time (about $${Math.round(range[1]).toLocaleString("en-US")})`
     : `amounts between $${Math.round(range[0]).toLocaleString("en-US")} and $${Math.round(range[1]).toLocaleString("en-US")}`;
   const span = `${MONTHS[parseDate(s.firstSeen).m - 1]} ${parseDate(s.firstSeen).y} to ${MONTHS[parseDate(s.lastSeen).m - 1]} ${parseDate(s.lastSeen).y}`;
-  const kindWord = group === "income" ? "deposits" : "payments";
-  return `${n} ${kindWord} from ${span}, ${pattern.charAt(0).toLowerCase()}${pattern.slice(1)}, with ${amt}. Confidence ${Math.round(s.confidence * 100)}%.`;
+  const kindWord = group === "income" ? "Deposits" : "Payments";
+  return `${kindWord} seen from ${span}, ${pattern.charAt(0).toLowerCase()}${pattern.slice(1)}, with ${amt}.`;
 }
 
 interface Draft { s: RecurringSeries; group: ReviewGroup; label: string; amount: number; key: string; transactionIds: string[]; text: string }

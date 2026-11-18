@@ -31,6 +31,15 @@ export const PFC_PRIMARY_CATEGORY: Record<string, string> = {
 
 const DETAILED: Record<string, PfcMapping> = {
   INCOME_WAGES: { type: "income_salary", category: "Salary" },
+  // Plaid's newer taxonomy files paychecks as INCOME_SALARY. Plaid also uses
+  // it for person-to-person deposits (Zelle "salary" memos, money from
+  // yourself); classifyOne turns those back into transfers.
+  INCOME_SALARY: { type: "income_salary", category: "Salary" },
+  INCOME_CONTRACTOR: { type: "income_other", category: "Other Income", subtype: "contractor" },
+  INCOME_GIG_ECONOMY: { type: "income_other", category: "Other Income", subtype: "gig" },
+  INCOME_MILITARY: { type: "income_other", category: "Other Income", subtype: "military" },
+  INCOME_RENTAL: { type: "income_other", category: "Other Income", subtype: "rental" },
+  INCOME_LONG_TERM_DISABILITY: { type: "income_other", category: "Other Income", subtype: "benefits" },
   INCOME_INTEREST_EARNED: { type: "income_interest", category: "Interest Earned", subtype: "interest" },
   INCOME_DIVIDENDS: { type: "income_interest", category: "Dividends", subtype: "dividend" },
   INCOME_TAX_REFUND: { type: "income_other", category: "Tax Refund", subtype: "tax_refund" },

@@ -29,7 +29,7 @@ import { DataDesktop, DataMobile } from "./picture/data-column";
 import { InsightsDesktop, InsightsMobile } from "./picture/insights";
 import { renderDetail } from "./picture/details";
 import { HistoryHintPublisher } from "./picture/history-hint";
-import { AccountedCard, AllocationCard, CategoryCard, RecsCard, ReviewQueue, TaxCard, UpcomingPlan, renderPlanDetail } from "./picture/plan";
+import { AccountedCard, AllocationCard, CategoryCard, RecsCard, TaxCard, UpcomingPlan, renderPlanDetail } from "./picture/plan";
 import { AccountsSection, IncomeSection, InsightsLink, PictureSummary, SavingsSection, renderInventoryDetail } from "./picture/inventory";
 import { PictureSkeleton } from "./picture/PictureSkeleton";
 import { fmt } from "./picture/bits";
@@ -57,7 +57,6 @@ function PicturePage({ isMobile }: { isMobile: boolean }) {
       <div className="px-4 pt-3 pb-28 fp-one" data-testid="picture-page">
         <div className="flex items-center gap-2">{pc.demo && <ExampleTag />}<span className="text-[12.5px] text-muted-foreground">All your money in one place · {pc.today.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span></div>
         <PictureSummary />
-        <ReviewQueue />
         <IncomeSection />
         <UpcomingPlan />
         <AccountedCard />
@@ -78,7 +77,6 @@ function PicturePage({ isMobile }: { isMobile: boolean }) {
       </div>
       <p className="text-[13px] text-muted-foreground -mt-1">Everything you earn, owe, pay and set aside, weekly to yearly, and whether it's all accounted for.</p>
       <PictureSummary />
-      <ReviewQueue />
       <div className="fp-one-grid">
         <div className="min-w-0">
           <UpcomingPlan />

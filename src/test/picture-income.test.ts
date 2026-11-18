@@ -44,7 +44,7 @@ describe("My Financial Picture income patterns", () => {
     const classes = Object.fromEntries(txns.map(t => [t.id, { type: "transfer_in" as const, subtype: "p2p" }]));
     const income = model(txns, classes).rows.income.find(row => row.id === "other")!;
     expect(income.monthly).toBeCloseTo(500 * 26 / 12, 2);
-    expect(income.sub).toContain("1 recurring deposit pattern");
+    expect(income.sub).toBe("Recurring deposits · one-time deposits excluded"); // no counts
     expect(income.txns).toHaveLength(6);
   });
 
