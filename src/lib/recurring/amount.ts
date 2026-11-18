@@ -9,13 +9,48 @@ export interface AmountModel {
   cv: number;
   /** CV < 8%: subscriptions, rent, loan payments, salary. */
   isFixed: boolean;
-  /** Fixed-amount series only: latest differs >5% from the median (e.g. "Netflix went up $2"). Always false for variable bills. */
+  /**
+   * The latest charge moved off a stable earlier price: the charges before it
+   * (at least PRICE_MIN_HISTORY of them) had CV < 8%, and the latest differs
+   * from their median by more than max(15%, $10). "Armstrong went from
+   * $59.95 to $109.95". Judged against the EARLIER charges only, so the first
+   * raised charge counts even though it makes the whole series look variable.
+   * A fixed series that has settled on a new price (>5% off the median) also
+   * counts. Never true for a bill whose earlier charges already varied.
+   */
   priceChanged: boolean;
+  /** Median of the charges before the latest one (null with no earlier charge). */
+  prevTypical: number | null;
+  /** latest − prevTypical (signed; 0 with no earlier charge). */
+  priceDelta: number;
   /** Best prediction for the next occurrence. */
   expected: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Earlier charges needed before a price change can be called. */
+export const PRICE_MIN_HISTORY = 3;
+/** Earlier charges this steady (CV) count as one price. */
+export const PRICE_STABLE_CV = 0.08;
+/** A price change is more than this share of the earlier price… */
+export const PRICE_CHANGE_PCT = 0.15;
+/** …and more than this many dollars. */
+export const PRICE_CHANGE_MIN = 10;
+
+/** A move big enough to show the person: more than max(15%, $10) of the earlier price. */
+export function isMaterialPriceChange(from: number, delta: number): boolean {
+  return from > 0 && Math.abs(delta) > Math.max(PRICE_CHANGE_PCT * from, PRICE_CHANGE_MIN);
+}
+
+/** Coefficient of variation (population SD / mean); 0 for an empty list. */
+export function coefficientOfVariation(xs: number[]): number {
+  if (!xs.length) return 0;
+  const mean = xs.reduce((s, x) => s + x, 0) / xs.length;
+  if (!mean) return 0;
+  const sd = Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / xs.length);
+  return sd / mean;
+}
 
 export function median(xs: number[]): number {
   if (!xs.length) return 0;
@@ -48,7 +83,18 @@ export function amountModel(amounts: number[]): AmountModel {
       return idx > 0 && abs.slice(idx).every(x => Math.abs(x - latest) / latest <= 0.01);
     })();
   const isFixed = cv < 0.08 || stableAfterChange;
-  const priceChanged = isFixed && offMedian;
+  // Price change: latest vs the EARLIER charges (excluding the latest).
+  const earlier = abs.slice(0, -1).slice(-12);
+  const prevTypical = earlier.length ? median(earlier) : null;
+  const priceDelta = prevTypical != null ? latest - prevTypical : 0;
+  const offStablePrice =
+    prevTypical != null && prevTypical > 0 &&
+    earlier.length >= PRICE_MIN_HISTORY &&
+    coefficientOfVariation(earlier) < PRICE_STABLE_CV &&
+    isMaterialPriceChange(prevTypical, priceDelta);
+  // A fixed series that settled on a new price ("Netflix $15.49 → $17.99",
+  // two charges at the new price) still counts, as before.
+  const priceChanged = offStablePrice || (isFixed && offMedian);
   if (isFixed) expected = settledNewPrice ? latest : med;
   else expected = median(abs.slice(-6));
   return {
@@ -59,6 +105,8 @@ export function amountModel(amounts: number[]): AmountModel {
     cv: Math.round(cv * 1000) / 1000,
     isFixed,
     priceChanged,
+    prevTypical: prevTypical != null ? round2(prevTypical) : null,
+    priceDelta: round2(priceDelta),
     expected: round2(expected),
   };
 }

@@ -14,6 +14,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_preferences: {
+        Row: {
+          id: string
+          user_id: string
+          email_enabled: boolean
+          push_enabled: boolean
+          email: string | null
+          budget_pct: number
+          low_balance: number
+          payment_days: number
+          weekly_summary: boolean
+          alert_budget_threshold: boolean
+          alert_low_balance: boolean
+          alert_payment_due: boolean
+          alert_large_txn: boolean
+          alert_deposit: boolean
+          alert_refund: boolean
+          alert_transfer: boolean
+          alert_cc_payment: boolean
+          alert_insight: boolean
+          alert_price_change: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          email_enabled?: boolean
+          push_enabled?: boolean
+          email?: string | null
+          budget_pct?: number
+          low_balance?: number
+          payment_days?: number
+          weekly_summary?: boolean
+          alert_budget_threshold?: boolean
+          alert_low_balance?: boolean
+          alert_payment_due?: boolean
+          alert_large_txn?: boolean
+          alert_deposit?: boolean
+          alert_refund?: boolean
+          alert_transfer?: boolean
+          alert_cc_payment?: boolean
+          alert_insight?: boolean
+          alert_price_change?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          email_enabled?: boolean
+          push_enabled?: boolean
+          email?: string | null
+          budget_pct?: number
+          low_balance?: number
+          payment_days?: number
+          weekly_summary?: boolean
+          alert_budget_threshold?: boolean
+          alert_low_balance?: boolean
+          alert_payment_due?: boolean
+          alert_large_txn?: boolean
+          alert_deposit?: boolean
+          alert_refund?: boolean
+          alert_transfer?: boolean
+          alert_cc_payment?: boolean
+          alert_insight?: boolean
+          alert_price_change?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cover_actions: {
         Row: {
           action_type: string

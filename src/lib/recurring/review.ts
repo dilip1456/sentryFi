@@ -19,6 +19,7 @@ import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
 import { reconcilePayments } from "./reconcile";
+import { isMaterialPriceChange } from "./amount";
 import { refreshDecisionLabel } from "./labels";
 import { planningAmount, seriesPlanningAmount } from "./planning-amount";
 
@@ -58,7 +59,22 @@ export interface RecurringDecision {
   coverAccountId?: string | null;
   decidedAt?: string | null;
   /** Snapshot so a decided item can still be listed when detection no longer finds it. */
-  snapshot?: Partial<Pick<ReviewItem, "label" | "group" | "kind" | "cadence" | "amount" | "lastSeen" | "nextDue" | "transactionIds" | "pattern" | "accountId" | "direction">>;
+  snapshot?: Partial<Pick<ReviewItem, "label" | "group" | "kind" | "cadence" | "amount" | "lastSeen" | "nextDue" | "transactionIds" | "pattern" | "accountId" | "direction" | "isFixed" | "nextAmount">> & {
+    /** The latest charge moved off the earlier price (recurring_streams.price_changed). */
+    priceChanged?: boolean;
+  };
+}
+
+/** The latest charge of a series moved off its earlier, steady price. */
+export interface PriceChangeInfo {
+  /** Typical amount before the latest charge. */
+  from: number;
+  /** The latest charge. */
+  to: number;
+  /** to − from (signed). */
+  delta: number;
+  /** Date of the latest charge. */
+  date: ISODate;
 }
 
 export interface MatchedTxn { id: string; date: ISODate; amount: number; name: string; accountId: string }
@@ -110,6 +126,12 @@ export interface ReviewItem {
   why: string;
   /** What detection alone found (before edits), for "Reset". */
   detected: { cadence: Cadence; amount: number; group: ReviewGroup } | null;
+  /** Same price every time (detector's amount model). */
+  isFixed?: boolean;
+  /** Predicted next amount (the person's amount when they set one). */
+  nextAmount?: number | null;
+  /** Price moved on the latest charge; null once the person took the new price as the amount. */
+  priceChange?: PriceChangeInfo | null;
 }
 
 export interface ReviewResult {
@@ -435,7 +457,20 @@ function itemFromDraft(d: Draft, txnById: Map<string, ClassifierTxn>, today: ISO
     daysLate: lateInfo.late ? lateInfo.daysLate : null,
     why: whyText(s, d.group, pattern, amountKind, range),
     detected: { cadence: s.cadence, amount: d.amount, group: d.group },
+    isFixed: s.amount.isFixed,
+    nextAmount: s.nextExpectedAmount,
+    // Once detection's typical amount is already the new price (two charges at it), there's nothing to take.
+    // Compared against the typical, not d.amount: the planning amount already plans for the higher charge.
+    priceChange: (() => { const pc = priceChangeOf(s); return pc && Math.abs(typicalAmount(s) - pc.to) >= 0.01 ? pc : null; })(),
   };
+}
+
+/** The series' latest price move, if the amount model flagged one. */
+export function priceChangeOf(s: Pick<RecurringSeries, "amount" | "lastSeen">): PriceChangeInfo | null {
+  const a = s.amount;
+  // Only a move worth telling the person about (a gas bill drifting $2 isn't).
+  if (!a.priceChanged || a.prevTypical == null || !isMaterialPriceChange(a.prevTypical, a.priceDelta)) return null;
+  return { from: a.prevTypical, to: a.latest, delta: a.priceDelta, date: s.lastSeen };
 }
 
 /** Apply a stored decision on top of a detected (or remembered) item. */
@@ -466,6 +501,9 @@ export function applyDecision(item: ReviewItem, dec: RecurringDecision | undefin
     edited,
     monthly: monthlyEquivalent(amount, cadence),
     pattern: cadence !== item.cadence ? CADENCE_LABEL[cadence] : item.pattern,
+    // The person's amount is the expected one; taking the new price settles the change.
+    nextAmount: dec.expectedAmount != null && dec.expectedAmount >= 0 ? amount : item.nextAmount,
+    priceChange: item.priceChange && dec.expectedAmount != null && Math.abs(dec.expectedAmount - item.priceChange.to) < 0.01 ? null : item.priceChange,
   };
   // "Missed or late": only for things the person told us are real.
   if (out.status === "confirmed") {
@@ -501,6 +539,9 @@ function itemFromSnapshot(dec: RecurringDecision, txnById: Map<string, Classifie
     missed: false, daysLate: null,
     why: "We no longer see this pattern in your recent transactions. It is listed because you made a decision about it.",
     detected: null,
+    isFixed: sn.isFixed ?? true,
+    nextAmount: dec.expectedAmount != null ? amount : sn.nextAmount ?? null,
+    priceChange: null,
   };
   if (dec.status === "confirmed") {
     // A confirmed item that stopped arriving: the next expected date has passed.
@@ -600,11 +641,12 @@ export function reviewRecurring(txns: ClassifierTxn[], accounts: ClassifierAccou
 
 /** The decision to store for an action on an item (with a snapshot for later). */
 export function decisionFor(item: ReviewItem, patch: Partial<Omit<RecurringDecision, "key" | "snapshot">>, now = new Date().toISOString()): RecurringDecision {
+  const expectedAmount = patch.expectedAmount !== undefined ? patch.expectedAmount : item.expectedAmount ?? (item.detected && item.amount !== item.detected.amount ? item.amount : null);
   return {
     key: item.key,
     status: patch.status ?? item.status,
     cadence: patch.cadence !== undefined ? patch.cadence : item.detected && item.cadence !== item.detected.cadence ? item.cadence : null,
-    expectedAmount: patch.expectedAmount !== undefined ? patch.expectedAmount : item.expectedAmount ?? (item.detected && item.amount !== item.detected.amount ? item.amount : null),
+    expectedAmount,
     name: patch.name !== undefined ? (patch.name?.trim() || null) : item.renamed ? item.label : null,
     group: patch.group !== undefined ? patch.group : item.detected && item.group !== item.detected.group ? item.group : null,
     coverAccountId: patch.coverAccountId !== undefined ? patch.coverAccountId : item.edited && item.coverAccountId !== item.accountId ? item.coverAccountId : null,
@@ -613,6 +655,8 @@ export function decisionFor(item: ReviewItem, patch: Partial<Omit<RecurringDecis
       label: item.autoLabel || item.label, group: item.detected?.group ?? item.group, kind: item.kind, cadence: item.detected?.cadence ?? item.cadence,
       amount: item.detected?.amount ?? item.amount, lastSeen: item.lastSeen, nextDue: item.nextDue, transactionIds: item.transactionIds.slice(0, 60),
       pattern: item.pattern, accountId: item.accountId, direction: item.direction,
+      // The person's amount is what they expect next (stored as next_expected_amount).
+      isFixed: item.isFixed, priceChanged: !!item.priceChange, nextAmount: expectedAmount != null && expectedAmount >= 0 ? expectedAmount : item.nextAmount ?? null,
     },
   };
 }

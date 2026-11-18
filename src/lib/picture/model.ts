@@ -13,7 +13,7 @@
  * settings.financialPicture and always win over detection.
  */
 import { detectRecurringSeries, merchantKey, displayName, buildReview, settleSuggestions, canonicalMerchants, cleanPayee, REVIEW_DETECT_OPTIONS, type RecurringDecision, type ReviewItem, type ReviewResult, type RecurringSeries, type TransactionClassifier, type TxnClassification, type ClassifierTxn, type Cadence } from "@/lib/recurring";
-import { detectBillAutopays, detectedAsAutopay } from "@/lib/infer";
+import { detectBillAutopays, detectedAsAutopay, priceIncreaseFinding, type Finding, type PriceIncreasePayload } from "@/lib/infer";
 import type { TxnType } from "@/lib/classify";
 import type { FinancialPictureData, ManualIncomeItem, SavingsGoal } from "@/hooks/useUserSettings";
 import { FP_UNASSIGNED } from "./keys";
@@ -148,6 +148,12 @@ export interface PictureModel {
   series: RecurringSeries[];
   /** "Detected recurring" review: suggested + confirmed items, and the dismissed list. */
   review: ReviewResult;
+  /**
+   * `price_increase` findings: listed bills whose latest charge went up off
+   * a steady price, the new price not yet taken as the amount. Payload adds
+   * `reviewKey` (the Picture row).
+   */
+  priceIncreases: Finding<PriceIncreasePayload & { reviewKey: string }>[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -687,6 +693,16 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   const nm = nextMonth(today);
   const filing = overrides["filingStatusCode"] === 1 ? "married_joint" : "single";
   const grossOverride = overrides["income.grossSalaryAnnual"];
+  // ── Price increases (INFERENCES §3.9) on the listed, not-yet-updated bills ──
+  const priceIncreases: PictureModel["priceIncreases"] = [];
+  const txnByIdForPrice = new Map(ctxns.map(t => [t.transaction_id, t] as const));
+  for (const it of review.items) {
+    if (!it.priceChange || !(it.priceChange.delta > 0)) continue;
+    const s = seriesByKey.get(it.key);
+    const f = s ? priceIncreaseFinding(s, txnByIdForPrice) : null;
+    if (f) priceIncreases.push({ ...f, payload: { ...f.payload, displayName: it.label, reviewKey: it.key } });
+  }
+
   return {
     accounts: acctList, acct,
     rows: { income, deductions, obligations, fixed, taxes: taxBills, budgets, savings },
@@ -701,6 +717,6 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
       hsaEmployer: Math.max(0, num(overrides["benefit.hsaEmployer"])),
     },
     nextMonthLabel: nm.label, nextMonthKey: nm.key,
-    series, review,
+    series, review, priceIncreases,
   };
 }
