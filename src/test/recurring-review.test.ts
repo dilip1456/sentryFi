@@ -201,7 +201,7 @@ describe("decisions", () => {
   it("an edited item keeps the person's cadence, amount, group and account", () => {
     const b = netflix();
     const it = find(review(b).review.items, /netflix/i)!;
-    const m = review(b, [decisionFor(it, { status: "confirmed", cadence: "yearly", amount: 180, coverAccountId: "chk" })]);
+    const m = review(b, [decisionFor(it, { status: "confirmed", cadence: "yearly", expectedAmount: 180, coverAccountId: "chk" })]);
     const ed = find(m.review.items, /netflix/i)!;
     expect(ed).toMatchObject({ status: "confirmed", edited: true, cadence: "yearly", amount: 180, monthly: 15, coverAccountId: "chk", coverUserSet: true });
     const row = m.rows.fixed.find(r => r.reviewKey === ed.key)!;
@@ -232,7 +232,7 @@ describe("stored decisions (recurring_streams, source 'picture')", () => {
     const b = base();
     b.series("card", monthly("2025-10", 14), 15.49, "NETFLIX.COM", { pfc: "ENTERTAINMENT", pfcd: "ENTERTAINMENT_TV_AND_MOVIES", merchant_name: "Netflix" });
     const it = find(review(b).review.items, /netflix/i)!;
-    const d = decisionFor(it, { status: "confirmed", amount: 17.99, cadence: "monthly", group: "bills", coverAccountId: "chk" }, "2026-10-29T12:00:00Z");
+    const d = decisionFor(it, { status: "confirmed", expectedAmount: 17.99, cadence: "monthly", group: "bills", coverAccountId: "chk" }, "2026-10-29T12:00:00Z");
     const row = decisionToRow("u1", d);
     expect(row).toMatchObject({ series_key: `picture:${it.key}`, source: "picture", status: "confirmed", txn_type: "obligation_bill", kind: "subscription", user_amount: 17.99, user_cover_account_id: "chk", review_group: "bills" });
     expect((row.matched_transaction_ids as string[]).length).toBe(13);

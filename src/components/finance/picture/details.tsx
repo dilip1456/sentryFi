@@ -805,7 +805,12 @@ function renderRecurring(key: string, pc: PictureState): DetailView | null {
   if (key.startsWith("rcv:item:")) {
     const k = decodeURIComponent(key.slice("rcv:item:".length));
     const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);
-    return it ? { title: it.label, body: <RecurringItem key={`${k}|${it.status}|${it.edited}`} it={it} /> } : null;
+    return it ? { title: it.label, body: <RecurringItem key={`${k}|${it.status}|${it.edited}|${it.label}`} it={it} /> } : null;
+  }
+  if (key.startsWith("rcv:edit:")) {
+    const k = decodeURIComponent(key.slice("rcv:edit:".length));
+    const it = pc.m.review.items.find(i => i.key === k) ?? pc.m.review.dismissed.find(i => i.key === k);
+    return it ? { title: `Edit ${it.label}`, body: <RecurringItem key={`edit|${k}`} it={it} startEditing /> } : null;
   }
   return null;
 }
