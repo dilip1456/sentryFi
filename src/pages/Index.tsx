@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import { isLegacyPictureView } from "@/lib/picture/legacy-view";
 import {
-  LayoutDashboard, Sparkles, PieChart, Users, Loader2, TrendingUp,
+  LayoutDashboard, Sparkles, PieChart, Users, Loader2, TrendingUp, ChevronLeft, ChevronRight,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
   LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical, Lightbulb,
   type LucideIcon,
@@ -274,36 +274,41 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
       <aside className={cn("hidden md:flex flex-col shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))] transition-[width] duration-200 ease-out", sidebarCollapsed ? "w-[68px]" : "w-56")}
         style={{ WebkitOverflowScrolling: "touch" }}>
 
-        {/* Logo — click to return to the landing view */}
-        <button onClick={() => go("overall")}
-          className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))] w-full text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors">
-          <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
-          </div>
-          <div>
-            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
-            {effectiveDemo && (
-              <div className="nc-example mt-0.5" data-testid="example-data">
-                <FlaskConical className="h-3 w-3" aria-hidden="true" />Example data
-              </div>
-            )}
-          </div>
-        </button>
+        {/* Brand/home link and collapse toggle share one aligned header. */}
+        <div className={cn("flex min-h-[64px] shrink-0 items-center border-b border-[hsl(var(--sidebar-border))]", sidebarCollapsed ? "justify-center gap-1 px-1" : "justify-between gap-3 px-4")}>
+          <button type="button" onClick={() => go("overall")} aria-label="Home" title={sidebarCollapsed ? "Home" : undefined}
+            className={cn("flex min-w-0 items-center rounded-lg text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors", sidebarCollapsed ? "h-8 w-8 justify-center" : "gap-3 py-2")}>
+            <span className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
+              <img src="/logo.png" alt="" className="h-6 w-6 object-contain" />
+            </span>
+            {!sidebarCollapsed && <span className="min-w-0">
+              <span className="block text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</span>
+              {effectiveDemo && <span className="nc-example mt-0.5" data-testid="example-data"><FlaskConical className="h-3 w-3" aria-hidden="true" />Example data</span>}
+            </span>}
+          </button>
+          <button type="button" onClick={() => setSidebarCollapsed(value => !value)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed} aria-controls="main-sidebar-nav"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn("grid shrink-0 place-items-center rounded-lg text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring))] transition-colors", sidebarCollapsed ? "h-6 w-6" : "h-8 w-8")}>
+            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" aria-hidden="true" /> : <ChevronLeft className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        </div>
 
         {/* Nav */}
-        <nav className={cn("flex-1 overflow-y-auto py-3 space-y-0.5 scrollbar-none", sidebarCollapsed ? "px-1.5" : "px-2")}>
+        <nav id="main-sidebar-nav" className={cn("flex-1 overflow-y-auto py-3 space-y-0.5 scrollbar-none", sidebarCollapsed ? "px-1.5" : "px-2")}>
           {!sidebarCollapsed && <div className="section-label">Overview</div>}
           <button onClick={() => go("overall")} title={sidebarCollapsed ? "Home" : undefined} className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", view === "overall" && "active")}>
             <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
             {!sidebarCollapsed && <span>Home</span>}
           </button>
-          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open
-            className={cn("nav-item w-full text-left", timelineOpen && "active")}>
+          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open title={sidebarCollapsed ? "Timeline" : undefined}
+            className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", timelineOpen && "active")}>
             <History className="h-4 w-4 flex-shrink-0" />
             {!sidebarCollapsed && <span>Timeline</span>}
           </button>
 
-          <div className="section-label">Money</div>
+          {!sidebarCollapsed && <div className="section-label">Money</div>}
           {TABS.filter(t => ["spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           {!sidebarCollapsed && <div className="section-label">More</div>}
@@ -348,11 +353,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </DropdownMenu>
           )}
           {(user || effectiveDemo) && (
-            <button onClick={() => setShowInbox(true)} className="nav-item w-full" aria-label={notifLabel}>
+            <button onClick={() => setShowInbox(true)} className={cn("nav-item relative w-full", sidebarCollapsed && "justify-center px-0")} aria-label={notifLabel} title={sidebarCollapsed ? "Notifications" : undefined}>
               <Bell className="h-4 w-4" />
               {!sidebarCollapsed && "Notifications"}
               {unreadCount > 0 && (
-                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true"></span>
+                <span className={cn("nc-side-badge", sidebarCollapsed && "absolute top-1")} style={sidebarCollapsed ? { right: "calc(50% - 8px)" } : undefined} data-testid="inbox-badge-side" aria-hidden="true"></span>
               )}
             </button>
           )}

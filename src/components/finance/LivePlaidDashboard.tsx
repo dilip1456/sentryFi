@@ -2536,7 +2536,7 @@ const TxnDetailModal = ({
                 <button onClick={saveInlineName} aria-label="Save name" className="h-7 w-7 grid place-items-center rounded-lg bg-primary text-primary-foreground shrink-0"><Check className="h-3.5 w-3.5"/></button>
                 <button onClick={() => { setNameDraft(currentDisplayName); setEditingName(false); }} aria-label="Cancel name edit" className="h-7 w-7 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted shrink-0"><X className="h-3.5 w-3.5"/></button>
               </div> : <button onClick={() => { setNameDraft(currentDisplayName); setEditingName(true); }} title="Click to edit name"
-                className="group flex w-full items-start gap-1 text-left font-display text-[20px] font-medium leading-snug text-foreground hover:text-primary">
+                className="group flex w-full items-start gap-1 text-left font-display text-[17px] font-semibold leading-tight text-foreground hover:text-primary">
                 <span className="min-w-0 whitespace-normal break-words" title={currentDisplayName}>{currentDisplayName}</span><Pencil className="h-3 w-3 mt-1 opacity-0 group-hover:opacity-70 shrink-0"/>
               </button>}
               <div className="mt-1 space-y-0.5 text-[13px] leading-snug text-muted-foreground">
@@ -2551,7 +2551,7 @@ const TxnDetailModal = ({
                 {isImportedTxn && <span className="rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-[11px] font-medium">Statement import</span>}
               </div>
             </div>
-              <div className="text-right shrink-0 self-start pt-9">
+              <div className="text-right shrink-0 self-start pt-1">
               <p className={cn("text-[27px] font-semibold tabular", isIncome ? "text-positive" : "text-foreground")}>
                 {fmtTxnAmount(txn.amount, {cents: true})}
               </p>

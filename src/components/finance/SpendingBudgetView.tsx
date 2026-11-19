@@ -1314,15 +1314,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       }));
   }, [visibleTxns, groupBy, groupLabelFor]);
 
-  // Mobile's transaction list is always grouped by date, independent of the
-  // desktop Group-by control; the redesigned mobile layout is built around
-  // a chronological, date-headed feed regardless of what grouping mode
-  // desktop/tablet happens to have selected.
-  // Date headings only make sense while the feed is in date order; sorted
-  // by amount/name/etc. the date buckets would be scattered fragments in
-  // sort order, so the feed renders as one flat, header-less list instead.
+  // Mobile defaults to a chronological feed grouped by date. When the user
+  // picks another grouping, keep that choice consistent with the desktop
+  // table. Date headings only make sense while the feed is in date order.
   const MOBILE_FLAT_KEY = "__flat__";
   const mobileGroups = useMemo(() => {
+    if (groupBy !== "none") return groupedTxns ?? [];
     if (sortBy !== "date") {
       return [{ key: MOBILE_FLAT_KEY, items: visibleTxns, total: visibleTxns.reduce((s, t) => s + Number(t.amount), 0) }];
     }
@@ -1336,7 +1333,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return [...buckets.entries()]
       .sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       .map(([key, { items }]) => ({ key, items, total: items.reduce((s, t) => s + Number(t.amount), 0) }));
-  }, [visibleTxns, granularity, sortBy]);
+  }, [visibleTxns, granularity, sortBy, groupBy, groupedTxns]);
 
   const mobileGroupHeading = useCallback((key: string): string => {
     if (granularity === "all") return key;
@@ -1362,12 +1359,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Drives the single expand/collapse-all toggle button: once every current
   // group is collapsed the button flips to "expand all" instead of offering
   // to collapse an already-fully-collapsed list.
-  const allGroupsCollapsed = !!groupedTxns && groupedTxns.length > 0 && groupedTxns.every(g => collapsedGroups.has(g.key));
+  const collapsibleGroups = groupedTxns ?? (sortBy === "date" ? mobileGroups : []);
+  const allGroupsCollapsed = collapsibleGroups.length > 0 && collapsibleGroups.every(g => collapsedGroups.has(g.key));
   const expandAllGroups = useCallback(() => setCollapsedGroups(new Set()), []);
   const collapseAllGroups = useCallback(() => {
-    if (!groupedTxns) return;
-    setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
-  }, [groupedTxns]);
+    setCollapsedGroups(new Set(collapsibleGroups.map(g => g.key)));
+  }, [collapsibleGroups]);
   // "Show more" paging; back to the first page whenever the list changes.
   const [rowLimit, setRowLimit] = useState(ROW_PAGE);
   useEffect(() => { setRowLimit(ROW_PAGE); }, [visibleTxns, groupBy]);
@@ -1751,7 +1748,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         </DialogContent>
       </Dialog>
 
-      <div className="content-max flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 md:px-8">
+      <div className="content-max flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-2 md:px-8">
         <section className="surface-card shrink-0 overflow-hidden rounded-xl px-3 py-2.5" aria-label="Spending by period" data-testid="spending-period-strip">
           <div className="mb-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
             <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{activeRange.label}</span>
@@ -1904,7 +1901,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 only the rows below scroll, on both phone and desktop. */}
             <div className="px-3 py-2 border-b border-border/20 shrink-0 bg-card space-y-2">
               <div className="flex min-w-0 flex-col gap-1.5 md:flex-row md:items-center">
-                <div className="relative min-w-0 w-full flex-1 order-1 md:order-2">
+                <div className="relative min-w-0 w-full flex-1 order-1 md:order-2 md:flex-none md:w-48 lg:w-64 xl:w-80">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true"/>
                   <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
                     onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); } }}
@@ -1929,6 +1926,23 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   className={cn("grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border transition-colors",
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-4 w-4"/>
+                </button>
+                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle} aria-label="Group transactions" title={`Group by ${GROUP_OPTIONS.find(g => g.key === groupBy)?.label ?? ""}`}
+                  aria-haspopup="menu" aria-expanded={groupMenu.open}
+                  className={cn("h-11 w-11 md:h-9 md:w-auto md:px-2.5 shrink-0 rounded-lg border text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors",
+                    groupBy !== "none" || groupMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
+                  <Layers className="h-4 w-4 shrink-0"/><span className="hidden md:inline">Group</span>
+                </button>
+                {(groupBy !== "none" || (sortBy === "date" && mobileGroups.length > 0)) && <button onClick={allGroupsCollapsed ? expandAllGroups : collapseAllGroups}
+                  aria-label={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                  title={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                  className="grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+                  {allGroupsCollapsed ? <ChevronsUpDown className="h-4 w-4"/> : <ChevronsDownUp className="h-4 w-4"/>}
+                </button>}
+                <button ref={colsMenu.btnRef} onClick={moreMenu.toggle} aria-label="More list options" aria-haspopup="menu" aria-expanded={moreMenu.open} title="More list options"
+                  className={cn("hidden md:flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors",
+                    moreMenu.open || colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground")}>
+                  <MoreHorizontal className="h-4 w-4"/>
                 </button>
                 </div>
               </div>
@@ -1974,8 +1988,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 </div>
               ) : (
               <>
-              <div className="hidden md:flex items-center gap-1.5 flex-wrap">
-                {/* The menu is portaled to body and its trigger now sits beside search. */}
+              <div className="hidden md:flex items-center gap-1.5">
+                {/* More options are portaled so the popup stays above the scrollable transaction table. */}
                 {moreMenu.open && moreMenu.pos && createPortal(
                   <>
                     <div className="fixed inset-0 z-[998]" onClick={moreMenu.close}/>
@@ -2263,8 +2277,9 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       const isCollapsed = collapsedGroups.has(g.key);
                       return (
                       <tbody key={g.key}>
-                        <tr className="bg-muted/30 cursor-pointer hover:bg-muted/50" onClick={()=>toggleGroupCollapsed(g.key)}>
-                          <td colSpan={colSpan} className="px-3 py-1.5 border-b border-border/15">
+                        <tr className="bg-muted/30 hover:bg-muted/50">
+                          <td colSpan={colSpan} className="p-0 border-b border-border/15">
+                            <button type="button" aria-expanded={!isCollapsed} onClick={()=>toggleGroupCollapsed(g.key)} className="w-full px-3 py-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-[hsl(var(--primary))]">
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex items-center gap-2 min-w-0">
                                 <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
@@ -2278,6 +2293,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                                 <div className={cn("text-[13px] font-bold tabular leading-tight mt-0.5", txnAmountClass(g.total))}>{fmtTxnAmount(g.total)}</div>
                               </div>
                             </div>
+                            </button>
                           </td>
                         </tr>
                         {!isCollapsed && g.shown.map(t => (
@@ -2324,14 +2340,14 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       return (
                       <div key={g.key}>
                         {g.key !== MOBILE_FLAT_KEY && (
-                        <div data-day-header className="sticky top-0 z-20 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
+                        <button type="button" data-day-header aria-expanded={!isCollapsed} className="sticky top-0 z-20 w-full bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer text-left active:bg-muted/50"
                           onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
-                            <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
+                            <span className="text-[11px] font-semibold text-muted-foreground">{groupBy === "none" ? mobileGroupHeading(g.key) : groupHeading(g.key)}</span>
                           </div>
                           <span className={cn("text-[11px] tabular shrink-0", g.total < 0 ? "text-positive" : "text-muted-foreground")}>{fmtTxnAmount(g.total)}</span>
-                        </div>
+                        </button>
                         )}
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
