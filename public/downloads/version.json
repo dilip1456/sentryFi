@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1247,
-  "sha256": "fec3a1b3874a3c7cfdf349f1ad705d9f88d4049ea728fea59a46db1862bc68d7",
-  "size": 7495856,
-  "releaseNotes": "Import merchant logo in spending transactions",
+  "versionCode": 1248,
+  "sha256": "eaeace568b8d6405889b5710085af955ee8f38685915eb629107cf41a6df765e",
+  "size": 7495900,
+  "releaseNotes": "Wire transaction type control in mobile spending rows",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-19T00:09:44.740Z"
+  "publishedAt": "2026-11-19T01:58:50.163Z"
 }
