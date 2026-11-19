@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1246,
-  "sha256": "47d025248a56308c6eb4c392342e41c122ca144a22d21b65642c05f3c3126303",
-  "size": 7495780,
-  "releaseNotes": "Avoid early transaction reference in dashboard callbacks",
+  "versionCode": 1247,
+  "sha256": "fec3a1b3874a3c7cfdf349f1ad705d9f88d4049ea728fea59a46db1862bc68d7",
+  "size": 7495856,
+  "releaseNotes": "Import merchant logo in spending transactions",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-18T23:39:17.389Z"
+  "publishedAt": "2026-11-19T00:09:44.740Z"
 }
