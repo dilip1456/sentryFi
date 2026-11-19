@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { cn } from "@/lib/utils";
 import { fmtUSD, fmtUSDCompact, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
+import { MerchantLogo } from "@/components/finance/MerchantLogo";
 import { FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
 import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
