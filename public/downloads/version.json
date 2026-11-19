@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1248,
-  "sha256": "eaeace568b8d6405889b5710085af955ee8f38685915eb629107cf41a6df765e",
-  "size": 7495900,
-  "releaseNotes": "Wire transaction type control in mobile spending rows",
+  "versionCode": 1249,
+  "sha256": "7022ade021b22615bd4a7b3a64bc118567d45826215164a35a7c60f91f368d84",
+  "size": 7496660,
+  "releaseNotes": "Polish sidebar and spending experience",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-19T01:58:50.163Z"
+  "publishedAt": "2026-11-19T02:39:59.889Z"
 }
