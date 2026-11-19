@@ -6734,6 +6734,7 @@ export const LivePlaidDashboard = ({
           headerActions={headerActions}
           isCategoryEdited={t => overrides[t.id] != null}
           classOf={classOf}
+          onChangeTxnType={(t, type) => { if (t.transaction_id) void setTypeOverride(t.transaction_id, type); }}
         />
         <ImportStatementModal
           open={showImportModal}

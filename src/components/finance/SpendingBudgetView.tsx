@@ -75,6 +75,8 @@ export interface SpendingBudgetViewProps {
   isCategoryEdited?: (t:PTxn)=>boolean;
   /** Shared-classifier result for a transaction (src/lib/classify, computed once by the dashboard). */
   classOf?: (t:{ id: string })=>Classification|undefined;
+  /** Persist a manual transaction-type choice from the mobile row control. */
+  onChangeTxnType: (t: PTxn, type: TxnClass) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -307,7 +309,7 @@ const SHOW_BURN_RUNWAY = false;
 // like the burn runway so it's a one-line flip to bring back.
 const SHOW_CATEGORY_SIDEBAR = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,recurringOverrides,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,onDeleteCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,recurringOverrides,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,onDeleteCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf,onChangeTxnType}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -2336,6 +2338,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           {g.shown.map(t => (
                             <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} showDate={g.key === MOBILE_FLAT_KEY} selectionMode={selectedIds.size > 0} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
                               nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys} recurringOverrides={recurringOverrides}
+                              txnType={flowOf(t)} edited={classOf?.(t)?.source === "override"} onChangeType={onChangeTxnType}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
@@ -3116,11 +3119,12 @@ function limitGroups<G extends { key: string; items: PTxn[] }>(groups: G[], limi
 // heading) and shown when the feed is a flat, non-date-sorted list.
 const LONG_PRESS_MS = 450;
 const MobileTxnRow = ({
-  t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys, recurringOverrides,
+  t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys, recurringOverrides, txnType, edited, onChangeType,
   selected, onToggleSelect, flag, showDate = false, selectionMode = false,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
+  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
   nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>; recurringOverrides: Record<string, boolean>;
   categoryIcon?:(cat:string)=>React.ElementType; expenseCategories?:string[]; incomeCategories?:string[]; ignoredCategories?:string[];
   customCategories?:{name:string;type:"income"|"expense"}[];
