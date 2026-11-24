@@ -58,7 +58,7 @@ function Page({ isMobile, insightsOnly = false }: { isMobile: boolean; insightsO
           {pc.demo && <ExampleTag />}
         </div>
         <div className={insightsOnly ? "ml-auto" : "mx-auto"}><PeriodSeg /></div>
-        {!insightsOnly && <button type="button" className="btn" onClick={() => open("cashflow")}><ChartNoAxesColumnDecreasing className="h-4 w-4" aria-hidden="true" />Where it goes</button>}
+        {!insightsOnly && <button type="button" className="btn tap-44" onClick={() => open("cashflow")}><ChartNoAxesColumnDecreasing className="h-4 w-4" aria-hidden="true" />Where it goes</button>}
       </div>
       <HistoryHint />
       {insightsOnly ? (

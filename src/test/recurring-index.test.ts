@@ -21,7 +21,8 @@ describe("@/lib/recurring entry point", () => {
     const names = Object.keys(spending);
     expect(names.sort()).toEqual([
       "RECURRING_EXCLUDED_CATEGORIES", "RECURRING_OVERRIDE_KEYWORDS", "averageGapDays",
-      "classifyRecurrenceFrequency", "isNonBillRecurringCandidate", "recurringFrequencyFor",
+      "classifyRecurrenceFrequency", "isNonBillRecurringCandidate", "isPlaidDiscretionaryRecurringExcluded",
+      "recurringFrequencyFor",
     ]);
     for (const n of names) expect((all as Record<string, unknown>)[n]).toBe((spending as Record<string, unknown>)[n]);
   });

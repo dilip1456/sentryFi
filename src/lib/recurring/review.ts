@@ -15,7 +15,7 @@
 import type { ClassifierAccount, ClassifierTxn, TransactionClassifier, TxnClassification, TxnTypeOverride } from "./classifier";
 import { addDays, diffDays, parseDate, type ISODate } from "./dates";
 import { detectRecurringSeries, type RecurringSeries, type SeriesKind } from "./detect";
-import { billSubtype, loanSubtype, YEARLY_HINT_RE } from "./patterns";
+import { billSubtype, loanSubtype, SUBSCRIPTION_RE, YEARLY_HINT_RE } from "./patterns";
 import { employerKey, employerLabel, isP2PText, payeeKey } from "./payee";
 import { CADENCES, type Cadence, type Schedule } from "./schedule";
 import { reconcilePayments } from "./reconcile";
@@ -159,9 +159,7 @@ export interface ReviewOptions {
 /** Ad-hoc spending: never recurring, even when the same merchant repeats. */
 export const ADHOC_RE =
   /\bfood|dining|restaurant|grocer|supermarket|coffee|fast[_ ]?food|bakery|\bbars?\b|alcohol|general[_ ]merchandise|shopping|clothing|apparel|department[_ ]store|electronics|sporting[_ ]goods|transportation[_ ]gas|gas[_ ]stations?|\bfuel\b|convenience|personal[_ ]care|home[_ ]improvement|rideshare|\btaxi|parking|\btravel|\bairline|lodging|\bhotel/i;
-/** Subscriptions and memberships are the exception to ad-hoc merchants. */
-export const SUBSCRIPTION_RE =
-  /subscri|membership|member\s?fee|\bgym\b|fitness|netflix|spotify|hulu|disney\s*\+?|\bhbo\b|max\.com|youtube\s*(premium|tv)|apple\.com\/bill|icloud|amazon\s*prime|prime\s*video|audible|patreon|adobe|microsoft\s*365|google\s*(storage|one)|dropbox|peloton|costco\s*(member|annual)|sam'?s\s*club|walmart\+|dashpass|uber\s*one|instacart\s*\+|siriusxm|\bnyt\b|duolingo|chatgpt|openai|onlyfans|xbox\s*game\s*pass|playstation\s*plus|nintendo\s*online/i;
+export { SUBSCRIPTION_RE } from "./patterns";
 const INSURANCE_RE = /\binsurance\b|\bins\b|geico|state\s*farm|progressive|allstate|liberty\s*mutual|usaa|lemonade|nationwide|farmers\s*ins|travelers|metlife|prudential|aflac|northwestern\s*mutual|new\s*york\s*life|guardian\s*life|root\s*ins/i;
 const INTERNAL_INFLOW_SUBTYPES = new Set(["account_transfer", "from_savings", "from_investments", "loan_proceeds", "refund", "cash_advance"]);
 const INTERNAL_INFLOW_RE =

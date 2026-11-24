@@ -115,7 +115,23 @@ export function isStatementSummaryText(raw: string | null | undefined): boolean 
 
 /** Grouping key: cleaned, lower-cased, without legal suffixes. */
 export function merchantKey(raw: string | null | undefined): string {
-  return cleanBankText(raw).toLowerCase()
+  let key = cleanBankText(raw).toLowerCase()
     .replace(/\s+(?:and|&|llc|inc|co\.?|corp\.?|ltd)[\s,.]*$/i, "")
     .replace(/[^a-z0-9& ]+/g, " ").replace(/\s+/g, " ").trim();
+  // Normalize common bank-feed truncations/variants so one known merchant
+  // doesn't split into separate groups. Keep these narrow to avoid merging
+  // unrelated businesses based on a short shared fragment.
+  key = key.replace(/^provident fundin(?:g)?\b.*$/, "provident funding");
+  key = key.replace(/^cen ci spizzeria\b.*$/, "cencis pizzeria");
+  key = key.replace(/^cencis pizzeria(?: and ba\b.*)?$/, "cencis pizzeria");
+  return key;
+}
+
+/** Stable display label for the small set of merchant aliases we safely know. */
+export function displayMerchantName(raw: string | null | undefined): string {
+  const cleaned = cleanBankText(raw);
+  const key = merchantKey(cleaned);
+  if (key === "provident funding") return "Provident Funding";
+  if (key === "cencis pizzeria") return "Cencis Pizzeria";
+  return cleaned;
 }

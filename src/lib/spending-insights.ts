@@ -25,7 +25,17 @@ export type TxnFlag = "duplicate" | "transfer";
 
 /** Lower-cased, punctuation/number-stripped merchant key ("STARBUCKS #1234" → "starbucks"). */
 export const normalizeMerchant = (s: string | null | undefined): string =>
-  merchantKey(s);
+  // Strip store numbers / ACH tails first so one merchant's locations group
+  // together, then apply merchantKey's legal-suffix and known-alias rules.
+  merchantKey(
+    (s ?? "")
+      .toLowerCase()
+      .replace(/[#*].*$/, "")
+      .replace(/\b(des|id|indn|co id|ppd|web|ach)\b.*$/, "")
+      .replace(/[^a-z&+ ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 
 // Statement text that usually means money moved between the user's own
 // accounts (brokerage funding, P2P to self, savings sweeps) rather than real

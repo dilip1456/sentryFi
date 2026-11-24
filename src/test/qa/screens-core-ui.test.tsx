@@ -36,13 +36,17 @@ describe("Home", () => {
   it("section and card titles use one neutral style (not gold, not mixed sizes)", async () => {
     renderDashboard("overall");
     expect(screen.queryByRole("heading", { name: /^action items$/i })).toBeNull();
-    for (const name of [/^saving opportunities$/i, /^upcoming charges$/i]) {
+    // 0deb04e (pushed to main Nov 18) renamed Home's panels: "Saving
+    // opportunities" -> "Key insight", "Upcoming charges" -> "Upcoming Bills",
+    // and the group "Insights into your spending" -> "Your priorities".
+    // The style rules below are unchanged.
+    for (const name of [/^key insight$/i, /^upcoming bills$/i]) {
       const h = await screen.findByRole("heading", { name });
       expect(h.className).toContain("text-foreground");
       expect(h.className).not.toContain("text-primary");
       expect(h.className).toContain("text-[14px]");
     }
-    const group = screen.getByRole("heading", { name: /insights into your spending/i });
+    const group = screen.getByRole("heading", { name: /^your priorities$/i });
     expect(group.className).toContain("font-display");
     expect(group.className).not.toContain("text-primary");
   });

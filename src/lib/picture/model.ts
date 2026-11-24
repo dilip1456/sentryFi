@@ -450,7 +450,7 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
     : salaryMonthly > 0 ? "recent average · last 90 days" : null;
   income.push({
     group: "income", id: "salary", label: "Salary",
-    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.map(i => i.label).join(" & ")}` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? "Take-home · averaged over the last 3 months" : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
+    sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.map(i => i.label).join(" & ")}` : salaryItems.length ? ` · ${salaryItems[0].pattern}` : ""}` : salaryEstimated ? "Take-home · averaged over the last 3 months" : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
     monthly: eff("income.salary", salaryMonthly), detected: salaryMonthly, overrideKey: "income.salary", edited: "income.salary" in overrides,
     coverId: primaryDeposit, coverSource: primaryDeposit ? "detected" : "none", txns: salaryRowTxns.slice(0, 6),
     missed: salaryItems.some(i => i.missed), why: salaryItems.map(i => `${i.label}: ${i.why}`).join(" "),

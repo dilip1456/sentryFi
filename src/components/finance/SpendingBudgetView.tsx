@@ -1203,7 +1203,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Searching or changing filters always returns the transaction pane to the
   // first matching row so the user isn't left looking below the results.
   useEffect(() => {
-    tableWrapRef.current?.scrollTo({ top: 0 });
+    // scrollTop (not Element.scrollTo) works in every WebView and in jsdom.
+    if (tableWrapRef.current) tableWrapRef.current.scrollTop = 0;
   }, [activeSearchTerms, accountFilters, minAmount, maxAmount, fixedAmount, typeFilter, recurringFilter, tagFilter, dateMode, dateFrom, dateTo, lastNDays, filterYear, activeRange.start, activeRange.end]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.

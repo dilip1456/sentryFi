@@ -144,6 +144,7 @@ describe("salary and paychecks", () => {
     b.series("chk", ["2026-09-15", "2026-09-30", "2026-10-15"], i => [-2400, -4100, -2900][i], "INITECH PAYROLL", WAGES);
     const s = salary(picture(b.fx()).m);
     expect(s.monthly).toBeGreaterThan(3000);
-    expect(s.sub).toMatch(/averaged/);
+    // 8ef3b70/0deb04e relabelled the no-pattern estimate "recent average · last 90 days".
+    expect(s.sub).toBe("Take-home · recent average · last 90 days");
   });
 });
