@@ -31,8 +31,8 @@
 
 
 .nc-head { display:flex; align-items:center; gap:6px; padding:10px 10px 10px 16px; border-bottom:1px solid hsl(var(--border)); }
-.nc-head h2 { font-family:Fraunces,serif; font-size:21px; font-weight:600; flex:1; min-width:0; }
-@media (max-width:767px){ .nc-head h2 { font-family:Inter,sans-serif; font-size:17px; } }
+.nc-head h2 { font-family:Inter,system-ui,sans-serif; font-size:19px; font-weight:600; flex:1; min-width:0; }
+@media (max-width:767px){ .nc-head h2 { font-size:17px; } }
 .nc-ib { height:40px; width:40px; border-radius:9999px; display:grid; place-items:center; color:hsl(var(--muted-foreground)); flex-shrink:0; }
 .nc-ib:hover { color:hsl(var(--foreground)); background:hsl(var(--surface-hover)); }
 @media (max-width:767px){ .nc-ib { height:44px; width:44px; } }

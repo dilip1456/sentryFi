@@ -73,13 +73,18 @@ export function useRecurringDecisions(userId: string | null | undefined, demo: b
     toast.error("Couldn't save that change", { description: "It wasn't stored, so it's back in the list. Try again later." });
   }, []);
 
-  /** Store (insert or replace) one decision. */
-  const save = useCallback(async (d: RecurringDecision) => {
+  /**
+   * Store (insert or replace) one decision. `quiet`: a background fix (e.g. a
+   * refreshed label) that rolls back silently instead of telling the person.
+   */
+  const save = useCallback(async (d: RecurringDecision, opts?: { quiet?: boolean }) => {
     const prev = ref.current.find(x => x.key === d.key);
     put(d.key, d);
     if (!live) return;
     const { error } = await (db.from("recurring_streams").upsert(decisionToRow(userId!, d), { onConflict: "user_id,series_key" }) as Res);
-    if (error) failed(d.key, prev, error.message);
+    if (!error) return;
+    if (opts?.quiet) { console.warn("[recurring decisions]", error.message); setLocal(m => { const next = new Map(m); next.set(d.key, prev ?? null); return next; }); return; }
+    failed(d.key, prev, error.message);
   }, [live, userId, put, failed]);
 
   /** Forget a decision (restore to "suggested"). */

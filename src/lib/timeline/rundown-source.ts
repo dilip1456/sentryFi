@@ -16,13 +16,18 @@ export const HIGH_CONFIDENCE = 0.8;
  * confidence. Dismissed / inactive never; Picture review decision rows
  * (source='picture', series_key 'picture:…') are decisions, not schedules.
  */
-export function eligibleStreams<T extends UpcomingStream & { confidence?: number | null; source?: string | null; user_amount?: number | null }>(streams: T[]): T[] {
+export function eligibleStreams<T extends UpcomingStream & { confidence?: number | null; source?: string | null; user_amount?: number | null }>(streams: T[], planning?: ReadonlyMap<string, number>): T[] {
   return streams
     .filter(s => s.status !== "dismissed" && s.active !== false)
     .filter(s => s.source !== "picture" && !String(s.series_key).startsWith("picture:"))
     .filter(s => s.status === "confirmed" || (s.confidence ?? 0) >= HIGH_CONFIDENCE)
     // respect a user-edited amount ("this is $X") over the detector's median
-    .map(s => (s.user_amount != null && s.user_amount >= 0 ? { ...s, next_expected_amount: s.user_amount, amount_median: s.user_amount, is_fixed: true } : s));
+    .map(s => {
+      if (s.user_amount != null && s.user_amount >= 0) return { ...s, next_expected_amount: s.user_amount, amount_median: s.user_amount, is_fixed: true };
+      // Shortfall checks plan for the worst case (planning-amount.ts).
+      const p = planning?.get(s.series_key);
+      return p != null ? { ...s, next_expected_amount: p } : s;
+    });
 }
 
 const UTIL = /\b(electric|power|energy|gas|water|sewer|internet|fiber|cable|comcast|xfinity|verizon|at&t|t-mobile|tmobile|phone|mobile|wireless|utility|utilities)\b/i;

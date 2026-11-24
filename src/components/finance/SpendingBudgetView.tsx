@@ -2,14 +2,17 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { fmtUSD, fmtTxnAmount, txnAmountClass } from "@/lib/format";
+import { fmtUSD, fmtUSDCompact, fmtTxnAmount, txnAmountClass } from "@/lib/format";
 import { useCountUp } from "@/hooks/useCountUp";
+import { MerchantLogo } from "@/components/finance/MerchantLogo";
 import { FlagChip, PendingChip, type OverviewMerchant, type OverviewMovement, type MovementKey } from "@/components/finance/spending/SpendingOverview";
 import type { Classification, ClassifierTxn, TxnType } from "@/lib/classify/index.ts";
 import { classifyTxn, countsAsSpend, categoryCountsAsSpend, type TxnClass, TXN_TYPES, txnTypeOption, detectTxnFlags, dailyTotals, cumulative, projectMonthEnd, normalizeMerchant, fmtShortDate, fmtDayHeading, withAlpha, vivid, type TxnFlag } from "@/lib/spending-insights";
 import { useFloatingMenu } from "@/components/finance/spending/useFloatingMenu";
 import { localISODate, localISOMonth, todayISO, addDaysISO, daysBetweenISO } from "@/lib/dates";
 import { isNonBillRecurringCandidate, classifyRecurrenceFrequency } from "@/lib/recurring";
+import { displayMerchantName, merchantKey } from "@/lib/merchant-name";
+import { CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   ChevronLeft, ChevronRight, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, TrendingUp, TrendingDown,
   X, Landmark, Columns3, Check, Layers, Maximize2, Wallet, Pencil, Trash2, Plus, ChevronDown,
@@ -19,7 +22,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; [k:string]:unknown; }
+interface PTxn { id:string; account_id:string; item_id:string|null; transaction_id:string|null; amount:number|string; date:string; name:string|null; merchant_name:string|null; category:string[]|null; pending:boolean; pfc_primary?:string|null; pfc_detailed?:string|null; pfc_confidence?:string|null; logo_url?:string|null; website?:string|null; [k:string]:unknown; }
 interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; mask:string|null; type:string|null; subtype:string|null; current_balance:number|null; [k:string]:unknown; }
 
 export interface SpendingBudgetViewProps {
@@ -31,6 +34,7 @@ export interface SpendingBudgetViewProps {
   // Opens the transaction detail modal; `recurringFrequency` is the cadence
   // this list shows for the row, so the modal can display the same label.
   onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; internalTxnIds:Set<string>;
+  recurringOverrides: Record<string, boolean>;
   initialSearch?:string;
   // Classifies a transaction as income/expense by its assigned category
   // (falling back to the amount's sign only for unclassified categories) so
@@ -48,6 +52,10 @@ export interface SpendingBudgetViewProps {
   // auto-categorization since Plaid-category mapping matches on the literal
   // string.
   onRenameCategory?:(oldName:string, newName:string)=>void;
+  // Deletes any category (built-in or custom). Every transaction currently
+  // under it is reassigned to a fallback category by the caller, which then
+  // offers an "AI recategorize" follow-up — this view only needs to trigger it.
+  onDeleteCategory?:(name:string)=>void;
   // Tags; used by the Tags filter; empty object is fine if the caller hasn't
   // wired tagging yet.
   txnTags:Record<string,string[]>;
@@ -67,8 +75,8 @@ export interface SpendingBudgetViewProps {
   isCategoryEdited?: (t:PTxn)=>boolean;
   /** Shared-classifier result for a transaction (src/lib/classify, computed once by the dashboard). */
   classOf?: (t:{ id: string })=>Classification|undefined;
-  /** Persist a per-transaction type override ("Counts as"); null clears it. */
-  onSetTxnType?: (t:PTxn, type:TxnType|null)=>void;
+  /** Persist a manual transaction-type choice from the mobile row control. */
+  onChangeTxnType: (t: PTxn, type: TxnClass) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,6 +94,7 @@ const isoDay = (s:string) => Number(s.slice(8,10));
 // Order here (date, amount, statement, category, then status/account) mirrors
 // the priority the columns should read in left-to-right after the vendor name.
 type ColKey = "date" | "amount" | "statement" | "category" | "status" | "account";
+type TableColumnKey = "vendor" | ColKey;
 type SortKey = "name" | ColKey;
 const COLUMN_DEFS: { key: ColKey; label: string }[] = [
   { key: "date", label: "Date" },
@@ -100,33 +109,31 @@ const COLUMN_DEFS: { key: ColKey; label: string }[] = [
 // available via the Columns picker but aren't forced on.
 const DEFAULT_COLS: ColKey[] = ["date", "amount", "statement", "category", "status", "account"];
 const COLS_STORAGE_KEY = "sentryfi_spending_txn_columns";
+const COLUMN_ORDER_STORAGE_KEY = "sentryfi_spending_txn_column_order";
+const DEFAULT_COLUMN_ORDER: TableColumnKey[] = ["vendor", ...DEFAULT_COLS];
 
 // Human label for every sortable key (COLUMN_DEFS + the always-on "name"/Description column).
 const SORT_LABELS: Record<SortKey, string> = {
   name: "Description", date: "Date", amount: "Amount", statement: "Statement Desc.", category: "Category", status: "Status", account: "Account",
 };
-
 // ── Resizable column widths, persisted across sessions. These are used as
 // proportional weights on a table-layout:fixed table whose own width is
 // pinned to 100% of its container; dragging a handle changes a column's
 // share of that fixed width (and shrinks its neighbors), so the table can
 // never grow wider than the view and trigger horizontal scroll. ───────────
 type WidthKey = "name" | ColKey;
-// Description gets the largest share since vendor names are the thing people
-// actually need to read; date/status are short fixed-format values and get
-// the least. Statement/category/account can still run long, so their cells
-// wrap to two lines instead of being squeezed and ellipsized.
+// These are starting widths, not locked sizes. Every column can be resized,
+// and any spare table width is shared across all visible columns.
 const DEFAULT_COL_WIDTHS: Record<WidthKey, number> = {
-  name: 260, date: 84, amount: 100, statement: 200, category: 160, status: 84, account: 112,
+  name: 260, date: 84, amount: 100, statement: 200, category: 160, status: 84, account: 168,
 };
 const COL_WIDTHS_STORAGE_KEY = "sentryfi_spending_txn_col_widths";
 const MIN_COL_WIDTH = 60;
-// The Vendor column has no fixed width; it takes whatever the attribute
-// columns leave, but never less than this. When the container is too
+// Vendor can be resized down to this width. When the container is too
 // narrow for every enabled column, the lowest-priority ones are hidden
 // (in this order) instead of the table overflowing and getting clipped.
 const SELECT_COL_WIDTH = 32;
-const VENDOR_MIN_WIDTH = 200;
+const VENDOR_MIN_WIDTH = 120;
 const COL_DROP_ORDER: ColKey[] = ["statement", "account", "status", "category", "date", "amount"];
 
 // Category names that are really a fixed obligation (mortgage, a loan, rent)
@@ -302,7 +309,7 @@ const SHOW_BURN_RUNWAY = false;
 // like the burn runway so it's a one-line flip to bring back.
 const SHOW_CATEGORY_SIDEBAR = false;
 
-export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf,onSetTxnType}:SpendingBudgetViewProps) {
+export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudget,removeBudget,getEffectiveCategory,formatCat,catColor,onOpenDetail,internalTxnIds,recurringOverrides,initialSearch,isIncomeCategory,categoryIcon,expenseCategories,incomeCategories,ignoredCategories,customCategories,onSelectCategory,onAddCategory,onRemoveCategory,onRenameCategory,onDeleteCategory,txnTags,onAddTag,onOpenRules,onOpenImport,headerActions,isCategoryEdited,classOf,onChangeTxnType}:SpendingBudgetViewProps) {
 
   const monthBuckets = useMemo(() => monthBucketsList(12), []);
   const lastIdx = monthBuckets.length - 1;
@@ -327,6 +334,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [dayOffset, setDayOffset] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0);
   const [yearOffset, setYearOffset] = useState(0);
+  const [yearMonthSelection, setYearMonthSelection] = useState<number | null>(null);
   const granularityOffset = granularity==="day" ? dayOffset : granularity==="week" ? weekOffset : granularity==="year" ? yearOffset : 0;
   // Day/week/year offsets are all clamped to their bar-scrubber's window
   // (14 days / 12 weeks / 6 years) so every granularity behaves the same way:
@@ -334,7 +342,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const stepPeriod = (dir: 1|-1) => {
     if (granularity==="day") setDayOffset(o=>Math.max(Math.min(o+dir,0), -(DAY_COUNT-1)));
     else if (granularity==="week") setWeekOffset(o=>Math.max(Math.min(o+dir,0), -(WEEK_COUNT-1)));
-    else if (granularity==="year") setYearOffset(o=>Math.max(Math.min(o+dir,0), -(YEAR_COUNT-1)));
+    else if (granularity==="year") { setYearMonthSelection(null); setYearOffset(o=>Math.max(Math.min(o+dir,0), -(YEAR_COUNT-1))); }
   };
   const selDayIdx = DAY_COUNT - 1 + dayOffset;
   const selWeekIdx = WEEK_COUNT - 1 + weekOffset;
@@ -342,7 +350,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const resetPeriod = () => {
     if (granularity==="day") setDayOffset(0);
     else if (granularity==="week") setWeekOffset(0);
-    else if (granularity==="year") setYearOffset(0);
+    else if (granularity==="year") { setYearMonthSelection(null); setYearOffset(0); }
   };
 
   // The actual date range driving transactions/categories/totals below; month
@@ -369,11 +377,16 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     }
     if (granularity==="year") {
       const y = base.getFullYear()+yearOffset;
+      if (yearMonthSelection !== null) {
+        const start = new Date(y, yearMonthSelection, 1);
+        const end = new Date(y, yearMonthSelection + 1, 0);
+        return { start: localISODate(start), end: localISODate(end), isCurrent: y === base.getFullYear() && yearMonthSelection === base.getMonth(), label: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
+      }
       return { start: `${y}-01-01`, end: `${y}-12-31`, isCurrent: yearOffset===0, label: `${y}` };
     }
     return { start: sel.start, end: sel.end, isCurrent: isCurrentMonth,
       label: isCurrentMonth ? "This month" : new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US",{month:"long",year:"numeric"}) };
-  }, [granularity, dayOffset, weekOffset, yearOffset, sel, isCurrentMonth]);
+  }, [granularity, dayOffset, weekOffset, yearOffset, yearMonthSelection, sel, isCurrentMonth]);
 
   const [catSel, setCatSel] = useState<string|null>(null);
   // Which category universe the Categories panel/feed is browsing; one of
@@ -446,6 +459,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const [maxAmount, setMaxAmount] = useState("");
   const [fixedAmount, setFixedAmount] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all"|"in"|"out">("all");
+  const [recurringFilter, setRecurringFilter] = useState<"all"|"yes"|"no">("all");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [ignoredFilter, setIgnoredFilter] = useState<"no"|"yes">("no");
   const [dateMode, setDateMode] = useState<"none"|"range"|"lastN"|"year">("none");
@@ -472,6 +486,47 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...visibleCols])); } catch { /* ignore */ }
   }, [visibleCols]);
+  const [columnOrder, setColumnOrder] = useState<TableColumnKey[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLUMN_ORDER_STORAGE_KEY) ?? "[]") as unknown;
+      if (Array.isArray(saved)) {
+        const valid = saved.filter((key): key is TableColumnKey => DEFAULT_COLUMN_ORDER.includes(key as TableColumnKey));
+        return [...new Set(valid), ...DEFAULT_COLUMN_ORDER.filter(key => !valid.includes(key))];
+      }
+    } catch { /* ignore malformed/blocked storage */ }
+    return DEFAULT_COLUMN_ORDER;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_ORDER_STORAGE_KEY, JSON.stringify(columnOrder)); } catch { /* ignore */ }
+  }, [columnOrder]);
+  const [draggedColumn, setDraggedColumn] = useState<TableColumnKey | null>(null);
+  const [dropTargetColumn, setDropTargetColumn] = useState<TableColumnKey | null>(null);
+  const handleColumnDragStart = (key: TableColumnKey) => (event: React.DragEvent<HTMLTableCellElement>) => {
+    setDraggedColumn(key);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", key);
+  };
+  const handleColumnDragOver = (key: TableColumnKey) => (event: React.DragEvent<HTMLTableCellElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDropTargetColumn(key);
+  };
+  const handleColumnDrop = (key: TableColumnKey) => (event: React.DragEvent<HTMLTableCellElement>) => {
+    event.preventDefault();
+    const source = draggedColumn ?? event.dataTransfer.getData("text/plain") as TableColumnKey;
+    setColumnOrder(order => {
+      const from = order.indexOf(source);
+      const to = order.indexOf(key);
+      if (from < 0 || to < 0 || from === to) return order;
+      const next = [...order];
+      next.splice(from, 1);
+      next.splice(to, 0, source);
+      return next;
+    });
+    setDraggedColumn(null);
+    setDropTargetColumn(null);
+  };
+  const clearColumnDrag = () => { setDraggedColumn(null); setDropTargetColumn(null); };
   const colsMenu = useFloatingMenu(192);
   const moreMenu = useFloatingMenu(224);
   const toggleCol = (k: ColKey) => setVisibleCols(prev => {
@@ -509,31 +564,58 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const tableCols = useMemo(() => {
     const cols = new Set(visibleCols);
     if (!tableWrapWidth) return cols;
-    const used = () => [...cols].reduce((s, k) => s + (colWidths[k] ?? DEFAULT_COL_WIDTHS[k]), 0);
+    const used = () => Math.max(VENDOR_MIN_WIDTH, colWidths.name) + [...cols].reduce((s, k) => s + Math.max(MIN_COL_WIDTH, colWidths[k] ?? DEFAULT_COL_WIDTHS[k]), 0);
     for (const k of COL_DROP_ORDER) {
-      if (SELECT_COL_WIDTH + VENDOR_MIN_WIDTH + used() <= tableWrapWidth) break;
+      if (SELECT_COL_WIDTH + used() <= tableWrapWidth) break;
       if (cols.size > 1) cols.delete(k);
     }
     return cols;
   }, [visibleCols, colWidths, tableWrapWidth]);
-  const fitRef = useRef({ tableCols, tableWrapWidth, colWidths });
-  fitRef.current = { tableCols, tableWrapWidth, colWidths };
+  // Use the available table width across every visible column, including
+  // Vendor and Account. Saved sizes remain proportions while the table always
+  // fills its container.
+  const fittedColWidths = useMemo(() => {
+    const widths: Record<WidthKey, number> = { ...colWidths, name: Math.max(VENDOR_MIN_WIDTH, colWidths.name) };
+    const visibleWidth = widths.name + [...tableCols].reduce((sum, key) => sum + Math.max(MIN_COL_WIDTH, widths[key]), 0);
+    const available = Math.max(0, tableWrapWidth - SELECT_COL_WIDTH);
+    const extra = Math.max(0, available - visibleWidth);
+    const totalWeight = Math.max(1, visibleWidth);
+    widths.name += extra * widths.name / totalWeight;
+    for (const key of tableCols) widths[key] += extra * widths[key] / totalWeight;
+    return widths;
+  }, [tableCols, colWidths, tableWrapWidth]);
+  const orderedVisibleColumns = useMemo(
+    () => columnOrder.filter(key => key === "vendor" || tableCols.has(key)),
+    [columnOrder, tableCols],
+  );
+  const fitRef = useRef({ tableCols, tableWrapWidth, colWidths, fittedColWidths, orderedVisibleColumns });
+  fitRef.current = { tableCols, tableWrapWidth, colWidths, fittedColWidths, orderedVisibleColumns };
 
-  const resizingCol = useRef<{ key: WidthKey; startX: number; startWidth: number } | null>(null);
+  const resizingCol = useRef<{
+    key: WidthKey; neighbor: WidthKey; startX: number; startWidth: number; neighborWidth: number;
+    keyMin: number; neighborMin: number;
+  } | null>(null);
   const startColResize = (key: WidthKey) => (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();
-    resizingCol.current = { key, startX: e.clientX, startWidth: colWidths[key] };
+    const { fittedColWidths: displayed, orderedVisibleColumns: visible } = fitRef.current;
+    const visibleWidths: WidthKey[] = visible.map(column => column === "vendor" ? "name" : column);
+    const index = visibleWidths.indexOf(key);
+    const neighbor = visibleWidths[index < visibleWidths.length - 1 ? index + 1 : index - 1];
+    if (!neighbor) return;
+    const keyMin = key === "name" ? VENDOR_MIN_WIDTH : MIN_COL_WIDTH;
+    const neighborMin = neighbor === "name" ? VENDOR_MIN_WIDTH : MIN_COL_WIDTH;
+    resizingCol.current = {
+      key, neighbor, startX: e.clientX, startWidth: displayed[key], neighborWidth: displayed[neighbor], keyMin, neighborMin,
+    };
+    // Start from what is actually on screen, so the drag feels 1:1 even when
+    // the table distributed spare width to fill its container.
+    setColWidths(displayed);
     const onMove = (ev: PointerEvent) => {
       if (!resizingCol.current) return;
-      const { key: k, startX, startWidth } = resizingCol.current;
-      // Never let a drag widen a column past what still leaves the Vendor
-      // column its minimum width, so resizing can't push the table into
-      // overflow (or auto-hide a neighbouring column).
-      const { tableCols: tc, tableWrapWidth: ww, colWidths: cw } = fitRef.current;
-      const others = [...tc].filter(c => c !== k).reduce((s, c) => s + cw[c], 0);
-      const cap = ww ? Math.max(MIN_COL_WIDTH, ww - SELECT_COL_WIDTH - VENDOR_MIN_WIDTH - others) : Infinity;
-      const next = Math.min(cap, Math.max(MIN_COL_WIDTH, Math.round(startWidth + (ev.clientX - startX))));
-      setColWidths(w => ({ ...w, [k]: next }));
+      const { key: k, neighbor: n, startX, startWidth, neighborWidth, keyMin, neighborMin } = resizingCol.current;
+      const total = startWidth + neighborWidth;
+      const next = Math.min(total - neighborMin, Math.max(keyMin, Math.round(startWidth + (ev.clientX - startX))));
+      setColWidths(w => ({ ...w, [k]: next, [n]: total - next }));
     };
     const onUp = () => {
       resizingCol.current = null;
@@ -628,15 +710,17 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return txns.filter(t => {
       if (t.date < activeRange.start || t.date > activeRange.end) return false;
       const cat = getEffectiveCategory(t) ?? "Other";
-      const inTab = ignoredCategories.includes(cat)
+      const classification = classOf?.(t);
+      const neutralOrIgnored = classification && ["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution"].includes(classification.type);
+      const incoming = !["obligation_loan", "obligation_tax", "obligation_bill"].includes(classification?.type ?? "")
+        && (Number(t.amount) < 0 || isIncomeCategory(cat, Number(t.amount)));
+      const inTab = ignoredCategories.includes(cat) || neutralOrIgnored
         ? catTab === "ignored"
-        : isIncomeCategory(cat, Number(t.amount))
-          ? catTab === "income"
-          : catTab === "expenses";
+        : incoming ? catTab === "income" : catTab === "expenses";
       if (!inTab) return false;
-      return !catSel || cat === catSel;
+      return !catSel || formatCat(cat).trim().replace(/\s+/g, " ").toLowerCase() === formatCat(catSel).trim().replace(/\s+/g, " ").toLowerCase();
     });
-  }, [txns, activeRange, catSel, getEffectiveCategory, catTab, ignoredCategories, isIncomeCategory]);
+  }, [txns, activeRange, catSel, getEffectiveCategory, catTab, ignoredCategories, isIncomeCategory, formatCat, classOf]);
 
   // Same as periodTxns but ignoring the category filter; used to build the
   // Categories list itself, so clicking a category doesn't make every other
@@ -652,7 +736,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     for (const t of txns) {
       if (internalTxnIds.has(t.id)) continue;
       if (t.date < monthBuckets[0].start || t.date > monthBuckets[lastIdx].end) continue;
-      if (!isExpenseTxn(t)) continue;
+      if (!isExpenseTxn(t) || Number(t.amount) <= 0) continue;
+      if (classOf?.(t)?.type === "obligation_loan") continue;
       const cat = getEffectiveCategory(t) ?? "Other";
       // Ignored categories (Credit Card Payment, Internal Transfer) are
       // neither real spend nor real income; they must never count toward
@@ -664,7 +749,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       out[cat][bi] += Number(t.amount);
     }
     return out;
-  }, [txns, internalTxnIds, monthBuckets, lastIdx, isExpenseTxn, getEffectiveCategory, ignoredCategories]);
+  }, [txns, internalTxnIds, monthBuckets, lastIdx, isExpenseTxn, getEffectiveCategory, ignoredCategories, classOf]);
 
   // Same per-month/per-category breakdown as catMonthlyTotals, but for income
   // categories; kept fully separate so income never leaks into overallMonthly
@@ -677,7 +762,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (t.date < monthBuckets[0].start || t.date > monthBuckets[lastIdx].end) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat)) continue;
-      if (!isIncomeCategory(cat, Number(t.amount))) continue;
+      if (Number(t.amount) >= 0 && !isIncomeCategory(cat, Number(t.amount))) continue;
+      if (classOf?.(t)?.type === "obligation_loan") continue;
       // A confirmed internal transfer is already excluded above (and its
       // category forced to "Internal Transfer" upstream, which never matches
       // isIncomeCategory anyway). Money someone else sent ("Transfer In",
@@ -688,7 +774,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       out[cat][bi] -= Number(t.amount); // signed: a payroll reversal nets income down (shared definition)
     }
     return out;
-  }, [txns, internalTxnIds, monthBuckets, lastIdx, isIncomeCategory, getEffectiveCategory, ignoredCategories]);
+  }, [txns, internalTxnIds, monthBuckets, lastIdx, isIncomeCategory, getEffectiveCategory, ignoredCategories, classOf]);
 
   const overallMonthly = useMemo(() => {
     const out = new Array(monthBuckets.length).fill(0);
@@ -703,35 +789,35 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const byDate: Record<string, number> = {};
     for (const b of dayBuckets) byDate[b.start] = 0;
     for (const t of txns) {
-      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t) || Number(t.amount) <= 0 || classOf?.(t)?.type === "obligation_loan") continue;
       if (ignoredCategories.includes(getEffectiveCategory(t) ?? "Other")) continue;
       if (t.date in byDate) byDate[t.date] += Number(t.amount);
     }
     dayBuckets.forEach((b,i) => out[i] = byDate[b.start]);
     return out;
-  }, [txns, internalTxnIds, isExpenseTxn, dayBuckets, ignoredCategories, getEffectiveCategory]);
+  }, [txns, internalTxnIds, isExpenseTxn, dayBuckets, ignoredCategories, getEffectiveCategory, classOf]);
 
   const overallWeekly = useMemo(() => {
     const out = new Array(weekBuckets.length).fill(0);
     for (const t of txns) {
-      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t) || Number(t.amount) <= 0 || classOf?.(t)?.type === "obligation_loan") continue;
       if (ignoredCategories.includes(getEffectiveCategory(t) ?? "Other")) continue;
       const bi = weekBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi !== -1) out[bi] += Number(t.amount);
     }
     return out;
-  }, [txns, internalTxnIds, isExpenseTxn, weekBuckets, ignoredCategories, getEffectiveCategory]);
+  }, [txns, internalTxnIds, isExpenseTxn, weekBuckets, ignoredCategories, getEffectiveCategory, classOf]);
 
   const overallYearly = useMemo(() => {
     const out = new Array(yearBuckets.length).fill(0);
     for (const t of txns) {
-      if (internalTxnIds.has(t.id) || !isExpenseTxn(t)) continue;
+      if (internalTxnIds.has(t.id) || !isExpenseTxn(t) || Number(t.amount) <= 0 || classOf?.(t)?.type === "obligation_loan") continue;
       if (ignoredCategories.includes(getEffectiveCategory(t) ?? "Other")) continue;
       const bi = yearBuckets.findIndex(b => t.date >= b.start && t.date <= b.end);
       if (bi !== -1) out[bi] += Number(t.amount);
     }
     return out;
-  }, [txns, internalTxnIds, isExpenseTxn, yearBuckets, ignoredCategories, getEffectiveCategory]);
+  }, [txns, internalTxnIds, isExpenseTxn, yearBuckets, ignoredCategories, getEffectiveCategory, classOf]);
 
   // Date-context labels shown above the day/month/week bars so it's clear
   // which calendar month/year(s) the visible bars belong to.
@@ -759,7 +845,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // scoped this stat to just that category.
   const totalSpent = granularity==="month" ? monthTotalSpent : periodTxnsAllCats.filter(t => {
     const cat = getEffectiveCategory(t) ?? "Other";
-    if (ignoredCategories.includes(cat) || isIncomeCategory(cat, Number(t.amount))) return false;
+    if (ignoredCategories.includes(cat) || Number(t.amount) <= 0 || isIncomeCategory(cat, Number(t.amount)) || classOf?.(t)?.type === "obligation_loan") return false;
     if (catTab === "expenses" && catSel && cat !== catSel) return false;
     return true;
   }).reduce((s,t)=>s+Number(t.amount),0);
@@ -773,10 +859,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (internalTxnIds.has(t.id)) continue;
       if (t.date < activeRange.start || t.date > activeRange.end) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
-      if (isIncomeCategory(cat, Number(t.amount))) total -= Number(t.amount); // signed, matches Home
+      const kind = classOf?.(t)?.type;
+      if (Number(t.amount) < 0 && !["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan"].includes(kind ?? "") && !ignoredCategories.includes(cat)) total -= Number(t.amount);
     }
     return total;
-  }, [txns, internalTxnIds, activeRange, getEffectiveCategory, isIncomeCategory]);
+  }, [txns, internalTxnIds, activeRange, getEffectiveCategory, isIncomeCategory, classOf, ignoredCategories]);
 
   const totalBudget = Object.values(budgets).reduce((s,v) => s+v, 0);
   const now = new Date();
@@ -815,10 +902,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       if (t.date < cutoffStr) continue;
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat)) continue;
-      const label = (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").trim();
+      const label = (nameOverrides[t.id] ?? displayMerchantName(t.merchant_name ?? t.name) ?? "").trim();
       if (!label) continue;
-      if (isNonBillRecurringCandidate(cat, label)) continue;
-      const key = label.toLowerCase();
+      if (isNonBillRecurringCandidate(cat, label, { primary: t.pfc_primary, detailed: t.pfc_detailed })) continue;
+      const key = merchantKey(label);
       if (!byMerchant[key]) byMerchant[key] = { dates:[], amounts:[], cat, label, accountId: t.account_id };
       byMerchant[key].dates.push(t.date);
       byMerchant[key].amounts.push(Number(t.amount));
@@ -841,7 +928,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return out.sort((a,b) => a.nextDate.localeCompare(b.nextDate));
   }, [txns, internalTxnIds, isExpenseTxn, nameOverrides, getEffectiveCategory, ignoredCategories]);
 
-  const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [r.merchant.toLowerCase(), r.frequency])), [recurring]);
+  const recurringMerchantKeys = useMemo(() => new Map(recurring.map(r => [merchantKey(r.merchant), r.frequency])), [recurring]);
 
   const todayStr = todayISO(now);
   const in30 = addDaysISO(todayStr, 30);
@@ -910,40 +997,57 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const sparkline = arr.slice(Math.max(0,idx-5), idx+1);
     return { cat, spend, mom, sparkline };
   }, []);
+  const categoryDisplayKey = useCallback((cat: string) => formatCat(cat).trim().replace(/\s+/g, " ").toLowerCase(), [formatCat]);
+  const mergeMonthlyCategoryTotals = useCallback((source: Record<string, number[]>) => {
+    const merged = new Map<string, { cat: string; totals: number[] }>();
+    for (const [cat, values] of Object.entries(source)) {
+      const key = categoryDisplayKey(cat);
+      const entry = merged.get(key) ?? { cat, totals: new Array(monthBuckets.length).fill(0) };
+      values.forEach((value, index) => { entry.totals[index] = (entry.totals[index] ?? 0) + value; });
+      merged.set(key, entry);
+    }
+    return [...merged.values()];
+  }, [categoryDisplayKey, monthBuckets.length]);
 
   const expenseCatRows = useMemo(() => {
     if (granularity === "month") {
-      return Object.entries(catMonthlyTotals).map(e => rowFor(e, selIdx))
+      return mergeMonthlyCategoryTotals(catMonthlyTotals).map(e => rowFor([e.cat, e.totals], selIdx))
         .filter(c => c.spend > 0)
         .sort((a,b) => b.spend-a.spend);
     }
-    const map: Record<string, number> = {};
+    const map = new Map<string, { cat: string; spend: number }>();
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat) || isIncomeCategory(cat, Number(t.amount))) continue;
-      map[cat] = (map[cat] ?? 0) + Number(t.amount);
+      const key = categoryDisplayKey(cat);
+      const entry = map.get(key) ?? { cat, spend: 0 };
+      entry.spend += Number(t.amount);
+      map.set(key, entry);
     }
-    return Object.entries(map)
-      .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
+    return [...map.values()]
+      .map(({cat,spend}) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
       .sort((a,b) => b.spend-a.spend);
-  }, [granularity, catMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory, isIncomeCategory, ignoredCategories, rowFor]);
+  }, [granularity, catMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory, isIncomeCategory, ignoredCategories, rowFor, mergeMonthlyCategoryTotals, categoryDisplayKey]);
 
   const incomeCatRows = useMemo(() => {
     if (granularity === "month") {
-      return Object.entries(incomeCatMonthlyTotals).map(e => rowFor(e, selIdx))
+      return mergeMonthlyCategoryTotals(incomeCatMonthlyTotals).map(e => rowFor([e.cat, e.totals], selIdx))
         .filter(c => c.spend > 0)
         .sort((a,b) => b.spend-a.spend);
     }
-    const map: Record<string, number> = {};
+    const map = new Map<string, { cat: string; spend: number }>();
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
       if (ignoredCategories.includes(cat) || !isIncomeCategory(cat, Number(t.amount))) continue;
-      map[cat] = (map[cat] ?? 0) - Number(t.amount);
+      const key = categoryDisplayKey(cat);
+      const entry = map.get(key) ?? { cat, spend: 0 };
+      entry.spend -= Number(t.amount);
+      map.set(key, entry);
     }
-    return Object.entries(map)
-      .map(([cat,spend]) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
+    return [...map.values()]
+      .map(({cat,spend}) => ({ cat, spend, mom: null as number|null, sparkline: [] as number[] }))
       .sort((a,b) => b.spend-a.spend);
-  }, [granularity, incomeCatMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory, isIncomeCategory, ignoredCategories, rowFor]);
+  }, [granularity, incomeCatMonthlyTotals, selIdx, periodTxnsAllCats, getEffectiveCategory, isIncomeCategory, ignoredCategories, rowFor, mergeMonthlyCategoryTotals, categoryDisplayKey]);
 
   // Kept for the few call sites below (details dialog, budget dialog) that
   // don't care which tab a category belongs to; just whichever of the three
@@ -954,18 +1058,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   //; a completely separate universe from expenseCatRows/incomeCatRows, only
   // ever browsed while the Ignored tab is active.
   const ignoredCatRows = useMemo(() => {
-    const totals: Record<string, number> = {};
-    const counts: Record<string, number> = {};
+    const totals = new Map<string, { cat: string; spend: number; count: number }>();
     for (const t of periodTxnsAllCats) {
       const cat = getEffectiveCategory(t) ?? "Other";
       if (!ignoredCategories.includes(cat)) continue;
-      totals[cat] = (totals[cat] ?? 0) + Math.abs(Number(t.amount));
-      counts[cat] = (counts[cat] ?? 0) + 1;
+      const key = categoryDisplayKey(cat);
+      const entry = totals.get(key) ?? { cat, spend: 0, count: 0 };
+      entry.spend += Math.abs(Number(t.amount));
+      entry.count += 1;
+      totals.set(key, entry);
     }
-    return Object.entries(totals)
-      .map(([cat, spend]) => ({ cat, spend, count: counts[cat] ?? 0 }))
+    return [...totals.values()]
+      .map(({cat, spend, count}) => ({ cat, spend, count }))
       .sort((a, b) => b.spend - a.spend);
-  }, [periodTxnsAllCats, getEffectiveCategory, ignoredCategories]);
+  }, [periodTxnsAllCats, getEffectiveCategory, ignoredCategories, categoryDisplayKey]);
 
   // Whichever of the three row-lists matches the active tab; used by the
   // mobile pill row, which (unlike the desktop card list) renders all three
@@ -1000,7 +1106,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Resolves the value a given column sorts by, for any transaction.
   const sortValueFor = useCallback((x: PTxn, key: SortKey): string | number => {
     switch (key) {
-      case "name": return (nameOverrides[x.id] ?? x.merchant_name ?? x.name ?? "").toLowerCase();
+      case "name": return (nameOverrides[x.id] ?? displayMerchantName(x.merchant_name ?? x.name)).toLowerCase();
       case "statement": return (x.name ?? "").toLowerCase();
       case "category": return (getEffectiveCategory(x) ?? "Other").toLowerCase();
       case "status": return x.pending ? 1 : 0;
@@ -1018,10 +1124,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     // narrowed to activeRange + catSel). The other filter-panel controls
     // (account/type/amount/date/tag) still apply on top, since those are
     // filters the user explicitly set, not automatic period scoping.
-    let t = searching ? txns.filter(x => !internalTxnIds.has(x.id)) : [...periodTxns];
+    let t = searching || typeFilter === "in"
+      ? txns.filter(x => !internalTxnIds.has(x.id) && (searching || (x.date >= activeRange.start && x.date <= activeRange.end)))
+      : [...periodTxns];
     if (accountFilters.length > 0) t = t.filter(x => accountFilters.includes(x.account_id));
     if (typeFilter === "in") t = t.filter(x => Number(x.amount) < 0);
     else if (typeFilter === "out") t = t.filter(x => Number(x.amount) > 0);
+    if (recurringFilter !== "all") {
+      t = t.filter(x => {
+        const label = merchantKey(nameOverrides[x.id] ?? displayMerchantName(x.merchant_name ?? x.name));
+        const isRecurring = recurringOverrides[x.id] ?? recurringMerchantKeys.has(label);
+        return recurringFilter === "yes" ? isRecurring : !isRecurring;
+      });
+    }
     if (amountMode === "fixed" && fixedAmount.trim()) {
       const fx = parseFloat(fixedAmount);
       if (!isNaN(fx)) t = t.filter(x => Math.abs(Math.abs(Number(x.amount)) - fx) < 0.005);
@@ -1046,7 +1161,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     if (tagFilter.length > 0) t = t.filter(x => (txnTags[x.id] ?? []).some(tag => tagFilter.includes(tag)));
     if (searching) {
       t = t.filter(x => {
-        const desc = (nameOverrides[x.id] ?? x.merchant_name ?? x.name ?? "").toLowerCase();
+        const desc = (nameOverrides[x.id] ?? displayMerchantName(x.merchant_name ?? x.name)).toLowerCase();
         const stmt = (x.name ?? "").toLowerCase();
         const cat = (getEffectiveCategory(x) ?? "").toLowerCase();
         // Every committed term must match; each addition narrows further,
@@ -1058,12 +1173,38 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       });
     }
     t.sort((a,b) => {
+      if (sortBy === "amount") {
+        const aIn = Number(a.amount) < 0, bIn = Number(b.amount) < 0;
+        if (aIn !== bIn) return aIn ? 1 : -1;
+      }
       const va = sortValueFor(a, sortBy), vb = sortValueFor(b, sortBy);
       const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
       return sortDesc ? -cmp : cmp;
     });
     return t;
-  }, [periodTxns, txns, internalTxnIds, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilters, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+  }, [periodTxns, txns, internalTxnIds, activeRange, activeSearchTerms, sortBy, sortDesc, sortValueFor, nameOverrides, getEffectiveCategory, accountFilters, minAmount, maxAmount, amountMode, fixedAmount, typeFilter, recurringFilter, recurringMerchantKeys, recurringOverrides, tagFilter, txnTags, dateMode, dateFrom, dateTo, lastNDays, filterYear]);
+
+  const headerFlowTotals = useMemo(() => {
+    const filtered = catTab !== "expenses" || !!catSel || activeSearchTerms.length > 0 || accountFilters.length > 0 || minAmount !== "" || maxAmount !== "" || fixedAmount !== "" || typeFilter !== "all" || recurringFilter !== "all" || tagFilter.length > 0 || dateMode !== "none";
+    const rows = filtered ? visibleTxns : periodTxnsAllCats.filter(t => !internalTxnIds.has(t.id));
+    let incoming = 0, outgoing = 0;
+    for (const t of rows) {
+      const amount = Number(t.amount);
+      if (!Number.isFinite(amount) || amount === 0) continue;
+      const cat = getEffectiveCategory(t) ?? "Other";
+      const kind = classOf?.(t)?.type;
+      if (ignoredCategories.includes(cat) || ["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan"].includes(kind ?? "")) continue;
+      if (amount < 0) incoming += Math.abs(amount);
+      else outgoing += amount;
+    }
+    return { incoming, outgoing };
+  }, [catTab, catSel, activeSearchTerms, accountFilters, minAmount, maxAmount, fixedAmount, typeFilter, recurringFilter, tagFilter, dateMode, visibleTxns, periodTxnsAllCats, internalTxnIds, getEffectiveCategory, classOf, ignoredCategories]);
+
+  // Searching or changing filters always returns the transaction pane to the
+  // first matching row so the user isn't left looking below the results.
+  useEffect(() => {
+    tableWrapRef.current?.scrollTo({ top: 0 });
+  }, [activeSearchTerms, accountFilters, minAmount, maxAmount, fixedAmount, typeFilter, recurringFilter, tagFilter, dateMode, dateFrom, dateTo, lastNDays, filterYear, activeRange.start, activeRange.end]);
 
   // Accounts that actually appear in this period's transactions, sorted for the filter dropdown.
   const accountsInPeriod = useMemo(() => {
@@ -1104,10 +1245,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   }, [periodTxns, txnTags]);
   const toggleTagFilter = (tag: string) => setTagFilter(prev => prev.includes(tag) ? prev.filter(t=>t!==tag) : [...prev, tag]);
 
-  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilters.length > 0 || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
+  const hasActiveFilters = !!(activeSearchTerms.length > 0 || accountFilters.length > 0 || minAmount || maxAmount || fixedAmount || typeFilter !== "all" || recurringFilter !== "all" || tagFilter.length > 0 || dateMode !== "none");
   const clearFilters = () => {
     setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); setAccountFilters([]); setMinAmount(""); setMaxAmount(""); setFixedAmount(""); setAmountMode("range");
-    setTypeFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
+    setTypeFilter("all"); setRecurringFilter("all"); setTagFilter([]); setDateMode("none"); setDateFrom(""); setDateTo("");
   };
   // "date" desc (newest first) is the default sort; anything else counts as
   // an explicit choice worth surfacing its own quick-clear chip for.
@@ -1173,15 +1314,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
       }));
   }, [visibleTxns, groupBy, groupLabelFor]);
 
-  // Mobile's transaction list is always grouped by date, independent of the
-  // desktop Group-by control; the redesigned mobile layout is built around
-  // a chronological, date-headed feed regardless of what grouping mode
-  // desktop/tablet happens to have selected.
-  // Date headings only make sense while the feed is in date order; sorted
-  // by amount/name/etc. the date buckets would be scattered fragments in
-  // sort order, so the feed renders as one flat, header-less list instead.
+  // Mobile defaults to a chronological feed grouped by date. When the user
+  // picks another grouping, keep that choice consistent with the desktop
+  // table. Date headings only make sense while the feed is in date order.
   const MOBILE_FLAT_KEY = "__flat__";
   const mobileGroups = useMemo(() => {
+    if (groupBy !== "none") return groupedTxns ?? [];
     if (sortBy !== "date") {
       return [{ key: MOBILE_FLAT_KEY, items: visibleTxns, total: visibleTxns.reduce((s, t) => s + Number(t.amount), 0) }];
     }
@@ -1195,7 +1333,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     return [...buckets.entries()]
       .sort((a, b) => a[1].firstIdx - b[1].firstIdx)
       .map(([key, { items }]) => ({ key, items, total: items.reduce((s, t) => s + Number(t.amount), 0) }));
-  }, [visibleTxns, granularity, sortBy]);
+  }, [visibleTxns, granularity, sortBy, groupBy, groupedTxns]);
 
   const mobileGroupHeading = useCallback((key: string): string => {
     if (granularity === "all") return key;
@@ -1221,12 +1359,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   // Drives the single expand/collapse-all toggle button: once every current
   // group is collapsed the button flips to "expand all" instead of offering
   // to collapse an already-fully-collapsed list.
-  const allGroupsCollapsed = !!groupedTxns && groupedTxns.length > 0 && groupedTxns.every(g => collapsedGroups.has(g.key));
+  const collapsibleGroups = groupedTxns ?? (sortBy === "date" ? mobileGroups : []);
+  const allGroupsCollapsed = collapsibleGroups.length > 0 && collapsibleGroups.every(g => collapsedGroups.has(g.key));
   const expandAllGroups = useCallback(() => setCollapsedGroups(new Set()), []);
   const collapseAllGroups = useCallback(() => {
-    if (!groupedTxns) return;
-    setCollapsedGroups(new Set(groupedTxns.map(g => g.key)));
-  }, [groupedTxns]);
+    setCollapsedGroups(new Set(collapsibleGroups.map(g => g.key)));
+  }, [collapsibleGroups]);
   // "Show more" paging; back to the first page whenever the list changes.
   const [rowLimit, setRowLimit] = useState(ROW_PAGE);
   useEffect(() => { setRowLimit(ROW_PAGE); }, [visibleTxns, groupBy]);
@@ -1262,26 +1400,12 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
     const internal = internalTxnIds.has(t.id) && !(isCategoryEdited?.(t) ?? false);
     return classifyTxn(t as unknown as ClassifierTxn, { category: cat, classification, internal, customCategories });
   }, [getEffectiveCategory, ignoredCategories, internalTxnIds, isCategoryEdited, classOf, customCategories]);
-  const isTypeEdited = useCallback((t: PTxn) =>
-    classOf?.(t)?.source === "override" || (isCategoryEdited?.(t) ?? false), [classOf, isCategoryEdited]);
-  // "Change type" from a row: persisted as a re-categorization so it rides
-  // the existing override sync; Spending falls back to "Other" so the user
-  // can pick the specific spend category next.
-  const changeTxnType = useCallback((t: PTxn, type: TxnClass) => {
-    // Preferred: the shared per-transaction type override (txn_overrides).
-    if (onSetTxnType && t.transaction_id) { onSetTxnType(t, type); return; }
-    const def = TXN_TYPES.find(x => x.key === type);
-    if (!def) return;
-    const cat = def.category ?? "Other";
-    if (type === "savings_contribution" && !customCategories.some(c => c.name === cat) && !expenseCategories.includes(cat)) onAddCategory(cat, "expense");
-    onSelectCategory(t, cat);
-  }, [customCategories, expenseCategories, onAddCategory, onSelectCategory, onSetTxnType]);
   const isSpendTxn = useCallback((t: PTxn) => countsAsSpend(flowOf(t)), [flowOf]);
   const isSpendCategory = useCallback((cat: string) =>
     !ignoredCategories.includes(cat) && categoryCountsAsSpend(cat, customCategories),
   [ignoredCategories, customCategories]);
   const spendBudgetTotal = useMemo(() => Object.entries(budgets).filter(([c]) => isSpendCategory(c)).reduce((s, [, v]) => s + v, 0), [budgets, isSpendCategory]);
-  const txnLabel = useCallback((t: PTxn) => (nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "").trim() || "Unknown", [nameOverrides]);
+  const txnLabel = useCallback((t: PTxn) => (nameOverrides[t.id] ?? displayMerchantName(t.merchant_name ?? t.name)).trim() || "Unknown", [nameOverrides]);
   const txnFlags = useMemo(() => detectTxnFlags(txns, {
     isExpense: isSpendTxn, label: txnLabel, excludeIds: internalTxnIds,
   }), [txns, isSpendTxn, txnLabel, internalTxnIds]);
@@ -1372,7 +1496,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   };
   const monthName = new Date(sel.year, sel.monthIdx, 1).toLocaleDateString("en-US", { month: "long" });
   const prevMonthShort = prevSel ? new Date(prevSel.year, prevSel.monthIdx, 1).toLocaleDateString("en-US", { month: "short" }) : "last month";
-  const todayLong = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const todayLong = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   // ── Burn runway SVG geometry ──────────────────────────────────────────────
   // x is addressed by day-offset (0-based from the selected month's start) so
@@ -1407,6 +1531,64 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
   const future15Path = future15.length
     ? [`M0,${CH.toFixed(2)}`, ...future15.map(f => `L${xForFuture(daysFromToday(f.nextDate)).toFixed(2)},${yForFuture(f.cum).toFixed(2)}`)].join(" ")
     : "";
+  const insightDays = Math.max(1, daysBetweenISO(activeRange.start, activeRange.end) + 1);
+  const insightsToday = new Date();
+  const thisMonthKey = `${insightsToday.getFullYear()}-${String(insightsToday.getMonth() + 1).padStart(2, "0")}`;
+  const previousMonthDate = new Date(insightsToday.getFullYear(), insightsToday.getMonth() - 1, 1);
+  const previousMonthKey = `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, "0")}`;
+  const currentDayOfMonth = insightsToday.getDate();
+  const previousMonthDays = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 0).getDate();
+  const thisMonthLabel = insightsToday.toLocaleDateString("en-US", { month: "short" });
+  const previousMonthLabel = previousMonthDate.toLocaleDateString("en-US", { month: "short" });
+  const incomeExpenseTrend = useMemo(() => {
+    const rows = Array.from({ length: currentDayOfMonth }, (_, index) => ({
+      day: index + 1, thisIncome: 0, thisExpense: 0, previousIncome: 0, previousExpense: 0,
+    }));
+    for (const txn of txns) {
+      if (internalTxnIds.has(txn.id) || !/^\d{4}-\d{2}-\d{2}$/.test(txn.date)) continue;
+      const monthKey = txn.date.slice(0, 7);
+      if (monthKey !== thisMonthKey && monthKey !== previousMonthKey) continue;
+      const amount = Number(txn.amount);
+      if (!Number.isFinite(amount)) continue;
+      const day = Number(txn.date.slice(8, 10));
+      if (monthKey === previousMonthKey && day > previousMonthDays) continue;
+      const row = rows[day - 1];
+      if (!row) continue;
+      const category = getEffectiveCategory(txn) ?? "Other";
+      if (ignoredCategories.includes(category)) continue;
+      if (isIncomeCategory(category, amount)) {
+        if (monthKey === thisMonthKey) row.thisIncome += Math.max(0, -amount);
+        else row.previousIncome += Math.max(0, -amount);
+      } else if (monthKey === thisMonthKey) row.thisExpense += amount;
+      else row.previousExpense += amount;
+    }
+    return rows;
+  }, [txns, internalTxnIds, thisMonthKey, previousMonthKey, currentDayOfMonth, previousMonthDays, getEffectiveCategory, ignoredCategories, isIncomeCategory]);
+  const insightCategorySlices = useMemo(() => {
+    const rows = [...expenseCatRows].filter(row => row.spend > 0).sort((a, b) => b.spend - a.spend);
+    const visible = rows.slice(0, 5).map(row => ({ name: formatCat(row.cat), value: row.spend, color: catColor(row.cat), category: row.cat }));
+    const other = rows.slice(5).reduce((sum, row) => sum + row.spend, 0);
+    return other > 0 ? [...visible, { name: "Other", value: other, color: "hsl(var(--muted-foreground) / 0.45)", category: "" }] : visible;
+  }, [expenseCatRows, formatCat, catColor]);
+  const insightMerchants = useMemo(() => {
+    const grouped = new Map<string, { name: string; total: number; count: number }>();
+    for (const txn of periodTxnsAllCats) {
+      if (internalTxnIds.has(txn.id) || Number(txn.amount) <= 0 || !isExpenseTxn(txn)) continue;
+      const category = getEffectiveCategory(txn) ?? "Other";
+      if (ignoredCategories.includes(category)) continue;
+      const name = (nameOverrides[txn.id] ?? txn.merchant_name ?? txn.name ?? "Unknown merchant").trim();
+      const key = normalizeMerchant(name) || name.toLowerCase();
+      const row = grouped.get(key) ?? { name, total: 0, count: 0 };
+      row.total += Number(txn.amount);
+      row.count += 1;
+      grouped.set(key, row);
+    }
+    return [...grouped.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+  }, [periodTxnsAllCats, internalTxnIds, isExpenseTxn, getEffectiveCategory, ignoredCategories, nameOverrides]);
+  const largestInsightTxn = useMemo(() => periodTxnsAllCats
+    .filter(txn => !internalTxnIds.has(txn.id) && Number(txn.amount) > 0 && isExpenseTxn(txn) && !ignoredCategories.includes(getEffectiveCategory(txn) ?? "Other"))
+    .sort((a, b) => Number(b.amount) - Number(a.amount))[0],
+  [periodTxnsAllCats, internalTxnIds, isExpenseTxn, ignoredCategories, getEffectiveCategory]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background spending-v2">
@@ -1481,56 +1663,92 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           <div className="flex items-start justify-between gap-4 border-b border-border/50 px-5 py-4">
             <div>
               <DialogTitle className="font-display text-[19px] font-semibold text-foreground">Spending insights</DialogTitle>
-              <DialogDescription className="mt-1 text-[12px] text-muted-foreground">A quick view of trends and your top categories.</DialogDescription>
+              <DialogDescription className="sr-only">Income and expense trends, category mix, and top merchants.</DialogDescription>
             </div>
             <button type="button" onClick={() => setInsightsOpen(false)} aria-label="Close spending insights"
               className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-4 w-4" /></button>
           </div>
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-                <div className="text-[11px] text-muted-foreground">Spent · {activeRange.label}</div>
-                <div className="mt-1 text-[19px] font-semibold tabular text-foreground">{fmtUSD(totalSpent)}</div>
+                <div className="text-[10.5px] text-muted-foreground">Total outflow</div>
+                <div className="mt-1 text-[18px] font-semibold tabular text-foreground">{fmtUSD(totalSpent)}</div>
               </div>
               <div className="rounded-xl border border-border/50 bg-muted/20 p-3">
-                <div className="text-[11px] text-muted-foreground">Transactions</div>
-                <div className="mt-1 text-[19px] font-semibold tabular text-foreground">{periodTxnsAllCats.filter(t => !internalTxnIds.has(t.id)).length}</div>
+                <div className="text-[10.5px] text-muted-foreground">Average per day</div>
+                <div className="mt-1 text-[18px] font-semibold tabular text-foreground">{fmtUSD(totalSpent / insightDays)}</div>
               </div>
             </div>
-            <section>
-              <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-foreground">Spend by month</h3><span className="text-[10px] text-muted-foreground">12 months</span></div>
-              <div className="flex h-28 items-end gap-1 rounded-xl border border-border/50 bg-muted/15 px-2 pt-3" role="group" aria-label="Monthly spending trend">
-                {monthBuckets.map((bucket, i) => {
-                  const value = overallMonthly[i] ?? 0;
-                  const max = Math.max(...overallMonthly, 1);
-                  const height = Math.max(value > 0 ? 8 : 3, Math.round(value / max * 100));
-                  const selected = granularity === "month" && selIdx === i;
-                  const label = new Date(bucket.year, bucket.monthIdx, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
-                  return <button key={bucket.start} type="button" onClick={() => { setGranularity("month"); setMonthOffset(i - lastIdx); setDateMode("none"); }}
-                    aria-label={`${label}: ${fmtUSD(value)} spent`} aria-pressed={selected} title={`${label} · ${fmtUSD(value)}`}
-                    className="group flex h-full min-w-0 flex-1 items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--primary))]">
-                    <span className={cn("w-full max-w-5 rounded-t-sm transition-colors", selected ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--primary)/0.35)] group-hover:bg-[hsl(var(--primary)/0.7)]")} style={{ height: `${height}%` }} />
-                  </button>;
-                })}
+
+            <section className="rounded-xl border border-border/50 bg-muted/10 p-3">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <h3 className="text-[12px] font-semibold text-foreground">Income vs expenses</h3>
+                <span className="truncate text-[9.5px] text-muted-foreground">Month to date · {previousMonthLabel} comparison</span>
               </div>
+              {incomeExpenseTrend.some(row => row.thisIncome > 0 || row.thisExpense > 0 || row.previousIncome > 0 || row.previousExpense > 0) ? (
+                <div className="h-[208px] w-full" role="img" aria-label={`${thisMonthLabel} and ${previousMonthLabel} income and expense by day`}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={incomeExpenseTrend} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.45)" vertical={false}/>
+                      <XAxis dataKey="day" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 9 }} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(currentDayOfMonth / 6) - 1)} tickFormatter={day => `${day}`}/>
+                      <YAxis width={43} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={value => fmtUSDCompact(Number(value))}/>
+                      <Tooltip formatter={(value: number, name: string) => [fmtUSD(Number(value)), name]} labelFormatter={day => `Day ${day}`} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 10 }}/>
+                      <Legend verticalAlign="bottom" height={24} iconType="plainline" wrapperStyle={{ fontSize: 9, color: "hsl(var(--muted-foreground))" }}/>
+                      <Line type="monotone" dataKey="thisIncome" name={`${thisMonthLabel} income`} stroke="hsl(var(--positive))" strokeWidth={2.4} dot={false} activeDot={{ r: 3 }}/>
+                      <Line type="monotone" dataKey="thisExpense" name={`${thisMonthLabel} expenses`} stroke="hsl(var(--primary))" strokeWidth={2.4} dot={false} activeDot={{ r: 3 }}/>
+                      <Line type="monotone" dataKey="previousIncome" name={`${previousMonthLabel} income`} stroke="hsl(var(--positive) / 0.42)" strokeWidth={1.7} strokeDasharray="4 3" dot={false} activeDot={{ r: 3 }}/>
+                      <Line type="monotone" dataKey="previousExpense" name={`${previousMonthLabel} expenses`} stroke="hsl(var(--primary) / 0.42)" strokeWidth={1.7} strokeDasharray="4 3" dot={false} activeDot={{ r: 3 }}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : <p className="py-6 text-center text-[11px] text-muted-foreground">No income or expense activity found for this comparison.</p>}
             </section>
-            <section>
-              <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-foreground">Top categories</h3><span className="text-[10px] text-muted-foreground">{activeRange.label}</span></div>
-              <div className="divide-y divide-border/40 rounded-xl border border-border/50 px-3">
-                {expenseCatRows.slice(0, 6).map(row => <button key={row.cat} type="button" onClick={() => { selectOverviewCat(row.cat); setInsightsOpen(false); }}
-                  className="flex min-h-11 w-full items-center gap-2.5 text-left hover:bg-muted/20">
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: catColor(row.cat) }} />
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">{formatCat(row.cat)}</span>
-                  <span className="text-[12px] font-semibold tabular text-foreground">{fmtUSD(row.spend)}</span>
-                </button>)}
-                {!expenseCatRows.length && <p className="py-4 text-[12px] text-muted-foreground">No spending in this period yet.</p>}
+
+            <section className="rounded-xl border border-border/50 bg-muted/10 p-3">
+              <div className="mb-1 flex items-center justify-between">
+                <div><h3 className="text-[12px] font-semibold text-foreground">Where it went</h3><p className="text-[10px] text-muted-foreground">Share of spending by category</p></div>
+                {largestInsightTxn && <div className="text-right"><div className="text-[9px] uppercase tracking-wide text-muted-foreground">Largest</div><div className="text-[11px] font-semibold tabular text-foreground">{fmtUSD(Number(largestInsightTxn.amount))}</div></div>}
               </div>
+              {insightCategorySlices.length ? <div className="grid grid-cols-[132px_1fr] items-center gap-2">
+                <div className="relative h-[132px] w-[132px]" role="img" aria-label="Spending share by category">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={insightCategorySlices} dataKey="value" nameKey="name" innerRadius={39} outerRadius={59} paddingAngle={2} stroke="none">
+                        {insightCategorySlices.map(slice => <Cell key={slice.name} fill={slice.color} cursor={slice.category ? "pointer" : "default"}
+                          onClick={() => { if (slice.category) { selectOverviewCat(slice.category); setInsightsOpen(false); } }}/>) }
+                      </Pie>
+                      <Tooltip formatter={(value: number) => fmtUSD(Number(value))} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 11 }}/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center text-center"><div><div className="text-[9px] text-muted-foreground">Total</div><div className="text-[12px] font-bold tabular text-foreground">{fmtUSD(totalSpent)}</div></div></div>
+                </div>
+                <div className="space-y-1.5">
+                  {insightCategorySlices.map(slice => <button key={slice.name} type="button" disabled={!slice.category}
+                    onClick={() => { if (slice.category) { selectOverviewCat(slice.category); setInsightsOpen(false); } }}
+                    className="flex w-full min-w-0 items-center gap-1.5 text-left disabled:cursor-default">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }}/>
+                    <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground">{slice.name}</span>
+                    <span className="shrink-0 text-[10px] font-semibold tabular text-muted-foreground">{Math.round(slice.value / Math.max(totalSpent, 1) * 100)}%</span>
+                  </button>)}
+                </div>
+              </div> : <p className="py-6 text-center text-[11px] text-muted-foreground">No spending in this period.</p>}
+            </section>
+
+            <section>
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-foreground">Top merchants</h3><span className="text-[10px] text-muted-foreground">{activeRange.label}</span></div>
+              {insightMerchants.length ? <div className="space-y-2 rounded-xl border border-border/50 bg-muted/10 p-3">
+                {insightMerchants.map(merchant => <div key={normalizeMerchant(merchant.name)} className="space-y-1">
+                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-foreground">{merchant.name}</span><span className="text-[11px] font-semibold tabular text-foreground">{fmtUSD(merchant.total)}</span></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-[hsl(var(--primary)/0.65)]" style={{ width: `${Math.max(4, merchant.total / insightMerchants[0].total * 100)}%` }}/></div>
+                  <div className="text-[9.5px] text-muted-foreground">{merchant.count} transaction{merchant.count === 1 ? "" : "s"}</div>
+                </div>)}
+              </div> : <div className="rounded-xl border border-border/50 p-4 text-center text-[11px] text-muted-foreground">No merchant spending to summarize.</div>}
             </section>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="content-max flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-2 md:px-8">
+      <div className="content-max flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-4 pb-2 md:px-8">
         <section className="surface-card shrink-0 overflow-hidden rounded-xl px-3 py-2.5" aria-label="Spending by period" data-testid="spending-period-strip">
           <div className="mb-1.5 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
             <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{activeRange.label}</span>
@@ -1545,9 +1763,20 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
           ) : granularity === "week" ? (
             <PeriodBars buckets={weekBuckets} totals={overallWeekly} selIdx={selWeekIdx}
               onSelect={i => setWeekOffset(i - (WEEK_COUNT - 1))} maxWidth={640}/>
-          ) : granularity === "year" || granularity === "all" ? (
+          ) : granularity === "all" ? (
             <PeriodBars buckets={yearBuckets} totals={overallYearly} selIdx={selYearIdx}
-              onSelect={i => { setGranularity("year"); setYearOffset(i - (YEAR_COUNT - 1)); }} maxWidth={480}/>
+              onSelect={i => { setYearMonthSelection(null); setGranularity("year"); setYearOffset(i - (YEAR_COUNT - 1)); }} maxWidth={480}/>
+          ) : granularity === "year" ? (
+            <PeriodBars
+              buckets={Array.from({ length: 12 }, (_, month) => ({ key: `${yearBuckets[selYearIdx].year}-${String(month + 1).padStart(2, "0")}`, label: new Date(yearBuckets[selYearIdx].year, month, 1).toLocaleDateString("en-US", { month: "short" }) }))}
+              totals={Array.from({ length: 12 }, (_, month) => txns.reduce((sum, t) => {
+                const cat = getEffectiveCategory(t) ?? "Other";
+                const kind = classOf?.(t)?.type;
+                return !internalTxnIds.has(t.id) && t.date.startsWith(`${yearBuckets[selYearIdx].year}-${String(month + 1).padStart(2, "0")}`) && Number(t.amount) > 0 && !ignoredCategories.includes(cat) && !["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan"].includes(kind ?? "") && !isIncomeCategory(cat, Number(t.amount)) ? sum + Number(t.amount) : sum;
+              }, 0))}
+              selIdx={yearMonthSelection ?? (yearBuckets[selYearIdx].year === new Date().getFullYear() ? new Date().getMonth() : 11)}
+              onSelect={month => setYearMonthSelection(month)}
+              maxWidth={560}/>
           ) : (
             <PeriodBars buckets={monthBuckets} totals={overallMonthly} selIdx={selIdx}
               onSelect={i => setMonthOffset(i - lastIdx)} maxWidth={560}/>
@@ -1556,13 +1785,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 
         {/* ═══ 4. Categories + transactions ═══════════════════════════════ */}
         <section className="flex min-h-0 flex-1 flex-col gap-2 min-w-0" aria-label="Transactions">
-          <div className="flex shrink-0 items-center justify-end">
-            <button onClick={()=>setBudgetDialogOpen(true)}
-              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[hsl(var(--primary))] hover:opacity-80">
-              <Wallet className="h-3.5 w-3.5"/> Manage budgets
-            </button>
-          </div>
-
           {/* Categories; colorful cards, vertically scrollable. Each card
               shows its budget progress if one's set, or a "Set budget" pill
               if not; both routes into the same Manage Budgets dialog. */}
@@ -1578,10 +1800,6 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                     </button>
                   ))}
                 </div>
-                <button onClick={()=>setBudgetDialogOpen(true)}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-[hsl(var(--primary))] hover:opacity-80 transition-opacity shrink-0">
-                  <Wallet className="h-2.5 w-2.5"/> Budget
-                </button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none p-1.5 space-y-1">
                 {catTab === "ignored" ? ignoredCatRows.map((c,i) => {
@@ -1683,7 +1901,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 only the rows below scroll, on both phone and desktop. */}
             <div className="px-3 py-2 border-b border-border/20 shrink-0 bg-card space-y-2">
               <div className="flex min-w-0 flex-col gap-1.5 md:flex-row md:items-center">
-                <div className="relative min-w-0 w-full flex-1 order-1 md:order-2">
+                <div className="relative min-w-0 w-full flex-1 order-1 md:order-2 md:flex-none md:w-48 lg:w-64 xl:w-80">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true"/>
                   <input type="search" value={searchDraft} onChange={e=>setSearchDraft(e.target.value)}
                     onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); commitSearchDraft(); } if (e.key==="Escape") { setSearchDraft(""); setLiveSearch(""); setSearchTerms([]); } }}
@@ -1708,6 +1926,23 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   className={cn("grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border transition-colors",
                     hasActiveSort ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
                   <ArrowUpDown className="h-4 w-4"/>
+                </button>
+                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle} aria-label="Group transactions" title={`Group by ${GROUP_OPTIONS.find(g => g.key === groupBy)?.label ?? ""}`}
+                  aria-haspopup="menu" aria-expanded={groupMenu.open}
+                  className={cn("h-11 w-11 md:h-9 md:w-auto md:px-2.5 shrink-0 rounded-lg border text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors",
+                    groupBy !== "none" || groupMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60")}>
+                  <Layers className="h-4 w-4 shrink-0"/><span className="hidden md:inline">Group</span>
+                </button>
+                {(groupBy !== "none" || (sortBy === "date" && mobileGroups.length > 0)) && <button onClick={allGroupsCollapsed ? expandAllGroups : collapseAllGroups}
+                  aria-label={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                  title={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
+                  className="grid h-11 w-11 md:h-9 md:w-9 shrink-0 place-items-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground">
+                  {allGroupsCollapsed ? <ChevronsUpDown className="h-4 w-4"/> : <ChevronsDownUp className="h-4 w-4"/>}
+                </button>}
+                <button ref={colsMenu.btnRef} onClick={moreMenu.toggle} aria-label="More list options" aria-haspopup="menu" aria-expanded={moreMenu.open} title="More list options"
+                  className={cn("hidden md:flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors",
+                    moreMenu.open || colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground")}>
+                  <MoreHorizontal className="h-4 w-4"/>
                 </button>
                 </div>
               </div>
@@ -1753,28 +1988,8 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                 </div>
               ) : (
               <>
-              <div className="hidden md:flex items-center gap-1.5 flex-wrap">
-                <button ref={groupMenu.btnRef} onClick={groupMenu.toggle}
-                  className={cn("h-7 px-2.5 rounded-lg border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors shrink-0",
-                    groupBy!=="none" ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <Layers className="h-3 w-3"/> Group
-                </button>
-                {groupBy!=="none" && (
-                  <button onClick={allGroupsCollapsed ? expandAllGroups : collapseAllGroups}
-                    title={allGroupsCollapsed ? "Expand all groups" : "Collapse all groups"}
-                    className="h-7 w-7 grid place-items-center rounded-lg border border-border/60 bg-muted/40 text-foreground hover:bg-muted/60 transition-colors shrink-0">
-                    {allGroupsCollapsed ? <ChevronsUpDown className="h-3.5 w-3.5"/> : <ChevronsDownUp className="h-3.5 w-3.5"/>}
-                  </button>
-                )}
-
-                {/* Secondary tools (Columns / Rules / Import) live behind one
-                    "More" button instead of three unlabeled icon buttons. The
-                    Columns picker anchors to this same button. */}
-                <button ref={colsMenu.btnRef} onClick={moreMenu.toggle} aria-label="More list options" aria-haspopup="menu" aria-expanded={moreMenu.open} title="More"
-                  className={cn("h-7 w-7 grid place-items-center rounded-lg border transition-colors shrink-0",
-                    moreMenu.open || colsMenu.open ? "border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.08)] text-foreground" : "border-border/60 bg-muted/40 text-foreground hover:bg-muted/60")}>
-                  <MoreHorizontal className="h-3.5 w-3.5"/>
-                </button>
+              <div className="hidden md:flex items-center gap-1.5">
+                {/* More options are portaled so the popup stays above the scrollable transaction table. */}
                 {moreMenu.open && moreMenu.pos && createPortal(
                   <>
                     <div className="fixed inset-0 z-[998]" onClick={moreMenu.close}/>
@@ -1799,10 +2014,10 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   document.body
                 )}
               </div>
-              {(hasActiveFilters || hasActiveSort || groupBy !== "none" || catSel) && (
-                <div className="flex items-center justify-between gap-3 border-t border-border/30 pt-2 text-[11px] text-muted-foreground">
-                  <span>{[hasActiveFilters && "Filters active", hasActiveSort && "Custom sort", groupBy !== "none" && "Grouped", catSel && formatCat(catSel)].filter(Boolean).join(" · ")}</span>
-                  <button onClick={()=>{ clearFilters(); clearSort(); setGroupBy("none"); setCatSel(null); }} className="shrink-0 font-semibold text-[hsl(var(--primary))] hover:underline">Clear</button>
+              {(hasActiveFilters || catSel) && (
+                <div className="flex items-center justify-between gap-3 border-t border-border/30 pt-1 text-[10.5px] text-muted-foreground">
+                  <span>{[hasActiveFilters && "Filters active", catSel && formatCat(catSel)].filter(Boolean).join(" · ")}</span>
+                  <button onClick={()=>{ clearFilters(); setCatSel(null); }} className="shrink-0 font-semibold text-[hsl(var(--primary))] hover:underline">Clear</button>
                 </div>
               )}
               </>
@@ -1899,6 +2114,19 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                           <button key={k} onClick={()=>setTypeFilter(k)}
                             className={cn("flex-1 h-7 max-md:min-h-11 rounded-lg text-[11px] font-medium border transition-colors",
                               typeFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1">Recurring</div>
+                      <div className="flex gap-1">
+                        {([["all","All"],["yes","Recurring"],["no","Not recurring"]] as const).map(([k,l]) => (
+                          <button key={k} onClick={()=>setRecurringFilter(k)}
+                            className={cn("flex-1 h-7 rounded-lg text-[11px] font-medium border transition-colors",
+                              recurringFilter===k ? "bg-foreground text-background border-foreground" : "border-border/50 text-muted-foreground")}>
                             {l}
                           </button>
                         ))}
@@ -2015,17 +2243,11 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                   <table className="hidden md:table w-full text-left border-collapse table-fixed">
                     <colgroup>
                       <col style={{width: 32}}/>
-                      <col/>
-                      {tableCols.has("date") && <col style={{width: colWidths.date}}/>}
-                      {tableCols.has("amount") && <col style={{width: colWidths.amount}}/>}
-                      {tableCols.has("statement") && <col style={{width: colWidths.statement}}/>}
-                      {tableCols.has("category") && <col style={{width: colWidths.category}}/>}
-                      {tableCols.has("status") && <col style={{width: colWidths.status}}/>}
-                      {tableCols.has("account") && <col style={{width: colWidths.account}}/>}
+                      {orderedVisibleColumns.map(key => <col key={key} style={{width: key === "vendor" ? fittedColWidths.name : fittedColWidths[key]}}/>)}
                     </colgroup>
                     <thead className="sticky top-0 z-[5] bg-card">
                       <tr className="border-b border-border/20">
-                        <th className="px-2 py-2">
+                        <th className="px-2 py-1.5">
                           <input type="checkbox" aria-label="Select all visible transactions"
                             checked={renderedTableTxns.length>0 && renderedTableTxns.every(t=>selectedIds.has(t.id))}
                             onChange={e=>{
@@ -2034,21 +2256,30 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                             }}
                             className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
                         </th>
-                        <SortableTh label="Vendor" active={sortBy==="name"} desc={sortDesc} onClick={()=>handleSort("name")} />
-                        {tableCols.has("date") && <SortableTh label="Date" active={sortBy==="date"} desc={sortDesc} onClick={()=>handleSort("date")} onResizeStart={startColResize("date")} />}
-                        {tableCols.has("amount") && <SortableTh label="Amount" align="right" active={sortBy==="amount"} desc={sortDesc} onClick={()=>handleSort("amount")} onResizeStart={startColResize("amount")} />}
-                        {tableCols.has("statement") && <SortableTh label="Statement Desc." active={sortBy==="statement"} desc={sortDesc} onClick={()=>handleSort("statement")} onResizeStart={startColResize("statement")} />}
-                        {tableCols.has("category") && <SortableTh label="Category" active={sortBy==="category"} desc={sortDesc} onClick={()=>handleSort("category")} onResizeStart={startColResize("category")} />}
-                        {tableCols.has("status") && <SortableTh label="Status" active={sortBy==="status"} desc={sortDesc} onClick={()=>handleSort("status")} onResizeStart={startColResize("status")} />}
-                        {tableCols.has("account") && <SortableTh label="Account" active={sortBy==="account"} desc={sortDesc} onClick={()=>handleSort("account")} onResizeStart={startColResize("account")} isLast/>}
+                        {orderedVisibleColumns.map(key => {
+                          const dragProps = {
+                            onColumnDragStart: handleColumnDragStart(key),
+                            onColumnDragOver: handleColumnDragOver(key),
+                            onColumnDrop: handleColumnDrop(key),
+                            onColumnDragEnd: clearColumnDrag,
+                            dragging: draggedColumn === key,
+                            dropTarget: dropTargetColumn === key && draggedColumn !== key,
+                          };
+                          if (key === "vendor") return <SortableTh key={key} label="Vendor" active={sortBy === "name"} desc={sortDesc} onClick={() => handleSort("name")} {...dragProps}/>;
+                          const label = COLUMN_DEFS.find(column => column.key === key)?.label ?? key;
+                          return <SortableTh key={key} label={label} align={key === "amount" ? "right" : "left"}
+                            active={sortBy === key} desc={sortDesc} onClick={() => handleSort(key)}
+                            onResizeStart={startColResize(key)} {...dragProps}/>;
+                        })}
                       </tr>
                     </thead>
                     {groupedTxns ? desktopPage.groups.map(g => {
                       const isCollapsed = collapsedGroups.has(g.key);
                       return (
                       <tbody key={g.key}>
-                        <tr className="bg-muted/30 cursor-pointer hover:bg-muted/50" onClick={()=>toggleGroupCollapsed(g.key)}>
-                          <td colSpan={colSpan} className="px-4 py-2 border-b border-border/15">
+                        <tr className="bg-muted/30 hover:bg-muted/50">
+                          <td colSpan={colSpan} className="p-0 border-b border-border/15">
+                            <button type="button" aria-expanded={!isCollapsed} onClick={()=>toggleGroupCollapsed(g.key)} className="w-full px-3 py-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-[hsl(var(--primary))]">
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex items-center gap-2 min-w-0">
                                 <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
@@ -2062,29 +2293,30 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                                 <div className={cn("text-[13px] font-bold tabular leading-tight mt-0.5", txnAmountClass(g.total))}>{fmtTxnAmount(g.total)}</div>
                               </div>
                             </div>
+                            </button>
                           </td>
                         </tr>
                         {!isCollapsed && g.shown.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
-                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
+                          <TxnRow key={t.id} t={t} orderedColumns={orderedVisibleColumns} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys} recurringOverrides={recurringOverrides}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
+                            />
                         ))}
                       </tbody>
                       );
                     }) : (
                       <tbody>
                         {renderedTableTxns.map(t => (
-                          <TxnRow key={t.id} t={t} visibleCols={tableCols} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
-                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
+                          <TxnRow key={t.id} t={t} orderedColumns={orderedVisibleColumns} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
+                            nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys} recurringOverrides={recurringOverrides}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
+                            />
                         ))}
                       </tbody>
                     )}
@@ -2108,25 +2340,26 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
                       return (
                       <div key={g.key}>
                         {g.key !== MOBILE_FLAT_KEY && (
-                        <div data-day-header className="sticky top-0 z-20 bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer active:bg-muted/50"
+                        <button type="button" data-day-header aria-expanded={!isCollapsed} className="sticky top-0 z-20 w-full bg-card border-b border-border/15 px-4 py-2 flex items-center justify-between gap-3 cursor-pointer text-left active:bg-muted/50"
                           onClick={()=>toggleGroupCollapsed(g.key)}>
                           <div className="flex items-center gap-2 min-w-0">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground shrink-0 transition-transform", isCollapsed && "-rotate-90")}/>
-                            <span className="text-[11px] font-semibold text-muted-foreground">{mobileGroupHeading(g.key)}</span>
+                            <span className="text-[11px] font-semibold text-muted-foreground">{groupBy === "none" ? mobileGroupHeading(g.key) : groupHeading(g.key)}</span>
                           </div>
                           <span className={cn("text-[11px] tabular shrink-0", g.total < 0 ? "text-positive" : "text-muted-foreground")}>{fmtTxnAmount(g.total)}</span>
-                        </div>
+                        </button>
                         )}
                         {!isCollapsed && (
                         <div className="divide-y divide-border/10">
                           {g.shown.map(t => (
                             <MobileTxnRow key={t.id} t={t} visibleCols={visibleCols} showDate={g.key === MOBILE_FLAT_KEY} selectionMode={selectedIds.size > 0} getEffectiveCategory={getEffectiveCategory} catColor={catColor} formatCat={formatCat}
-                              nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys}
+                              nameOverrides={nameOverrides} accounts={accounts} onOpenDetail={onOpenDetail} recurringKeys={recurringMerchantKeys} recurringOverrides={recurringOverrides}
+                              txnType={flowOf(t)} edited={classOf?.(t)?.source === "override"} onChangeType={onChangeTxnType}
                             categoryIcon={categoryIcon} expenseCategories={expenseCategories} incomeCategories={incomeCategories}
                             ignoredCategories={ignoredCategories} customCategories={customCategories}
                             onSelectCategory={onSelectCategory} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
                             selected={selectedIds.has(t.id)} onToggleSelect={toggleSelect} flag={txnFlags.get(t.id)}
-                            txnType={flowOf(t)} edited={isTypeEdited(t)} onChangeType={changeTxnType}/>
+                            />
                           ))}
                         </div>
                         )}
@@ -2293,6 +2526,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
         isObligation={detailsCat != null && OBLIGATION_LIKE_CATS.has(detailsCat)}
         isCustom={detailsCat != null && customCategories.some(cc => cc.name === detailsCat)}
         onRename={onRenameCategory} setBudget={setBudget} removeBudget={removeBudget}
+        onDelete={onDeleteCategory ? (c) => { onDeleteCategory(c); setDetailsCat(null); setCatSel(null); } : undefined}
       />
     </div>
   );
@@ -2306,7 +2540,7 @@ export function SpendingBudgetView({txns,accounts,budgets,nameOverrides,setBudge
 // below: renaming a built-in silently breaks its Plaid-category auto-mapping).
 const CategoryDetailsDialog = ({
   open, onClose, cat, formatCat, catColor, categoryIcon, spend, mom, txnCount, budget,
-  isObligation, isCustom, onRename, setBudget, removeBudget,
+  isObligation, isCustom, onRename, setBudget, removeBudget, onDelete,
 }: {
   open: boolean; onClose: () => void; cat: string | null;
   formatCat: (c: string) => string; catColor: (c: string) => string; categoryIcon: (c: string) => React.ElementType;
@@ -2314,13 +2548,18 @@ const CategoryDetailsDialog = ({
   isObligation: boolean; isCustom: boolean;
   onRename?: (oldName: string, newName: string) => void;
   setBudget: (cat: string, amount: number) => void; removeBudget?: (cat: string) => void;
+  // Deletes this category outright (built-in or custom); the caller reassigns
+  // its transactions to a fallback and offers AI recategorization afterward.
+  onDelete?: (cat: string) => void;
 }) => {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [budgetDraft, setBudgetDraft] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     setRenaming(false);
+    setConfirmingDelete(false);
     setBudgetDraft(budget != null ? String(budget) : "");
   }, [cat, budget]);
 
@@ -2411,6 +2650,33 @@ const CategoryDetailsDialog = ({
           {!isCustom && (
             <div className="text-[11px] text-muted-foreground/70 pt-1">
               Built-in categories can't be renamed here. It would break automatic categorization for future transactions. Create a custom category instead if you need a different name.
+            </div>
+          )}
+
+          {onDelete && !isObligation && (
+            <div className="pt-2 border-t border-border/15">
+              {!confirmingDelete ? (
+                <button onClick={()=>setConfirmingDelete(true)}
+                  className="inline-flex items-center gap-1.5 text-[12px] text-negative hover:underline">
+                  <Trash2 className="h-3.5 w-3.5"/> Delete category
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[12px] text-foreground">
+                    Delete "{formatCat(cat)}"?{txnCount > 0 && ` ${txnCount} transaction${txnCount !== 1 ? "s" : ""} will move to a fallback category — you can run AI afterward to sort those back out.`}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>{ onDelete(cat); }}
+                      className="h-8 px-3 rounded-md bg-negative text-negative-foreground text-[12px] font-semibold">
+                      Yes, delete
+                    </button>
+                    <button onClick={()=>setConfirmingDelete(false)}
+                      className="h-8 px-3 rounded-md border border-border-strong text-[12px] text-foreground hover:bg-secondary/40">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2553,13 +2819,22 @@ const BudgetManagerDialog = ({ open, onClose, needsBudget, defined, setBudget, r
 };
 
 // ── Sortable column header; click to sort by that attribute; click again to flip direction ──
-const SortableTh = ({ label, active, desc, onClick, align="left", onResizeStart, isLast }: {
+const SortableTh = ({ label, active, desc, onClick, align="left", onResizeStart, dragging, dropTarget,
+  onColumnDragStart, onColumnDragOver, onColumnDrop, onColumnDragEnd }: {
   label: string; active: boolean; desc: boolean; onClick: () => void; align?: "left"|"right";
-  onResizeStart?: (e: React.PointerEvent) => void; isLast?: boolean;
+  onResizeStart?: (e: React.PointerEvent) => void;
+  onColumnDragStart?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onColumnDragOver?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onColumnDrop?: (e: React.DragEvent<HTMLTableCellElement>) => void;
+  onColumnDragEnd?: () => void; dragging?: boolean; dropTarget?: boolean;
 }) => (
-  <th onClick={onClick}
-    className={cn("relative px-4 py-2 text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none transition-colors whitespace-nowrap overflow-hidden",
+  <th onClick={onClick} draggable
+    onDragStart={onColumnDragStart} onDragOver={onColumnDragOver} onDrop={onColumnDrop} onDragEnd={onColumnDragEnd}
+    title="Drag to rearrange · click to sort"
+    className={cn("relative px-4 py-2 text-[11px] font-semibold uppercase tracking-wide cursor-grab active:cursor-grabbing select-none transition-colors whitespace-nowrap overflow-hidden",
       active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      dragging && "opacity-40",
+      dropTarget && "bg-[hsl(var(--primary)/0.10)]",
       align==="right" && "text-right")}>
     <span className={cn("inline-flex items-center gap-1", align==="right" && "flex-row-reverse")}>
       {label}
@@ -2569,7 +2844,7 @@ const SortableTh = ({ label, active, desc, onClick, align="left", onResizeStart,
     </span>
     {/* Drag handle; resizes this column; widths are proportional weights on a
         fixed-layout table, so this can never push the table into overflow. */}
-    {onResizeStart && !isLast && (
+    {onResizeStart && (
       <div onClick={(e)=>e.stopPropagation()} onPointerDown={onResizeStart}
         className="absolute top-0 right-0 h-full w-2 cursor-col-resize select-none z-10 group/resize"
         title="Drag to resize column">
@@ -2637,6 +2912,8 @@ export function CategoryPickerPopover({
   const customIncome = customCategories.filter(c => c.type === "income").map(c => c.name);
   const q = search.trim().toLowerCase();
   const filterList = (list: string[]) => q ? list.filter(c => c.toLowerCase().includes(q)) : list;
+  const categoryLabelKey = (category: string) => formatCat(category).trim().replace(/\s+/g, " ").toLowerCase();
+  const uniqueNames = (list: string[]) => list.filter((category, index) => list.findIndex(candidate => categoryLabelKey(candidate) === categoryLabelKey(category)) === index);
 
   const submitAdd = () => {
     const name = draftName.trim();
@@ -2691,8 +2968,11 @@ export function CategoryPickerPopover({
   };
 
   const Section = ({ label, cats, customCats }: { label: string; cats: string[]; customCats?: string[] }) => {
-    const shown = filterList(cats);
-    const shownCustom = customCats ? filterList(customCats) : [];
+    const uniqueCats = uniqueNames(cats);
+    const builtInKeys = new Set(uniqueCats.map(categoryLabelKey));
+    const uniqueCustom = uniqueNames(customCats ?? []).filter(category => !builtInKeys.has(categoryLabelKey(category)));
+    const shown = filterList(uniqueCats);
+    const shownCustom = filterList(uniqueCustom);
     if (shown.length === 0 && shownCustom.length === 0) return null;
     return (
       <div className="py-1.5">
@@ -2761,97 +3041,66 @@ export function CategoryPickerPopover({
 
 // ── Transaction row (table) ─────────────────────────────────────────────────
 const TxnRow = ({
-  t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
+  t, orderedColumns, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys, recurringOverrides,
   categoryIcon, expenseCategories, incomeCategories, ignoredCategories, customCategories, onSelectCategory, onAddCategory, onRemoveCategory, onRenameCategory,
-  selected, onToggleSelect, flag, txnType, edited, onChangeType,
+  selected, onToggleSelect, flag,
 }: {
-  t: PTxn; visibleCols: Set<ColKey>;
+  t: PTxn; orderedColumns: TableColumnKey[];
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>; recurringOverrides: Record<string, boolean>;
   categoryIcon:(cat:string)=>React.ElementType; expenseCategories:string[]; incomeCategories:string[]; ignoredCategories:string[];
   customCategories:{name:string;type:"income"|"expense"}[];
   onSelectCategory:(t:PTxn,cat:string)=>void; onAddCategory:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
   selected: boolean; onToggleSelect: (id:string)=>void; flag?: TxnFlag;
-  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
   const col = catColor(cat);
   const CatIcon = categoryIcon(cat);
-  const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
+  const nm = nameOverrides[t.id] ?? displayMerchantName(t.merchant_name ?? t.name);
   const acc = accounts.find(a => a.account_id === t.account_id);
-  const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
+  const recurringFreq = recurringOverrides[t.id] === true ? "Manual" : recurringOverrides[t.id] === false ? undefined : recurringKeys.get(merchantKey(nm));
   const catMenu = useFloatingMenu(256);
-  return (
-    <tr onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
-      <td className="px-2 py-2.5" onClick={e=>e.stopPropagation()}>
-        <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
-          className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
-      </td>
-      <td className="px-4 py-2.5">
-        <div className="flex items-start gap-2.5 min-w-0">
-          <div className="h-8 w-8 rounded-full shrink-0 grid place-items-center text-[12px] font-bold text-white" style={{background:col}}>
-            {(nm[0]??"?").toUpperCase()}
-          </div>
-          {/* Vendor name is the thing people actually read; instead of hard
-              ellipsis-truncating it to fit a narrow column, let it wrap to a
-              second line so the full name stays visible. */}
-          <div className="min-w-0">
-            <span className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug" title={nm}>{nm}</span>
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5" onClick={e=>e.stopPropagation()}>
-              <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType}/>
+  const columnCells: Record<TableColumnKey, React.ReactNode> = {
+    vendor: (
+      <td key="vendor" className="px-3 py-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <MerchantLogo name={nm} category={formatCat(cat)} website={t.website} logoUrl={t.logo_url} size={28}/>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="min-w-0 truncate text-[12.5px] font-medium leading-tight text-foreground" title={nm}>{nm}</span>
+            <div className="flex shrink-0 items-center gap-1" onClick={e=>e.stopPropagation()}>
               {flag && <FlagChip flag={flag}/>}
-              {recurringFreq && (
-                <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
-                  <RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}
-                </span>
-              )}
+              {recurringFreq && <span title={`Recurring: ${recurringFreq}`} className="shrink-0 flex items-center gap-0.5 text-[11px] text-muted-foreground/70"><RefreshCw className="h-2.5 w-2.5" /> {recurringFreq}</span>}
             </div>
           </div>
         </div>
       </td>
-      {visibleCols.has("date") && (
-        <td className="px-4 py-2.5 text-[12.5px] text-muted-foreground truncate tabular" title={fmtDayHeading(t.date)}>{fmtShortDate(t.date)}</td>
-      )}
-      {visibleCols.has("amount") && (
-        <td className={cn("px-4 py-2.5 text-right text-[13.5px] font-bold tabular truncate", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))}
-          title={t.pending ? "Pending: amount may change before it posts" : undefined}>{fmtTxnAmount(t.amount)}</td>
-      )}
-      {visibleCols.has("statement") && (
-        <td className="px-4 py-2.5" title={t.name ?? undefined}>
-          <span className="block text-[11.5px] text-muted-foreground/80 font-mono truncate">{t.name ?? "-"}</span>
-        </td>
-      )}
-      {visibleCols.has("category") && (
-        <td className="px-4 py-2.5" onClick={e=>e.stopPropagation()}>
-          <button ref={catMenu.btnRef} onClick={catMenu.toggle}
-            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5 -my-1 hover:bg-muted/40 transition-colors max-w-full">
-            <span className="h-4 w-4 rounded grid place-items-center shrink-0" style={{backgroundColor:`${col}22`, color:col}}>
-              <CatIcon className="h-2.5 w-2.5"/>
-            </span>
-            <span className="text-[12px] font-semibold truncate" style={{color:col}}>{formatCat(cat)}</span>
-            <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
-          </button>
-          {catMenu.open && (
-            <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
-              expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
-              customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
-              onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory}
-              onClose={catMenu.close}/>
-          )}
-        </td>
-      )}
-      {visibleCols.has("status") && (
-        <td className="px-4 py-2.5 truncate">
-          {t.pending
-            ? <PendingChip/>
-            : <span className="text-[11px] font-medium text-muted-foreground">Posted</span>}
-        </td>
-      )}
-      {visibleCols.has("account") && (
-        <td className="px-4 py-2.5" title={[acc?.name, acc?.mask ? `••${acc.mask}` : null].filter(Boolean).join(" ") || undefined}>
-          <span className="block text-[12.5px] text-muted-foreground truncate">{acc?.name ?? "-"}</span>
-        </td>
-      )}
+    ),
+    date: <td key="date" className="px-3 py-1.5 text-[12px] text-muted-foreground truncate tabular" title={fmtDayHeading(t.date)}>{fmtShortDate(t.date)}</td>,
+    amount: <td key="amount" className={cn("px-3 py-1.5 text-right text-[13px] font-bold tabular truncate", t.pending ? "text-muted-foreground" : txnAmountClass(t.amount))} title={t.pending ? "Pending: amount may change before it posts" : undefined}>{fmtTxnAmount(t.amount)}</td>,
+    statement: <td key="statement" className="px-3 py-1.5" title={t.name ?? undefined}><span className="block text-[11.5px] text-muted-foreground/80 font-mono truncate">{t.name ?? "-"}</span></td>,
+    category: (
+      <td key="category" className="px-3 py-1.5" onClick={e=>e.stopPropagation()}>
+        <button ref={catMenu.btnRef} onClick={catMenu.toggle} className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5 -my-1 hover:bg-muted/40 transition-colors max-w-full">
+          <span className="h-4 w-4 rounded grid place-items-center shrink-0" style={{backgroundColor:`${col}22`, color:col}}><CatIcon className="h-2.5 w-2.5"/></span>
+          <span className="text-[12px] font-semibold truncate" style={{color:col}}>{formatCat(cat)}</span>
+          <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0"/>
+        </button>
+        {catMenu.open && <CategoryPickerPopover pos={catMenu.pos} current={cat} amount={Number(t.amount)}
+          expenseCategories={expenseCategories} incomeCategories={incomeCategories} ignoredCategories={ignoredCategories}
+          customCategories={customCategories} categoryIcon={categoryIcon} catColor={catColor} formatCat={formatCat}
+          onSelect={(newCat)=>onSelectCategory(t,newCat)} onAddCategory={onAddCategory} onRemoveCategory={onRemoveCategory} onRenameCategory={onRenameCategory} onClose={catMenu.close}/>}
+      </td>
+    ),
+    status: <td key="status" className="px-3 py-1.5 truncate">{t.pending ? <PendingChip/> : <span className="text-[11px] font-medium text-muted-foreground">Posted</span>}</td>,
+    account: <td key="account" className="px-3 py-1.5 max-w-[168px]" title={[acc?.name, acc?.mask ? `••${acc.mask}` : null].filter(Boolean).join(" ") || undefined}><span className="block max-w-[168px] text-[12.5px] text-muted-foreground truncate">{acc?.name ?? "-"}</span></td>,
+  };
+  return (
+    <tr onClick={() => onOpenDetail(t, { recurringFrequency: recurringFreq ?? null })} className={cn("group/row cursor-pointer hover:bg-muted/30 transition-colors border-b border-border/10 last:border-0", selected && "bg-[hsl(var(--primary)/0.06)]", t.pending && "bg-warning/[0.03]")}>
+      <td className="px-2 py-1.5" onClick={e=>e.stopPropagation()}>
+        <input type="checkbox" checked={selected} onChange={()=>onToggleSelect(t.id)} aria-label={`Select ${nm}`}
+          className="h-3.5 w-3.5 rounded accent-[hsl(var(--primary))]"/>
+      </td>
+      {orderedColumns.map(key => columnCells[key])}
     </tr>
   );
 };
@@ -2879,32 +3128,31 @@ function limitGroups<G extends { key: string; items: PTxn[] }>(groups: G[], limi
 
 // ── Transaction row (mobile card list) ──────────────────────────────────────
 // Below md there's no table; each transaction is one full-width tap target
-// (≥64px tall): avatar, vendor + chips, amount on the first line; type chip,
-// category and account on the second. Tap opens the detail sheet; long-press
+// (≥64px tall): avatar, vendor, amount, category and account. Tap opens the detail sheet; long-press
 // (or tap while something is already selected) toggles selection, so there
 // are no tiny per-row checkboxes or category pickers to mis-tap. The date is
 // omitted while the feed is grouped under date headings (it would repeat the
 // heading) and shown when the feed is a flat, non-date-sorted list.
 const LONG_PRESS_MS = 450;
 const MobileTxnRow = ({
-  t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys,
-  selected, onToggleSelect, flag, txnType, edited, onChangeType, showDate = false, selectionMode = false,
+  t, visibleCols, getEffectiveCategory, catColor, formatCat, nameOverrides, accounts, onOpenDetail, recurringKeys, recurringOverrides, txnType, edited, onChangeType,
+  selected, onToggleSelect, flag, showDate = false, selectionMode = false,
 }: {
   t: PTxn; visibleCols: Set<ColKey>;
   getEffectiveCategory: (t:PTxn)=>string; catColor:(s:string)=>string; formatCat:(s:string)=>string;
-  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>;
+  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
+  nameOverrides: Record<string,string>; accounts: PAccount[]; onOpenDetail:(t:PTxn, info?:{ recurringFrequency: string|null })=>void; recurringKeys: Map<string,string>; recurringOverrides: Record<string, boolean>;
   categoryIcon?:(cat:string)=>React.ElementType; expenseCategories?:string[]; incomeCategories?:string[]; ignoredCategories?:string[];
   customCategories?:{name:string;type:"income"|"expense"}[];
   onSelectCategory?:(t:PTxn,cat:string)=>void; onAddCategory?:(name:string,type:"income"|"expense")=>void; onRemoveCategory?:(name:string)=>void; onRenameCategory?:(oldName:string,newName:string)=>void;
   selected: boolean; onToggleSelect: (id:string)=>void; flag?: TxnFlag;
-  txnType: TxnClass; edited: boolean; onChangeType: (t:PTxn, type:TxnClass)=>void;
   showDate?: boolean; selectionMode?: boolean;
 }) => {
   const cat = getEffectiveCategory(t) ?? "Other";
   const col = catColor(cat);
-  const nm = nameOverrides[t.id] ?? t.merchant_name ?? t.name ?? "";
+  const nm = nameOverrides[t.id] ?? displayMerchantName(t.merchant_name ?? t.name);
   const acc = accounts.find(a => a.account_id === t.account_id);
-  const recurringFreq = recurringKeys.get(nm.trim().toLowerCase());
+  const recurringFreq = recurringOverrides[t.id] === true ? "Manual" : recurringOverrides[t.id] === false ? undefined : recurringKeys.get(merchantKey(nm));
   const pressTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
   const longPressed = useRef(false);
@@ -2938,12 +3186,16 @@ const MobileTxnRow = ({
       onContextMenu={e => e.preventDefault()}
       className={cn("w-full min-h-[64px] px-4 py-3 flex items-start gap-3 text-left select-none active:bg-muted/30 transition-colors outline-none focus-visible:bg-muted/30",
         selected && "bg-[hsl(var(--primary)/0.08)]", t.pending && !selected && "bg-warning/[0.03]")}>
-      <div className="relative h-10 w-10 rounded-full shrink-0 grid place-items-center text-[14px] font-bold text-white" style={{background:col}} aria-hidden>
-        {selected ? <Check className="h-5 w-5"/> : (nm[0]??"?").toUpperCase()}
-      </div>
+      {selected ? (
+        <div className="relative h-8 w-8 rounded-full shrink-0 grid place-items-center bg-[hsl(var(--primary))] text-primary-foreground" aria-hidden>
+          <Check className="h-4 w-4"/>
+        </div>
+      ) : (
+        <MerchantLogo name={nm} category={formatCat(cat)} website={t.website} logoUrl={t.logo_url} size={32}/>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[14px] font-medium text-foreground truncate min-w-0" title={t.name ?? nm}>{nm}</span>
+          <span className="text-[13px] font-medium text-foreground truncate min-w-0" title={t.name ?? nm}>{nm}</span>
           {t.pending && <span className="shrink-0"><PendingChip/></span>}
           {flag && <span className="shrink-0"><FlagChip flag={flag} compact/></span>}
           {recurringFreq && !flag && !t.pending && (
@@ -2952,9 +3204,9 @@ const MobileTxnRow = ({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground mt-1 min-w-0">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5 min-w-0">
           {/* The global touch rule gives every button a 40px min-height;
-              the type chip is a secondary control inside a 64px row, so it's
+              the type chip is a secondary control inside a compact row, so it's
               capped at 28px to keep rows compact. */}
           <span onClick={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()} className="shrink-0 [&_button]:!min-h-[28px]">
             <TypeControl t={t} txnType={txnType} edited={edited} onChangeType={onChangeType} compact/>

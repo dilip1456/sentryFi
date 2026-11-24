@@ -20,34 +20,32 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
-import type { PTxn as PictureTxn } from "@/lib/picture/model";
-import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
 import { paycheckAlerts } from "@/lib/paycheck-anomaly";
 import { setDerivedAlerts } from "@/lib/derived-alerts";
-import { usePublishHomeActionItems } from "@/lib/notifications/extras-store";
-import type { CompactItem } from "@/lib/notifications/compact";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
   FIELD_META, OP_LABEL, evaluateSet, ruleMatches, emptyCondition, emptyRule,
 } from "@/lib/txn-rules";
 import { fmtUSD, fmtUSDCompact, fmtTxnAmount } from "@/lib/format";
+import { MerchantLogo } from "@/components/finance/MerchantLogo";
 import { cleanBankText, merchantKey as cleanMerchantKey, isStatementSummaryText } from "@/lib/merchant-name";
 import { findDuplicateIds, findPossibleDuplicateIds, IMPORT_ID_PREFIX } from "@/lib/dedup";
 import { useTxnTypeOverrides } from "@/hooks/useTxnTypeOverrides";
 import {
   classifyAll, matchInternalTransfers, bucketOf, displayCategoryForType, normalisePlaidCategory, summarizeFlow, monthRange,
-  samePeriodLastMonth, savingsRate as calcSavingsRate, TXN_TYPE_LABEL, TXN_TYPES,
+  samePeriodLastMonth, savingsRate as calcSavingsRate,
   INCOME_CATEGORIES as SHARED_INCOME_CATEGORIES, IGNORED_CATEGORIES as SHARED_IGNORED_CATEGORIES,
   type Classification, type ClassifierTxn, type TxnType, type AccountRole as AccountRoleName,
 } from "@/lib/classify/index.ts";
 import { recurringFrequencyFor } from "@/lib/recurring";
+import { isPlaidDiscretionaryRecurringExcluded } from "@/lib/recurring/spending-cadence";
+import { pfcToAppCategory, pfcTrusted } from "@/lib/classify/pfc";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
-import { OPEN_TRANSACTION_EVENT } from "@/lib/txn-nav";
 import { AccountsPage } from "@/components/finance/accounts/AccountsPage";
 import { netWorthTotals } from "@/lib/accounts/totals";
 import { hiddenAccountIds, netWorthExcludedIds, withoutAccounts } from "@/lib/accounts/hidden";
@@ -62,20 +60,19 @@ import {
   ChevronLeft, RefreshCw, RepeatIcon, Receipt, ArrowUpDown, EyeOff, Eye, GripVertical,
   Compass, ShieldAlert, Target, ThumbsUp, ThumbsDown,
   ArrowRightLeft, CalendarClock, Info, DollarSign, User, BookOpen,
-  SlidersHorizontal, Wand2, Sliders,
+  SlidersHorizontal, Wand2, Sliders, CircleHelp,
 } from "lucide-react";
 import { SpendingSkeleton } from "@/components/finance/spending/SpendingSkeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtDayDate, fmtShortDate } from "@/lib/format-date";
 
 // ── Types ──────────────────────────────────────────────────────
 type PAccount = {
-  id: string; account_id: string; name: string | null; official_name: string | null;
+  id: string; item_id?: string | null; account_id: string; name: string | null; official_name: string | null;
   mask: string | null; type: string | null; subtype: string | null;
   current_balance: number | null; available_balance: number | null; iso_currency_code: string | null;
 };
@@ -83,6 +80,8 @@ type PTxn = {
   id: string; account_id: string; item_id: string | null; transaction_id: string | null;
   amount: number; date: string; authorized_date: string | null;
   name: string | null; merchant_name: string | null; category: string[] | null;
+  plaid_category?: string[] | null;
+  logo_url?: string | null; website?: string | null;
   pending: boolean | null; payment_channel: string | null;
   // Present once supabase/migrations/20261020140000_plaid_transactions_pfc_detail.sql is applied.
   pfc_primary?: string | null; pfc_detailed?: string | null; pfc_confidence?: string | null;
@@ -96,25 +95,19 @@ type PTxn = {
 // never deleted, just no longer inside the one page being fetched. Paging
 // through in fixed-size chunks until a page comes back short guarantees every
 // row is retrieved regardless of how many years of history are stored.
-// Only the columns the app reads (PTxn), not "*": less to download and parse
-// on every load. If a column is missing (the PFC migration not applied on
-// some database), fall back to "*" for the rest of the load.
-const TXN_COLUMNS = "id,account_id,item_id,transaction_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence";
 async function fetchAllTransactions(userId: string): Promise<PTxn[]> {
   const PAGE_SIZE = 1000;
   let offset = 0;
-  let columns = TXN_COLUMNS;
   const all: PTxn[] = [];
   for (;;) {
     const { data, error } = await supabase
       .from("plaid_transactions")
-      .select(columns)
+      .select("*")
       .eq("user_id", userId)
       .order("date", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
-    if (error && columns !== "*" && /column/i.test(error.message)) { columns = "*"; continue; }
     if (error) { console.error("[fetchAllTransactions]", error.message); break; }
-    const rows = (data ?? []) as unknown as PTxn[];
+    const rows = (data ?? []) as PTxn[];
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
     offset += PAGE_SIZE;
@@ -290,7 +283,7 @@ const EXPENSE_CATEGORIES_PICKER = EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGO
 const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 
 const priorityMeta = {
-  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative-text" },
+  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative" },
   soon:   { label: "Soon",   dot: "bg-warning",  text: "text-warning",  chip: "border-warning/30 bg-warning/10 text-warning" },
   info:   { label: "FYI",    dot: "bg-info",     text: "text-info",     chip: "border-info/30 bg-info/10 text-info" },
 };
@@ -373,6 +366,22 @@ const isDebt = (type: string|null) => type === "credit" || type === "loan";
 
 const formatCat = (cat: string) =>
   cat.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+
+const formatPlaidTaxonomyValue = (value: string | null | undefined) => {
+  if (!value) return null;
+  return value.toLowerCase().split(/[_\s]+/).filter(Boolean).map((word, index) =>
+    index > 0 && ["and", "of", "to"].includes(word) ? word : word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(" ");
+};
+
+const uniqueCategoryNames = (categories: string[]) => {
+  const unique = new Map<string, string>();
+  categories.forEach(category => {
+    const key = category.trim().replace(/[_\s]+/g, " ").toLowerCase();
+    if (key && !unique.has(key)) unique.set(key, category.trim());
+  });
+  return [...unique.values()];
+};
 
 /** Rename Plaid transfer categories to human-friendly equivalents */
 const humanizeCategory = (cat: string|null, amount: number): string => {
@@ -475,7 +484,7 @@ const looseClassOf = (
     categoryOverrides: overrides,
     ruleCategory: t => getRuleCategory(t.merchant_name ?? t.name ?? null),
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
   });
   return t => m.get(t.id);
 };
@@ -581,6 +590,18 @@ const detectRecurring = (
     "TRANSPORTATION_GAS", "TRANSPORTATION_PARKING",
     "TRANSPORTATION_PUBLIC_TRANSIT_SERVICES", "TRANSPORTATION_TAXIS_AND_RIDE_SHARES",
     "TRANSPORTATION_TOLLS_AND_FEES",
+    "GENERAL_MERCHANDISE_CONVENIENCE_STORES",
+    "GENERAL_MERCHANDISE_DEPARTMENT_STORES",
+    "GENERAL_MERCHANDISE_DISCOUNT_STORES",
+    "GENERAL_MERCHANDISE_ELECTRONICS",
+    "GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES",
+    "GENERAL_MERCHANDISE_OFFICE_SUPPLIES",
+    "GENERAL_MERCHANDISE_PET_SUPPLIES",
+    "GENERAL_MERCHANDISE_SPORTING_GOODS",
+    "GENERAL_MERCHANDISE_SUPERSTORES",
+    "GENERAL_MERCHANDISE_TOYS_AND_GAMES",
+    "GENERAL_MERCHANDISE_WAREHOUSE_CLUBS",
+    "GENERAL_MERCHANDISE_TOBACCO_AND_VAPE",
   ]);
   // Merchant name patterns that indicate one-off or variable spend even when category data
   // is missing/generic — covers delivery apps, grocery chains, restaurants, and parking.
@@ -599,6 +620,7 @@ const detectRecurring = (
     if (Number(t.amount) <= 0 || t.pending) return false;
     if (internalIds.has(t.id)) return false; // app-detected internal transfers
     if (new Date(t.date) < twelveMonthsAgo) return false;
+    if (isPlaidDiscretionaryRecurringExcluded(t.pfc_primary, t.pfc_detailed, t.merchant_name ?? t.name ?? "")) return false;
     if (NON_RECURRING_PFC_DETAILED.has((t.pfc_detailed ?? "").toUpperCase())) return false;
     const cat0 = (t.category?.[0] ?? "").toLowerCase();
     const cat1 = (t.category?.[1] ?? "").toLowerCase();
@@ -1052,10 +1074,8 @@ const parseInsights=(raw:unknown):AIInsight[]=>(Array.isArray(raw)?raw.filter(is
 // Plaid → app category mapping lives in src/lib/classify/plaid-categories.ts
 
 
-// Category priority (highest → lowest):
-// 1. Manual per-transaction override (user explicitly set this transaction's category)
-// 2. Pattern rule match (user defined "starbucks → Coffee")
-// 3. Plaid's category (normalised from raw Plaid strings)
+// Category priority: explicit user edit → category rule → trusted Plaid PFC →
+// automatic classifier category → legacy Plaid category.
 const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null): string|null => {
   // 1. Manual override wins over everything
   if (overrides[t.id]) return overrides[t.id];
@@ -1063,9 +1083,62 @@ const getEffectiveCategory = (t: PTxn, overrides: Record<string,string>, getRule
   const merchant = t.merchant_name ?? t.name ?? null;
   const ruleMatch = getRuleCategory(merchant);
   if (ruleMatch) return ruleMatch;
+  // Trust Plaid's categorized taxonomy when confidence is usable. This avoids
+  // stale legacy labels or automatic classifier suggestions (for example,
+  // "Refund / Reimbursement") replacing a clear Loan Payments / Car Payment.
+  if (t.pfc_detailed && pfcTrusted(t.pfc_confidence)) {
+    const plaidCategory = pfcToAppCategory(t.pfc_primary, t.pfc_detailed);
+    if (plaidCategory) return plaidCategory;
+  }
   // 3. Normalised Plaid category (with merchant override for known Plaid ML errors)
-  return normalisePlaidCategory(t.category, t.merchant_name, t.name, t);
+  const legacyCategory = normalisePlaidCategory(t.category, t.merchant_name, t.name);
+  // If an older legacy category conflicts with Plaid's non-bill PFC family,
+  // use the PFC taxonomy mapping. This prevents retail, food, travel and
+  // similar purchases from inheriting a stale "Bills & Utilities" label.
+  // Explicit user overrides and category rules above still take precedence.
+  const pfcPrimary = t.pfc_primary?.toUpperCase();
+  const pfcIsNonBillCategory = [
+    "GENERAL_MERCHANDISE", "FOOD_AND_DRINK", "GROCERIES", "ENTERTAINMENT",
+    "TRAVEL", "TRANSPORTATION", "HOME_IMPROVEMENT", "MEDICAL", "PERSONAL_CARE",
+  ].includes(pfcPrimary ?? "");
+  if (pfcIsNonBillCategory && (legacyCategory === "Bills & Utilities" || legacyCategory === "Other")) {
+    return pfcToAppCategory(t.pfc_primary, t.pfc_detailed) ?? legacyCategory;
+  }
+  return legacyCategory;
 };
+
+/** Which rule actually determined getEffectiveCategory's result — mirrors its
+ *  branches exactly, kept separate so getEffectiveCategory's return type and
+ *  existing call sites don't have to change. Used by the "Wrong category?"
+ *  report dialog to show provenance and decide whether to call the AI
+ *  categorizer (only when nothing more confident already won). */
+type CategorySource = "override" | "rule" | "plaid_pfc" | "pfc_fallback" | "legacy";
+const getCategorySource = (t: PTxn, overrides: Record<string,string>, getRuleCategory: (m:string|null)=>string|null): CategorySource => {
+  if (overrides[t.id]) return "override";
+  const merchant = t.merchant_name ?? t.name ?? null;
+  if (getRuleCategory(merchant)) return "rule";
+  if (t.pfc_detailed && pfcTrusted(t.pfc_confidence) && pfcToAppCategory(t.pfc_primary, t.pfc_detailed)) return "plaid_pfc";
+  const legacyCategory = normalisePlaidCategory(t.category, t.merchant_name, t.name);
+  const pfcPrimary = t.pfc_primary?.toUpperCase();
+  const pfcIsNonBillCategory = [
+    "GENERAL_MERCHANDISE", "FOOD_AND_DRINK", "GROCERIES", "ENTERTAINMENT",
+    "TRAVEL", "TRANSPORTATION", "HOME_IMPROVEMENT", "MEDICAL", "PERSONAL_CARE",
+  ].includes(pfcPrimary ?? "");
+  if (pfcIsNonBillCategory && (legacyCategory === "Bills & Utilities" || legacyCategory === "Other")) return "pfc_fallback";
+  return "legacy";
+};
+
+const CATEGORY_SOURCE_LABEL: Record<CategorySource, string> = {
+  override: "You corrected this",
+  rule: "Your category rule",
+  plaid_pfc: "Plaid",
+  pfc_fallback: "Plaid (category family)",
+  legacy: "Plaid (legacy mapping)",
+};
+// Low confidence = nothing decisive (no manual override, no rule, no trusted
+// Plaid PFC match) picked this category — exactly the case where it's worth
+// asking the AI categorizer for a second opinion.
+const isLowConfidenceSource = (s: CategorySource) => s === "pfc_fallback" || s === "legacy";
 
 /**
  * Classify a category as income or expense by ASSIGNMENT, not by the sign of
@@ -1425,31 +1498,31 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
     const meta = FIELD_META[c.field];
     if (c.field === "account")
       return (
-        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
           <option value="">Select account…</option>
           {accounts.map(a => <option key={a.account_id} value={a.account_id}>{a.name}</option>)}
-        </NativeSelect>
+        </select>
       );
     if (c.field === "account_type")
       return (
-        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account type" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
           <option value="">Select type…</option>
           {acctTypes.map(t => <option key={t} value={t}>{t}</option>)}
-        </NativeSelect>
+        </select>
       );
     if (c.field === "flow")
       return (
-        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Money flow" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
           <option value="expense">Expense</option>
           <option value="income">Income</option>
-        </NativeSelect>
+        </select>
       );
     if (c.field === "pending")
       return (
-        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Status" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
+        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
           <option value="true">Pending</option>
           <option value="false">Posted</option>
-        </NativeSelect>
+        </select>
       );
     if (meta.kind === "number")
       return (
@@ -1501,12 +1574,14 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
       )}
       {set.conditions.map(c => (
         <div key={c.id} className="flex items-center gap-1.5">
-          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[92px]" : "w-[110px]")} size="sm" aria-label="Condition field" className="pl-2.5 pr-7" value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}>
+          <select value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}
+            className={cn(inputCls, "shrink-0", compact ? "w-[92px]" : "w-[110px]")}>
             {(Object.keys(FIELD_META) as TxnField[]).map(f => <option key={f} value={f}>{FIELD_META[f].label}</option>)}
-          </NativeSelect>
-          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[96px]" : "w-[120px]")} size="sm" aria-label="Condition operator" className="pl-2.5 pr-7" value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}>
+          </select>
+          <select value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}
+            className={cn(inputCls, "shrink-0", compact ? "w-[96px]" : "w-[120px]")}>
             {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
-          </NativeSelect>
+          </select>
           {renderValue(c)}
           <button type="button" onClick={() => removeRow(c.id)} aria-label="Remove condition" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
             <X className="h-3.5 w-3.5" />
@@ -1632,7 +1707,7 @@ const RulesManager = ({
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className={cn("flex-1 min-h-0", showTagInput || showNoteInput || showSplitEditor ? "overflow-y-auto" : "overflow-y-hidden")}>
 
           {/* ── SMART RULES TAB ── */}
           {tab === "smart" && (
@@ -1658,16 +1733,17 @@ const RulesManager = ({
                     <div className="text-[12px] uppercase tracking-wider text-muted-foreground font-semibold">Then do</div>
                     {draftRule.actions.map((a, i) => (
                       <div key={i} className="flex items-center gap-1.5">
-                        <NativeSelect wrapperClassName="w-[130px] shrink-0" size="sm" aria-label="Action" value={a.type} onChange={e => {
+                        <select value={a.type} onChange={e => {
                             const type = e.target.value as RuleAction["type"];
                             const next = [...draftRule.actions];
                             next[i] = type === "mark_internal" ? { type } : { type, value: "" } as RuleAction;
                             setDraftRule({ ...draftRule, actions: next });
-                          }}>
+                          }}
+                          className="h-8 w-[130px] shrink-0 rounded-lg bg-secondary/40 border border-border/40 text-[13px] text-foreground px-2 outline-none">
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
-                        </NativeSelect>
+                        </select>
                         {a.type !== "mark_internal" && (
                           <input list={a.type === "set_category" ? "smart-cats" : undefined}
                             value={a.value} onChange={e => {
@@ -1772,11 +1848,12 @@ const RulesManager = ({
                   <div className="text-[13px] font-semibold text-foreground">New category rule</div>
                   <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                     <span className="text-[12.5px] text-muted-foreground">When name</span>
-                    <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}>
+                    <select value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}
+                      className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
                       <option value="contains">contains</option>
                       <option value="starts_with">starts with</option>
                       <option value="exact">is exactly</option>
-                    </NativeSelect>
+                    </select>
                     <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                     <input value={newPattern} onChange={e => setNewPattern(e.target.value)} placeholder="e.g. Amazon, Starbucks…"
                       className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
@@ -1821,11 +1898,12 @@ const RulesManager = ({
                         <div className="text-[12.5px] font-semibold text-foreground mb-1">Edit rule</div>
                         <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                           <span className="text-[12.5px] text-muted-foreground">When name</span>
-                          <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}>
+                          <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
+                            className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
                             <option value="contains">contains</option>
                             <option value="starts_with">starts with</option>
                             <option value="exact">is exactly</option>
-                          </NativeSelect>
+                          </select>
                           <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                           <input value={editPattern} onChange={e => setEditPattern(e.target.value)}
                             className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
@@ -2023,24 +2101,22 @@ const RulesManager = ({
 };
 
 const TxnDetailModal = ({
-  txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, allTxns,
+  txn, overrides, getRuleCategory, nameOverride, nameRules, customCategories, hiddenCategories = [], allTxns,
   accounts, items, initialCatOpen, onClose, onSaveNameOverride, onBulkRename, onSaveNameRule,
   onAddCategory, onAddRule, onRemoveCustom, onRenameCategory, onSelect, onToggleInternal, isManualInternal, isAutoInternal, isManualExternal,
   onFindSimilar,
   tags, onAddTag, onRemoveTag, note, onSaveNote,
   isRecurringOverride, onSetRecurringOverride, onClearRecurringOverride,
   splits, onSaveSplits, recurringFrequency,
-  classification, hasTypeOverride, onSetTxnType, possibleDuplicate,
+  possibleDuplicate,
 }: {
   /** Cadence shown by the list that opened this modal (undefined = compute here). */
   recurringFrequency?: string | null;
-  classification?: Classification;
-  hasTypeOverride?: boolean;
-  onSetTxnType?: (type: TxnType | null) => void;
   possibleDuplicate?: boolean;
   txn: PTxn; overrides: Record<string,string>; getRuleCategory: (m:string|null)=>string|null;
   nameOverride?: string; nameRules: Record<string,string>;
   customCategories: {name:string;type:"income"|"expense"}[];
+  hiddenCategories?: string[];
   allTxns: PTxn[];
   accounts: PAccount[];
   items: PItem[];
@@ -2080,7 +2156,9 @@ const TxnDetailModal = ({
   const color = isIncome ? "hsl(var(--positive))" : catColor(rawCat ?? "Other");
   const currentDisplayName = nameOverride ?? (merchant ? (nameRules[merchant] ?? merchant) : "Transaction");
   const account = accounts.find(a => a.account_id === txn.account_id);
-  const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id && (t.merchant_name ?? t.name) === merchant) : [];
+  const merchantIdentity = merchant ? cleanMerchantKey(merchant) : "";
+  const samemerchantTxns = merchant ? allTxns.filter(t => t.id !== txn.id
+    && cleanMerchantKey(t.merchant_name ?? t.name) === merchantIdentity) : [];
 
   // Detect recurring
   // Detect recurring. When opened from the Spending list the caller passes
@@ -2090,17 +2168,60 @@ const TxnDetailModal = ({
   const recurringLabel = recurringFrequency !== undefined
     ? recurringFrequency
     : (samemerchantTxns.length < 2 ? null
-      : recurringFrequencyFor([txn, ...samemerchantTxns].map(t => t.date), rawCat ?? "Other", currentDisplayName));
+      : recurringFrequencyFor([txn, ...samemerchantTxns].map(t => t.date), rawCat ?? "Other", currentDisplayName,
+        { primary: txn.pfc_primary, detailed: txn.pfc_detailed }));
 
-  const [tab, setTab] = useState<"info"|"edit">("info");
+  const [editingName, setEditingName] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [reportMiscatOpen, setReportMiscatOpen] = useState(false);
   const [reportMiscatDraft, setReportMiscatDraft] = useState("");
+  // AI second opinion, fetched only for low-confidence categories, only once
+  // the report sheet is actually opened (never eagerly in the background).
+  const [aiSuggestion, setAiSuggestion] = useState<{ category: string; reason: string } | null>(null);
+  const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
+  const [aiSuggestError, setAiSuggestError] = useState<string | null>(null);
+  const categorySource = getCategorySource(txn, overrides, getRuleCategory);
+  const categoryIsLowConfidence = isLowConfidenceSource(categorySource);
+  useEffect(() => {
+    if (!reportMiscatOpen || !categoryIsLowConfidence) return;
+    setAiSuggestion(null);
+    setAiSuggestError(null);
+    setAiSuggestLoading(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-categorize", {
+          body: {
+            mode: "suggest",
+            transactions: [{
+              id: txn.id,
+              name: txn.name,
+              merchant_name: txn.merchant_name,
+              plaid_category: txn.category?.[0] ?? "Unknown",
+              amount: Number(txn.amount),
+            }],
+          },
+        });
+        if (cancelled) return;
+        if (error || data?.error) { setAiSuggestError(data?.error ?? error?.message ?? "AI suggestion failed"); return; }
+        const s = (data?.suggestions ?? [])[0];
+        if (s?.suggested_category) setAiSuggestion({ category: s.suggested_category, reason: s.reason ?? "" });
+        else setAiSuggestError("AI had no suggestion for this one");
+      } catch (e) {
+        if (!cancelled) setAiSuggestError(String(e));
+      } finally {
+        if (!cancelled) setAiSuggestLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportMiscatOpen, txn.id]);
+  const [duplicateDismissed, setDuplicateDismissed] = useState(false);
+  useEffect(() => setDuplicateDismissed(false), [txn.id, possibleDuplicate]);
   const [nameDraft, setNameDraft] = useState(currentDisplayName);
   const [showCatPicker, setShowCatPicker] = useState(initialCatOpen ?? false);
   const [ruleDraft, setRuleDraft] = useState(merchant ?? "");
   const [applyAllCat, setApplyAllCat] = useState(samemerchantTxns.length > 0);
-  const [saved, setSaved] = useState(false);
   // Category picker's inline "add new" / "rename" states — shared by both the
   // Info and Edit tabs' category field since only one tab is ever visible.
   const [catEditMode, setCatEditMode] = useState<null | "add" | "rename">(null);
@@ -2129,6 +2250,7 @@ const TxnDetailModal = ({
   };
   const clearSplits = () => { onSaveSplits(txn.id, []); setSplitRows([{label:"",amount:""},{label:"",amount:""}]); };
   const isRecurringNow = isRecurringOverride ?? !!recurringLabel;
+  const isExcludedNow = (isManualInternal || isAutoInternal) && !isManualExternal;
 
   // Rule builder state (tab=rule)
   const [txnRuleDraft, setTxnRuleDraft] = useState<{match:"all"|"any";conditions:import("@/lib/txn-rules").Condition[]}>({
@@ -2145,9 +2267,9 @@ const TxnDetailModal = ({
     onSaveNameOverride(txn.id, trimmed);
     if (applyAllCat && samemerchantTxns.length > 0) onBulkRename(samemerchantTxns.map(t => t.id), trimmed);
     if (merchant) onSaveNameRule(merchant, trimmed);
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
     toast.success("Saved");
   };
+  const saveInlineName = () => { handleSaveName(); setEditingName(false); };
 
   const handleCatSelect = (cat: string) => {
     onSelect(txn.id, cat);
@@ -2212,10 +2334,11 @@ const TxnDetailModal = ({
             placeholder="New category name…"
             onKeyDown={e=>{ if (e.key==="Enter") confirmAddCategory(); if (e.key==="Escape") cancelCatEdit(); }}
             className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50"/>
-          <NativeSelect wrapperClassName="shrink-0" aria-label="Category type" value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}>
+          <select value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}
+            className="bg-muted/40 border border-border/50 rounded-xl px-2 py-2.5 text-[13px] text-foreground outline-none shrink-0">
             <option value="expense">Expense</option>
             <option value="income">Income</option>
-          </NativeSelect>
+          </select>
           <button onClick={confirmAddCategory} aria-label="Create category" className="h-10 w-10 grid place-items-center rounded-xl bg-gold shrink-0"><Check className="h-4 w-4"/></button>
           <button onClick={cancelCatEdit} aria-label="Cancel adding category" className="h-10 w-10 grid place-items-center rounded-xl text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4"/></button>
         </div>
@@ -2234,9 +2357,10 @@ const TxnDetailModal = ({
     }
     return (
       <div className="flex items-center gap-1.5">
-        <NativeSelect wrapperClassName="flex-1 min-w-0" aria-label="Category"
+        <select
           value={rawCat ?? "Other"}
-          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}>
+          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}
+          className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
           {/* Grouped the same way as the table's category picker — Expenses,
               Income, Ignored — via native <optgroup>s instead of one long
               flat list. Uses the full classification arrays (not the
@@ -2245,22 +2369,22 @@ const TxnDetailModal = ({
               In" still has its current value represented as a selectable
               option instead of silently falling off the list. */}
           <optgroup label="Expenses">
-            {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat => (
+            {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && (!hiddenCategories.includes(c) || c === rawCat)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
           <optgroup label="Income">
-            {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat => (
+            {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c) || c === rawCat), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
           <optgroup label="Ignored">
-            {IGNORED_CATEGORIES.map(cat => (
+            {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c) || c === rawCat).map(cat => (
               <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
             ))}
           </optgroup>
           <option value="__add_new__">+ Add new category…</option>
-        </NativeSelect>
+        </select>
         {isCustomCat(rawCat) && onRenameCategory && (
           <button onClick={startRenameCategory} aria-label="Rename category" title="Rename category"
             className="h-10 w-10 grid place-items-center rounded-xl border border-border/50 text-muted-foreground hover:text-foreground shrink-0">
@@ -2275,163 +2399,158 @@ const TxnDetailModal = ({
     if (!ruleDraft.trim() || !rawCat) return;
     onAddRule(ruleDraft.trim(), rawCat);
     toast.success("Rule created → " + humanizeCategory(rawCat, Number(txn.amount)));
-    setTab("info");
   };
 
   const amt = Math.abs(Number(txn.amount));
   const dateStr = fmtDayDate(txn.date);
+  const plaidPrimaryCategory = txn.pfc_primary ?? txn.plaid_category?.[0] ?? null;
+  const plaidDetailedCategory = txn.pfc_detailed ?? txn.plaid_category?.slice(1).join(" › ") ?? null;
+  const normalizePlaidKey = (value: string | null) => value?.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "") ?? "";
+  const primaryPlaidKey = normalizePlaidKey(plaidPrimaryCategory);
+  const detailedPlaidKey = normalizePlaidKey(plaidDetailedCategory);
+  const plaidSubcategory = primaryPlaidKey && detailedPlaidKey.startsWith(`${primaryPlaidKey}_`)
+    ? detailedPlaidKey.slice(primaryPlaidKey.length + 1)
+    : plaidDetailedCategory;
+  const plaidPrimaryLabel = formatPlaidTaxonomyValue(plaidPrimaryCategory);
+  const plaidDetailedLabel = formatPlaidTaxonomyValue(plaidSubcategory);
+  const authorizedDateLabel = txn.authorized_date && txn.authorized_date !== txn.date ? fmtDayDate(txn.authorized_date) : null;
 
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose(); }}>
       {/* Phones: a bottom sheet (full width, anchored to the bottom edge,
           padded by the bottom safe-area inset) instead of a centered card. */}
-      <DialogContent className={cn("max-w-sm w-full surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[92dvh] flex flex-col rounded-2xl",
+      <DialogContent className={cn("w-[calc(100vw-24px)] max-w-[520px] surface-elevated border-border p-0 gap-0 overflow-hidden max-h-[96dvh] flex flex-col rounded-2xl shadow-2xl",
         "max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:translate-x-0 max-md:translate-y-0 max-md:max-w-none max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[env(safe-area-inset-bottom)]",
         "max-md:data-[state=open]:slide-in-from-left-0 max-md:data-[state=open]:slide-in-from-bottom-full max-md:data-[state=closed]:slide-out-to-left-0 max-md:data-[state=closed]:slide-out-to-bottom-full max-md:data-[state=open]:zoom-in-100 max-md:data-[state=closed]:zoom-out-100")}>
         <DialogTitle className="sr-only">Transaction details</DialogTitle>
         <DialogDescription className="sr-only">Transaction info, edit, and rules.</DialogDescription>
 
         {/* ── Header ── */}
-        <div className="px-5 pt-5 pb-4 shrink-0">
-          {/* pr-9 keeps the amount clear of DialogContent's close X (44px at
-              right-1.5/top-1.5); without it the X sat on the amount. */}
-          <div className="flex items-start gap-3 pr-9">
-            {/* Category color dot */}
-            <div className="h-10 w-10 rounded-xl shrink-0 flex items-center justify-center text-lg font-bold" style={{background:`${color}20`, color}}>
-              {(merchant ?? "?").charAt(0).toUpperCase()}
-            </div>
+        <div className="relative px-4 pt-4 pb-3 shrink-0 border-b border-border/30">
+          <button onClick={() => { setReportMiscatDraft(rawCat ?? "Other"); setReportMiscatOpen(true); }} aria-label="Report wrong category" title="Report incorrect category"
+            className="absolute right-2 top-12 h-8 w-8 grid place-items-center rounded-full border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15 transition-colors">
+            <CircleHelp className="h-4 w-4"/>
+          </button>
+          <div className="flex items-start gap-3 pr-14">
+            <MerchantLogo key={txn.id} name={merchant ?? currentDisplayName} category={humanizeCategory(rawCat ?? "Other", Number(txn.amount))} website={txn.website} size={56} />
             <div className="flex-1 min-w-0">
-              <p className="font-display text-[15px] text-foreground break-words">{currentDisplayName}</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5 break-words">
-                {dateStr}{account ? ` · ${account.name ?? account.official_name ?? "account"}${account.mask ? ` ··${account.mask}` : ""}` : ""}{txn.pending ? " · Pending" : ""}{isImportedTxn ? " · Imported from PDF" : ""}
-              </p>
+              {editingName ? <div className="flex items-center gap-1">
+                <input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveInlineName(); if (e.key === "Escape") { setNameDraft(currentDisplayName); setEditingName(false); } }}
+                  aria-label="Transaction display name" className="min-w-0 flex-1 bg-muted/40 border border-primary/40 rounded-lg px-2 py-1 text-[13px] text-foreground outline-none"/>
+                <button onClick={saveInlineName} aria-label="Save name" className="h-7 w-7 grid place-items-center rounded-lg bg-primary text-primary-foreground shrink-0"><Check className="h-3.5 w-3.5"/></button>
+                <button onClick={() => { setNameDraft(currentDisplayName); setEditingName(false); }} aria-label="Cancel name edit" className="h-7 w-7 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted shrink-0"><X className="h-3.5 w-3.5"/></button>
+              </div> : <button onClick={() => { setNameDraft(currentDisplayName); setEditingName(true); }} title="Click to edit name"
+                className="group flex w-full items-start gap-1 text-left font-display text-[17px] font-semibold leading-tight text-foreground hover:text-primary">
+                <span className="min-w-0 whitespace-normal break-words" title={currentDisplayName}>{currentDisplayName}</span><Pencil className="h-3 w-3 mt-1 opacity-0 group-hover:opacity-70 shrink-0"/>
+              </button>}
+              <div className="mt-1 space-y-0.5 text-[13px] leading-snug text-muted-foreground">
+                <div>{dateStr}</div>
+                {account && <div className="whitespace-normal break-words" title={`${account.name ?? account.official_name ?? "Account"}${account.mask ? ` ··${account.mask}` : ""}`}>{account.name ?? account.official_name ?? "Account"}{account.mask ? ` ··${account.mask}` : ""}</div>}
+              </div>
+              {editingName && samemerchantTxns.length > 0 && <label className="mt-1 inline-flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-3.5 w-3.5 accent-primary"/> Apply to all {samemerchantTxns.length + 1}
+              </label>}
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", txn.pending ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground")}>{txn.pending ? "Pending" : "Posted"}</span>
+                {isImportedTxn && <span className="rounded-full bg-muted text-muted-foreground px-2.5 py-0.5 text-[11px] font-medium">Statement import</span>}
+              </div>
             </div>
-            <div className="text-right shrink-0">
-              <p className={cn("text-[18px] font-bold tabular", isIncome ? "text-positive" : "text-foreground")}>
+              <div className="text-right shrink-0 self-start pt-1">
+              <p className={cn("text-[27px] font-semibold tabular", isIncome ? "text-positive" : "text-foreground")}>
                 {fmtTxnAmount(txn.amount, {cents: true})}
               </p>
-              {recurringLabel && <p className="text-[10px] text-muted-foreground/70">{recurringLabel}</p>}
+              <p className={cn("text-[13px]", isIncome ? "text-positive" : "text-destructive")}>{isIncome ? "Inflow" : "Outflow"}</p>
             </div>
           </div>
 
-          {/* Tab row */}
-          <div className="flex gap-1 mt-4 bg-muted/50 rounded-xl p-1">
-            {(["info","edit"] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={cn("flex-1 min-h-11 md:min-h-0 py-1.5 rounded-lg text-[11px] font-medium transition-all",
-                  tab === t ? "bg-card shadow text-foreground" : "text-muted-foreground")}>
-                {t === "info" ? "Details" : "Edit"}
-              </button>
-            ))}
-          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-hidden min-h-0">
 
-          {/* ── INFO TAB ── */}
-          {tab === "info" && (
-            <div className="px-5 pb-5 space-y-3">
+          <div className="px-4 py-3 space-y-2.5">
 
-              {/* Category — dropdown, plus inline "add new" / rename */}
-              <div>
-                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
-                {renderCategoryField()}
-              </div>
+              {possibleDuplicate && !duplicateDismissed && (
+                <div className="flex min-h-8 items-center gap-2 rounded-lg border border-gold/30 bg-gold/5 px-2.5 py-1 text-[11px] text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-gold"/>
+                  <span className="min-w-0 flex-1 font-medium text-foreground">Possible duplicate transaction</span>
+                  <button onClick={() => setDuplicateDismissed(true)} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Not a duplicate</button>
+                  <button onClick={() => setDuplicateDismissed(true)} aria-label="Dismiss duplicate notice" title="Dismiss" className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-3.5 w-3.5"/></button>
+                </div>
+              )}
 
-              {/* Field/value grid — constrained to prevent overflow. Merchant is
-                  only shown here when it differs from the title above (i.e. a
-                  custom display name is hiding the real merchant) — otherwise
-                  it's the same text already visible in the header. */}
-              <div className="rounded-xl border border-border/30 overflow-hidden divide-y divide-border/20">
-                {([
-                  ...(merchant && merchant !== currentDisplayName ? [["Merchant", merchant]] : []),
-                  ...(account ? [["Account", `${account.name ?? account.official_name ?? "account"}${account.mask ? ` ••${account.mask}` : ""}`]] : []),
-                  ["Channel",   txn.payment_channel?.replace(/_/g, " ") ?? "-"],
-                  ...(samemerchantTxns.length > 0 ? [["History", `${samemerchantTxns.length} past txns`]] : []),
-                ] as [string,string][]).map(([label, value]) => (
-                  <div key={label} className="flex items-start gap-3 px-4 py-2.5 bg-card/50">
-                    <span className="text-[12px] text-muted-foreground w-20 shrink-0 pt-0.5">{label}</span>
-                    <span className="text-[12.5px] text-foreground font-medium break-words flex-1 text-right">{value}</span>
+              <section className="rounded-2xl border border-border/50 overflow-hidden" aria-label="Transaction details">
+                <div className="px-3 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Details</div>
+                <dl className="divide-y divide-border/40 px-3">
+                  <div className="grid grid-cols-[18px_112px_minmax(0,1fr)] items-center gap-2 py-2">
+                    <Utensils className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                    <dt className="text-[13px] text-muted-foreground">Category</dt>
+                    <dd className="min-w-0 flex-1">{renderCategoryField()}</dd>
                   </div>
-                ))}
-              </div>
+                  <div className="grid grid-cols-[18px_112px_minmax(0,1fr)] items-center gap-2 py-2">
+                    <ShoppingBag className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                    <dt className="text-[13px] text-muted-foreground">Channel</dt>
+                    <dd className="min-w-0 whitespace-normal break-words text-right text-[13px] font-medium text-foreground capitalize" title={txn.payment_channel?.replace(/_/g, " ") ?? "Not provided"}>{txn.payment_channel?.replace(/_/g, " ") ?? "—"}</dd>
+                  </div>
+                  <div className="grid grid-cols-[18px_112px_minmax(0,1fr)] items-center gap-2 py-2">
+                    <Receipt className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                    <dt className="text-[13px] text-muted-foreground">Bank description</dt>
+                    <dd className="min-w-0 whitespace-normal break-words text-right text-[13px] font-medium leading-snug text-foreground" title={txn.name ?? "Not provided"}>{txn.name ?? "—"}</dd>
+                  </div>
+                  {authorizedDateLabel && <div className="grid grid-cols-[18px_112px_minmax(0,1fr)] items-center gap-2 py-2">
+                    <Calendar className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                    <dt className="text-[13px] text-muted-foreground">Authorized date</dt>
+                    <dd className="min-w-0 whitespace-normal break-words text-right text-[13px] font-medium text-foreground">{authorizedDateLabel}</dd>
+                  </div>}
+                  {(tags.length > 0 || showTagInput) && <div className="flex items-center gap-4 py-3">
+                    <Tag className="h-4 w-4 shrink-0 text-muted-foreground"/>
+                    <dt className="w-28 shrink-0 text-[13px] text-muted-foreground">Tags</dt>
+                    <dd className="flex min-w-0 flex-1 items-center justify-end gap-1 overflow-x-auto">
+                      {tags.map(t => <span key={t} className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border/60 bg-muted/50 pl-2 pr-1 text-[11px] font-medium text-foreground">
+                        {t}<button onClick={() => onRemoveTag(txn.id, t)} aria-label={`Remove tag ${t}`} className="grid h-4 w-4 place-items-center rounded-full hover:bg-muted"><X className="h-3 w-3"/></button>
+                      </span>)}
+                      {showTagInput ? <span className="flex shrink-0 items-center gap-1">
+                        <input autoFocus value={tagDraft} onChange={e=>setTagDraft(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") submitTag(); if(e.key==="Escape") setShowTagInput(false); }}
+                          placeholder="Tag name" className="h-7 w-24 rounded-md border border-border/60 bg-muted/40 px-2 text-[12px] text-foreground outline-none"/>
+                        <button onClick={submitTag} aria-label="Save tag" className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground"><Check className="h-3.5 w-3.5"/></button>
+                      </span> : null}
+                    </dd>
+                  </div>}
+                </dl>
+              </section>
 
-              {/* Ignored / Recurring — explicit yes/no toggles */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => onToggleInternal(txn.id)}
-                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors flex items-center justify-center gap-1.5",
-                    (isManualInternal || isAutoInternal) && !isManualExternal
-                      ? "border-blue-500/40 text-blue-400 bg-blue-500/8"
-                      : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  Ignored: {(isManualInternal || isAutoInternal) && !isManualExternal ? "Yes" : "No"}
+              <section className="rounded-xl border border-border/50 px-3 divide-y divide-border/40" aria-label="Transaction controls">
+                <button onClick={() => onToggleInternal(txn.id)} title={isExcludedNow ? "Remove from excluded transactions" : "Exclude this transaction from budgets"} aria-pressed={isExcludedNow}
+                  className={cn("flex w-full items-center justify-between gap-3 py-2.5 text-[13px] transition-colors", isExcludedNow ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
+                  <span className="flex min-w-0 items-center gap-3"><EyeOff className="h-4 w-4 shrink-0"/><span className="truncate">Excluded from budgets</span></span>
+                  <span className={cn("relative h-5 w-10 shrink-0 rounded-full transition-colors", isExcludedNow ? "bg-primary" : "bg-muted-foreground/25")}><span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform", isExcludedNow ? "translate-x-[22px]" : "translate-x-0.5")}/></span>
                 </button>
-                <button
-                  onClick={() => onSetRecurringOverride(txn.id, !isRecurringNow)}
-                  className={cn("py-2.5 rounded-xl border text-[11.5px] font-medium transition-colors flex items-center justify-center gap-1.5",
-                    isRecurringNow
-                      ? "border-violet-500/40 text-violet-400 bg-violet-500/8"
-                      : "border-border/60 text-muted-foreground hover:text-foreground")}>
-                  Recurring: {isRecurringNow ? (recurringLabel ?? "Yes") : "No"}
-                  {isRecurringOverride === undefined && recurringLabel && <span className="text-[9px] opacity-60">(auto)</span>}
-                </button>
-                {isRecurringOverride !== undefined && (
-                  <button onClick={() => onClearRecurringOverride(txn.id)}
-                    className="col-span-2 -mt-1 text-[10.5px] text-muted-foreground/70 hover:text-foreground underline underline-offset-2">
-                    Reset to auto-detected
+                <div className="flex items-center gap-2">
+                  <button onClick={() => onSetRecurringOverride(txn.id, !isRecurringNow)}
+                    title={isRecurringOverride !== undefined ? `Manually marked ${isRecurringNow ? "recurring" : "not recurring"}` : recurringLabel ? `Estimated from transaction history · ${recurringLabel}; not a Plaid recurring flag` : "No recurring pattern detected in transaction history"}
+                    aria-pressed={isRecurringNow}
+                    className={cn("flex flex-1 min-w-0 items-center justify-between gap-3 py-2.5 text-[13px] transition-colors", isRecurringNow ? "text-violet-500" : "text-muted-foreground hover:text-foreground")}>
+                    <span className="flex min-w-0 items-center gap-3"><RefreshCw className="h-4 w-4 shrink-0"/><span className="truncate">Recurring transaction</span>{isRecurringOverride !== undefined && <span className="text-[9px] font-semibold uppercase opacity-70">Manual</span>}</span>
+                    <span className={cn("relative h-5 w-10 shrink-0 rounded-full transition-colors", isRecurringNow ? "bg-primary" : "bg-muted-foreground/25")}><span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-transform", isRecurringNow ? "translate-x-[22px]" : "translate-x-0.5")}/></span>
                   </button>
-                )}
-              </div>
+                  {isRecurringOverride !== undefined && <button onClick={() => onClearRecurringOverride(txn.id)} title="Reset to automatic detection" aria-label="Reset recurring status to automatic"
+                    className="h-7 w-7 shrink-0 grid place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><RefreshCw className="h-3 w-3"/></button>}
+                </div>
+              </section>
 
-              {/* How this transaction counts in totals (shared classifier). A
-                  choice here is saved per transaction and always wins. */}
-              {classification && onSetTxnType && (
-                <div className="rounded-xl border border-border/30 px-4 py-2.5 bg-card/50 space-y-1">
-                  <div className="flex items-center gap-3">
-                    <label htmlFor={`txn-type-${txn.id}`} className="text-[12px] text-muted-foreground w-20 shrink-0">Counts as</label>
-                    <select id={`txn-type-${txn.id}`} value={classification.type}
-                      onChange={e => onSetTxnType(e.target.value as TxnType)}
-                      className="flex-1 min-w-0 w-0 truncate bg-transparent text-[12.5px] text-foreground font-medium text-right outline-none cursor-pointer">
-                      {TXN_TYPES.map(tp => <option key={tp} value={tp}>{TXN_TYPE_LABEL[tp]}</option>)}
-                    </select>
-                  </div>
-                  <div className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
-                    <span className="flex-1">{hasTypeOverride ? "Set by you" : classification.reason}</span>
-                    {hasTypeOverride && (
-                      <button onClick={() => onSetTxnType(null)} className="underline underline-offset-2 hover:text-foreground">Use automatic</button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {possibleDuplicate && (
-                <div className="rounded-xl border border-gold/40 bg-gold/5 px-4 py-2 text-[11.5px] text-foreground">
-                  Possible duplicate: another posted transaction on this account has the same date, amount and merchant. Nothing was removed.
-                </div>
-              )}
-
-              {/* Tags */}
-              <div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {tags.map(t => (
-                    <span key={t} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-muted/60 border border-border/60 text-[11px] font-medium text-foreground">
-                      {t}
-                      <button onClick={() => onRemoveTag(txn.id, t)} aria-label={`Remove tag ${t}`} className="h-3.5 w-3.5 rounded-full grid place-items-center hover:bg-muted"><X className="h-2.5 w-2.5"/></button>
-                    </span>
-                  ))}
-                  {showTagInput ? (
-                    <div className="flex items-center gap-1">
-                      <input autoFocus value={tagDraft} onChange={e=>setTagDraft(e.target.value)}
-                        onKeyDown={e=>{ if(e.key==="Enter") submitTag(); if(e.key==="Escape") setShowTagInput(false); }}
-                        placeholder="Tag name" className="h-6 w-24 px-2 rounded-full bg-muted/40 border border-border/60 text-[11px] text-foreground outline-none"/>
-                      <button onClick={submitTag} aria-label="Add tag" className="h-6 w-6 grid place-items-center rounded-full bg-gold"><Check className="h-3 w-3"/></button>
-                    </div>
-                  ) : (
-                    <button onClick={()=>setShowTagInput(true)} className="inline-flex items-center gap-1 h-6 px-2 rounded-full border border-dashed border-border/60 text-[11px] text-muted-foreground hover:text-foreground hover:border-border transition-colors">
-                      <Plus className="h-2.5 w-2.5"/> Tag
-                    </button>
-                  )}
-                </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={()=>setShowTagInput(true)} title="Add a tag" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-2 text-[13px] font-medium text-foreground hover:bg-muted/50"><Tag className="h-4 w-4"/>Tag</button>
+                <button onClick={()=>setShowNoteInput(true)} title={note ? "Edit note" : "Add note"} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-2 text-[13px] font-medium text-foreground hover:bg-muted/50"><Pencil className="h-4 w-4"/>{note ? "Edit note" : "Add note"}</button>
+                <button onClick={()=>setShowSplitEditor(true)} title="Split transaction" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-2 text-[13px] font-medium text-foreground hover:bg-muted/50"><Plus className="h-4 w-4"/>{splits.length ? `Split · ${splits.length}` : "Split"}</button>
               </div>
+              <button onClick={() => setRuleOpen(true)} title="Create a rule for similar future transactions"
+                className="inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-primary px-4 text-[14px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 transition-opacity">
+                <Wand2 className="h-4 w-4"/>Create Rule
+              </button>
+              <button onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }} disabled={!merchant} title="Find similar transactions"
+                className="inline-flex w-full items-center justify-center gap-2 py-0.5 text-[13px] font-medium text-primary hover:underline disabled:opacity-40">
+                <Search className="h-4 w-4"/>Find similar transactions
+              </button>
 
               {/* Note */}
               <div>
@@ -2444,15 +2563,7 @@ const TxnDetailModal = ({
                       <button onClick={()=>{setShowNoteInput(false);setNoteDraft(note);}} className="px-3 py-1.5 rounded-lg border border-border/60 text-[11.5px] text-muted-foreground">Cancel</button>
                     </div>
                   </div>
-                ) : note ? (
-                  <button onClick={()=>setShowNoteInput(true)} className="w-full text-left p-2.5 rounded-xl bg-muted/30 border border-border/40 text-[12px] text-foreground hover:bg-muted/40 transition-colors">
-                    {note}
-                  </button>
-                ) : (
-                  <button onClick={()=>setShowNoteInput(true)} className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
-                    <Plus className="h-3 w-3"/> Add note
-                  </button>
-                )}
+                ) : note ? <button onClick={()=>setShowNoteInput(true)} title={note} className="w-full truncate text-left text-[11px] text-muted-foreground hover:text-foreground">Note saved · click to view or edit</button> : null}
               </div>
 
               {/* Split */}
@@ -2480,91 +2591,13 @@ const TxnDetailModal = ({
                     <button onClick={()=>setShowSplitEditor(false)} className="px-3 py-2 rounded-lg border border-border/60 text-[12px] text-muted-foreground">Cancel</button>
                   </div>
                 </div>
-              ) : splits.length > 0 ? (
-                <div className="border border-border/40 rounded-xl p-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Split</p>
-                    <div className="flex items-center gap-2">
-                      <button onClick={()=>setShowSplitEditor(true)} className="text-[11px] text-[hsl(var(--primary))] font-medium">Edit</button>
-                      <button onClick={clearSplits} className="text-[11px] text-muted-foreground hover:text-negative">Clear</button>
-                    </div>
-                  </div>
-                  {splits.map((s,i) => (
-                    <div key={i} className="flex items-center justify-between text-[12px]">
-                      <span className="text-foreground truncate">{s.label}</span>
-                      <span className="text-muted-foreground tabular shrink-0 ml-2">{fmtUSD(s.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <button onClick={()=>setShowSplitEditor(true)} className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors">
-                  <Plus className="h-3 w-3"/> Split transaction
-                </button>
-              )}
+              ) : splits.length > 0 ? <div className="flex items-center gap-2 text-[10.5px] text-muted-foreground" title={splits.map(s => `${s.label}: ${fmtUSD(s.amount)}`).join(" · ")}>
+                <span className="font-medium text-foreground">Split:</span>
+                <span className="min-w-0 flex-1 truncate">{splits.length} items · {fmtUSD(splits.reduce((sum, s) => sum + s.amount, 0))}</span>
+                <button onClick={clearSplits} className="shrink-0 hover:text-negative">Clear</button>
+              </div> : null}
 
-              {/* Quick action row */}
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                <button
-                  onClick={() => { onFindSimilar(merchant ?? ""); onClose(); }}
-                  disabled={!merchant}
-                  className="py-2.5 rounded-xl border border-border/60 text-[11.5px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40">
-                  Find similar
-                </button>
-                <button
-                  onClick={() => setRuleOpen(true)}
-                  className="py-2.5 rounded-xl border border-border/60 text-[11.5px] font-medium text-muted-foreground hover:text-foreground transition-colors">
-                  + Rule
-                </button>
-                <button
-                  onClick={() => { setReportMiscatDraft(rawCat ?? "Other"); setReportMiscatOpen(true); }}
-                  title="Report this category as wrong and fix it everywhere"
-                  className="py-2.5 rounded-xl border border-negative/30 text-[11.5px] font-medium text-negative hover:bg-negative/10 transition-colors">
-                  Wrong category?
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── EDIT TAB ── */}
-          {tab === "edit" && (
-            <div className="px-5 pb-5 space-y-4">
-              {/* Rename */}
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Display name</label>
-                <input
-                  value={nameDraft}
-                  onChange={e => setNameDraft(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleSaveName()}
-                  className="w-full bg-muted/40 border border-border rounded-xl px-3.5 py-2.5 text-[13.5px] text-foreground outline-none focus:border-primary/50"
-                />
-                {samemerchantTxns.length > 0 && (
-                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                    <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
-                    <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} {merchant} transactions</span>
-                  </label>
-                )}
-              </div>
-
-              {/* Category — simple dropdown */}
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
-                {renderCategoryField()}
-                {samemerchantTxns.length > 0 && (
-                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                    <input type="checkbox" checked={applyAllCat} onChange={e => setApplyAllCat(e.target.checked)} className="h-4 w-4 rounded accent-primary" />
-                    <span className="text-[12px] text-muted-foreground">Apply to all {samemerchantTxns.length + 1} {merchant} transactions</span>
-                  </label>
-                )}
-              </div>
-
-              <button
-                onClick={handleSaveName}
-                disabled={!nameDraft.trim() || nameDraft === currentDisplayName}
-                className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold disabled:opacity-40 transition-opacity">
-                {saved ? "✓ Saved" : "Save changes"}
-              </button>
-            </div>
-          )}
+          </div>
 
         </div>
 
@@ -2590,12 +2623,13 @@ const TxnDetailModal = ({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">If</label>
-                    <NativeSelect size="sm" aria-label="Match all or any conditions" value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}>
+                    <select value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
+                      className="h-7 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none">
                       <option value="all">ALL match</option>
                       <option value="any">ANY match</option>
-                    </NativeSelect>
+                    </select>
                   </div>
-                  <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}/>
+                  <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(cx => cx.name)]}/>
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -2605,34 +2639,35 @@ const TxnDetailModal = ({
                   <div className="space-y-2">
                     {txnRuleActions.map((action, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <NativeSelect wrapperClassName="shrink-0" size="sm" aria-label="Action" value={action.type} onChange={e => {
+                        <select value={action.type} onChange={e => {
                           const type = e.target.value as RuleAction["type"];
                           const next = [...txnRuleActions];
                           if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
                           else next[i] = {type, value:""} as RuleAction;
                           setTxnRuleActions(next);
-                        }}>
+                        }} className="h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none shrink-0">
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
                           <option value="ignore">Ignore / hide</option>
-                        </NativeSelect>
+                        </select>
                         {action.type === "set_category" && (
-                          <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Category" value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}>
+                          <select value={action.value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
+                            className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
                             <option value="">Category...</option>
                             <optgroup label="Expenses">
-                              {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
                             <optgroup label="Income">
-                              {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
                             <optgroup label="Ignored">
-                              {IGNORED_CATEGORIES.map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
+                              {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c)).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
-                          </NativeSelect>
+                          </select>
                         )}
                         {action.type === "rename" && (
-                          <input value={(action as any).value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
+                          <input value={action.value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
                             placeholder="New name..." className="flex-1 h-9 px-2.5 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0"/>
                         )}
                         {txnRuleActions.length > 1 && (
@@ -2673,36 +2708,79 @@ const TxnDetailModal = ({
                 </button>
               </div>
               <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-                <p className="text-[12.5px] text-muted-foreground leading-relaxed">
-                  Currently categorized as <span className="font-medium text-foreground">{humanizeCategory(rawCat ?? "Other", Number(txn.amount))}</span>.
-                  {otherMiscatTxns.length > 0
-                    ? ` This will also fix ${otherMiscatTxns.length} other ${merchant ?? "matching"} transaction${otherMiscatTxns.length===1?"":"s"} still categorized the same way, and`
-                    : " This will"} create a rule so future {merchant ?? "these"} charges are categorized correctly automatically.
+                <p className="text-[11.5px] text-muted-foreground" title={`Your report will correct this transaction${otherMiscatTxns.length ? ` and ${otherMiscatTxns.length} matching transaction${otherMiscatTxns.length === 1 ? "" : "s"}` : ""}, then create a merchant rule for future transactions.`}>
+                  Review the source details, then choose the right category. This also remembers the correction for future charges.
                 </p>
-                <NativeSelect wrapperClassName="w-full" aria-label="Correct category" value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}>
+                <dl className="divide-y divide-border/30 rounded-xl border border-border/50 px-3">
+                  <div className="flex items-start justify-between gap-3 py-2 text-[11px]">
+                    <dt className="shrink-0 text-muted-foreground">Current category</dt>
+                    <dd className="min-w-0 truncate text-right font-medium text-foreground" title={humanizeCategory(rawCat ?? "Other", Number(txn.amount))}>{humanizeCategory(rawCat ?? "Other", Number(txn.amount))}</dd>
+                  </div>
+                  <div className="grid grid-cols-[102px_minmax(0,1fr)] items-start gap-3 py-2 text-[11px]">
+                    <dt className="shrink-0 text-muted-foreground">Plaid category</dt>
+                    <dd className="min-w-0 text-right text-[10.5px] font-medium leading-snug text-foreground [overflow-wrap:anywhere]" title={plaidPrimaryLabel ?? "Not available for this transaction"}>{plaidPrimaryLabel ?? "Not available"}</dd>
+                  </div>
+                  <div className="grid grid-cols-[102px_minmax(0,1fr)] items-start gap-3 py-2 text-[11px]">
+                    <dt className="shrink-0 text-muted-foreground">Plaid detail</dt>
+                    <dd className="min-w-0 text-right text-[10.5px] font-medium leading-snug text-foreground [overflow-wrap:anywhere]" title={plaidDetailedLabel ?? "Not provided by Plaid"}>{plaidDetailedLabel ?? "Not provided"}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2 text-[11px]">
+                    <dt className="shrink-0 text-muted-foreground">Confidence</dt>
+                    <dd className="font-medium text-foreground" title={txn.pfc_confidence ?? "Not provided by Plaid"}>{txn.pfc_confidence ?? "Not provided"}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2 text-[11px]">
+                    <dt className="shrink-0 text-muted-foreground">Determined by</dt>
+                    <dd className="font-medium text-foreground">{CATEGORY_SOURCE_LABEL[categorySource]}</dd>
+                  </div>
+                </dl>
+                {categoryIsLowConfidence && (
+                  <div className="rounded-xl border border-border/50 px-3 py-2.5 text-[11.5px]">
+                    {aiSuggestLoading ? (
+                      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Asking AI for a second opinion…
+                      </span>
+                    ) : aiSuggestion ? (
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <div className="text-muted-foreground">AI suggests</div>
+                          <div className="font-medium text-foreground truncate">{humanizeCategory(aiSuggestion.category, Number(txn.amount))}</div>
+                          {aiSuggestion.reason && <div className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{aiSuggestion.reason}</div>}
+                        </div>
+                        <button onClick={() => setReportMiscatDraft(aiSuggestion.category)}
+                          className="shrink-0 h-7 px-2.5 rounded-lg bg-secondary text-[11px] font-medium text-foreground hover:bg-secondary/70 transition-colors">
+                          Use this
+                        </button>
+                      </div>
+                    ) : aiSuggestError ? (
+                      <span className="text-muted-foreground">AI suggestion unavailable: {aiSuggestError}</span>
+                    ) : null}
+                  </div>
+                )}
+                <select value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}
+                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
                   <option value="" disabled>Choose the correct category…</option>
                   <optgroup label="Expenses">
-                    {[...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)].map(cat => (
+                    {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
                   <optgroup label="Income">
-                    {[...INCOME_CATEGORIES, ...customCategories.filter(c=>c.type==="income").map(c=>c.name)].map(cat => (
+                    {uniqueCategoryNames([...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="income").map(c=>c.name)]).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
                   <optgroup label="Ignored">
-                    {IGNORED_CATEGORIES.map(cat => (
+                    {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c)).map(cat => (
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
-                </NativeSelect>
+                </select>
               </div>
               <div className="px-5 py-4 border-t border-border/30 shrink-0">
                 <button onClick={() => handleReportMiscategorized(reportMiscatDraft)}
                   disabled={!reportMiscatDraft || reportMiscatDraft === (rawCat ?? "Other")}
-                  className="w-full py-3 rounded-xl bg-negative text-negative-foreground text-[14px] font-bold disabled:opacity-40">
-                  Fix it
+                  className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-[14px] font-bold disabled:opacity-40">
+                  Fix & remember
                 </button>
               </div>
             </div>
@@ -2774,7 +2852,7 @@ const SpendingCatPopup = ({ cat, txns, accounts, nameOverrides, onClose, onOpenD
 const SortableCard = ({ id, children }: { id: string; children: (handleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 50 : undefined }}>
+    <div ref={setNodeRef} className="h-full min-h-0" style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 50 : undefined }}>
       {children({ ...attributes, ...listeners })}
     </div>
   );
@@ -3300,7 +3378,7 @@ const AccountTagStack = ({
     <div className="surface-card overflow-hidden">
       <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
         <div>
-          <h3 className="text-[14px] font-semibold text-foreground">Quick-tag accounts</h3>
+          <h3 className="font-display text-[14px] text-primary">Quick-tag accounts</h3>
           <div className="text-[12px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
         </div>
         <span className="text-[12px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
@@ -3522,9 +3600,96 @@ export const LivePlaidDashboard = ({
   const addCategory = S.addCustomCat;
   const removeCategory = S.removeCustomCat;
   const renameCategory = S.renameCustomCat;
+  // Built-in categories someone has "deleted" — there's no DB column for this
+  // (adding one risks the same schema-cache outage as financial_picture), so
+  // it's kept local to this browser instead. Every transaction under a
+  // deleted category is reassigned (see deleteCategory below) the moment it's
+  // deleted, so this is only ever a picker/list visibility filter from here on.
+  const [hiddenCategories, setHiddenCategories] = useState<string[]>(() => {
+    try { return JSON.parse(window.localStorage.getItem("sentryfi_hidden_categories") ?? "[]"); } catch { return []; }
+  });
+  const hideCategory = useCallback((name: string) => {
+    setHiddenCategories(prev => {
+      if (prev.includes(name)) return prev;
+      const next = [...prev, name];
+      try { window.localStorage.setItem("sentryfi_hidden_categories", JSON.stringify(next)); } catch { /* best-effort */ }
+      return next;
+    });
+  }, []);
+  // Deletes a category: every transaction currently under it moves to the
+  // generic fallback (Income for an income category, Other for everything
+  // else) via the existing bulk-override path, a custom category is also
+  // removed outright, and a built-in one is hidden from every picker here on.
+  // Returns the count of transactions moved so the caller can offer AI help.
+  const deleteCategory = (name: string): string[] => {
+    const fallback = INCOME_CATEGORIES.includes(name) ? "Income" : "Other";
+    const map: Record<string, string> = {};
+    const movedIds: string[] = [];
+    txns.forEach(t => {
+      if ((getEffectiveCategory(t, settings.catOverrides, getRuleCategory) ?? "Other") === name) {
+        map[t.id] = fallback;
+        movedIds.push(t.id);
+      }
+    });
+    if (movedIds.length > 0) S.bulkSetCatOverrideMap(map);
+    if (customCategories.some(c => c.name === name)) removeCategory(name);
+    else hideCategory(name);
+    return movedIds;
+  };
+  // After a delete, offer to re-run AI categorization for the transactions
+  // that just landed in the fallback bucket, constrained to categories that
+  // still exist (so it can never suggest the one just deleted).
+  const recategorizeWithAi = async (txnIds: string[]) => {
+    if (txnIds.length === 0) return;
+    const availableCategories = Array.from(new Set([
+      ...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)),
+      ...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)),
+      ...customCategories.map(c => c.name),
+    ]));
+    const byId = new Map(txns.map(t => [t.id, t]));
+    const chunks: string[][] = [];
+    for (let i = 0; i < txnIds.length; i += 20) chunks.push(txnIds.slice(i, i + 20));
+    let applied = 0;
+    for (const chunk of chunks) {
+      const payload = chunk.map(id => {
+        const t = byId.get(id);
+        return t ? { id: t.id, name: t.name, merchant_name: t.merchant_name, plaid_category: t.category?.[0] ?? "Unknown", amount: Number(t.amount) } : null;
+      }).filter((t): t is NonNullable<typeof t> => t !== null);
+      if (!payload.length) continue;
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-categorize", {
+          body: { mode: "suggest", categories: availableCategories, transactions: payload },
+        });
+        if (error || data?.error) { console.error("[recategorizeWithAi]", error ?? data?.error); continue; }
+        const map: Record<string, string> = {};
+        for (const s of (data?.suggestions ?? [])) {
+          if (s?.id && s?.suggested_category) map[s.id] = s.suggested_category;
+        }
+        if (Object.keys(map).length) { S.bulkSetCatOverrideMap(map); applied += Object.keys(map).length; }
+      } catch (e) { console.error("[recategorizeWithAi]", e); }
+    }
+    if (applied > 0) toast.success(`AI recategorized ${applied} transaction${applied !== 1 ? "s" : ""}`, { description: "From the categories you still have." });
+    else toast("AI couldn't confidently recategorize those", { description: "They're still set to the fallback category — recategorize them by hand anytime." });
+  };
+  // Orchestrates a full "delete this category" action from the UI: reassigns
+  // affected transactions, then offers (via a toast action button) to let AI
+  // try to do better than the flat fallback, picking only from categories
+  // that still exist. Keep this after recategorizeWithAi because the callback
+  // dependency list reads it during initialization.
+  const deleteCategoryWithPrompt = useCallback((name: string) => {
+    const movedIds = deleteCategory(name);
+    if (movedIds.length === 0) {
+      toast.success(`Deleted "${formatCat(name)}"`);
+      return;
+    }
+    toast.success(`Deleted "${formatCat(name)}" — ${movedIds.length} transaction${movedIds.length !== 1 ? "s" : ""} moved`, {
+      description: "They're set to the fallback category for now.",
+      action: { label: "Recategorize with AI", onClick: () => recategorizeWithAi(movedIds) },
+    });
+  }, [deleteCategory, formatCat, recategorizeWithAi]);
   const allCategoryNames = useMemo(
-    () => Array.from(new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, ...customCategories.map(c => c.name)])).map(formatCat),
-    [customCategories]
+    () => Array.from(new Set([...EXPENSE_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...INCOME_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(c => c.name)])).map(formatCat),
+    [customCategories, hiddenCategories]
   );
   const nameOverridesManual = settings.nameOverrides;
   const setNameOverride = S.setNameOverride;
@@ -3542,7 +3707,6 @@ export const LivePlaidDashboard = ({
 
   const dismissedInsights = new Set(settings.dismissedInsights);
   const dismissedActions = new Set(settings.dismissedActions);
-  const dismissedRecurring = new Set(settings.dismissedRecurring);
   const recurringDismissals = settings.recurringDismissals;
   const dismissInsight = S.dismissInsight;
   const dismissAction = S.dismissAction;
@@ -3552,7 +3716,7 @@ export const LivePlaidDashboard = ({
   // Suppression sets derived from structured dismissals: exact merchant keys plus
   // any categories the user chose to hide entirely, so similar charges stay gone.
   const suppressRecurringMerchants = useMemo(
-    () => new Set([...dismissedRecurring, ...recurringDismissals.map(d => d.merchant.toLowerCase())]),
+    () => new Set([...settings.dismissedRecurring, ...recurringDismissals.map(d => d.merchant.toLowerCase())]),
     [settings.dismissedRecurring, recurringDismissals]
   );
   const suppressRecurringCategories = useMemo(
@@ -3601,10 +3765,6 @@ export const LivePlaidDashboard = ({
   const saveMeta = (accountId: string, meta: Partial<AccountMeta>) => S.setAccountMeta(accountId, meta);
 
   const [loading, setLoading]       = useState(true);
-  // True once transactions have loaded at least once: a later refresh / sync
-  // keeps the Picture on screen (it recomputes in place) instead of
-  // unmounting it behind a skeleton.
-  const [everLoaded, setEverLoaded] = useState(false);
   const [syncing, setSyncing]       = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date|null>(null);
   const [accounts, setAccounts]     = useState<PAccount[]>([]);
@@ -3693,20 +3853,6 @@ export const LivePlaidDashboard = ({
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
-  // Inbox (and anything else) can open a transaction by id. Match demo rows
-  // on `id` as well — demoTransactions only set `id`, not `transaction_id`.
-  useEffect(() => {
-    const on = (e: Event) => {
-      const id = (e as CustomEvent<{ txnId?: string }>).detail?.txnId;
-      if (!id) return;
-      const txn = txns.find(t => t.id === id || t.transaction_id === id);
-      if (!txn) { toast.error("This transaction is no longer available"); return; }
-      openDetail(txn);
-    };
-    window.addEventListener(OPEN_TRANSACTION_EVENT, on);
-    return () => window.removeEventListener(OPEN_TRANSACTION_EVENT, on);
-  }, [txns]);
-
   // ── Smart rules — evaluate generic multi-condition rules across all txns.
   // Because this is derived state, newly synced transactions are handled
   // automatically on the next render (no manual "run" needed).
@@ -3782,7 +3928,7 @@ export const LivePlaidDashboard = ({
     notInternalIds: manualExternalIds,
     selfNames,
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [allTxns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
@@ -3836,7 +3982,7 @@ export const LivePlaidDashboard = ({
       const c = txnClasses.get(t.id);
       if (!c) continue;
       const amount = Number(t.amount);
-      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t);
+      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name);
       const isIgnoredCat = ignored.has(current.toLowerCase());
       const isIncomeCat = isIncomeCategory(current, customCategories, amount);
       const bucket = bucketOf(c.type);
@@ -3856,13 +4002,6 @@ export const LivePlaidDashboard = ({
     }
     return m;
   }, [txns, txnClasses, catOverridesManual, smartResults, getRuleCategory, customCategories]);
-  /** Change (or clear) a transaction's type — persisted, always wins. */
-  const setTxnType = useCallback((t: PTxn, type: TxnType | null) => {
-    if (!t.transaction_id) { toast.error("This transaction can't be reclassified"); return; }
-    // The legacy internal flags would otherwise fight the new choice.
-    if (manualInternalIds.has(t.id)) S.toggleManualInternal(t.id);
-    setTypeOverride(t.transaction_id, type);
-  }, [manualInternalIds, S, setTypeOverride]);
   // Picking an explicit category is a more specific signal than an earlier
   // "mark as internal" flag or manual type override on the same txn — but
   // classifyOne checks type overrides BEFORE category overrides, so leaving
@@ -3879,7 +4018,17 @@ export const LivePlaidDashboard = ({
 
   // Merged maps — the classifier's alignment wins, then manual edits, then
   // smart-rule output.
-  const overrides = useMemo(() => ({ ...smartResults.catById, ...catOverridesManual, ...classForcedCat }), [smartResults, catOverridesManual, classForcedCat]);
+  const overrides = useMemo(() => {
+    const merged = { ...smartResults.catById, ...catOverridesManual, ...classForcedCat };
+    // The merged map contains automatic suggestions as well as deliberate
+    // per-transaction edits. Remove only automatic suggestions for trusted PFC
+    // rows; manual edits and explicit category rules remain authoritative.
+    for (const t of txns) {
+      if (catOverridesManual[t.id] || !t.pfc_detailed || !pfcTrusted(t.pfc_confidence)) continue;
+      if (pfcToAppCategory(t.pfc_primary, t.pfc_detailed)) delete merged[t.id];
+    }
+    return merged;
+  }, [txns, smartResults, catOverridesManual, classForcedCat]);
   const nameOverrides = useMemo(() => ({ ...smartResults.nameById, ...nameOverridesManual }), [smartResults, nameOverridesManual]);
 
   // Resolve display name: per-txn override → merchant rule → merchant name
@@ -3911,7 +4060,6 @@ export const LivePlaidDashboard = ({
     }
   };
 
-  const loadSeq = useRef(0);
   const load = useCallback(async()=>{
     // In demo mode: skip Supabase, seed with realistic local data immediately
     if (demo) {
@@ -3920,7 +4068,6 @@ export const LivePlaidDashboard = ({
       setItems(demoItems as unknown as PItem[]);
       setCreditDetails([]);
       setLoading(false);
-      setEverLoaded(true);
       return;
     }
     if (!user) return;
@@ -3946,22 +4093,9 @@ export const LivePlaidDashboard = ({
       if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
       // Apply whatever succeeded — one failing table shouldn't blank the rest
       setAccounts((accsRes.data ?? []) as PAccount[]);
-      // Show what was fetched right away (known duplicates hidden locally);
-      // the description backfill and duplicate delete run off the load path
-      // and only touch state if they changed something.
-      const seq = ++loadSeq.current;
-      const dupNow = new Set(findDuplicateIds(txnsData));
-      const shown = dupNow.size ? txnsData.filter(t => !dupNow.has(t.id)) : txnsData;
-      setTxns(shown);
-      void (async () => {
-        try {
-          const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
-          const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
-          // Names were tidied, or the delete failed (rows still in the DB, so
-          // show them again) or found a different set: use the final list.
-          if (seq === loadSeq.current && (cleanedTxns !== txnsData || dedupedTxns.length !== shown.length)) setTxns(dedupedTxns);
-        } catch (e) { console.error("[load] cleanup:", e); }
-      })();
+      const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
+      const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
+      setTxns(dedupedTxns);
       setItems((itsRes.data ?? []) as PItem[]);
       setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
       // accountMeta auto-updates from settings
@@ -3974,7 +4108,6 @@ export const LivePlaidDashboard = ({
       toast.error("Failed to load data", { description: (e as Error)?.message });
     } finally {
       setLoading(false);
-      setEverLoaded(true);
     }
   },[user, demo]);
 
@@ -4166,38 +4299,12 @@ export const LivePlaidDashboard = ({
 
   const allActions       = generateActions(visibleAccounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
-  // Publish into the inbox store. Do not clear the store in this effect's
-  // cleanup — visibleActions is a new array every render, and clearing then
-  // re-publishing looped (React #185) on live Home. Demo never published.
-  const homeActionItems = useMemo(() => {
-    if (demo || guestDemo) return [] as CompactItem[];
-    const toType = (id: string): CompactItem["type"] => {
-      if (id.startsWith("low-") || id.includes("low-checking")) return "low_balance";
-      if (id.startsWith("cc-") || id.includes("overdue") || id.includes("cc-due")) return "payment_due";
-      if (id.startsWith("budget")) return "budget_threshold";
-      if (id.includes("spike") || id.includes("dup") || id.includes("duplicate")) return "insight";
-      if (id.includes("large") || id.includes("big")) return "large_txn";
-      return "insight";
-    };
-    return visibleActions.map(a => ({
-      id: `action:${a.id}`,
-      type: toType(a.id),
-      priority: a.priority,
-      title: a.title,
-      body: typeof a.detail === "string" ? a.detail : "",
-      amount: null,
-      at: new Date().toISOString(),
-      account: null,
-      source: "Home",
-      status: a.priority === "urgent" ? "Needs review" : a.cta,
-      stack: null,
-      read: false,
-      payload: a.reviewCategory ? { category: a.reviewCategory } : {},
-    }));
-  }, [demo, guestDemo, visibleActions]);
-  usePublishHomeActionItems(homeActionItems, !(demo || guestDemo));
-
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
+  const insightSeverityRank = { high: 3, medium: 2, low: 1 } as const;
+  const leadInsight = [...visibleInsights].sort((a, b) =>
+    (b.impactValue ?? 0) - (a.impactValue ?? 0) ||
+    insightSeverityRank[b.severity] - insightSeverityRank[a.severity]
+  )[0];
   const spendTrends      = buildSpendTrends(txns, overrides, getRuleCategory, internalTxnIds, customCategories, classOf);
   const recurringCharges = detectRecurring(txns, internalTxnIds, suppressRecurringMerchants, suppressRecurringCategories);
   // "N hidden" should only count dismissals that are actually hiding something right
@@ -4270,15 +4377,6 @@ export const LivePlaidDashboard = ({
   // ── Tick thinning for dense charts ────────────────────────
   const nwTickEvery = { "1W":1,"1M":5,"3M":2,"1Y":1,"ALL":1 }[period];
 
-  // Stable callbacks for My Financial Picture: an inline arrow is a new
-  // function every render, which busts its model cache (a ~300 ms rebuild
-  // on every dashboard render).
-  const pictureGetCat = useCallback((t: PictureTxn) => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other", [overrides, getRuleCategory]);
-  const pictureOpenTxn = useCallback((t: PictureTxn) => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }, []);
-  const pictureUserId = (demo || guestDemo) ? null : user?.id ?? null;
-
-  const pictureView = view === "myfinances" || view === "insights";
-  if (!demo && !guestDemo && user && !settingsLoaded && pictureView) return <PictureSkeleton insights={view === "insights"} />;
   if (!demo && !guestDemo && user && !settingsLoaded) return (
     <div className="min-h-[40vh] grid place-items-center">
       <div className="flex items-center gap-2 text-muted-foreground text-[13px]">
@@ -4286,9 +4384,8 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading && pictureView && !everLoaded) return <PictureSkeleton insights={view === "insights"} />;
-  if (loading && !pictureView) {
-    if (view === "spending") return <SpendingSkeleton />;
+  if (loading) {
+    if (view === "spending" || view === "myfinances") return <SpendingSkeleton />;
     return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -4336,10 +4433,10 @@ export const LivePlaidDashboard = ({
 
   // ── OVERALL ───────────────────────────────────────────────
   if (view==="overall") return (
-    <div className="space-y-3 animate-fade-up">
+    <div className="h-full min-h-0 flex flex-col gap-3 animate-fade-up">
 
       {/* Net worth hero — left: numbers, right: chart */}
-      <section className="surface-elevated relative overflow-hidden px-5 py-4 md:px-5 md:py-4">
+      <section className="surface-elevated relative overflow-hidden px-5 py-4 md:px-6 md:py-5 shrink-0">
         <div className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full bg-positive/8 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-12 -left-12 h-32 w-32 rounded-full bg-[hsl(var(--primary)/0.06)] blur-3xl" />
         <div className="relative flex gap-4 items-stretch min-h-[100px] flex-col sm:flex-row">
@@ -4348,7 +4445,7 @@ export const LivePlaidDashboard = ({
             <div>
               <div className="text-[12px] uppercase tracking-wider text-muted-foreground mb-0.5">Net Worth</div>
               <div className="flex items-baseline gap-2 flex-wrap">
-                <h2 className="font-display text-3xl md:text-4xl font-semibold leading-none tabular stat-gold animate-count-in">
+                <h2 className="font-display text-4xl md:text-5xl font-semibold leading-none tabular stat-gold animate-count-in">
                   {fmtUSD(animatedNW)}
                 </h2>
                 {nwChange!==0 && (
@@ -4378,7 +4475,7 @@ export const LivePlaidDashboard = ({
             <div className="flex items-center gap-0.5 mt-2.5 flex-wrap">
               {PERIODS.map(p=>(
                 <button key={p} onClick={()=>setPeriod(p)}
-                  className={cn("tap-44 px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
+                  className={cn("px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
                     period===p?"bg-gold text-foreground":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
                   {p}
                 </button>
@@ -4408,7 +4505,7 @@ export const LivePlaidDashboard = ({
         </div>
       </section>
 
-      {/* This month cash-flow strip */}
+      {/* Compact secondary cash-flow figures */}
       {(totalSpend > 0 || curMonthIncome > 0) && (() => {
         const net = curMonthIncome - totalSpend;
         const savingsRate = curSavingsRate;
@@ -4418,20 +4515,19 @@ export const LivePlaidDashboard = ({
           curSummary.internalTransfers > 0 ? `transfers ${fmtUSD(curSummary.internalTransfers)}` : null,
         ].filter(Boolean).join(" · ");
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 shrink-0">
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("expense");setTxnLimit(150);
                 onCategorySelect?.("__spending__");
               }}
-              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
-              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-negative/8 blur-xl" />
-              <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Spent this month</div>
-              <div className="font-display text-lg tabular text-foreground mt-0.5"
+              className="min-w-0 rounded-xl px-3 py-2 text-left transition-colors hover:bg-black/[0.03]">
+              <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Spent this month</div>
+              <div className="font-display text-base tabular text-foreground mt-0.5"
                 title={`Purchases, bills, loans and taxes (refunds netted, pending included).${excludedNote ? ` Not counted: ${excludedNote}.` : ""}`}>
                 {fmtUSD(totalSpend)}
               </div>
               {Math.round(spendVsLastMonth) !== 0 && (
-                <div className={cn("text-[12px] tabular mt-0.5", spendVsLastMonth > 0 ? "text-negative" : "text-positive")}
+                <div className={cn("text-[10.5px] tabular mt-0.5", spendVsLastMonth > 0 ? "text-negative" : "text-positive")}
                   title={`Compared with the same days last month (${prevSpan.label}: ${fmtUSD(prevSpanSummary.spending)})`}>
                   {spendVsLastMonth > 0 ? "↑" : "↓"} {fmtUSD(Math.abs(spendVsLastMonth))} {spendVsLastMonth > 0 ? "more" : "less"} than {prevSpan.label}
                 </div>
@@ -4441,88 +4537,47 @@ export const LivePlaidDashboard = ({
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("income");setTxnLimit(150);
                 onCategorySelect?.("__spending__");
               }}
-              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
-              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-positive/8 blur-xl" />
-              <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Income this month</div>
-              <div className="font-display text-lg tabular text-positive mt-0.5"
+              className="min-w-0 rounded-xl px-3 py-2 text-left transition-colors hover:bg-black/[0.03]">
+              <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Income this month</div>
+              <div className="font-display text-base tabular text-positive mt-0.5"
                 title={`Salary ${fmtUSD(curSummary.salary)} · interest ${fmtUSD(curSummary.interest)} · other ${fmtUSD(curSummary.otherIncome)}. Transfers between your accounts are not income.`}>
                 {fmtUSD(curMonthIncome)}
               </div>
-              <div className="text-[12px] text-muted-foreground mt-0.5">excl. transfers</div>
+              <div className="text-[10.5px] text-muted-foreground mt-0.5">excluding transfers</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
                 onCategorySelect?.("__spending__");
               }}
-              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
-              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-[hsl(var(--primary)/0.08)] blur-xl" />
-              <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Net cash flow</div>
-              <div className={cn("font-display text-lg tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
+              className="min-w-0 rounded-xl px-3 py-2 text-left transition-colors hover:bg-black/[0.03]">
+              <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Net cash flow</div>
+              <div className={cn("font-display text-base tabular mt-0.5", net >= 0 ? "text-positive" : "text-negative")}>
                 {net >= 0 ? "+" : "−"}{fmtUSD(Math.abs(net))}
               </div>
-              <div className="text-[12px] text-muted-foreground mt-0.5">income − spend</div>
+              <div className="text-[10.5px] text-muted-foreground mt-0.5">income − spend</div>
             </button>
             <button type="button" onClick={()=>{
                 setSpendingPeriod({granularity:"month",offset:0});setTxnFlowFilter("all");setTxnLimit(150);
                 onCategorySelect?.("__spending__");
               }}
-              className="surface-card p-3 relative overflow-hidden text-left hover:border-border-strong transition-colors cursor-pointer">
-              <div className="pointer-events-none absolute -top-4 -right-4 h-14 w-14 rounded-full bg-info/8 blur-xl" />
-              <div className="text-[12px] uppercase tracking-widest text-muted-foreground">Savings rate</div>
-              <div className={cn("font-display text-lg tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
+              className="min-w-0 rounded-xl px-3 py-2 text-left transition-colors hover:bg-black/[0.03]">
+              <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Savings rate</div>
+              <div className={cn("font-display text-base tabular mt-0.5", savingsRate != null && savingsRate >= 20 ? "text-positive" : savingsRate != null && savingsRate < 0 ? "text-negative" : "text-foreground")}>
                 {savingsRate != null ? `${savingsRate}%` : "n/a"}
               </div>
-              <div className="text-[12px] text-muted-foreground mt-0.5">of income kept</div>
+              <div className="text-[10.5px] text-muted-foreground mt-0.5">of income kept</div>
             </button>
           </div>
         );
       })()}
 
-      {/* ── Suggested transfers: confirmed from the Budget "Cover overages" picker.
-          These are things the user still needs to actually go do — not auto-executed. ── */}
-      {(() => {
-        const pending = settings.plannedTransfers.filter(p => !p.done);
-        if (pending.length === 0) return null;
-        const monthLabel = (m: string) => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }); };
-        return (
-          <section className="surface-card overflow-hidden border border-[hsl(var(--primary)/0.25)]">
-            <div className="px-5 py-3 border-b border-border/20 flex items-center gap-2">
-              <ArrowRightLeft className="h-3.5 w-3.5 text-[hsl(var(--primary))]" />
-              <h2 className="text-[14px] font-semibold text-foreground flex-1">Suggested transfers</h2>
-              <span className="text-[12px] text-muted-foreground">{pending.length} to do</span>
-            </div>
-            <div className="divide-y divide-border/15">
-              {pending.map(p => (
-                <div key={p.id} className="px-5 py-3.5 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13.5px] text-foreground">
-                      Move <span className="font-semibold tabular">{fmtUSD(p.amount)}</span> from <span className="font-medium">{p.fromAccountName}</span> to cover <span className="font-medium">{formatCat(p.category)}</span>
-                    </div>
-                    <div className="text-[12px] text-muted-foreground mt-0.5">{monthLabel(p.month)} · you still need to make this transfer</div>
-                  </div>
-                  <button onClick={() => S.markTransferDone(p.id)}
-                    className="h-8 px-3 rounded-lg bg-positive/10 text-positive text-[12px] font-medium hover:bg-positive/20 transition-colors shrink-0 inline-flex items-center gap-1">
-                    <Check className="h-3.5 w-3.5" /> Done
-                  </button>
-                  <button onClick={() => S.dismissTransfer(p.id)}
-                    aria-label="Dismiss suggested transfer"
-                    className="h-8 w-8 grid place-items-center rounded-lg text-muted-foreground/60 hover:text-negative hover:bg-negative/10 transition-colors shrink-0">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      })()}
-
       {/* ── Insights — full width ── */}
-      <div className="space-y-3 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 gap-2">
       {/* ═══ Insights into your spending ═══════════════════════ */}
-      {(visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
-        <section className="space-y-3">
+      {(visibleActions.length > 0 || visibleInsights.length > 0 || spendByCategory.length > 0 || recurringCharges.length > 0) && (
+        <section className="flex flex-col flex-1 min-h-0 gap-2">
           <div className="flex items-center justify-between px-1">
-            <h2 className="font-display text-[20px] md:text-[22px] font-semibold tracking-[-0.02em] text-foreground">Insights into your spending</h2>
+            <h2 className="font-display text-sm md:text-base font-semibold text-foreground">Your priorities</h2>
           </div>
 
           {/* Sortable 2-col panel grid — drag the ⠿ handle to reorder */}
@@ -4530,10 +4585,10 @@ export const LivePlaidDashboard = ({
             const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
-                  <h3 className="text-[14px] font-semibold text-foreground flex-1">Action items</h3>
+                  <h3 className="font-display text-[14px] text-primary flex-1">Action items</h3>
                   {visibleActions.length>0 && <span className="text-[12px] text-muted-foreground tabular">{visibleActions.length} open</span>}
                 </div>
                 {visibleActions.length===0 ? (
@@ -4572,18 +4627,18 @@ export const LivePlaidDashboard = ({
             const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
-                  <h3 className="text-[14px] font-semibold text-foreground flex-1">Saving opportunities</h3>
-                  {!insightsLoading && visibleInsights.length>0 && (
+                  <h3 className="font-display text-[14px] text-foreground flex-1">Key insight</h3>
+                  {!insightsLoading && leadInsight && (
                     <span className="text-[12px] font-semibold text-positive tabular bg-positive/10 px-2 py-0.5 rounded-full">
-                      +{fmtUSDCompact(visibleInsights.reduce((s,i)=>s+(i.impactValue??0),0))}/yr
+                      +{fmtUSDCompact(leadInsight.impactValue ?? 0)}/yr
                     </span>
                   )}
                   <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
                     title="Refresh AI suggestions" aria-label="Refresh AI suggestions"
-                    className="tap-44 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
+                    className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", insightsLoading && "animate-spin")} />
                   </button>
                 </div>
@@ -4606,8 +4661,8 @@ export const LivePlaidDashboard = ({
                   // expanding one reveals its detail inline without resizing the
                   // others, and the whole list scrolls once it outgrows ~5 rows
                   // instead of pushing the rest of the page down.
-                  <div className={cn("divide-y divide-border/15", visibleInsights.length > 5 && "max-h-[340px] overflow-y-auto")}>
-                    {visibleInsights.map(insight=>{
+                  <div className="min-h-0 overflow-y-auto">
+                    {visibleInsights.slice().sort((a, b) => (b.impactValue ?? 0) - (a.impactValue ?? 0)).slice(0, 1).map(insight=>{
                       const CatIcon=insight.category==="Rewards"?Sparkles:insight.category==="Credit"?CreditCard:insight.category==="Subscriptions"?Coins:insight.category==="Savings"?Coins:TrendingUp;
                       const sevDot = insight.severity==="high" ? "bg-negative" : insight.severity==="medium" ? "bg-warning" : "bg-info";
                       return (
@@ -4640,22 +4695,22 @@ export const LivePlaidDashboard = ({
             );
 
             const panelUpcomingCharges = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
-              <div className="surface-card overflow-hidden h-full">
+              <div className="surface-card overflow-hidden h-full min-h-0 flex flex-col">
                 {/* select-none: dragging the grip used to leave the header text
                     (e.g. the "$9.35" total) with a blue selection highlight. */}
-                <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2 select-none">
-                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                <div className="px-3.5 py-2 border-b border-border/30 flex items-center gap-2 select-none">
+                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-[14px] font-semibold text-foreground">Upcoming charges</h3>
-                    <div className="flex items-center gap-x-2 flex-wrap">
-                      <div className="text-[12px] text-muted-foreground whitespace-nowrap">
-                        Next 15 days · {recurringCharges.length} recurring
+                    <div className="flex items-baseline gap-x-2 gap-y-0.5 flex-wrap">
+                      <h3 className="font-display text-[14px] font-semibold text-foreground">Upcoming Bills</h3>
+                      <div className="text-[11.5px] text-muted-foreground">
+                        15 days · {recurringCharges.length} charges
                         {recurringCharges.length > 0 && <> · <span className="tabular text-foreground font-medium">{fmtUSD(recurringCharges.reduce((s,r)=>s+r.avgAmount,0))}</span></>}
                       </div>
                       {activelyHiddenRecurringCount > 0 && (
-                        <button onClick={restoreAllRecurring} title="Show hidden charges again" className="text-[12px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors whitespace-nowrap">
+                        <button onClick={restoreAllRecurring} title="Show hidden charges again" className="text-[11px] text-muted-foreground/50 hover:text-[hsl(var(--primary))] transition-colors whitespace-nowrap">
                           {activelyHiddenRecurringCount} hidden · restore
                         </button>
                       )}
@@ -4663,14 +4718,14 @@ export const LivePlaidDashboard = ({
                   </div>
                   <button onClick={refreshTxns} disabled={refreshingTxns}
                     aria-label={refreshingTxns ? "Refreshing transactions" : "Refresh transactions"}
-                    className="tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
+                    className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", refreshingTxns && "animate-spin")} />
                   </button>
                 </div>
                 {recurringCharges.length === 0 ? (
                   <div className="px-4 py-6 text-[13px] text-muted-foreground text-center">No upcoming charges detected.</div>
                 ) : (
-                  <div className="divide-y divide-border/20 max-h-[360px] overflow-y-auto">
+                  <div className="divide-y divide-border/20 flex-1 min-h-0 max-h-[360px] overflow-y-auto">
                     {recurringCharges.map((r, idx) => {
                       const daysAway = Math.ceil((r.predictedDate.getTime() - Date.now()) / 86400000);
                       const isThisWeek = daysAway <= 7;
@@ -4687,8 +4742,8 @@ export const LivePlaidDashboard = ({
                       const hasSufficient = availBal !== null && availBal >= r.avgAmount;
                       const flagLabel = isCC ? "Low credit" : "Low funds";
                       return (
-                        <div key={idx} className="group flex items-center gap-3 px-5 py-3">
-                          <div className={cn("shrink-0 w-9 text-center rounded-lg py-1 border",
+                        <div key={idx} className="group flex items-center gap-2.5 px-3.5 py-2">
+                          <div className={cn("shrink-0 w-9 text-center rounded-lg py-0.5 border",
                             daysAway<=3?"bg-negative/10 border-negative/20":isThisWeek?"bg-warning/10 border-warning/20":"bg-secondary/50 border-border/40")}>
                             <div className="text-[12px] uppercase tracking-wide text-muted-foreground leading-none">
                               {r.predictedDate.toLocaleDateString("en-US",{month:"short"})}
@@ -4699,35 +4754,35 @@ export const LivePlaidDashboard = ({
                             </div>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[13px] text-foreground font-medium truncate">{r.merchant}</span>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[13px] text-foreground font-medium leading-tight break-words">{r.merchant}</span>
                               {daysAway<=1 && (
                                 <span className="text-[12px] px-1.5 py-0.5 rounded-full border border-negative/30 bg-negative/10 text-negative shrink-0 font-medium">
                                   {daysAway===0?"Today":"Tomorrow"}
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                              <span className="text-[12px] text-muted-foreground/60">{r.intervalLabel}</span>
+                            <div className="flex items-center gap-x-1.5 gap-y-0 flex-wrap leading-tight mt-0.5">
+                              <span className="text-[11.5px] text-muted-foreground/70">{r.intervalLabel}</span>
                               {sourceAcc && <><span className="text-muted-foreground/30">·</span>
-                                <span className="text-[12px] text-muted-foreground truncate">
+                                <span className="text-[11.5px] text-muted-foreground break-words">
                                   {sourceAcc.name??""}{sourceAcc.mask?` ··${sourceAcc.mask}`:""}
                                 </span></>}
                               {showBalCheck && !hasSufficient && (
                                 <><span className="text-muted-foreground/30">·</span>
-                                <span className="text-[12px] text-negative flex items-center gap-0.5">
+                                <span className="text-[11px] text-negative flex items-center gap-0.5">
                                   <AlertTriangle className="h-2.5 w-2.5" />{flagLabel}
                                 </span></>
                               )}
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <div className="text-[14px] tabular font-semibold text-foreground">{fmtUSD(r.avgAmount)}</div>
-                            {daysAway>1 && <div className="text-[12px] text-muted-foreground tabular">{daysAway}d</div>}
+                            <div className="text-[13px] tabular font-semibold text-foreground">{fmtUSD(r.avgAmount)}</div>
+                            {daysAway>1 && <div className="text-[11px] text-muted-foreground tabular">{daysAway}d</div>}
                           </div>
                           <div className="relative shrink-0">
                             <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
-                              className={cn("tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
+                              className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
                                 recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}>
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -4772,19 +4827,18 @@ export const LivePlaidDashboard = ({
             );
 
             const renderPanel = (id: string, dragHandle: React.HTMLAttributes<HTMLElement>) => {
-              if (id === "action-items") return null; // moved into the notification inbox
+              if (id === "action-items") return panelActionItems(dragHandle);
               if (id === "saving-opps") return panelSavingOpps(dragHandle);
               if (id === "upcoming-charges") return panelUpcomingCharges(dragHandle);
               return null;
             };
 
+            const homePanelOrder = panelOrder.filter(id => id !== "action-items");
             return (
               <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
-                <SortableContext items={panelOrder} strategy={rectSortingStrategy}>
-                  {/* One column per panel (3) on wide screens — the old xl:grid-cols-4
-                      left an empty 4th column; at lg the odd last panel spans both. */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2.5 items-stretch lg:[&>*:last-child:nth-child(odd)]:col-span-2 xl:[&>*:last-child:nth-child(odd)]:col-span-1">
-                    {panelOrder.map(id => (
+                <SortableContext items={homePanelOrder} strategy={rectSortingStrategy}>
+                  <div className="grid grid-cols-1 grid-rows-2 lg:grid-cols-2 lg:grid-rows-1 gap-3 flex-1 min-h-0 items-stretch">
+                    {homePanelOrder.map(id => (
                       <SortableCard key={id} id={id}>
                         {(handleProps) => renderPanel(id, handleProps)}
                       </SortableCard>
@@ -4935,7 +4989,7 @@ export const LivePlaidDashboard = ({
         </DialogContent>
       </Dialog>
 
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -4958,7 +5012,7 @@ export const LivePlaidDashboard = ({
             const relatedAcc = accounts.find(a=>(a.name??'').length>3 && (openActionItem.detail+openActionItem.title).toLowerCase().includes((a.name??'').toLowerCase()));
             const relAccTxns = relatedAcc ? txns.filter(t=>t.account_id===relatedAcc.account_id).slice(0,5) : [];
             // Find institution URL for transfer link
-            const relatedItem = relatedAcc ? items.find(it => it.id === (relatedAcc as any).item_id) : null;
+            const relatedItem = relatedAcc?.item_id ? items.find(it => it.id === relatedAcc.item_id) : null;
             const actionInstUrl = relatedItem
               ? getInstitutionUrl(relatedItem.institution_name, accountMeta[relatedAcc!.id]?.customUrl)
               : null;
@@ -5410,12 +5464,13 @@ export const LivePlaidDashboard = ({
                   ) : (
                     <div className="ml-9 space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Cover the overage from" value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}>
+                        <select value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
+                          className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
                           <option value="">Cover from…</option>
                           {fundingAccounts.map(a => (
                             <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSDCompact(Number(a.current_balance) || 0)})</option>
                           ))}
-                        </NativeSelect>
+                        </select>
                         {chosen && !confirmed && (
                           <button onClick={() => {
                               S.confirmOverageFunding({ category: c.category, month: budgetMonthKey, amount: over, fromAccountId: chosen.account_id, fromAccountName: chosen.name ?? chosen.official_name ?? "Account" });
@@ -5788,11 +5843,12 @@ export const LivePlaidDashboard = ({
           catColor={catColor}
           onOpenDetail={(t, info) => { setDetailTxn(t); setDetailTxnOpenCat(false); setDetailTxnRecurring(info?.recurringFrequency); }}
           internalTxnIds={internalTxnIds}
+          recurringOverrides={settings.recurringOverrides}
           initialSearch={txnSearch}
           categoryIcon={categoryIcon}
-          expenseCategories={EXPENSE_CATEGORIES_PICKER}
-          incomeCategories={INCOME_CATEGORIES_PICKER}
-          ignoredCategories={IGNORED_CATEGORIES}
+          expenseCategories={EXPENSE_CATEGORIES_PICKER.filter(c => !hiddenCategories.includes(c))}
+          incomeCategories={INCOME_CATEGORIES_PICKER.filter(c => !hiddenCategories.includes(c))}
+          ignoredCategories={IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c))}
           customCategories={customCategories}
           onSelectCategory={(t, cat) => {
             setOverride(t.id, cat);
@@ -5810,6 +5866,7 @@ export const LivePlaidDashboard = ({
           onAddCategory={addCategory}
           onRemoveCategory={removeCategory}
           onRenameCategory={renameCategory}
+          onDeleteCategory={deleteCategoryWithPrompt}
           txnTags={settings.txnTags}
           onAddTag={(id, tag) => S.addTxnTag(id, tag)}
           onOpenRules={() => setShowRulesManager(true)}
@@ -5817,7 +5874,7 @@ export const LivePlaidDashboard = ({
           headerActions={headerActions}
           isCategoryEdited={t => overrides[t.id] != null}
           classOf={classOf}
-          onSetTxnType={(demo || guestDemo) ? undefined : setTxnType}
+          onChangeTxnType={(t, type) => { if (t.transaction_id) void setTypeOverride(t.transaction_id, type); }}
         />
         <ImportStatementModal
           open={showImportModal}
@@ -5845,14 +5902,14 @@ export const LivePlaidDashboard = ({
             smartRules={smartRules}
             evalTxns={evalTxns}
             accounts={accounts}
-            categoryOptions={[...ALL_CATEGORIES, ...customCategories.map(cx => cx.name)]}
+            categoryOptions={[...ALL_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(cx => cx.name)]}
             onAddSmartRule={addSmartRule}
             onUpdateSmartRule={updateSmartRule}
             onRemoveSmartRule={removeSmartRule}
             onToggleSmartRule={toggleSmartRule}
           />
         )}
-        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+        {detailTxn && <TxnDetailModal txn={detailTxn} recurringFrequency={detailTxnRecurring} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);setDetailTxnRecurring(undefined);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -5868,35 +5925,58 @@ export const LivePlaidDashboard = ({
     );
   }
 
-  if (pictureView) {
-    // Keep profile-backed editors closed until Supabase has supplied the
-    // saved values; otherwise defaults can overwrite the user's first edit.
-    if (!settingsLoaded) return <PictureSkeleton insights={view === "insights"} />;
+  if (view === "insights") {
+    // Keep the dedicated Insights page on the exact same saved profile and
+    // transaction model as My Financial Picture. Insights are derived once
+    // from this shared provider, so edits and answers stay in sync.
     return (
-      <>
       <MyFinancialPicture
-        mode={view === "insights" ? "insights" : "picture"}
+        insightsOnly
         txns={txns}
         accounts={nwAccounts}
-        getEffectiveCategory={pictureGetCat}
+        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
         formatCat={formatCat}
         catColor={catColor}
         classOf={classOf}
         manualIncome={manualIncome}
-        onOpenTxnDetail={pictureOpenTxn}
+        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
         budgets={budgets}
         cardAutopayFrom={settings.cardAutopayFrom}
         savingsGoals={settings.savingsGoals}
         financialPicture={settings.financialPicture}
         onUpdate={S.update}
-        userId={pictureUserId}
         demo={demo || guestDemo}
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}
-        manualAccounts={manualAccounts}
-        onNavigate={onViewChange}
       />
-      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} classification={classOf(detailTxn)} hasTypeOverride={!!(detailTxn.transaction_id && typeOverridesByPlaidId[detailTxn.transaction_id])} onSetTxnType={(tp)=>setTxnType(detailTxn, tp)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
+    );
+  }
+
+  if (view === "myfinances") {
+    // Keep profile-backed editors closed until Supabase has supplied the
+    // saved values; otherwise defaults can overwrite the user's first edit.
+    if (!settingsLoaded) return null;
+    return (
+      <>
+      <MyFinancialPicture
+        txns={txns}
+        accounts={nwAccounts}
+        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
+        formatCat={formatCat}
+        catColor={catColor}
+        classOf={classOf}
+        manualIncome={manualIncome}
+        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
+        budgets={budgets}
+        cardAutopayFrom={settings.cardAutopayFrom}
+        savingsGoals={settings.savingsGoals}
+        financialPicture={settings.financialPicture}
+        onUpdate={S.update}
+        demo={demo || guestDemo}
+        banks={bankHist}
+        dismissedInsights={settings.dismissedInsights}
+      />
+      {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
         onAddTag={(id,tag)=>S.addTxnTag(id,tag)}
         onRemoveTag={(id,tag)=>S.removeTxnTag(id,tag)}
@@ -6058,7 +6138,7 @@ export const LivePlaidDashboard = ({
       const predictedDate = new Date(lastDate.getTime() + avgInterval * 86400000);
       const daysOut = Math.round((predictedDate.getTime() - Date.now()) / 86400000);
       if (daysOut < -3 || daysOut > 10) continue; // not due in next ~10 days
-      const balance = Number(acct.current_balance) ?? 0;
+      const balance = Number(acct.current_balance) || 0;
       const isSufficient = balance >= avgAmt * 0.9; // 10% tolerance
       if (isSufficient) continue;
       const paymentName = sorted[0].merchant_name ?? sorted[0].name ?? "payment";
@@ -6078,8 +6158,9 @@ export const LivePlaidDashboard = ({
 
     return (
       <div className="space-y-3 animate-fade-up">
-        {/* No in-page "Money Map" title: the page header (desktop) and the top
-            bar (phone) already name the screen (docs/ui-style.md › Headers). */}
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-[18px] text-foreground">Money Map</h2>
+        </div>
 
         {/* ── The headline number ── */}
         <div className="surface-card p-5">
@@ -6119,7 +6200,7 @@ export const LivePlaidDashboard = ({
         <div className="surface-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
             <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <h3 className="text-[14px] font-semibold text-foreground">Suggestions</h3>
+            <h3 className="font-display text-[14px] text-primary">Suggestions</h3>
             <span className="text-[12px] text-muted-foreground ml-auto">{visibleSuggestions.length} active</span>
           </div>
           {visibleSuggestions.length === 0 ? (
@@ -6144,12 +6225,13 @@ export const LivePlaidDashboard = ({
                       const chosen = fundingAccounts.find(x => x.acc.account_id === chosenId);
                       return (
                         <div className="flex items-center gap-2 mt-2">
-                          <NativeSelect wrapperClassName="flex-1 min-w-0 max-w-[240px]" size="sm" aria-label="Cover the overage from" value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}>
+                          <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}
+                            className="h-8 flex-1 max-w-[240px] rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
                             <option value="">Cover from…</option>
                             {fundingAccounts.map(x => (
                               <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSDCompact(Number(x.acc.current_balance) || 0)})</option>
                             ))}
-                          </NativeSelect>
+                          </select>
                           {chosen && (
                             <span className="text-[12px] text-muted-foreground truncate">
                               Move {fmtUSD(s.amount)} from {chosen.acc.name ?? chosen.acc.official_name}
@@ -6186,7 +6268,7 @@ export const LivePlaidDashboard = ({
             </div>
           </div>
           <button onClick={() => setShowOrganize(true)}
-            className={cn("tap-44 h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
+            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
               unassignedAccts.length > 0 ? "bg-gold" : "border border-border text-muted-foreground hover:text-foreground")}>
             <Wallet className="h-3 w-3" />
             {unassignedAccts.length > 0 ? `Tag ${unassignedAccts.length}` : "Edit roles"}

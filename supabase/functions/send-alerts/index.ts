@@ -3,6 +3,10 @@ import { cleanBankText, merchantKey } from "../_shared/merchant-name.ts";
 import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
 import { isTrustedServerCaller } from "../_shared/auth.ts";
 import { hiddenAccountIds } from "../_shared/hidden-accounts.ts";
+import { findPriceChanges, priceAlertKey, priceAlertText, PRICE_HISTORY_DAYS, PRICE_SYNC_WINDOW_DAYS, type PriceStream, type PriceTxn } from "../_shared/price-change.ts";
+
+type AdminClient = ReturnType<typeof createClient>;
+type AlertInsight = { id?: string; severity?: string; title?: string; what?: string };
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,7 +61,7 @@ async function sendPush(tokens: string[], title: string, body: string) {
 // SELECT before either INSERT landed, sending the same alert dozens of times
 // a day. ignoreDuplicates makes the upsert a no-op (empty `data`) when the
 // key already exists, so `saveAlert` only ever returns true once per key.
-async function saveAlert(admin: any, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, any> = {}) {
+async function saveAlert(admin: AdminClient, userId: string, alertType: string, alertKey: string, title: string, body: string, payload: Record<string, unknown> = {}) {
   const { data, error } = await admin.from("alert_log")
     .upsert(
       { user_id: userId, alert_type: alertType, alert_key: alertKey, title, body, payload, created_at: new Date().toISOString() },
@@ -81,10 +85,22 @@ const shortDate = (ymd: string) => {
 const txnAlertKey = (kind: string, t: { account_id: string; amount: number | string; authorized_date?: string | null; date: string; merchant_name?: string | null; name?: string | null }) =>
   `${kind}:${t.account_id}:${Math.round(Math.abs(Number(t.amount)) * 100)}:${t.authorized_date ?? t.date}:${merchantKey(t.merchant_name ?? t.name ?? "").slice(0, 32)}`;
 
+// PostgREST caps a select at 1,000 rows; page through a bigger window.
+async function selectAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message?: string } | null }>, pageSize = 1000, maxPages = 10): Promise<T[]> {
+  const out: T[] = [];
+  for (let p = 0; p < maxPages; p++) {
+    const { data, error } = await build(p * pageSize, p * pageSize + pageSize - 1);
+    if (error) { console.warn("[selectAll]", error.message); break; }
+    out.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
 // Per-category opt-out — defaults to enabled (`!== false`) so existing users
 // keep getting every alert type they already get today unless they've
 // explicitly turned one off in Notification Preferences.
-function categoryEnabled(pref: any, key: string): boolean {
+function categoryEnabled(pref: Record<string, unknown>, key: string): boolean {
   return pref[key] !== false;
 }
 
@@ -156,7 +172,7 @@ Deno.serve(async (req) => {
       const { data: { user } } = await admin.auth.admin.getUserById(userId);
       const toEmail = pref.email || user?.email;
       const { data: pushTokenRows } = await admin.from("push_tokens").select("token").eq("user_id", userId);
-      const pushTokens = (pushTokenRows ?? []).map((r: any) => r.token);
+      const pushTokens = (pushTokenRows ?? []).map((r: { token: string }) => r.token);
 
       const { data: accounts } = await admin.from("plaid_accounts")
         .select("id,account_id,item_id,name,mask,current_balance,available_balance,type,subtype")
@@ -197,13 +213,38 @@ Deno.serve(async (req) => {
       };
       // Look back a few extra days so transfer legs that straddle the 1st still pair.
       const classifyFrom = new Date(Math.min(Date.parse(monthStart), now - 2 * 86400000) - 6 * 86400000).toISOString().slice(0, 10);
-      const { data: recentAll } = await admin.from("plaid_transactions")
-        .select("*").eq("user_id", userId).gte("date", classifyFrom);
+      // Narrow columns, paged past the 1000-row default.
+      const recentAll: Record<string, unknown>[] = [];
+      for (let from = 0; from < 20000; from += 1000) {
+        const { data: page, error: pageErr } = await admin.from("plaid_transactions")
+          .select("id,transaction_id,account_id,item_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence")
+          .eq("user_id", userId).gte("date", classifyFrom).order("date", { ascending: false }).range(from, from + 999);
+        if (pageErr) { console.warn("plaid_transactions page failed", pageErr.message); break; }
+        recentAll.push(...(page ?? []));
+        if (!page || page.length < 1000) break;
+      }
       const { data: typeRows, error: typeErr } = await admin.from("txn_overrides").select("transaction_id,txn_type").eq("user_id", userId);
       if (typeErr) console.warn("txn_overrides unavailable (migration not applied?)", typeErr.message);
       const typeByPlaidId: Record<string, TxnType> = {};
       for (const r of typeRows ?? []) typeByPlaidId[r.transaction_id] = r.txn_type;
-      const ctxTxns = (recentAll ?? []) as ClassifierTxn[];
+      // Typed mapper (no cast): every field ClassifierTxn reads, item_id included.
+      const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+      const toClassifierTxn = (r: Record<string, unknown>): ClassifierTxn => ({
+        id: String(r.id),
+        transaction_id: strOrNull(r.transaction_id),
+        account_id: String(r.account_id ?? ""),
+        item_id: strOrNull(r.item_id),
+        amount: typeof r.amount === "number" || typeof r.amount === "string" ? r.amount : 0,
+        date: String(r.date ?? ""),
+        name: strOrNull(r.name),
+        merchant_name: strOrNull(r.merchant_name),
+        category: Array.isArray(r.category) ? r.category.filter((c): c is string => typeof c === "string") : null,
+        pending: typeof r.pending === "boolean" ? r.pending : null,
+        pfc_primary: strOrNull(r.pfc_primary),
+        pfc_detailed: strOrNull(r.pfc_detailed),
+        pfc_confidence: strOrNull(r.pfc_confidence),
+      });
+      const ctxTxns: ClassifierTxn[] = recentAll.map(toClassifierTxn);
       const typeOverrides: Record<string, TxnType> = {};
       for (const t of ctxTxns) {
         const ov = t.transaction_id ? typeByPlaidId[t.transaction_id] : undefined;
@@ -219,10 +260,10 @@ Deno.serve(async (req) => {
         categoryOverrides: catOverrides,
         ruleCategory,
         notInternalIds: manualExternal,
-        plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+        plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
       });
       const categoryOf = (t: ClassifierTxn) =>
-        catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name) ?? "Other";
+        catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t) ?? "Other";
       const catTotals: Record<string, number> = {};
       for (const t of ctxTxns) {
         if (t.date < monthStart || isHidden(t.account_id)) continue;
@@ -245,7 +286,7 @@ Deno.serve(async (req) => {
 
       // ── 2. Low balance ───────────────────────────────────────────────
       if (categoryEnabled(pref, "alert_low_balance")) {
-        for (const acc of (accounts ?? []).filter((a: any) => (a.subtype === "checking" || a.subtype === "savings") && !isHidden(a.account_id))) {
+        for (const acc of (accounts ?? []).filter((a: { account_id: string; subtype?: string | null }) => (a.subtype === "checking" || a.subtype === "savings") && !isHidden(a.account_id))) {
           const bal = Number(acc.current_balance ?? 0);
           const threshold = pref.low_balance ?? 100;
           if (bal >= threshold) continue;
@@ -271,7 +312,7 @@ Deno.serve(async (req) => {
           const paidMs = cd.last_payment_date ? new Date(cd.last_payment_date).getTime() : NaN;
           if (Number.isFinite(paidMs) && paidMs >= dueMs - 25 * 86400000 &&
               Number(cd.last_payment_amount ?? 0) >= Number(cd.minimum_payment_amount ?? 0)) continue;
-          const acc = (accounts ?? []).find((a: any) => a.account_id === cd.account_id);
+          const acc = (accounts ?? []).find((a: { account_id: string; name?: string | null }) => a.account_id === cd.account_id);
           const title = `💳 ${acc?.name ?? "Card"} payment due ${daysUntil === 0 ? "today" : daysUntil === 1 ? "tomorrow" : shortDate(cd.next_payment_due_date)}`;
           const body = cd.minimum_payment_amount != null ? `Minimum ${usd(cd.minimum_payment_amount)} due ${shortDate(cd.next_payment_due_date)}` : `Due ${shortDate(cd.next_payment_due_date)}`;
           const added = await saveAlert(admin, userId, "payment_due", `payment_due:${cd.account_id}:${cd.next_payment_due_date}`, title, body,
@@ -290,7 +331,7 @@ Deno.serve(async (req) => {
         const threeMonthsAgo = new Date(now - 90 * 86400000).toISOString().slice(0, 10);
         const { data: histTxns } = await admin.from("plaid_transactions")
           .select("amount").eq("user_id", userId).gte("date", threeMonthsAgo).lt("date", yesterday).gt("amount", 0);
-        const avgMonthly = (histTxns ?? []).reduce((s: number, t: any) => s + Number(t.amount), 0) / 3;
+        const avgMonthly = (histTxns ?? []).reduce((s: number, t: { amount: number | string }) => s + Number(t.amount), 0) / 3;
         const largeThreshold = Math.max(avgMonthly * 0.15, 150);
 
         for (const t of recentTxns ?? []) {
@@ -304,6 +345,66 @@ Deno.serve(async (req) => {
             { transaction_id: t.transaction_id, amount: amt, merchant, category: t.category?.[0], account_id: t.account_id, date: t.date });
           if (added) notifications.push({ title, body });
         }
+      }
+
+      // ── 4b. Bill price change ("Armstrong went up") ─────────────────
+      // A bill / subscription / loan charge SYNCED in the last few days
+      // (created_at: Plaid often delivers a charge days after its date) that
+      // is well above what the merchant usually charges, or above the amount
+      // the person set on the recurring pattern. Logic: _shared/price-change.ts.
+      if (categoryEnabled(pref, "alert_price_change")) {
+        try {
+          const syncedSince = new Date(now - PRICE_SYNC_WINDOW_DAYS * 86400000).toISOString();
+          const { data: synced } = await admin.from("plaid_transactions")
+            .select("id,transaction_id,account_id,amount,date,authorized_date,created_at,pending,name,merchant_name")
+            .eq("user_id", userId).gte("created_at", syncedSince).gt("amount", 0).limit(500);
+          if (synced?.length) {
+            const oldest = (synced as PriceTxn[]).reduce((m: string, t) => (t.date < m ? t.date : m), today);
+            const histFrom = new Date(Date.parse(`${oldest}T00:00:00Z`) - PRICE_HISTORY_DAYS * 86400000).toISOString().slice(0, 10);
+            const history = await selectAll<ClassifierTxn & PriceTxn>((a, b) => admin.from("plaid_transactions")
+              .select("*").eq("user_id", userId).gte("date", histFrom).order("date", { ascending: true }).range(a, b));
+            const { data: streamRows, error: streamErr } = await admin.from("recurring_streams").select("*").eq("user_id", userId);
+            if (streamErr) console.warn("[price] recurring_streams unavailable", streamErr.message);
+            // Same classifier + per-txn overrides as the budget check, over the history window.
+            const histTypeOverrides: Record<string, TxnType> = {};
+            const excluded = new Set<string>();
+            const BILLISH = new Set<TxnType>(["obligation_bill", "obligation_loan", "obligation_tax"]);
+            for (const t of history) {
+              const ov = t.transaction_id ? typeByPlaidId[t.transaction_id] : undefined;
+              if (ov) { histTypeOverrides[t.id] = ov; if (!BILLISH.has(ov)) excluded.add(t.id); }
+              else if (manualInternal.has(t.id) && !manualExternal.has(t.id)) { histTypeOverrides[t.id] = "transfer_internal"; excluded.add(t.id); }
+            }
+            const histClasses = classifyAll(history, {
+              accounts: ((accounts ?? []) as AcctRow[]).map(a => ({ ...a, role: roleOf(a) as ClassifierAccount["role"] })),
+              typeOverrides: histTypeOverrides,
+              categoryOverrides: catOverrides,
+              ruleCategory,
+              notInternalIds: manualExternal,
+              plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+            });
+            const idByPlaid = new Map(history.map(t => [t.transaction_id, t.id] as const));
+            const changes = findPriceChanges({
+              recent: synced as PriceTxn[],
+              history,
+              streams: (streamRows ?? []) as PriceStream[],
+              keyOf: t => merchantKey(t.merchant_name ?? t.name ?? ""),
+              nameOf: t => cleanBankText(t.merchant_name ?? t.name) || "A bill",
+              typeOf: t => histClasses.get(idByPlaid.get(t.transaction_id) ?? t.id)?.type ?? null,
+              excluded,
+              now: new Date(now),
+            });
+            for (const c of changes) {
+              if (isHidden(c.accountId)) continue;
+              const { title, body } = priceAlertText(c);
+              const added = await saveAlert(admin, userId, "price_increase", priceAlertKey(c), title, body, {
+                transaction_id: c.transactionId, account_id: c.accountId, date: c.date, merchant: c.displayName,
+                merchant_key: c.merchantKey, series_key: c.seriesKey, amount: c.amount, previous: c.baseline,
+                baseline_source: c.baselineSource, delta: c.delta, pct: c.pct, variable: c.variable,
+              });
+              if (added) notifications.push({ title, body });
+            }
+          }
+        } catch (e) { console.error("[price]", e); }
       }
 
       // ── 5. Credits: classify before alerting ─────────────────────────
@@ -327,7 +428,7 @@ Deno.serve(async (req) => {
           if (!categoryEnabled(pref, "alert_cc_payment")) continue;
           // This is a credit card payment being received by the card — not a deposit
           // Notify as a payment confirmation, not deposit
-          const acct = (accounts ?? []).find((a: any) => a.account_id === t.account_id);
+          const acct = (accounts ?? []).find((a: { account_id: string; name?: string | null }) => a.account_id === t.account_id);
           const title = `✅ Payment posted: ${acct?.name ?? merchant}`;
           const body = `${usd(amt)} payment applied to your account`;
           const added = await saveAlert(admin, userId, "cc_payment_posted", txnAlertKey("cc_payment", t), title, body,
@@ -375,10 +476,10 @@ Deno.serve(async (req) => {
         ? await admin.from("ai_insights").select("created_at,insights").eq("user_id", userId).maybeSingle()
         : { data: null };
       if (lastInsight?.insights) {
-        const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as any[] : [];
-        const highSeverity = insights.filter((i: any) => i.severity === "high");
+        const insights = Array.isArray(lastInsight.insights) ? lastInsight.insights as AlertInsight[] : [];
+        const highSeverity = insights.filter(i => i.severity === "high");
         if (highSeverity.length > 0) {
-          const hash = highSeverity.map((i: any) => i.id).sort().join(",").slice(0, 60);
+          const hash = highSeverity.map(i => i.id ?? "").sort().join(",").slice(0, 60);
           const title = `💡 ${highSeverity[0].title}`;
           const body = highSeverity[0].what?.slice(0, 100) ?? "Check your Sentry Finance dashboard";
           const added = await saveAlert(admin, userId, "insight", `insights:${hash}`, title, body,

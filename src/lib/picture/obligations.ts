@@ -98,6 +98,11 @@ export interface Obligation {
   manualId?: string;
   /** Gift card expiry: value at risk, not counted as a cost. */
   noCost?: boolean;
+  /** Detected items: the identified pattern in plain words ("Monthly on the 9th · 8 charges since Apr"). */
+  patternLine?: string;
+  /** Too little history to be sure of the timing; still planned for (worst-case amount). */
+  estimated?: boolean;
+  estimateNote?: string | null;
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -129,12 +134,14 @@ export function nextOccurrence(d: ISODate, c: PlanCadence, anchor: number, inter
 
 function fromReview(it: ReviewItem): Obligation {
   const paid = it.matched.slice().sort((a, b) => b.date.localeCompare(a.date));
-  const category = categorize(`${it.label} ${it.matched.slice(0, 3).map(m => m.name).join(" ")}`, it.kind, it.subtype, it.cadence);
+  // The detected name, so a rename never moves the bill to another category.
+  const category = categorize(`${it.autoLabel ?? it.label} ${it.matched.slice(0, 3).map(m => m.name).join(" ")}`, it.kind, it.subtype, it.cadence);
   return {
     id: `rcv:${it.key}`, label: it.label, category, source: it.status === "suggested" ? "detected" : "confirmed",
     amount: it.amount, amountKind: it.amountKind === "variable" ? "estimated" : "fixed", cadence: it.cadence,
     nextDue: it.nextDue, lastPaid: paid[0] ? { date: paid[0].date, amount: paid[0].amount } : it.lastSeen ? { date: it.lastSeen, amount: it.amount } : null,
     paidDates: paid.map(p => p.date), monthly: it.monthly, annual: r2(it.monthly * 12), missed: it.missed, daysLate: it.daysLate, reviewKey: it.key,
+    patternLine: it.patternLine, estimated: it.estimated, estimateNote: it.estimateNote,
   };
 }
 

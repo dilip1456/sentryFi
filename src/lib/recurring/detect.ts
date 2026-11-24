@@ -20,6 +20,7 @@ import {
 } from "./classifier";
 import { addDays, diffDays, nearestIrsEstimatedDue, parseDate, todayLocal, DEFAULT_TIME_ZONE, type ISODate, type ShiftPolicy } from "./dates";
 import { billSubtype, displayName, loanSubtype, merchantKey, taxSubtype, YEARLY_HINT_RE } from "./patterns";
+import { isPlaidDiscretionaryRecurringExcluded } from "./spending-cadence";
 import {
   fitSchedule,
   matchTolerance,
@@ -164,6 +165,11 @@ export function isRecurringEligible(
 ): boolean {
   if (t.pending) return false;
   if (!t.amount) return false;
+  // A regular convenience-store/retail purchase is not a bill just because
+  // it repeats on a schedule. Plaid's source category remains available even
+  // when its confidence is LOW or the app category was previously mapped as
+  // a bill; recognized subscription merchants are handled by the allowlist.
+  if (isPlaidDiscretionaryRecurringExcluded(t.pfc_primary, t.pfc_detailed, t.merchant_name ?? t.name ?? "")) return false;
   // Money arriving on the user's own card or loan account is the receiving
   // leg of a payment (or a refund), never income — even when unmatched.
   const acctType = (account?.type ?? "").toLowerCase();
@@ -357,6 +363,9 @@ function confidenceFor(count: number, fitScore: number): number {
   return Math.round(Math.min(1, fitScore * Math.min(1, 0.55 + 0.08 * count)) * 100) / 100;
 }
 
+/** Local earned-income tax collectors (quarterly, uneven amounts). */
+export const LOCAL_TAX_RE = /berkheimer|keystone\s+collect|jordan\s+tax|\b(local|city|school)\s+(eit|earned\s+income)|\bearned\s+income\s+tax\b/i;
+
 export function detectRecurringSeries(
   txns: ClassifierTxn[],
   accounts: ClassifierAccount[],
@@ -383,7 +392,7 @@ export function detectRecurringSeries(
 
   for (const [key, all] of groups) {
     all.sort((a, b) => a.t.date.localeCompare(b.t.date));
-    const found: { members: Member[]; key: string; schedule: Schedule; score: number; single: boolean; confident?: boolean }[] = [];
+    const found: { members: Member[]; key: string; schedule: Schedule; score: number; single: boolean; confident?: boolean; localTax?: boolean }[] = [];
 
     const tryFit = (members: Member[], k: string): boolean => {
       const type = majority(members.map(m => m.c.txnType));
@@ -421,10 +430,23 @@ export function detectRecurringSeries(
       return false;
     };
 
+    // Local earned-income tax (Berkheimer, Keystone, Jordan Tax): small,
+    // uneven quarterly payments, often split on one day. Kept as ONE quarterly
+    // series (an estimate until a full year shows the real pattern) instead of
+    // being split into amount clusters that never form a schedule.
+    const lastAll = all[all.length - 1];
+    const recentTax = all.filter(m => m.direction === "outflow" && diffDays(today, m.t.date) <= 400);
+    const localTax = recentTax.length > 0 && LOCAL_TAX_RE.test(`${lastAll.t.name ?? ""} ${lastAll.t.merchant_name ?? ""}`)
+      && majority(recentTax.map(m => m.c.txnType)) === "obligation_tax"
+      && !fitSchedule(recentTax.map(m => m.t.date), { allowIrs: true, defaultShift: "after" });
+    if (localTax) {
+      const p = parseDate(recentTax[recentTax.length - 1].t.date);
+      found.push({ members: recentTax, key, schedule: { cadence: "quarterly", kind: "day-of-month", anchorDay: p.d, monthStep: 3, anchorMonth: p.m, shift: "after" }, score: 0.5, single: true, confident: true, localTax: true });
+    }
     // Wildly mixed amounts (a subscription among one-off purchases at the same
     // merchant) are split into amount clusters before fitting.
     const cv = amountModel(all.map(m => m.t.amount)).cv;
-    if ((cv > 0.6 || !tryFit(all, key)) && all.length >= 2) {
+    if (localTax) { /* handled above */ } else if ((cv > 0.6 || !tryFit(all, key)) && all.length >= 2) {
       for (const cl of amountClusters(all)) {
           const med = Math.round(Math.abs(cl[Math.floor(cl.length / 2)].t.amount));
         tryFit(cl, `${key}|~${med}`);
@@ -439,7 +461,7 @@ export function detectRecurringSeries(
       const rawSubtype = subtypes.length ? majority(subtypes) : null;
       const kind = kindFor(type, rawSubtype, text);
       const refined = refineSubtype(type, rawSubtype, text);
-      const finalSubtype = f.schedule.kind === "irs-estimated" ? "irs_estimated" : refined;
+      const finalSubtype = f.localTax ? "local_eit" : f.schedule.kind === "irs-estimated" ? "irs_estimated" : refined;
       const model = amountModel(members.map(m => m.t.amount));
       const { occurrences, active } = buildOccurrences(
         f.schedule,
@@ -484,7 +506,8 @@ export function detectRecurringSeries(
         confidence: f.single ? (f.confident ? 0.8 : 0.4) : confidenceFor(members.length, f.score),
         transactionIds: members.map(m => m.t.transaction_id),
         occurrences,
-        reason: f.single
+        reason: f.localTax ? `Local earned-income tax payments, assumed quarterly`
+          : f.single
           ? `One ${kind} payment on a known ${f.schedule.kind === "irs-estimated" ? "IRS estimated-tax" : "yearly"} schedule`
           : `${members.length} payments on a ${f.schedule.cadence} schedule`,
       };

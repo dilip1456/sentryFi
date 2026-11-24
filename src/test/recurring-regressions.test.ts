@@ -26,6 +26,8 @@ import {
   type Schedule,
 } from "@/lib/recurring";
 import { loanDetailRows, plaidErrorSummary, upsertLoanDetails } from "../../supabase/functions/_shared/plaid-liabilities.ts";
+import { isNonBillRecurringCandidate } from "@/lib/recurring/spending-cadence";
+import { isRecurringEligible } from "@/lib/recurring/detect";
 
 const ROOT = path.resolve(__dirname, "../..");
 const read = (p: string) => readFileSync(path.join(ROOT, p), "utf-8");
@@ -42,6 +44,30 @@ const tx = (date: string, amount: number, name: string): ClassifierTxn => ({ tra
 const monthly = (anchorDay: number): Schedule => ({ cadence: "monthly", kind: "day-of-month", anchorDay, monthStep: 1, anchorMonth: 1, shift: "none" });
 const mk = (ds: string[]) => ds.map((d, i) => ({ id: `m${i}`, date: d, amount: 100 }));
 const fixed100 = amountModel([100, 100, 100]);
+
+describe("Plaid retail categories stay out of bill detection", () => {
+  it("does not treat a low-confidence convenience-store purchase as a bill even when the app category is bill-like", () => {
+    const plaidCategory = {
+      primary: "GENERAL_MERCHANDISE",
+      detailed: "GENERAL_MERCHANDISE_CONVENIENCE_STORES",
+    };
+    expect(isNonBillRecurringCandidate("Bills & Utilities", "7-Eleven", plaidCategory)).toBe(true);
+    const transaction = {
+      ...tx("2026-10-01", 8.25, "7-Eleven"),
+      pfc_primary: plaidCategory.primary,
+      pfc_detailed: plaidCategory.detailed,
+      pfc_confidence: "LOW",
+    };
+    expect(isRecurringEligible(transaction, { txnType: "spend", confidence: 0.5, source: "pfc" })).toBe(false);
+  });
+
+  it("still permits a known subscription merchant when Plaid supplies a broad retail category", () => {
+    expect(isNonBillRecurringCandidate("Shopping", "Netflix", {
+      primary: "GENERAL_MERCHANDISE",
+      detailed: "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE",
+    })).toBe(false);
+  });
+});
 
 // ── Bug 1: next expected date skipped an unpaid bill due today / in grace ────
 describe("bug 1: next expected stays on the current unpaid occurrence", () => {

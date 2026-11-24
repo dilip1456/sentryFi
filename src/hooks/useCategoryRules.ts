@@ -17,16 +17,20 @@ export interface CategoryRule {
   merchantPattern?: string;
 }
 
-const migrate = (raw: unknown[]): CategoryRule[] =>
-  raw.map((r: any, i) => ({
-    id: r.id ?? `rule_${i}`,
-    pattern: r.pattern ?? r.merchantPattern ?? "",
-    matchType: (r.matchType as RuleMatchType) ?? "contains",
-    category: r.category ?? "Other",
-    source: (r.source as RuleSource) ?? "user",
-    enabled: r.enabled ?? true,
-    createdAt: r.createdAt ?? new Date().toISOString(),
-  }));
+const migrate = (raw: unknown[]): CategoryRule[] => raw.map((value, i) => {
+  const r = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const matchType = r.matchType === "exact" || r.matchType === "starts_with" ? r.matchType : "contains";
+  const source = r.source === "system" ? "system" : "user";
+  return {
+    id: typeof r.id === "string" ? r.id : `rule_${i}`,
+    pattern: typeof r.pattern === "string" ? r.pattern : typeof r.merchantPattern === "string" ? r.merchantPattern : "",
+    matchType,
+    category: typeof r.category === "string" ? r.category : "Other",
+    source,
+    enabled: typeof r.enabled === "boolean" ? r.enabled : true,
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
+  };
+});
 
 export const useCategoryRules = () => {
   const [rules, setRulesState] = useState<CategoryRule[]>(() => {

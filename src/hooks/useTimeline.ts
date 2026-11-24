@@ -13,7 +13,7 @@ import {
   type PaycheckAnomaly, type TimelineCursor, type TimelineEvent, type TimelineFilters, type TimelinePage, type UpcomingAccount,
   type UpcomingMilestone, type UpcomingObligation, type UpcomingStatement, type UpcomingStream,
 } from "@/lib/timeline";
-import { isPictureDecisionRow } from "@/lib/recurring/decisions";
+import { applyPatternOverrides, isPictureDecisionRow, type DecisionRow } from "@/lib/recurring/decisions";
 
 // Tables/RPC added by 20261029100000_timeline_events.sql (and a few older
 // ones) aren't in the generated types yet: narrow untyped access.
@@ -120,9 +120,13 @@ export function useTimelineUpcoming({ userId, demo }: TimelineSourceOpts, enable
         clsAccounts,
         { today, overrides: overrides as TxnTypeOverride[] },
       );
-      const detected: UpcomingStream[] = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen }));
-      // Picture review decisions share the table; they are not schedule rows.
-      const streams = mergeStreams((stored as UpcomingStream[]).filter(r => !isPictureDecisionRow(r as { source?: unknown; series_key?: unknown })), detected);
+      const detected: UpcomingStream[] = series.map(s => ({ ...toStreamRow(s, uid), id: null, last_seen: s.lastSeen, matched_transaction_ids: s.transactionIds }));
+      // Picture review decisions share the table; they are not schedule rows,
+      // but carry the person's own name / expected amount for the pattern.
+      const streams = applyPatternOverrides(
+        mergeStreams((stored as UpcomingStream[]).filter(r => !isPictureDecisionRow(r as { source?: unknown; series_key?: unknown })), detected),
+        stored as DecisionRow[],
+      );
       return buildUpcoming({ today, through, streams, obligations: obligations as UpcomingObligation[], statements: statements as UpcomingStatement[], milestones: milestones as UpcomingMilestone[], accounts });
     },
   });

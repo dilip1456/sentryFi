@@ -23,7 +23,7 @@
 .rd-body { padding:12px 14px 40px !important; }
 .rd-sum { padding:14px; border-radius:14px; margin-bottom:10px; border:1px solid hsl(var(--border)); background:hsl(var(--surface-elevated)); }
 .rd-k { font-size:11.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:hsl(var(--muted-foreground)); }
-.rd-low { font-family:Fraunces, Georgia, serif; font-size:30px; line-height:1.1; font-weight:700; margin-top:2px; color:hsl(var(--fc)); font-variant-numeric:tabular-nums; }
+.rd-low { font-family:Inter,system-ui,sans-serif; font-size:30px; line-height:1.1; font-weight:700; margin-top:2px; color:hsl(var(--fc)); font-variant-numeric:tabular-nums; }
 .rd-pill { display:inline-flex; align-items:center; gap:5px; padding:5px 10px; border-radius:999px; font-size:12.5px; font-weight:700; color:hsl(var(--fc)); background:hsl(var(--fc)/.12); border:1px solid hsl(var(--fc)/.4); white-space:nowrap; }
 .rd-flags { display:flex; flex-direction:column; gap:6px; margin-top:6px; }
 .rd-flag { display:flex; align-items:center; gap:8px; min-height:40px; padding:6px 10px; border-radius:10px; text-align:left; font-size:13px; color:hsl(var(--foreground));

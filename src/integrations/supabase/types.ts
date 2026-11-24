@@ -6,6 +6,38 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+type UserSettingsJsonFields = {
+  budgets: Json
+  account_roles: Json
+  cat_overrides: Json
+  cat_rules: Json
+  smart_rules: Json
+  custom_cats: Json
+  name_overrides: Json
+  name_rules: Json
+  manual_income: Json
+  manual_internal: Json
+  manual_external: Json
+  dismissed_insights: Json
+  dismissed_actions: Json
+  dismissed_recurring: Json
+  recurring_dismissals: Json
+  overage_funding_prefs: Json
+  planned_transfers: Json
+  savings_goals: Json
+  panel_order: Json
+  account_meta: Json
+  benefits_used: Json
+  money_map_feedback: Json
+  txn_tags: Json
+  txn_notes: Json
+  recurring_overrides: Json
+  txn_splits: Json
+  recurring_groups: Json
+  card_autopay_from: Json
+  financial_picture: Json
+}
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -14,6 +46,78 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_preferences: {
+        Row: {
+          id: string
+          user_id: string
+          email_enabled: boolean
+          push_enabled: boolean
+          email: string | null
+          budget_pct: number
+          low_balance: number
+          payment_days: number
+          weekly_summary: boolean
+          alert_budget_threshold: boolean
+          alert_low_balance: boolean
+          alert_payment_due: boolean
+          alert_large_txn: boolean
+          alert_deposit: boolean
+          alert_refund: boolean
+          alert_transfer: boolean
+          alert_cc_payment: boolean
+          alert_insight: boolean
+          alert_price_change: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          email_enabled?: boolean
+          push_enabled?: boolean
+          email?: string | null
+          budget_pct?: number
+          low_balance?: number
+          payment_days?: number
+          weekly_summary?: boolean
+          alert_budget_threshold?: boolean
+          alert_low_balance?: boolean
+          alert_payment_due?: boolean
+          alert_large_txn?: boolean
+          alert_deposit?: boolean
+          alert_refund?: boolean
+          alert_transfer?: boolean
+          alert_cc_payment?: boolean
+          alert_insight?: boolean
+          alert_price_change?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          email_enabled?: boolean
+          push_enabled?: boolean
+          email?: string | null
+          budget_pct?: number
+          low_balance?: number
+          payment_days?: number
+          weekly_summary?: boolean
+          alert_budget_threshold?: boolean
+          alert_low_balance?: boolean
+          alert_payment_due?: boolean
+          alert_large_txn?: boolean
+          alert_deposit?: boolean
+          alert_refund?: boolean
+          alert_transfer?: boolean
+          alert_cc_payment?: boolean
+          alert_insight?: boolean
+          alert_price_change?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cover_actions: {
         Row: {
           action_type: string
@@ -46,6 +150,69 @@ export type Database = {
           month?: string
           note?: string | null
           to_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      manual_accounts: {
+        Row: {
+          created_at: string
+          current_balance: number | null
+          id: string
+          institution_name: string | null
+          interest_rate: number | null
+          loan_start_date: string | null
+          loan_term_years: number | null
+          monthly_payment: number | null
+          name: string
+          notes: string | null
+          original_loan_amount: number | null
+          property_address: string | null
+          property_value: number | null
+          role: string
+          role_label: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          institution_name?: string | null
+          interest_rate?: number | null
+          loan_start_date?: string | null
+          loan_term_years?: number | null
+          monthly_payment?: number | null
+          name: string
+          notes?: string | null
+          original_loan_amount?: number | null
+          property_address?: string | null
+          property_value?: number | null
+          role?: string
+          role_label?: string | null
+          type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          institution_name?: string | null
+          interest_rate?: number | null
+          loan_start_date?: string | null
+          loan_term_years?: number | null
+          monthly_payment?: number | null
+          name?: string
+          notes?: string | null
+          original_loan_amount?: number | null
+          property_address?: string | null
+          property_value?: number | null
+          role?: string
+          role_label?: string | null
+          type?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -196,6 +363,63 @@ export type Database = {
         }
         Relationships: []
       }
+      plaid_loan_details: {
+        Row: {
+          account_id: string
+          escrow_balance: number | null
+          interest_rate: number | null
+          is_overdue: boolean | null
+          kind: string
+          last_payment_amount: number | null
+          last_payment_date: string | null
+          minimum_payment_amount: number | null
+          next_monthly_payment: number | null
+          next_payment_due_date: string | null
+          origination_principal: number | null
+          outstanding_principal: number | null
+          updated_at: string
+          user_id: string
+          ytd_interest_paid: number | null
+          ytd_principal_paid: number | null
+        }
+        Insert: {
+          account_id: string
+          escrow_balance?: number | null
+          interest_rate?: number | null
+          is_overdue?: boolean | null
+          kind: string
+          last_payment_amount?: number | null
+          last_payment_date?: string | null
+          minimum_payment_amount?: number | null
+          next_monthly_payment?: number | null
+          next_payment_due_date?: string | null
+          origination_principal?: number | null
+          outstanding_principal?: number | null
+          updated_at?: string
+          user_id: string
+          ytd_interest_paid?: number | null
+          ytd_principal_paid?: number | null
+        }
+        Update: {
+          account_id?: string
+          escrow_balance?: number | null
+          interest_rate?: number | null
+          is_overdue?: boolean | null
+          kind?: string
+          last_payment_amount?: number | null
+          last_payment_date?: string | null
+          minimum_payment_amount?: number | null
+          next_monthly_payment?: number | null
+          next_payment_due_date?: string | null
+          origination_principal?: number | null
+          outstanding_principal?: number | null
+          updated_at?: string
+          user_id?: string
+          ytd_interest_paid?: number | null
+          ytd_principal_paid?: number | null
+        }
+        Relationships: []
+      }
       plaid_transactions: {
         Row: {
           account_id: string
@@ -207,13 +431,16 @@ export type Database = {
           id: string
           iso_currency_code: string | null
           item_id: string
+          logo_url: string | null
           merchant_name: string | null
           name: string | null
+          plaid_category: string[] | null
           payment_channel: string | null
           pending: boolean | null
           transaction_id: string
           updated_at: string
           user_id: string
+          website: string | null
         }
         Insert: {
           account_id: string
@@ -225,13 +452,16 @@ export type Database = {
           id?: string
           iso_currency_code?: string | null
           item_id: string
+          logo_url?: string | null
           merchant_name?: string | null
           name?: string | null
+          plaid_category?: string[] | null
           payment_channel?: string | null
           pending?: boolean | null
           transaction_id: string
           updated_at?: string
           user_id: string
+          website?: string | null
         }
         Update: {
           account_id?: string
@@ -243,13 +473,16 @@ export type Database = {
           id?: string
           iso_currency_code?: string | null
           item_id?: string
+          logo_url?: string | null
           merchant_name?: string | null
           name?: string | null
+          plaid_category?: string[] | null
           payment_channel?: string | null
           pending?: boolean | null
           transaction_id?: string
           updated_at?: string
           user_id?: string
+          website?: string | null
         }
         Relationships: [
           {
@@ -350,6 +583,27 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: UserSettingsJsonFields & {
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: Partial<UserSettingsJsonFields> & {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: Partial<UserSettingsJsonFields> & {
+          created_at?: string
+          id?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

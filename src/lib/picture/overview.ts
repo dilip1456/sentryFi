@@ -9,7 +9,6 @@ import type { ReviewItem } from "@/lib/recurring/review";
 import { nextOccurrence } from "./obligations";
 import { acctKind, toAcctInfo, type AcctKind, type PAccount } from "./model";
 import { netWorthTotals } from "@/lib/accounts/totals";
-import type { LinkedAccount, ManualAccountLike as AccountsManualLike } from "@/lib/accounts/types";
 
 // ── Net worth ───────────────────────────────────────────────────────────────
 
@@ -70,7 +69,7 @@ export function netWorthBreakdown(accounts: readonly PAccount[], manual: readonl
   // Headline totals come from the shared maths so Picture, Home and Accounts
   // always show the same net worth (src/lib/accounts/totals.ts). The groups
   // above are Picture's own breakdown of the same accounts.
-  const t = netWorthTotals(accounts as unknown as LinkedAccount[], manual as unknown as AccountsManualLike[], {});
+  const t = netWorthTotals(accounts, manual, {});
   return { assets: t.assets, liabilities: t.liabilities, netWorth: t.netWorth, groups };
 }
 

@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils";
  *
  * One look for every page, section, card and overlay header, ported from the
  * My Financial Picture design (picture.css: .col-h, .sec-h, .h4, .ov-h):
- *   PageHeader    – Fraunces 22/26px title, 13px muted subtitle, actions right.
+ *   PageHeader    – Inter 22/26px title, 13px muted subtitle, actions right.
  *   SectionHeader – optional 36px icon tile, 16px/600 title, 12.5px subtitle,
  *                   one action slot (a "See all" link, a button, a menu).
  *   Eyebrow       – 11.5px/700 uppercase label for groups inside a card.
- *   OverlayHeader – dialog / sheet title bar: Fraunces title + close slot.
+ *   OverlayHeader – dialog / sheet title bar: Inter title + close slot.
  *
  * Rule of thumb: a screen shows its name once. If the app chrome (mobile top
  * bar, desktop page header) already says "Spending", the first card on the

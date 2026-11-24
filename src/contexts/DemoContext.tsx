@@ -29,7 +29,7 @@ export const DemoProvider = ({ children }: { children: ReactNode }) => {
 
   const setDemo = (v: boolean) => {
     setDemoState(v);
-    try { localStorage.setItem(keyFor(user?.id), String(v)); } catch {}
+    try { localStorage.setItem(keyFor(user?.id), String(v)); } catch { /* Storage may be unavailable in private browsing. */ }
   };
 
   // Auto-exit demo when real accounts are found

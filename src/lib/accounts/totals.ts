@@ -13,7 +13,26 @@
  * (account_meta.excludeFromNetWorth) are left out. Hidden accounts still
  * count by default.
  */
-import { manualKey, type AccountMetaMap, type LinkedAccount, type ManualAccountLike } from "./types";
+import { manualKey, type AccountMetaMap } from "./types";
+
+/**
+ * Only the fields net worth reads, so Accounts' LinkedAccount /
+ * ManualAccountLike and Picture's PAccount / ManualAccountLike all fit
+ * without casts. Balances may arrive as numeric strings (Postgres numeric).
+ */
+export interface NetWorthLinkedInput {
+  id: string;
+  type: string | null;
+  subtype?: string | null;
+  current_balance?: number | string | null;
+}
+export interface NetWorthManualInput {
+  id: string;
+  type: string;
+  role: string;
+  current_balance: number | string | null;
+  property_value?: number | string | null;
+}
 
 export type NetWorthGroup = "checking" | "savings" | "investments" | "cards" | "loans" | "equity" | "other";
 export const NET_WORTH_GROUP_ORDER: NetWorthGroup[] = ["checking", "savings", "investments", "cards", "loans", "equity", "other"];
@@ -35,7 +54,7 @@ const MORTGAGE = new Set(["mortgage", "home_loan"]);
 const SAVINGS_SUB = /^(savings|money market|hsa|cd|cash management)$/;
 
 /** Legend group of a linked account. */
-export function linkedNetWorthGroup(a: Pick<LinkedAccount, "type" | "subtype">): NetWorthGroup {
+export function linkedNetWorthGroup(a: Pick<NetWorthLinkedInput, "type" | "subtype">): NetWorthGroup {
   if (a.type === "credit") return "cards";
   if (a.type === "loan") return "loans";
   if (a.type === "investment") return "investments";
@@ -45,7 +64,7 @@ export function linkedNetWorthGroup(a: Pick<LinkedAccount, "type" | "subtype">):
 }
 
 /** Legend group of a manual (non-mortgage) account. */
-export function manualNetWorthGroup(m: Pick<ManualAccountLike, "type" | "role">): NetWorthGroup {
+export function manualNetWorthGroup(m: Pick<NetWorthManualInput, "type" | "role">): NetWorthGroup {
   if (m.role === "debt") return /card|credit/i.test(m.type) ? "cards" : "loans";
   if (m.type === "savings") return "savings";
   if (m.type === "investment" || m.role === "investment") return "investments";
@@ -53,7 +72,7 @@ export function manualNetWorthGroup(m: Pick<ManualAccountLike, "type" | "role">)
 }
 
 /** A manual mortgage's net-worth value: equity with a property value, else the debt. */
-export function manualMortgageValue(m: Pick<ManualAccountLike, "current_balance" | "property_value" | "role">): number {
+export function manualMortgageValue(m: Pick<NetWorthManualInput, "current_balance" | "property_value" | "role">): number {
   const bal = num(m.current_balance);
   if (m.property_value) return num(m.property_value) - Math.abs(bal);
   if (m.role === "debt") return -Math.abs(bal);
@@ -65,8 +84,8 @@ export function countsInNetWorth(meta: AccountMetaMap | undefined, key: string):
 }
 
 export function netWorthTotals(
-  accounts: readonly LinkedAccount[],
-  manual: readonly ManualAccountLike[] = [],
+  accounts: readonly NetWorthLinkedInput[],
+  manual: readonly NetWorthManualInput[] = [],
   meta: AccountMetaMap = {},
 ): NetWorthTotals {
   const byGroup = Object.fromEntries(NET_WORTH_GROUP_ORDER.map(g => [g, 0])) as Record<NetWorthGroup, number>;

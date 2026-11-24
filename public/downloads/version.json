@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1241,
-  "sha256": "e44023bb38c6175d5548c345665820960c92ed6d92cc024f36cef38e211ea583",
-  "size": 7482567,
-  "releaseNotes": "Fix salary mapping; settle detections internally (no review queue or counts)",
+  "versionCode": 1249,
+  "sha256": "7022ade021b22615bd4a7b3a64bc118567d45826215164a35a7c60f91f368d84",
+  "size": 7496660,
+  "releaseNotes": "Polish sidebar and spending experience",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-18T06:48:08.006Z"
+  "publishedAt": "2026-11-19T02:39:59.889Z"
 }
