@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1249,
-  "sha256": "7022ade021b22615bd4a7b3a64bc118567d45826215164a35a7c60f91f368d84",
-  "size": 7496660,
-  "releaseNotes": "Polish sidebar and spending experience",
+  "versionCode": 1250,
+  "sha256": "6121a368ea8d1397c713d789df9408ab81d73d5fe945401611b6d82b8431e3ee",
+  "size": 7509896,
+  "releaseNotes": "Accounts redesign (UI): net worth hero, compact rows, By type/By bank, details sheet, rename/hide",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-19T02:39:59.889Z"
+  "publishedAt": "2026-11-24T18:45:45.910Z"
 }
