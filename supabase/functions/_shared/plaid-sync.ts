@@ -29,7 +29,11 @@ export interface SyncConfig {
   fetchFn?: typeof fetch;
 }
 
-export interface SyncResult { ok: boolean; count: number; removed: number; cursor: string | null; error?: string }
+export interface SyncResult {
+  ok: boolean; count: number; removed: number; cursor: string | null; error?: string;
+  /** Plaid error_code when Plaid refused the sync (e.g. ITEM_LOGIN_REQUIRED). */
+  errorCode?: string | null;
+}
 
 /** Category stored on the row: legacy category if Plaid sent one, else the
  *  app category mapped from the DETAILED personal_finance_category. */
@@ -141,7 +145,7 @@ export async function syncItemTransactions(
         const data = await res.json();
         if (!res.ok) {
           if (data?.error_code === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" && attempts < 3) throw new RestartSync();
-          throw new Error(`transactions/sync ${data?.error_code ?? res.status} (request_id ${data?.request_id ?? "n/a"})`);
+          throw new PlaidSyncError(data?.error_code ?? null, `transactions/sync ${data?.error_code ?? res.status} (request_id ${data?.request_id ?? "n/a"})`);
         }
         const changed = dedupeByTransactionId([...(data.added ?? []), ...(data.modified ?? [])]);
         if (changed.length) {
@@ -163,9 +167,41 @@ export async function syncItemTransactions(
     } catch (e) {
       if (e instanceof RestartSync) continue;
       console.error("syncItemTransactions:", e);
-      return { ok: false, count, removed, cursor: opts.cursor, error: String((e as Error)?.message ?? e) };
+      return { ok: false, count, removed, cursor: opts.cursor, error: String((e as Error)?.message ?? e),
+        errorCode: e instanceof PlaidSyncError ? e.code : null };
     }
   }
 }
 
 class RestartSync extends Error {}
+class PlaidSyncError extends Error {
+  constructor(public code: string | null, message: string) { super(message); }
+}
+
+/**
+ * Per-bank sync health on plaid_items (20261118100000_accounts_data), read by
+ * the Accounts page ("Fidelity stopped syncing", Connections, "as of" dates).
+ *  - success: last_synced_at = now, error_code / error_at cleared;
+ *  - Plaid error (ITEM_LOGIN_REQUIRED, PENDING_EXPIRATION, ...): error_code
+ *    set; error_at stamped only when it was empty, so it keeps the time the
+ *    bank first broke;
+ *  - our own failure (DB write, network) leaves health untouched: the bank
+ *    isn't broken.
+ * Never throws; a missing column (migration not applied yet) is ignored.
+ */
+export async function recordItemHealth(admin: Admin, itemRowId: string, r: Pick<SyncResult, "ok" | "errorCode">, now = new Date()): Promise<void> {
+  try {
+    const at = now.toISOString();
+    if (r.ok) {
+      const { error } = await admin.from("plaid_items").update({ last_synced_at: at, error_code: null, error_at: null }).eq("id", itemRowId);
+      if (error && !isMissingColumn(error)) console.warn("recordItemHealth:", error.code ?? "", error.message ?? "");
+      return;
+    }
+    if (!r.errorCode) return;
+    const { error } = await admin.from("plaid_items").update({ error_code: r.errorCode }).eq("id", itemRowId);
+    if (error) { if (!isMissingColumn(error)) console.warn("recordItemHealth:", error.code ?? "", error.message ?? ""); return; }
+    await admin.from("plaid_items").update({ error_at: at }).eq("id", itemRowId).is("error_at", null);
+  } catch (e) {
+    console.warn("recordItemHealth failed:", e instanceof Error ? e.message : String(e));
+  }
+}

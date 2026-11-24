@@ -270,6 +270,7 @@ export type Database = {
           account_id: string
           available_balance: number | null
           created_at: string
+          credit_limit: number | null
           current_balance: number | null
           id: string
           iso_currency_code: string | null
@@ -286,6 +287,7 @@ export type Database = {
           account_id: string
           available_balance?: number | null
           created_at?: string
+          credit_limit?: number | null
           current_balance?: number | null
           id?: string
           iso_currency_code?: string | null
@@ -302,6 +304,7 @@ export type Database = {
           account_id?: string
           available_balance?: number | null
           created_at?: string
+          credit_limit?: number | null
           current_balance?: number | null
           id?: string
           iso_currency_code?: string | null
@@ -329,10 +332,13 @@ export type Database = {
           access_token: string
           created_at: string
           cursor: string | null
+          error_at: string | null
+          error_code: string | null
           id: string
           institution_id: string | null
           institution_name: string | null
           item_id: string
+          last_synced_at: string | null
           status: string
           updated_at: string
           user_id: string
@@ -341,10 +347,13 @@ export type Database = {
           access_token: string
           created_at?: string
           cursor?: string | null
+          error_at?: string | null
+          error_code?: string | null
           id?: string
           institution_id?: string | null
           institution_name?: string | null
           item_id: string
+          last_synced_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -353,10 +362,13 @@ export type Database = {
           access_token?: string
           created_at?: string
           cursor?: string | null
+          error_at?: string | null
+          error_code?: string | null
           id?: string
           institution_id?: string | null
           institution_name?: string | null
           item_id?: string
+          last_synced_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string

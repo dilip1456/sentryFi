@@ -1,7 +1,7 @@
 /**
  * My Money PR A: data layer (migrations, Plaid history depth, statement history).
  */
-import { readFileSync } from "fs";
+import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it, vi } from "vitest";
 import { INFERENCE_KINDS, INFERENCE_STATUSES, SUBJECT_TYPES } from "@/lib/infer";
@@ -25,7 +25,10 @@ function checkList(sql: string, col: string): string[] {
 describe("migrations", () => {
   const inf = read(MIG_INF);
   it("inferences checks match the TS lists", () => {
-    expect(checkList(inf, "kind")).toEqual([...INFERENCE_KINDS].sort());
+    // The kind list is redefined by later migrations; the newest one wins.
+    const kindMig = readdirSync(join(root, "supabase/migrations")).filter(f => f.endsWith(".sql")).sort()
+      .filter(f => /inferences_kind_check check/.test(read(`supabase/migrations/${f}`))).pop()!;
+    expect(checkList(read(`supabase/migrations/${kindMig}`), "kind")).toEqual([...INFERENCE_KINDS].sort());
     expect(checkList(inf, "subject_type")).toEqual([...SUBJECT_TYPES].sort());
     expect(checkList(inf, "status")).toEqual([...INFERENCE_STATUSES].sort());
   });

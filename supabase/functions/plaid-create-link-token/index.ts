@@ -27,11 +27,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Optional body: { itemId } — when present, this is an "update mode" request to
-    // grant additional consent (e.g. Liabilities) on an item that's already linked,
-    // rather than a brand-new Link session.
+    // Optional body: { itemId, mode? }. With an itemId this is Plaid "update
+    // mode" on an item that's already linked, not a brand-new Link session:
+    //  - mode "reconnect": the bank needs sign-in again (ITEM_LOGIN_REQUIRED,
+    //    PENDING_EXPIRATION, ...). No products, so Link only re-authenticates;
+    //  - otherwise (default, "consent"): grant additional consent for
+    //    Liabilities on an item linked before it was requested.
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const itemId = body?.itemId as string | undefined;
+    const mode = body?.mode === "reconnect" ? "reconnect" : "consent";
 
     const params: Record<string, unknown> = {
       client_id: PLAID_CLIENT_ID,
@@ -64,7 +68,7 @@ Deno.serve(async (req) => {
         });
       }
       params.access_token = item.access_token;
-      params.products = ["liabilities"];
+      if (mode === "consent") params.products = ["liabilities"];
       // No transactions.days_requested here: Transactions is already
       // initialised on this Item, so Plaid ignores it (history depth is fixed
       // at the original Link). Raising it needs a new Item: docs/PLAID_HISTORY.md.

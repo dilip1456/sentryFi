@@ -48,6 +48,7 @@ import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
 import { AccountsPage } from "@/components/finance/accounts/AccountsPage";
 import { netWorthTotals } from "@/lib/accounts/totals";
+import { hiddenAccountIds, netWorthExcludedIds, withoutAccounts } from "@/lib/accounts/hidden";
 import { getBankBrand, getInstitutionUrl } from "@/lib/accounts/institutions";
 import { computeImpliedApy, isHYSA } from "@/lib/accounts/interest";
 import {
@@ -3769,9 +3770,16 @@ export const LivePlaidDashboard = ({
   const [accounts, setAccounts]     = useState<PAccount[]>([]);
   const [items, setItems]           = useState<PItem[]>([]);
   const [creditDetails, setCreditDetails] = useState<CreditDetail[]>([]);
-  const [txns, setTxns]             = useState<PTxn[]>([]);
+  const [allTxns, setTxns]          = useState<PTxn[]>([]);
   // accountMeta from Supabase settings
   const accountMeta = settings.accountMeta as Record<string, AccountMeta>;
+  // Hidden accounts (Accounts → Rename or hide) are out of Home, Spending,
+  // Picture and Money Map totals and lists. Classification still sees every
+  // transaction so a transfer to a hidden account stays a transfer.
+  const hiddenIds = useMemo(() => hiddenAccountIds(accounts, accountMeta), [accounts, accountMeta]);
+  const txns = useMemo(() => withoutAccounts(allTxns, hiddenIds), [allTxns, hiddenIds]);
+  const visibleAccounts = useMemo(() => withoutAccounts(accounts, hiddenIds), [accounts, hiddenIds]);
+  const nwAccounts = useMemo(() => withoutAccounts(accounts, netWorthExcludedIds(accounts, accountMeta)), [accounts, accountMeta]);
   const [editingAccount, setEditingAccount] = useState<PAccount | null>(null);
   const [detailAccount, setDetailAccount] = useState<PAccount | null>(null);
   const [removingAccount, setRemovingAccount] = useState<PAccount | null>(null);
@@ -3896,18 +3904,18 @@ export const LivePlaidDashboard = ({
   const { overrides: typeOverridesByPlaidId, setOverride: setTypeOverride } = useTxnTypeOverrides((demo || guestDemo) ? undefined : user?.id);
   const typeOverrides = useMemo(() => {
     const m: Record<string, TxnType> = {};
-    for (const t of txns) {
+    for (const t of allTxns) {
       const ov = t.transaction_id ? typeOverridesByPlaidId[t.transaction_id] : undefined;
       if (ov) m[t.id] = ov;
       else if (manualInternalIds.has(t.id) && !manualExternalIds.has(t.id)) m[t.id] = "transfer_internal";
     }
     return m;
-  }, [txns, typeOverridesByPlaidId, manualInternalIds, manualExternalIds]);
+  }, [allTxns, typeOverridesByPlaidId, manualInternalIds, manualExternalIds]);
   const selfNames = useMemo(() => {
     const meta = (user?.user_metadata ?? {}) as Record<string, unknown>;
     return [meta.full_name, meta.name, profile?.display_name].filter((x): x is string => typeof x === "string" && x.trim().includes(" "));
   }, [user, profile]);
-  const txnClasses = useMemo(() => classifyAll(txns as ClassifierTxn[], {
+  const txnClasses = useMemo(() => classifyAll(allTxns as ClassifierTxn[], {
     accounts: accounts.map(a => ({
       account_id: a.account_id, item_id: (a as unknown as { item_id?: string }).item_id ?? null,
       name: a.name, mask: a.mask, type: a.type, subtype: a.subtype,
@@ -3922,13 +3930,13 @@ export const LivePlaidDashboard = ({
     customCategories,
     plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [txns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
+  }), [allTxns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
   // Timeline: persist the verdicts so timeline_events can hide internal transfers (live only).
-  usePersistTxnClassifications((demo || guestDemo) ? undefined : user?.id, txns, txnClasses);
+  usePersistTxnClassifications((demo || guestDemo) ? undefined : user?.id, allTxns, txnClasses);
 
   // Days of history per connected bank (Financial Picture "Extend history" hint).
-  const bankHist = useMemo(() => bankHistory(items, accounts as { account_id: string; item_id?: string | null }[], txns, new Date()), [items, accounts, txns]);
+  const bankHist = useMemo(() => bankHistory(items, accounts as { account_id: string; item_id?: string | null }[], allTxns, new Date()), [items, accounts, allTxns]);
 
   // Paycheck anomalies → notification inbox Alerts (on-device, never pushed).
   // Not in demo: the inbox belongs to the signed-in user.
@@ -4289,7 +4297,7 @@ export const LivePlaidDashboard = ({
     .sort((a,b)=>b.total-a.total);
   const spendingPeriodTotal = spendingPeriodSummary.spending;
 
-  const allActions       = generateActions(accounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
+  const allActions       = generateActions(visibleAccounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const insightSeverityRank = { high: 3, medium: 2, low: 1 } as const;
@@ -5756,7 +5764,7 @@ export const LivePlaidDashboard = ({
           manualAccounts={manualAccounts ?? []}
           items={items}
           credit={creditDetails}
-          txns={txns}
+          txns={allTxns}
           meta={accountMeta}
           cardAutopayFrom={settings.cardAutopayFrom}
           loadedAt={lastSyncedAt}
@@ -5824,7 +5832,7 @@ export const LivePlaidDashboard = ({
       <>
         <SpendingBudgetView
           txns={txns}
-          accounts={accounts}
+          accounts={visibleAccounts}
           budgets={budgets}
           nameOverrides={nameOverrides}
           setBudget={setBudget}
@@ -5925,7 +5933,7 @@ export const LivePlaidDashboard = ({
       <MyFinancialPicture
         insightsOnly
         txns={txns}
-        accounts={accounts}
+        accounts={nwAccounts}
         getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
         formatCat={formatCat}
         catColor={catColor}
@@ -5952,7 +5960,7 @@ export const LivePlaidDashboard = ({
       <>
       <MyFinancialPicture
         txns={txns}
-        accounts={accounts}
+        accounts={nwAccounts}
         getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
         formatCat={formatCat}
         catColor={catColor}

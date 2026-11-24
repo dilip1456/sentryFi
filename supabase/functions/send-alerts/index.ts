@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.106.2";
 import { cleanBankText, merchantKey } from "../_shared/merchant-name.ts";
 import { classifyAll, isBudgetableType, normalisePlaidCategory, type Classification, type ClassifierAccount, type ClassifierTxn, type TxnType } from "../_shared/classify/index.ts";
 import { isTrustedServerCaller } from "../_shared/auth.ts";
+import { hiddenAccountIds } from "../_shared/hidden-accounts.ts";
 import { findPriceChanges, priceAlertKey, priceAlertText, PRICE_HISTORY_DAYS, PRICE_SYNC_WINDOW_DAYS, type PriceStream, type PriceTxn } from "../_shared/price-change.ts";
 
 type AdminClient = ReturnType<typeof createClient>;
@@ -174,7 +175,7 @@ Deno.serve(async (req) => {
       const pushTokens = (pushTokenRows ?? []).map((r: { token: string }) => r.token);
 
       const { data: accounts } = await admin.from("plaid_accounts")
-        .select("account_id,item_id,name,mask,current_balance,available_balance,type,subtype")
+        .select("id,account_id,item_id,name,mask,current_balance,available_balance,type,subtype")
         .eq("user_id", userId);
 
       // ── 1. Budget threshold ──────────────────────────────────────────
@@ -185,8 +186,13 @@ Deno.serve(async (req) => {
       // version summed raw Plaid category[0] for every positive amount, so
       // card payments, savings sweeps and transfers tripped budget alerts.)
       const { data: settingsRow } = await admin.from("user_settings")
-        .select("budgets,cat_overrides,cat_rules,manual_internal,manual_external,account_roles")
+        .select("budgets,cat_overrides,cat_rules,manual_internal,manual_external,account_roles,account_meta")
         .eq("user_id", userId).maybeSingle();
+      // Accounts the user hid (Accounts → Rename or hide) never alert and
+      // don't count toward budgets. They still feed the classifier so a
+      // transfer to a hidden account stays a transfer.
+      const hidden = hiddenAccountIds(accounts ?? [], settingsRow?.account_meta ?? {});
+      const isHidden = (accountId: string | null | undefined) => !!accountId && hidden.has(accountId);
       const budgets: Record<string, number> = settingsRow?.budgets ?? {};
       const catOverrides: Record<string, string> = settingsRow?.cat_overrides ?? {};
       const catRules: { pattern: string; category: string; matchType?: string; enabled?: boolean; source?: string }[] = settingsRow?.cat_rules ?? [];
@@ -260,7 +266,7 @@ Deno.serve(async (req) => {
         catOverrides[t.id] ?? ruleCategory(t) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t) ?? "Other";
       const catTotals: Record<string, number> = {};
       for (const t of ctxTxns) {
-        if (t.date < monthStart) continue;
+        if (t.date < monthStart || isHidden(t.account_id)) continue;
         const c = classes.get(t.id);
         if (!c || !isBudgetableType(c.type)) continue;
         const cat = categoryOf(t);
@@ -280,7 +286,7 @@ Deno.serve(async (req) => {
 
       // ── 2. Low balance ───────────────────────────────────────────────
       if (categoryEnabled(pref, "alert_low_balance")) {
-        for (const acc of (accounts ?? []).filter((a: { subtype?: string | null }) => a.subtype === "checking" || a.subtype === "savings")) {
+        for (const acc of (accounts ?? []).filter((a: { account_id: string; subtype?: string | null }) => (a.subtype === "checking" || a.subtype === "savings") && !isHidden(a.account_id))) {
           const bal = Number(acc.current_balance ?? 0);
           const threshold = pref.low_balance ?? 100;
           if (bal >= threshold) continue;
@@ -297,7 +303,7 @@ Deno.serve(async (req) => {
       if (categoryEnabled(pref, "alert_payment_due")) {
         const { data: creditDetails } = await admin.from("plaid_credit_details").select("*").eq("user_id", userId);
         for (const cd of creditDetails ?? []) {
-          if (!cd.next_payment_due_date) continue;
+          if (!cd.next_payment_due_date || isHidden(cd.account_id)) continue;
           const daysUntil = Math.round((new Date(cd.next_payment_due_date).getTime() - now) / 86400000);
           if (daysUntil < 0 || daysUntil > (pref.payment_days ?? 3)) continue;
           // Already paid this cycle (a payment at least the minimum posted in
@@ -331,6 +337,7 @@ Deno.serve(async (req) => {
         for (const t of recentTxns ?? []) {
           const amt = Number(t.amount);
           if (amt < largeThreshold) break;
+          if (isHidden(t.account_id)) continue;
           const merchant = cleanBankText(t.merchant_name ?? t.name) || "Unknown";
           const title = `💰 Large charge: ${merchant}`;
           const body = t.category?.[0] ? `${usd(amt)} · ${t.category[0]}` : usd(amt);
@@ -387,6 +394,7 @@ Deno.serve(async (req) => {
               now: new Date(now),
             });
             for (const c of changes) {
+              if (isHidden(c.accountId)) continue;
               const { title, body } = priceAlertText(c);
               const added = await saveAlert(admin, userId, "price_increase", priceAlertKey(c), title, body, {
                 transaction_id: c.transactionId, account_id: c.accountId, date: c.date, merchant: c.displayName,
@@ -409,7 +417,7 @@ Deno.serve(async (req) => {
 
       for (const t of credits ?? []) {
         const amt = Math.abs(Number(t.amount));
-        if (amt < 1) continue;
+        if (amt < 1 || isHidden(t.account_id)) continue;
         const merchant = cleanBankText(t.merchant_name ?? t.name) || "Unknown";
         // Shared classifier first (pairs, card payments, overrides); the old
         // name/category heuristic is only a fallback for rows outside the window.

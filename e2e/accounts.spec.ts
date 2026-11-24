@@ -51,8 +51,8 @@ const TXNS = [
   tx(8, "csav", "2026-03-02", 25, "TRANSFER"),
 ];
 
-async function serveAccounts(page: Page, opts: { broken?: boolean } = {}) {
-  const fx = await signIn(page, { settings: { account_meta: { "acc-chk": { nickname: "Everyday checking" } }, card_autopay_from: { sapph: "chk" } } });
+async function serveAccounts(page: Page, opts: { broken?: boolean; meta?: Record<string, unknown> } = {}) {
+  const fx = await signIn(page, { settings: { account_meta: { "acc-chk": { nickname: "Everyday checking" }, ...opts.meta }, card_autopay_from: { sapph: "chk" } } });
   void fx;
   const health = ITEMS.map(i => ({ id: i.id, status: "active", updated_at: "2026-10-20T13:58:00Z", last_synced_at: "2026-10-20T14:00:00Z",
     error_code: opts.broken && i.id === "pi-fid" ? "ITEM_LOGIN_REQUIRED" : null, error_at: opts.broken && i.id === "pi-fid" ? "2026-10-15T09:00:00Z" : null,
@@ -333,6 +333,24 @@ test.describe("Accounts, phone 412", () => {
       await page.waitForTimeout(400);
       expect(await overflowProblems(page)).toEqual([]);
       expect(await smallTaps(page)).toEqual([]);
+    });
+  }
+});
+
+test.describe("Hidden accounts elsewhere (PR B)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+  for (const hidden of [false, true]) {
+    test(`Spending ${hidden ? "drops" : "shows"} a ${hidden ? "hidden" : "visible"} card's transactions`, async ({ page }) => {
+      await serveAccounts(page, { meta: hidden ? { "acc-sapph": { hidden: true } } : {} });
+      await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "spending"));
+      await page.goto("/");
+      const main = page.locator("main");
+      // Spending's period summary (main's Spending polish dropped "Manage budgets").
+      await expect(main).toContainText(/Out \$/, { timeout: 20_000 });
+      // Sapphire (Whole Foods $86.42 + Con Edison $128) is the only spending.
+      await expect(main).toContainText(hidden ? "Out $0" : "Out $214.42");
+      if (hidden) await expect(main).not.toContainText("Whole Foods");
+      else await expect(main).toContainText("Whole Foods");
     });
   }
 });
