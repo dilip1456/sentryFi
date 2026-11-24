@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1251,
-  "sha256": "8c4cb629d74f67fd63a11ffaab918e70fbcc6759c6ed760b430278f30a7dde1c",
-  "size": 7510164,
-  "releaseNotes": "Accounts data: card limits, sync health, reconnect update mode, hidden accounts everywhere (stacked on #64)",
+  "versionCode": 1252,
+  "sha256": "f9d4c81c7e102ead6826392b84488cfaa4813aa1d66334f7731b96b02910a876",
+  "size": 7510736,
+  "releaseNotes": "fix: main green again (classifier server copy sync + 17 vitest failures)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-24T20:03:48.281Z"
+  "publishedAt": "2026-11-24T21:10:12.734Z"
 }
