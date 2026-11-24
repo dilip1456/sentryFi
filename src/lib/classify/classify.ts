@@ -121,7 +121,9 @@ export function classifyOne(
     const m = mapPfc(t.pfc_primary, t.pfc_detailed);
     if (m) {
       let type: TxnType = m.type;
-      if ((type === "spend" || type.startsWith("obligation_")) && amt < 0) type = "refund";
+      // A signed amount cannot turn a Plaid loan, tax, or bill classification
+      // into a merchant refund. Only ordinary purchases can be refunds.
+      if (type === "spend" && amt < 0) type = "refund";
       // P2P (Venmo, Zelle, Cash App, PayPal transfers) with other people is a
       // transfer, not spending or income; only the user can say otherwise.
       // isPersonToPerson already refuses when Plaid is confident it's a

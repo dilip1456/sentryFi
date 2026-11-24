@@ -193,10 +193,20 @@ const DEFAULTS: UserSettings = {
   financialPicture: { overrides: {}, fundingAccounts: {} },
 };
 
+const pendingSettingsKey = (userId: string) => `sentryfi_pending_user_settings:${userId}`;
+const readPendingSettings = (userId: string): UserSettings | null => {
+  try {
+    const raw: unknown = JSON.parse(window.localStorage.getItem(pendingSettingsKey(userId)) ?? "null");
+    return raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...DEFAULTS, ...(raw as Partial<UserSettings>) }
+      : null;
+  } catch { return null; }
+};
+
 // Migrate existing localStorage data on first load (one-time)
 const migrateFromLocalStorage = (): Partial<UserSettings> => {
-  const get = (key: string, fallback: any) => {
-    try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; }
+  const get = <T,>(key: string, fallback: T): T => {
+    try { return (JSON.parse(localStorage.getItem(key) ?? "null") as T | null) ?? fallback; }
     catch { return fallback; }
   };
   return {
@@ -236,13 +246,17 @@ const dedupeCustomCats = (list: CustomCategory[]): CustomCategory[] => {
   return Array.from(byKey.values());
 };
 
-export const dbToSettings = (row: any): UserSettings => ({
+export const dbToSettings = (input: unknown): UserSettings => {
+  const row = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  return ({
   budgets:            row.budgets           ?? {},
   accountRoles:       row.account_roles     ?? {},
   catOverrides:       row.cat_overrides     ?? {},
   catRules:           row.cat_rules         ?? [],
   smartRules:         row.smart_rules       ?? [],
-  customCats:         dedupeCustomCats(row.custom_cats ?? []),
+  customCats:         dedupeCustomCats((row.custom_cats ?? []) as CustomCategory[]),
   nameOverrides:      row.name_overrides    ?? {},
   nameRules:          row.name_rules        ?? {},
   manualIncome:       row.manual_income     ?? [],
@@ -265,10 +279,11 @@ export const dbToSettings = (row: any): UserSettings => ({
   txnSplits:          row.txn_splits        ?? {},
   recurringGroups:    Array.isArray(row.recurring_groups) ? row.recurring_groups : [],
   cardAutopayFrom:    row.card_autopay_from  ?? {},
-  financialPicture:   row.financial_picture && typeof row.financial_picture === "object"
-    ? { overrides: {}, fundingAccounts: {}, ...row.financial_picture }
+  financialPicture:   row.financial_picture && typeof row.financial_picture === "object" && !Array.isArray(row.financial_picture)
+    ? { overrides: {}, fundingAccounts: {}, ...(row.financial_picture as Record<string, unknown>) }
     : { overrides: {}, fundingAccounts: {} },
-});
+  }) as UserSettings;
+};
 
 export const settingsToDb = (s: UserSettings) => ({
   budgets:             s.budgets,
@@ -338,6 +353,33 @@ interface BudgetsTable {
 }
 const budgetsTable = () => (supabase as unknown as { from: (t: "user_settings") => BudgetsTable }).from("user_settings");
 
+interface SettingsWriteTable {
+  update(v: Record<string, unknown>): {
+    eq(c: "user_id", v: string): {
+      select(c: "user_id"): PromiseLike<{ data: { user_id: string }[] | null; error: { message: string } | null }>;
+    };
+  };
+  insert(v: Record<string, unknown>): PromiseLike<{ error: { message: string } | null }>;
+}
+const settingsTable = () => (supabase as unknown as { from: (t: "user_settings") => SettingsWriteTable }).from("user_settings");
+
+/** Update the user's existing row without relying on an ON CONFLICT index. */
+const writeSettingsRow = async (userId: string, settings: UserSettings) => {
+  const table = settingsTable();
+  const values = settingsToDb(settings) as Record<string, unknown>;
+  const { data, error } = await table.update(values).eq("user_id", userId).select("user_id");
+  if (error) throw new Error(error.message);
+  if (data?.length) return;
+
+  // A profile can be created in another session between load and save. If
+  // insert races with that creation, read/update the row on the next attempt.
+  const { error: insertError } = await table.insert({ user_id: userId, ...values });
+  if (insertError) {
+    const { data: raced, error: retryError } = await table.update(values).eq("user_id", userId).select("user_id");
+    if (retryError || !raced?.length) throw new Error(retryError?.message ?? insertError.message);
+  }
+};
+
 export const useUserSettings = (userId: string | undefined) => {
   const [settings, setSettingsState] = useState<UserSettings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
@@ -360,6 +402,22 @@ export const useUserSettings = (userId: string | undefined) => {
           .maybeSingle();
 
         if (cancelled) return;
+
+        // A prior save that failed after retries is kept locally. Prefer that
+        // pending edit over stale server values and retry the cloud write on
+        // the next successful profile load.
+        const pending = typeof window !== "undefined" ? readPendingSettings(userId) : null;
+        if (pending) {
+          latestSettings.current = pending;
+          setSettingsState(pending);
+          try {
+            await writeSettingsRow(userId, pending);
+            try { window.localStorage.removeItem(pendingSettingsKey(userId)); } catch { /* best-effort queue cleanup */ }
+          } catch (retryError) {
+            console.warn("[settings] queued profile changes are still waiting to sync:", retryError instanceof Error ? retryError.message : retryError);
+          }
+          return;
+        }
 
         if (error) {
           console.warn("[settings] load error:", error.message, "attempt", attempt);
@@ -412,7 +470,7 @@ export const useUserSettings = (userId: string | undefined) => {
           latestSettings.current = migrated;
           setSettingsState(migrated);
           const store = typeof window !== "undefined" ? window.localStorage : undefined;
-          const { error: insErr } = await supabase.from("user_settings").insert({
+          const { error: insErr } = await settingsTable().insert({
               user_id: userId,
               ...settingsToDb(migrated),
             });
@@ -472,7 +530,9 @@ export const useUserSettings = (userId: string | undefined) => {
       // Keep them dirty so the next save retries them.
       for (const k of keysNow) dirty.current.add(k);
       console.error("[settings] save failed after retries:", failure);
-      toast.error("Couldn't save your profile changes", { description: "Check your connection and try again." });
+      try { window.localStorage.setItem(pendingSettingsKey(userId), JSON.stringify(latestSettings.current)); }
+      catch (storageError) { console.warn("[settings] couldn't preserve the pending local profile changes:", storageError); }
+      toast.error("Couldn't sync your profile changes", { description: `Your changes are saved on this device and will retry when your profile reconnects. ${failure}` });
     }, 600);
   }, [userId]);
 

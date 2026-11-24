@@ -268,7 +268,7 @@ export function InsightsDesktop() {
   const { full, year } = usePicture();
   return (
     <>
-      <div className="col-h"><div><h2 id="in-h">Insights</h2><p>{full ? `Your financial health for ${year}.` : "A snapshot of your financial health this month."}</p></div></div>
+      <div className="col-h col-span-full"><div><h2 id="in-h">Insights</h2><p>{full ? `Your financial health for ${year}.` : "A snapshot of your financial health this month."}</p></div></div>
       <CoverageCard />
       <div className="mt-[14px]"><TaxSaversCard /></div>
       <div className="mt-[14px]"><BreakdownCard /></div>

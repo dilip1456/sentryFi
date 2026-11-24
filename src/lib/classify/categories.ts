@@ -100,7 +100,8 @@ export function typeForCategory(
     if (t === "transfer_out" && amount < 0) return "transfer_in";
     if (t === "transfer_in" && amount > 0) return "transfer_out";
     if (t === "savings_contribution" && amount < 0) return "transfer_internal"; // money back from savings
-    if (isObligationType(t) && amount < 0) return "refund";
+    // Keep loan, tax, and bill obligations as obligations regardless of sign;
+    // a negative amount alone is not evidence that the transaction is a refund.
     return t;
   }
   const custom = customCategories.find(x => x.name.trim().toLowerCase() === c);

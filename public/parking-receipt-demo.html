@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parking Receipt Demo</title>
+  <style>
+    :root{font-family:Arial,Helvetica,sans-serif;color:#405865;background:#f1f1f1;font-synthesis:none}
+    *{box-sizing:border-box}body{margin:0;padding:24px 22px 48px}.shell{max-width:1180px;margin:auto}
+    header{margin:0 0 20px}h1{font-size:0;margin:0}.subtitle{color:#4c8192;margin:0;font-size:22px}
+    .layout{display:block}
+    .controls{background:#fff;border:1px solid #dce1e6;border-radius:6px;box-shadow:0 2px 5px #1825350a;padding:14px 18px;margin-bottom:20px}
+    .controls h2{font-size:14px;margin:0 0 12px}.field{margin:0;min-width:0}.field label{display:block;font-size:11px;font-weight:700;color:#465362;margin-bottom:5px}
+    .control-grid{display:grid;grid-template-columns:1.1fr .8fr .8fr 1.1fr 1fr auto;gap:12px;align-items:end}
+    input{width:100%;height:39px;padding:0 10px;border:1px solid #cdd5de;border-radius:6px;font:inherit;color:#182330;background:white}input:focus{outline:2px solid #8eb7f4;outline-offset:1px}
+    .hint{font-size:10px;line-height:1.35;color:#778390;margin:4px 0 0}
+    button{height:39px;padding:0 17px;border:0;border-radius:3px;background:#00ba8b;color:white;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap}button:hover{background:#009c75}
+    .receipt{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,1fr);gap:28px;align-items:stretch}
+    .ticket{background:#fff;border-top:10px solid #4b5e69;box-shadow:0 2px 5px #18253520;display:grid;grid-template-columns:40% 1fr;min-height:220px;position:relative}
+    .ticket-photo{background:linear-gradient(180deg,#35454a99,#252e32aa),linear-gradient(135deg,#687876 0 18%,#b0b1a4 18% 23%,#444b4a 23% 48%,#89928e 48% 55%,#4b5555 55%);min-height:205px;position:relative;color:#fff;padding:12px 18px;font-size:13px;line-height:1.6;font-weight:bold}
+    .ticket-photo:after{content:"";position:absolute;inset:48% 0 0;background:repeating-linear-gradient(90deg,#5559 0 18px,#aaa8 18px 21px);border-top:2px solid #ddd8}
+    .ticket-info{padding:29px 18px 18px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr;gap:10px 14px;font-size:13px;color:#536879}.times{line-height:1.9}.pass-inline{align-self:end;grid-column:1/-1;font-size:13px}.pass-number{display:inline;font-weight:700;letter-spacing:.3px}
+    .tip-help{font-size:14px;line-height:1.7;margin-top:34px}.tip-help hr{border:0;border-top:1px solid #657984;margin:26px 0}.tip-help strong{font-size:13px}
+    .charge{background:white;box-shadow:0 2px 5px #18253520;position:relative;padding:32px 24px 23px;min-height:390px}
+    .charge:before{content:"";height:10px;position:absolute;top:-1px;left:0;right:0;background:linear-gradient(135deg,#f1f1f1 5px,transparent 0) 0 0/12px 10px,linear-gradient(225deg,#f1f1f1 5px,white 0) 0 0/12px 10px}
+    .watermark{position:absolute;top:8px;right:18px;color:#1689ad;font-size:10px;font-weight:bold;letter-spacing:1px}
+    .charge h2{font-size:19px;margin:10px 0 12px}.purchased{font-size:13px;color:#526778;margin:0 0 34px}.eyebrow{font-size:12px;color:#596a76;font-weight:700}.pass-side{font-size:16px;margin-top:13px}.payment{margin-top:43px}.payment .detail-value{font-size:14px;letter-spacing:.5px}.detail-label{font-size:12px;color:#687983;font-weight:700}.detail-value{font-size:13px;line-height:1.5;margin-top:7px}.cost{border-top:1px dashed #9bb0bb;padding-top:38px;margin-top:35px;display:flex;justify-content:space-between;font-size:14px}.total{border-top:3px double #aebbc3;margin-top:27px;padding-top:12px;display:flex;justify-content:space-between;align-items:center;font-size:23px}.total strong{font-size:34px;font-weight:400}.print{display:flex;justify-content:flex-end;margin-top:24px}.print button{background:transparent;color:#00ae85;padding:0;font-size:13px}
+    @media(max-width:760px){body{padding:18px 14px 35px}.control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.receipt{grid-template-columns:1fr;gap:16px}.charge{min-height:370px}.ticket{grid-template-columns:40% 1fr}.ticket-info{padding:18px 12px}.tip-help{margin-top:20px}}
+    @media print{body{background:#f1f1f1;padding:0}.shell{max-width:none}.controls,header,.print{display:none!important}.receipt{grid-template-columns:1.55fr 1fr;gap:24px}.charge,.ticket{box-shadow:none}.watermark{color:#1689ad!important}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header><h1>Parking receipt generator</h1><p class="subtitle">Here are some facts about your booking...</p></header>
+    <section class="controls" aria-label="Receipt settings">
+      <h2>Receipt settings</h2><div class="control-grid">
+        <div class="field"><label for="date">Parking date</label><input id="date" type="date"></div>
+        <div class="field"><label for="hour">Entry hour</label><input id="hour" type="number" min="0" max="23" value="9"><p class="hint">Minutes randomized</p></div>
+        <div class="field"><label for="duration">Duration (hours)</label><input id="duration" type="number" min="1" max="12" value="9"></div>
+        <div class="field"><label for="refDate">Reference date</label><input id="refDate" type="date"></div>
+        <div class="field"><label for="refNumber">Reference number</label><input id="refNumber" type="number" min="1" value="100000"></div>
+        <button id="generate" type="button">Generate</button>
+      </div>
+    </section>
+    <div class="layout receipt">
+      <section>
+        <div class="ticket">
+          <div class="ticket-photo">668 W. General Robinson St.<br>West General Robinson St. Garage<br><span style="color:#00c5ef">Get Directions ◆</span></div>
+          <div class="ticket-info"><div class="times">→ &nbsp;ENTRY<br>← &nbsp;EXIT</div><div class="times" id="times"></div><div class="pass-inline">PARKING PASS# <span class="pass-number" id="passNumber"></span></div></div>
+        </div>
+        <div class="tip-help">Tip: You can make changes to this booking by signing into the <span style="color:#08b5dc">My Account</span> page before you park.<hr><strong>NEED HELP?</strong><br><br>We'd love to help you any way we can! Visit our help center at <b>http://help.parkwhiz.com/</b>, text us at <b>888-472-7594</b>, or email us at <b>help@parkwhiz.com</b></div>
+      </section>
+      <section class="charge" aria-label="Parking charges"><div class="watermark">SAMPLE · NOT VALID</div>
+        <h2>PARKING CHARGES</h2><p class="purchased" id="purchased"></p>
+        <div class="eyebrow">PARKING PASS #</div><div class="pass-side" id="passCopy"></div>
+        <div class="payment"><div class="detail-label">PAYMENT TYPE</div><div class="detail-value">GOOGLE PAY</div></div>
+        <div class="cost"><span>Parking Cost</span><span>$9.77</span></div>
+        <div class="total"><span>TOTAL PURCHASE</span><strong>$9<sup style="font-size:20px">77</sup></strong></div>
+      </section>
+    </div>
+    <div class="print"><button type="button" onclick="window.print()">▣ &nbsp;PRINT</button></div>
+  </main>
+  <script>
+    (()=>{
+      const $=id=>document.getElementById(id), pad=n=>String(n).padStart(2,'0');
+      const localDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      const dateInput=$('date'), refInput=$('refDate');
+      const today=new Date(); dateInput.value=localDate(today); refInput.value=localDate(today);
+      const fmtDate=d=>new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(d);
+      const fmtTime=d=>new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit'}).format(d);
+      function render(){
+        const [y,m,day]=$('date').value.split('-').map(Number), [ry,rm,rd]=$('refDate').value.split('-').map(Number);
+        if(!y||!ry)return;
+        const selected=new Date(y,m-1,day), reference=new Date(ry,rm-1,rd);
+        const offset=Math.round((selected-reference)/86400000), base=Number($('refNumber').value)||100000;
+        const hour=Math.max(0,Math.min(23,Number($('hour').value)||0)), duration=Math.max(1,Math.min(12,Number($('duration').value)||9));
+        const entry=new Date(y,m-1,day,hour,Math.floor(Math.random()*60));
+        const exit=new Date(entry.getTime()+duration*3600000);
+        const pass=`${String(Math.max(1,base+offset)).padStart(9,'0')}`;
+        $('passNumber').textContent=pass; $('passCopy').textContent=pass;
+        $('purchased').textContent=`Purchased by Dilip Naik on ${fmtDate(today)}`;
+        $('times').innerHTML=`${fmtDate(entry).toUpperCase()} ${fmtTime(entry)}<br>${fmtDate(exit).toUpperCase()} ${fmtTime(exit)}`;
+      }
+      $('generate').addEventListener('click',render);
+      render();
+    })();
+  </script>
+</body>
+</html>

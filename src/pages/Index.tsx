@@ -5,13 +5,13 @@ import { useTheme } from "@/contexts/ThemeContext";
 // Android crash logger - shows errors visibly since Android WebView has no DevTools
 if (typeof window !== "undefined") {
   const origError = console.error.bind(console);
-  console.error = (...args: any[]) => {
+  console.error = (...args: unknown[]) => {
     origError(...args);
     // Store last error for display
     try {
       const msg = args.map(a => typeof a === "object" ? JSON.stringify(a) : String(a)).join(" ");
       sessionStorage.setItem("__last_error__", msg.slice(0, 500));
-    } catch {}
+    } catch { /* Error details may contain circular objects. */ }
   };
 }
 import { LinkAccountDialog } from "@/components/finance/LinkAccountDialog";
@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
 import { APK_DOWNLOAD_URL, APP_VERSION, BUILD_DATE } from "@/lib/constants";
 import { isLegacyPictureView } from "@/lib/picture/legacy-view";
 import {
-  LayoutDashboard, Sparkles, PieChart, Users, Loader2,
+  LayoutDashboard, Sparkles, PieChart, Users, Loader2, TrendingUp, ChevronLeft, ChevronRight,
   RefreshCw, Plus, Gift, Wallet, Download, X, MoreHorizontal, Compass,
   LogOut, Settings, ChevronsUpDown, Bell, Sun, Moon, History, Landmark, FlaskConical, Lightbulb,
   type LucideIcon,
@@ -97,6 +97,8 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("sentryfi_sidebar_collapsed") === "true");
+  useEffect(() => { localStorage.setItem("sentryfi_sidebar_collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
   const [showInbox, setShowInbox] = useState(false);
@@ -210,10 +212,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     return (
       <button
         onClick={() => go(tab.k)}
-        className={cn("nav-item w-full text-left", active && "active")}
+        title={sidebarCollapsed ? tab.label : undefined}
+        className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", active && "active")}
       >
         <Icon className="h-4 w-4 flex-shrink-0" />
-        <span>{tab.label}</span>
+        {!sidebarCollapsed && <span>{tab.label}</span>}
       </button>
     );
   };
@@ -268,47 +271,52 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
     <div className="h-[100dvh] bg-background flex overflow-hidden">
 
       {/* ── Desktop sidebar ─────────────────────────────────── */}
-      <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))]"
+      <aside className={cn("hidden md:flex flex-col shrink-0 border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-background))] transition-[width] duration-200 ease-out", sidebarCollapsed ? "w-[68px]" : "w-56")}
         style={{ WebkitOverflowScrolling: "touch" }}>
 
-        {/* Logo — click to return to the landing view */}
-        <button onClick={() => go("overall")}
-          className="flex items-center gap-3 px-4 py-5 border-b border-[hsl(var(--sidebar-border))] w-full text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors">
-          <div className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
-            <img src="/logo.png" alt="Sentry Finance" className="h-6 w-6 object-contain" />
-          </div>
-          <div>
-            <div className="text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</div>
-            {effectiveDemo && (
-              <div className="nc-example mt-0.5" data-testid="example-data">
-                <FlaskConical className="h-3 w-3" aria-hidden="true" />Example data
-              </div>
-            )}
-          </div>
-        </button>
+        {/* Brand/home link and collapse toggle share one aligned header. */}
+        <div className={cn("flex min-h-[64px] shrink-0 items-center border-b border-[hsl(var(--sidebar-border))]", sidebarCollapsed ? "justify-center gap-1 px-1" : "justify-between gap-3 px-4")}>
+          <button type="button" onClick={() => go("overall")} aria-label="Home" title={sidebarCollapsed ? "Home" : undefined}
+            className={cn("flex min-w-0 items-center rounded-lg text-left hover:bg-[hsl(var(--surface-hover)/0.4)] transition-colors", sidebarCollapsed ? "h-8 w-8 justify-center" : "gap-3 py-2")}>
+            <span className="h-8 w-8 rounded-lg overflow-hidden flex-shrink-0 bg-[hsl(var(--primary)/0.1)] grid place-items-center">
+              <img src="/logo.png" alt="" className="h-6 w-6 object-contain" />
+            </span>
+            {!sidebarCollapsed && <span className="min-w-0">
+              <span className="block text-[14px] font-semibold text-[hsl(var(--sidebar-accent-foreground))] leading-tight">Sentry Finance</span>
+              {effectiveDemo && <span className="nc-example mt-0.5" data-testid="example-data"><FlaskConical className="h-3 w-3" aria-hidden="true" />Example data</span>}
+            </span>}
+          </button>
+          <button type="button" onClick={() => setSidebarCollapsed(value => !value)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed} aria-controls="main-sidebar-nav"
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn("grid shrink-0 place-items-center rounded-lg text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-accent-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring))] transition-colors", sidebarCollapsed ? "h-6 w-6" : "h-8 w-8")}>
+            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" aria-hidden="true" /> : <ChevronLeft className="h-4 w-4" aria-hidden="true" />}
+          </button>
+        </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 scrollbar-none">
-          <div className="section-label">Overview</div>
-          <button onClick={() => go("overall")} className={cn("nav-item w-full text-left", view === "overall" && "active")}>
+        <nav id="main-sidebar-nav" className={cn("flex-1 overflow-y-auto py-3 space-y-0.5 scrollbar-none", sidebarCollapsed ? "px-1.5" : "px-2")}>
+          {!sidebarCollapsed && <div className="section-label">Overview</div>}
+          <button onClick={() => go("overall")} title={sidebarCollapsed ? "Home" : undefined} className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", view === "overall" && "active")}>
             <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
-            <span>Home</span>
+            {!sidebarCollapsed && <span>Home</span>}
           </button>
-          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open
-            className={cn("nav-item w-full text-left", timelineOpen && "active")}>
+          <button onClick={() => setTimelineOpen(o => !o)} aria-expanded={timelineOpen} data-tl-open title={sidebarCollapsed ? "Timeline" : undefined}
+            className={cn("nav-item w-full text-left", sidebarCollapsed && "justify-center px-0", timelineOpen && "active")}>
             <History className="h-4 w-4 flex-shrink-0" />
-            <span>Timeline</span>
+            {!sidebarCollapsed && <span>Timeline</span>}
           </button>
 
-          <div className="section-label">Money</div>
+          {!sidebarCollapsed && <div className="section-label">Money</div>}
           {TABS.filter(t => ["accounts","spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
-          <div className="section-label">More</div>
+          {!sidebarCollapsed && <div className="section-label">More</div>}
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           {isAdmin && !guestDemo && (
             <>
-              <div className="section-label">Admin</div>
+              {!sidebarCollapsed && <div className="section-label">Admin</div>}
               {TABS.filter(t => t.k === "admin").map(t => <NavItem key={t.k} tab={t} />)}
             </>
           )}
@@ -317,13 +325,13 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
         {/* Bottom actions — Sync/Link/Add manually share one "+ Add" menu, and
             Dark mode/Sign out live in the profile menu, so this block stays
             short instead of crowding the nav list above it. */}
-        <div className="px-2 py-3 border-t border-[hsl(var(--sidebar-border))] space-y-0.5">
+        <div className={cn("py-3 border-t border-[hsl(var(--sidebar-border))] space-y-0.5", sidebarCollapsed ? "px-1.5" : "px-2")}>
           {!effectiveDemo && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="nav-item w-full">
+                <button className={cn("nav-item w-full", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? "Add" : undefined}>
                   <Plus className="h-4 w-4" />
-                  Add
+                  {!sidebarCollapsed && "Add"}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-56 surface-elevated">
@@ -345,20 +353,20 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             </DropdownMenu>
           )}
           {(user || effectiveDemo) && (
-            <button onClick={() => setShowInbox(true)} className="nav-item w-full" aria-label={notifLabel}>
+            <button onClick={() => setShowInbox(true)} className={cn("nav-item relative w-full", sidebarCollapsed && "justify-center px-0")} aria-label={notifLabel} title={sidebarCollapsed ? "Notifications" : undefined}>
               <Bell className="h-4 w-4" />
-              Notifications
+              {!sidebarCollapsed && "Notifications"}
               {unreadCount > 0 && (
-                <span className="nc-side-badge" data-testid="inbox-badge-side" aria-hidden="true"></span>
+                <span className={cn("nc-side-badge", sidebarCollapsed && "absolute top-1")} style={sidebarCollapsed ? { right: "calc(50% - 8px)" } : undefined} data-testid="inbox-badge-side" aria-hidden="true"></span>
               )}
             </button>
           )}
           {user && !guestDemo ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="nav-item w-full">
+                <button className={cn("nav-item w-full", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? "Profile & settings" : undefined}>
                   <Settings className="h-4 w-4" />
-                  Profile &amp; settings
+                  {!sidebarCollapsed && <>Profile &amp; settings</>}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-56 surface-elevated">
@@ -378,31 +386,29 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <button onClick={toggleTheme} className="nav-item w-full">
+            <button onClick={toggleTheme} className={cn("nav-item w-full", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? (dark ? "Light mode" : "Dark mode") : undefined}>
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              {dark ? "Light mode" : "Dark mode"}
+              {!sidebarCollapsed && (dark ? "Light mode" : "Dark mode")}
             </button>
           )}
           {demo && !guestDemo && (
-            <button onClick={() => setDemo(false)} className="nav-item w-full text-warning">
+            <button onClick={() => setDemo(false)} className={cn("nav-item w-full text-warning", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? "Exit demo" : undefined}>
               <Sparkles className="h-4 w-4" />
-              Exit demo
+              {!sidebarCollapsed && "Exit demo"}
             </button>
           )}
           {guestDemo && (
-            <button onClick={() => navigate("/auth")} className="nav-item w-full">
+            <button onClick={() => navigate("/auth")} className={cn("nav-item w-full", sidebarCollapsed && "justify-center px-0")} title={sidebarCollapsed ? "Create free account" : undefined}>
               <LogOut className="h-4 w-4" />
-              Create free account
+              {!sidebarCollapsed && "Create free account"}
             </button>
           )}
-          <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/30 select-none">
-            v{APP_VERSION} · {BUILD_DATE}
-          </div>
+          {!sidebarCollapsed && <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/30 select-none">v{APP_VERSION} · {BUILD_DATE}</div>}
         </div>
       </aside>
 
       {/* ── Content area ────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+      <div className={cn("flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden", view === "overall" && "home-shell")}>
 
         {/* Mobile header */}
         {/* viewport-fit=cover (index.html) lets the app draw under the status
@@ -535,7 +541,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
 
         {/* Main scroll area */}
         <main
-          className={cn("flex-1 overflow-y-auto", view === "spending" && "flex min-h-0 flex-col overflow-hidden")}
+          className={cn("flex-1 overflow-y-auto", view === "spending" && "flex min-h-0 flex-col overflow-hidden", view === "overall" && "flex min-h-0 flex-col overflow-hidden")}
           style={{ WebkitOverflowScrolling: "touch", overscrollBehaviorY: "contain" }}
         >
           {/* Spending / My Financial Picture — full-bleed. These views skip the padded
@@ -651,6 +657,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
             {showEmpty && <EmptyDashboard onLink={() => setLinkOpen(true)} onAddManual={!guestDemo ? () => setManualOpen(true) : undefined} />}
 
             {showLive && (
+              <div className={view === "overall" ? "flex-1 min-h-0" : undefined}>
               <LivePlaidDashboard
                 hasItems
                 onAddAccount={() => setLinkOpen(true)}
@@ -664,9 +671,11 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 onEditManual={acct => { setEditingManual(acct); setManualOpen(true); }}
                 onDeleteManual={removeManual}
               />
+              </div>
             )}
 
             {effectiveDemo && view !== "giftcards" && view !== "admin" && (
+              <div className={view === "overall" ? "flex-1 min-h-0" : undefined}>
               <LivePlaidDashboard
                 demo
                 guestDemo={guestDemo}
@@ -678,14 +687,19 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 selectedCategory={selectedCategory}
                 onCategorySelect={handleCategorySelect}
               />
+              </div>
             )}
 
-            {view === "giftcards" && <GiftCardsSection demo={guestDemo} />}
+            {view === "giftcards" && (
+              <div className="flex-1 min-h-0">
+                <GiftCardsSection demo={guestDemo} />
+              </div>
+            )}
             {view === "admin" && isAdmin && !guestDemo && <AdminUsersSection />}
 
-            <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
+            {view !== "overall" && <div className="text-center text-[12px] text-muted-foreground/40 pt-4">
               Sentry Finance v{APP_VERSION} · {effectiveDemo ? "Demo data" : "Live data"}
-            </div>
+            </div>}
           </div>
           )} {/* end: view !== spending/myfinances */}
         </main>

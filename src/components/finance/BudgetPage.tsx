@@ -64,8 +64,8 @@ import type { ManualIncomeItem, SavingsGoal, RecurringGroup, AccountRoleInfo, Pl
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PTxn { id:string; account_id:string; amount:number|string; date:string; name:string|null; merchant_name:string|null; category?:string[]|null; pending?:boolean; [k:string]:any; }
-interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; type:string|null; subtype:string|null; mask?:string|null; [k:string]:any; }
+interface PTxn { id:string; account_id:string; amount:number|string; date:string; name:string|null; merchant_name:string|null; category?:string[]|null; pending?:boolean; [k:string]:unknown; }
+interface PAccount { id:string; account_id:string; name:string|null; official_name:string|null; type:string|null; subtype:string|null; mask?:string|null; [k:string]:unknown; }
 
 interface BudgetPageProps {
   txns: PTxn[];

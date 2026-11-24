@@ -11,6 +11,7 @@ export type PTxn = {
   id: string; account_id: string; item_id: string | null; transaction_id: string | null;
   amount: number; date: string; authorized_date: string | null;
   name: string | null; merchant_name: string | null; category: string[] | null;
+  logo_url?: string | null; website?: string | null;
   pending: boolean | null; payment_channel: string | null;
 };
 

@@ -6,6 +6,13 @@ import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '..
 
 const PLAID_ENV = Deno.env.get('PLAID_ENV') || 'sandbox';
 const PLAID_BASE = `https://${PLAID_ENV}.plaid.com`;
+type AdminClient = ReturnType<typeof createClient>;
+type PlaidApr = { apr_type?: string; apr_percentage?: number | null };
+type PlaidCreditLiability = {
+  account_id: string; last_statement_balance?: number | null; last_payment_amount?: number | null;
+  last_payment_date?: string | null; minimum_payment_amount?: number | null;
+  next_payment_due_date?: string | null; is_overdue?: boolean | null; aprs?: PlaidApr[];
+};
 
 // Category mapping (detailed personal_finance_category) and the cursor-safe
 // sync loop live in ../_shared so both Plaid functions behave identically.
@@ -67,7 +74,7 @@ Deno.serve(async (req) => {
   }
 });
 
-async function syncAccounts(admin: any, itemRowId: string, userId: string, accessToken: string) {
+async function syncAccounts(admin: AdminClient, itemRowId: string, userId: string, accessToken: string) {
   try {
     const res = await fetch(`${PLAID_BASE}/accounts/get`, {
       method: 'POST',
@@ -86,7 +93,7 @@ async function syncAccounts(admin: any, itemRowId: string, userId: string, acces
   }
 }
 
-async function syncLiabilities(admin: any, userId: string, accessToken: string) {
+async function syncLiabilities(admin: AdminClient, userId: string, accessToken: string) {
   try {
     const res = await fetch(`${PLAID_BASE}/liabilities/get`, {
       method: 'POST',
@@ -110,10 +117,10 @@ async function syncLiabilities(admin: any, userId: string, accessToken: string) 
 
     await upsertCreditStatements(admin, userId, data.liabilities); // never throws; statement history for autopay mode
 
-    const creditCards = data.liabilities?.credit ?? [];
+    const creditCards = (data.liabilities?.credit ?? []) as PlaidCreditLiability[];
     if (!creditCards.length) return;
 
-    const rows = creditCards.map((c: any) => ({
+    const rows = creditCards.map(c => ({
       user_id: userId,
       account_id: c.account_id,
       last_statement_balance: c.last_statement_balance,
@@ -122,7 +129,7 @@ async function syncLiabilities(admin: any, userId: string, accessToken: string) 
       minimum_payment_amount: c.minimum_payment_amount,
       next_payment_due_date: c.next_payment_due_date,
       is_overdue: c.is_overdue ?? false,
-      apr: c.aprs?.find((a: any) => a.apr_type === 'purchase_apr')?.apr_percentage ?? c.aprs?.[0]?.apr_percentage ?? null,
+      apr: c.aprs?.find(a => a.apr_type === 'purchase_apr')?.apr_percentage ?? c.aprs?.[0]?.apr_percentage ?? null,
       updated_at: new Date().toISOString(),
     }));
     await admin.from('plaid_credit_details').upsert(rows, { onConflict: 'user_id,account_id' });

@@ -40,7 +40,7 @@ export function resolveCategory(t: PlaidTxn): string[] | null {
   return null;
 }
 
-export function toRow(t: PlaidTxn, userId: string, itemRowId: string, withPfc: boolean) {
+export function toRow(t: PlaidTxn, userId: string, itemRowId: string, withPfc: boolean, withRawCategory = true) {
   const row: Record<string, unknown> = {
     user_id: userId,
     item_id: itemRowId,
@@ -52,10 +52,13 @@ export function toRow(t: PlaidTxn, userId: string, itemRowId: string, withPfc: b
     authorized_date: t.authorized_date,
     name: t.name,
     merchant_name: t.merchant_name,
+    logo_url: t.logo_url ?? null,
+    website: t.website ?? null,
     category: resolveCategory(t),
     pending: t.pending,
     payment_channel: t.payment_channel,
   };
+  if (withRawCategory) row.plaid_category = Array.isArray(t.category) ? t.category : null;
   if (withPfc) {
     row.pfc_primary = t.personal_finance_category?.primary ?? null;
     row.pfc_detailed = t.personal_finance_category?.detailed ?? null;
@@ -76,14 +79,26 @@ export function dedupeByTransactionId<T extends { transaction_id: string }>(list
 const isMissingColumn = (e: { code?: string; message?: string } | null) =>
   !!e && (e.code === "PGRST204" || e.code === "42703" || /column .* (does not exist|could not find)/i.test(e.message ?? ""));
 
-async function writeRows(admin: Admin, rows: Record<string, unknown>[], state: { withPfc: boolean }) {
+async function writeRows(admin: Admin, rows: Record<string, unknown>[], state: { withPfc: boolean; withBranding: boolean; withRawCategory: boolean }) {
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     let chunk = rows.slice(i, i + CHUNK);
+    if (!state.withRawCategory) chunk = chunk.map(({ plaid_category: _a, ...r }) => r);
+    if (!state.withPfc) chunk = chunk.map(({ pfc_primary: _a, pfc_detailed: _b, pfc_confidence: _c, merchant_entity_id: _d, ...r }) => r);
+    if (!state.withBranding) chunk = chunk.map(({ logo_url: _a, website: _b, ...r }) => r);
     let { error } = await admin.from("plaid_transactions").upsert(chunk, { onConflict: "transaction_id" });
-    if (error && state.withPfc && isMissingColumn(error)) {
-      state.withPfc = false;
-      chunk = chunk.map(({ pfc_primary: _a, pfc_detailed: _b, pfc_confidence: _c, merchant_entity_id: _d, ...r }) => r);
+    for (let retry = 0; error && isMissingColumn(error) && retry < 3; retry++) {
+      const message = error.message ?? "";
+      if (state.withRawCategory && /plaid_category/i.test(message)) {
+        state.withRawCategory = false;
+        chunk = chunk.map(({ plaid_category: _a, ...r }) => r);
+      } else if (state.withBranding && /logo_url|website/i.test(message)) {
+        state.withBranding = false;
+        chunk = chunk.map(({ logo_url: _a, website: _b, ...r }) => r);
+      } else if (state.withPfc && /pfc_primary|pfc_detailed|pfc_confidence|merchant_entity_id/i.test(message)) {
+        state.withPfc = false;
+        chunk = chunk.map(({ pfc_primary: _a, pfc_detailed: _b, pfc_confidence: _c, merchant_entity_id: _d, ...r }) => r);
+      } else break;
       ({ error } = await admin.from("plaid_transactions").upsert(chunk, { onConflict: "transaction_id" }));
     }
     if (error) throw new Error(`upsert failed: ${error.message ?? JSON.stringify(error)}`);
@@ -102,7 +117,7 @@ export async function syncItemTransactions(
   opts: { itemRowId: string; userId: string; accessToken: string; cursor: string | null },
 ): Promise<SyncResult> {
   const doFetch = cfg.fetchFn ?? fetch;
-  const state = { withPfc: true };
+  const state = { withPfc: true, withBranding: true, withRawCategory: true };
   let attempts = 0;
   while (true) {
     attempts++;
@@ -130,7 +145,7 @@ export async function syncItemTransactions(
         }
         const changed = dedupeByTransactionId([...(data.added ?? []), ...(data.modified ?? [])]);
         if (changed.length) {
-          await writeRows(admin, changed.map(t => toRow(t, opts.userId, opts.itemRowId, state.withPfc)), state);
+          await writeRows(admin, changed.map(t => toRow(t, opts.userId, opts.itemRowId, state.withPfc, state.withRawCategory)), state);
           count += changed.length;
         }
         const ids = (data.removed ?? []).map((r: { transaction_id: string }) => r.transaction_id).filter(Boolean);

@@ -142,9 +142,14 @@ export function findPossibleDuplicateIds<T extends DupTxnLike>(txns: T[]): strin
   }
   const flagged = new Set<string>();
   for (const rows of buckets.values()) {
-    if (rows.length < 2) continue;
-    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
-      if (vendorsMatch(normalizeVendor(rows[i]), normalizeVendor(rows[j]))) { flagged.add(rows[i].id); flagged.add(rows[j].id); }
+    // A repeated same-day amount at a merchant that commonly processes
+    // discrete events (bets, tickets, small retail) is not enough evidence
+    // to label every row a duplicate. Only surface an unambiguous two-row
+    // candidate; larger groups stay untouched for the user to review/search.
+    if (rows.length !== 2) continue;
+    if (vendorsMatch(normalizeVendor(rows[0]), normalizeVendor(rows[1]))) {
+      flagged.add(rows[0].id);
+      flagged.add(rows[1].id);
     }
   }
   return Array.from(flagged);

@@ -99,7 +99,7 @@ describe("fmtPct", () => {
 // ── buildNWByPeriod — safe with empty txns ────────────────────────
 // CRASH potential: reduce on empty array, Date math on bad strings
 describe("buildNWByPeriod safety", () => {
-  const buildNWByPeriod = (netWorth: number, txns: any[], period: string) => {
+  const buildNWByPeriod = (netWorth: number, txns: { date: string; amount: number | string }[], period: string) => {
     const today = new Date(); today.setHours(0,0,0,0);
     const makePoints = (count: number, stepDays: number) =>
       Array.from({ length: count }, (_, i) => {
@@ -116,7 +116,7 @@ describe("buildNWByPeriod safety", () => {
       case "1Y":  points = makePoints(12, 30); break;
       default: {
         if (txns.length === 0) { points = makePoints(6, 30); break; }
-        const oldest = txns.reduce((m: string, t: any) => t.date < m ? t.date : m, txns[0].date);
+        const oldest = txns.reduce((m: string, t) => t.date < m ? t.date : m, txns[0].date);
         const diff = Math.ceil((today.getTime() - new Date(oldest).getTime()) / (30 * 86400000)) + 1;
         const cnt = Math.min(Math.max(diff, 3), 24);
         points = makePoints(cnt, 30);
@@ -124,7 +124,7 @@ describe("buildNWByPeriod safety", () => {
       }
     }
     return points.map(({ date }) => {
-      const adj = txns.filter((t: any) => t.date > date).reduce((s: number, t: any) => s + Number(t.amount), 0);
+      const adj = txns.filter(t => t.date > date).reduce((s, t) => s + Number(t.amount), 0);
       return { v: Math.round(netWorth + adj) };
     });
   };
@@ -183,7 +183,7 @@ describe("UserSettings defaults are always safe arrays", () => {
   });
 
   it("dbToSettings handles null/undefined DB fields safely", () => {
-    const dbToSettings = (row: any) => ({
+    const dbToSettings = (row: Record<string, unknown>) => ({
       catRules:           Array.isArray(row.cat_rules)          ? row.cat_rules          : [],
       panelOrder:         Array.isArray(row.panel_order)        ? row.panel_order        : [],
       manualIncome:       Array.isArray(row.manual_income)      ? row.manual_income      : [],

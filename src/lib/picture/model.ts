@@ -394,12 +394,15 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
   // regrouped still counts, so Salary never drops to $0 while pay arrives.
   const salaryItems = [...review.items, ...review.dismissed].filter(i => i.direction === "inflow" && i.kind === "salary").sort((a, b) => b.monthly - a.monthly);
   const salaryTxns: PTxn[] = [], bonusTxns: PTxn[] = [], otherTxns: PTxn[] = [];
+  const nonSalaryFlowTypes = new Set<TxnType>(["transfer_internal", "transfer_in", "transfer_out", "credit_card_payment", "savings_contribution", "obligation_loan", "obligation_tax", "obligation_bill"]);
   for (const t of posted) {
     if (t.date < since365) continue;
     const c = classOf(t);
-    if (!c || bucketOf.get(t.id) !== "income" || num(t.amount) >= 0) continue;
+    if (!c || num(t.amount) >= 0 || nonSalaryFlowTypes.has(c.type)) continue;
+    const salaryCategory = /\b(salary|payroll|wages)\b/i.test(getEffectiveCategory(t) || "");
+    if (c.type !== "income_salary" && !salaryCategory) continue;
     const desc = `${t.merchant_name ?? ""} ${t.name ?? ""}`;
-    if (c.type === "income_salary") (BONUS_RE.test(desc) ? bonusTxns : salaryTxns).push(t);
+    (BONUS_RE.test(desc) ? bonusTxns : salaryTxns).push(t);
   }
   const newestFirst = (a: PTxn, b: PTxn) => b.date.localeCompare(a.date);
   salaryTxns.sort(newestFirst); bonusTxns.sort(newestFirst); otherTxns.sort(newestFirst);
@@ -443,7 +446,8 @@ export function buildPictureModel(inp: PictureInputs): PictureModel {
     return Math.max(0, v);
   };
   const income: PictureRow[] = [];
-  const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence] : null;
+  const payWord = payCadence ? { weekly: "4–5 paychecks a month", biweekly: "every 2 weeks", semimonthly: "2 paychecks a month", monthly: "1 paycheck a month", quarterly: "quarterly", semiannual: "twice a year", yearly: "once a year" }[payCadence]
+    : salaryMonthly > 0 ? "recent average · last 90 days" : null;
   income.push({
     group: "income", id: "salary", label: "Salary",
     sub: payWord ? `Take-home · ${payWord}${salaryItems.length > 1 ? ` · ${salaryItems.map(i => i.label).join(" & ")}` : ` · ${salaryItems[0].pattern}`}` : salaryEstimated ? "Take-home · averaged over the last 3 months" : salaryTxns.length ? "Payroll found · pay schedule not confirmed" : "No recurring pay pattern detected",
