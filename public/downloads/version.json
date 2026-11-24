@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1250,
-  "sha256": "6121a368ea8d1397c713d789df9408ab81d73d5fe945401611b6d82b8431e3ee",
-  "size": 7509896,
-  "releaseNotes": "Accounts redesign (UI): net worth hero, compact rows, By type/By bank, details sheet, rename/hide",
+  "versionCode": 1251,
+  "sha256": "8c4cb629d74f67fd63a11ffaab918e70fbcc6759c6ed760b430278f30a7dde1c",
+  "size": 7510164,
+  "releaseNotes": "Accounts data: card limits, sync health, reconnect update mode, hidden accounts everywhere (stacked on #64)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-24T18:45:45.910Z"
+  "publishedAt": "2026-11-24T20:03:48.281Z"
 }
