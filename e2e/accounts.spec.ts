@@ -345,7 +345,8 @@ test.describe("Hidden accounts elsewhere (PR B)", () => {
       await page.addInitScript(() => sessionStorage.setItem("sentryfi_view", "spending"));
       await page.goto("/");
       const main = page.locator("main");
-      await expect(main).toContainText("Manage budgets", { timeout: 20_000 });
+      // Spending's period summary (main's Spending polish dropped "Manage budgets").
+      await expect(main).toContainText(/Out \$/, { timeout: 20_000 });
       // Sapphire (Whole Foods $86.42 + Con Edison $128) is the only spending.
       await expect(main).toContainText(hidden ? "Out $0" : "Out $214.42");
       if (hidden) await expect(main).not.toContainText("Whole Foods");

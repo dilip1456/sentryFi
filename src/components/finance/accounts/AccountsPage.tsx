@@ -92,6 +92,19 @@ function toClassifierTxn(t: PageTxn, transaction_id: string): ClassifierTxn & { 
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
 
+/** Remember a missing-column error so we don't retry it on every open (until 20261118100000_accounts_data.sql is applied). */
+let healthColsMissing = false;
+
+async function loadItemHealth(userId: string): Promise<ItemHealth[]> {
+  if (!healthColsMissing) {
+    const full = await supabase.from("plaid_items").select("id,status,updated_at,error_code,error_at,last_synced_at").eq("user_id", userId);
+    if (!full.error) return full.data ?? [];
+    healthColsMissing = true;
+  }
+  const basic = await supabase.from("plaid_items").select("id,status,updated_at").eq("user_id", userId);
+  return basic.error ? [] : (basic.data ?? []);
+}
+
 function useItemHealth(userId: string | undefined, demo: boolean | undefined, items: InstitutionItem[], loadedAt: Date | null) {
   const [health, setHealth] = useState<Record<string, ItemHealth>>({});
   const [loans, setLoans] = useState<LoanDetailLike[]>([]);
@@ -100,12 +113,11 @@ function useItemHealth(userId: string | undefined, demo: boolean | undefined, it
     if (!userId || demo) return;
     let live = true;
     (async () => {
-      // error_code / error_at / last_synced_at arrive with the accounts-data
-      // migration (PR #65); until then sync health is status + updated_at.
-      const res = await supabase.from("plaid_items").select("id,status,updated_at").eq("user_id", userId);
+      // error_code / error_at / last_synced_at come from the accounts-data
+      // migration; before it is applied, health falls back to status + updated_at.
+      const rows = await loadItemHealth(userId);
       const ln = await supabase.from("plaid_loan_details").select("account_id,kind,next_payment_due_date,next_monthly_payment,interest_rate").eq("user_id", userId);
       if (!live) return;
-      const rows: ItemHealth[] = res.error ? [] : (res.data ?? []);
       setHealth(Object.fromEntries(rows.map(h => [h.id, h])));
       const loanRows: LoanDetailLike[] = ln.error ? [] : (ln.data ?? []);
       setLoans(loanRows);

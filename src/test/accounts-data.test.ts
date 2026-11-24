@@ -142,7 +142,8 @@ describe("hidden accounts", () => {
     const src = read("supabase/functions/send-alerts/index.ts");
     expect(src).toMatch(/account_roles,account_meta"/);
     expect(src).toMatch(/select\("id,account_id,/);
-    // budget totals, low balance, payment due, large charge, credits
-    expect((src.match(/isHidden\(/g) ?? []).length).toBe(5);
+    // budget totals, low balance, payment due, large charge, price change, credits
+    expect((src.match(/isHidden\(/g) ?? []).length).toBe(6);
+    expect(src).toMatch(/if \(isHidden\(c\.accountId\)\) continue;/);
   });
 });
