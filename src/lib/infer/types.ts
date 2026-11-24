@@ -21,6 +21,8 @@ export const INFERENCE_KINDS = [
   "price_increase", // §3.9
   "card_interest", // §3.11
   "interest_earned", // §3.20
+  "account_dormant", // Accounts: tiny balance, no activity for 120+ days
+  "account_duplicate", // Accounts: same bank + mask + type linked twice
 ] as const;
 export type InferenceKind = (typeof INFERENCE_KINDS)[number];
 

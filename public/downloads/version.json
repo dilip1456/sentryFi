@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1249,
-  "sha256": "7022ade021b22615bd4a7b3a64bc118567d45826215164a35a7c60f91f368d84",
-  "size": 7496660,
-  "releaseNotes": "Polish sidebar and spending experience",
+  "versionCode": 1251,
+  "sha256": "8c4cb629d74f67fd63a11ffaab918e70fbcc6759c6ed760b430278f30a7dde1c",
+  "size": 7510164,
+  "releaseNotes": "Accounts data: card limits, sync health, reconnect update mode, hidden accounts everywhere (stacked on #64)",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-19T02:39:59.889Z"
+  "publishedAt": "2026-11-24T20:03:48.281Z"
 }

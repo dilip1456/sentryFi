@@ -124,17 +124,20 @@ describe("QA account group balances & net worth (rendered)", () => {
     // 5000 + 20000 + 30000 − (1200 + 9000)
     expect((await valueAfterLabel(/^net worth$/i))[0]).toMatch(/^\$44,800(?![\d.])/);
   });
-  it("group subtotals per bucket and Net Cash = cash − credit cards", async () => {
-    // Account groups moved from Home into their own Accounts tab (3d547d5).
+  it("Accounts: net worth matches Home and group subtotals per bucket", async () => {
+    // The Accounts page (redesign) leads with the same net worth as Home
+    // (shared src/lib/accounts/totals.ts) instead of Net Cash.
     const r = renderDashboard("accounts");
-    await screen.findByText(/Net Cash/);
+    await screen.findByTestId("accounts-page");
+    expect((await screen.findByTestId("ac-networth")).textContent).toMatch(/^\$44,800(?![\d,])/);
     const text = (r.container.textContent ?? "").replace(/\s+/g, " ");
-    expect(text).toMatch(/Net Cash\s*\$23,800/);
-    expect(text).toMatch(/Checking\s*1 account\s*\$5,000/);
-    expect(text).toMatch(/Savings\s*1 account\s*\$20,000/);
-    expect(text).toMatch(/Credit Cards\s*1 account\s*\$1,200/);
-    expect(text).toMatch(/Loans & Mortgages\s*1 account\s*\$9,000/);
-    expect(text).toMatch(/Investments\s*1 account\s*\$30,000/);
+    expect(text).not.toMatch(/Net Cash/);
+    expect(text).not.toMatch(/\d+ accounts?\b/); // no counts in the UI
+    expect(text).toMatch(/Checking\s*\$5,000/);
+    expect(text).toMatch(/Savings\s*\$20,000/);
+    expect(text).toMatch(/Credit cards\s*12% of \$10K limit used\s*[−-]\$1,200/);
+    expect(text).toMatch(/Loans\s*[−-]\$9,000/);
+    expect(text).toMatch(/Investments\s*\$30,000/);
   });
   it("renders no null/undefined/NaN text on Home or Spending", async () => {
     for (const v of ["overall", "spending"] as const) {

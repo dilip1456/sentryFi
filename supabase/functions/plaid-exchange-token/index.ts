@@ -1,6 +1,6 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2.106.2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2.106.2';
-import { syncItemTransactions } from '../_shared/plaid-sync.ts';
+import { recordItemHealth, syncItemTransactions } from '../_shared/plaid-sync.ts';
 import { plaidAccountRows, upsertPlaidAccounts } from '../_shared/plaid-accounts.ts';
 import { plaidErrorSummary, upsertCreditStatements, upsertLoanDetails } from '../_shared/plaid-liabilities.ts';
 
@@ -95,7 +95,8 @@ Deno.serve(async (req) => {
     }
 
     // Kick off initial transactions sync
-    await syncItemTransactions(admin, SYNC_CFG, { itemRowId: itemRow.id, userId: user.id, accessToken: access_token, cursor: null });
+    const first = await syncItemTransactions(admin, SYNC_CFG, { itemRowId: itemRow.id, userId: user.id, accessToken: access_token, cursor: null });
+    await recordItemHealth(admin, itemRow.id, first); // never throws
 
     // Fetch credit card details (statement balance, due date, APR, etc.)
     await syncLiabilities(admin, user.id, access_token);

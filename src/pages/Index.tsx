@@ -309,7 +309,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
           </button>
 
           {!sidebarCollapsed && <div className="section-label">Money</div>}
-          {TABS.filter(t => ["spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
+          {TABS.filter(t => ["accounts","spending","myfinances","insights"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
 
           {!sidebarCollapsed && <div className="section-label">More</div>}
           {TABS.filter(t => ["giftcards","benefits"].includes(t.k)).map(t => <NavItem key={t.k} tab={t} />)}
@@ -643,7 +643,7 @@ const Index = ({ guestDemo = false }: { guestDemo?: boolean }) => {
                 (was "Dashboard", a name used nowhere else). */}
             <PageHeader className="hidden md:flex"
               title={view === "overall" ? (profile?.display_name ? `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, ${profile.display_name.split(" ")[0]}` : "Home") : (TABS.find(t => t.k === view)?.label ?? "Home")}
-              subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+              subtitle={view === "accounts" ? "Everything you own and owe, in one list" : new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
               actions={topButtons}
             />
 
