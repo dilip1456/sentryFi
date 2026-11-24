@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { CategoryRule } from "./useCategoryRules";
 import type { SmartRule } from "@/lib/txn-rules";
+import type { AccountMetaEntry, AccountsPrefs } from "@/lib/accounts/types";
 import {
   readMigrationState, planBudgetMigration, isMigrationConfirmed, finishBudgetMigration,
 } from "@/lib/budgets-migration";
@@ -158,7 +159,8 @@ export interface UserSettings {
   plannedTransfers: PlannedTransfer[];          // confirmed "move money" suggestions shown on Home
   savingsGoals: SavingsGoal[];                   // Budget page's "Planned Savings" tracked goals
   panelOrder: string[];
-  accountMeta: Record<string, { apr?: number; nickname?: string }>;
+  /** Per-account settings (src/lib/accounts/types.ts) plus the "__accounts" page prefs entry. */
+  accountMeta: Record<string, AccountMetaEntry & AccountsPrefs>;
   benefitsUsed: Record<string, boolean>;
   moneyMapFeedback: Record<string, { feedback: string; at: string }>;
   // Per-transaction annotations, keyed by transaction id — same "sparse map"
@@ -724,7 +726,7 @@ export const useUserSettings = (userId: string | undefined) => {
 
   const setPanelOrder = (order: string[]) => update({ panelOrder: order });
 
-  const setAccountMeta = (accountId: string, meta: { apr?: number; nickname?: string }) =>
+  const setAccountMeta = (accountId: string, meta: Partial<AccountMetaEntry & AccountsPrefs>) =>
     update({ accountMeta: { ...latestSettings.current.accountMeta, [accountId]: { ...latestSettings.current.accountMeta[accountId], ...meta } } });
 
   const setBenefitUsed = (key: string, used: boolean) =>
