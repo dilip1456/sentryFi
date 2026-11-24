@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1253,
-  "sha256": "c8faebbe3576cb196ce6d1a5a5e6e97e524e8bab0719346fcd2dfce4f985cbbd",
-  "size": 7510736,
-  "releaseNotes": "build(deps): bump actions/setup-java from 6.1.0 to 6.3.0",
+  "versionCode": 1254,
+  "sha256": "a9fd6fac7aec385efb0dffb838a2bf0c6bab5e347cd8def72a59dd9b968aebfa",
+  "size": 7510760,
+  "releaseNotes": "build(deps-dev): bump the dev-tooling group across 1 directory with 7 updates",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-24T22:10:30.174Z"
+  "publishedAt": "2026-11-24T23:06:50.607Z"
 }
