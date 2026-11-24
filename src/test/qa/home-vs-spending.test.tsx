@@ -86,12 +86,19 @@ describe("QA Home cash-flow strip (rendered)", () => {
   });
 });
 
+// Since 0deb04e ("Consolidate finance insights and polish transaction
+// views", pushed to main Nov 18) Spending's period strip is a gross cash view:
+// "Out" counts only purchases (positive amounts) and leaves out loan payments
+// (obligation_loan, e.g. the $1,500 mortgage); "In" counts every non-transfer
+// inflow, so the $50 Shopping refund shows as money in instead of netting.
+//   Out = Groceries 100 + Shopping 200 + pending 40 = $340
+//   In  = Salary 3000 + refund 50 = $3,050
 describe("QA Spending page totals (rendered)", () => {
-  it("Spent (period summary 'Out') excludes income, ignored categories (card payment) and confirmed internal transfers", async () => {
-    expect(await spendingTotal()).toBe(1790);
+  it("Spent (period summary 'Out') excludes income, refunds, loan payments, ignored categories (card payment) and confirmed internal transfers", async () => {
+    expect(await spendingTotal()).toBe(340);
   });
-  it("Earned matches Home income", async () => {
-    expect(await periodSummary()).toMatch(/In\s*\$3,000(?![\d.])/);
+  it("Earned = Home income + merchant refunds (refunds are money in on Spending)", async () => {
+    expect(await periodSummary()).toMatch(/In\s*\$3,050(?![\d.])/);
   });
   it("one period summary serves every width (no duplicate mobile 'Spent' card)", async () => {
     renderDashboard("spending");
@@ -100,12 +107,14 @@ describe("QA Spending page totals (rendered)", () => {
 });
 
 describe("QA Home vs Spending parity", () => {
-  // Was the headline KNOWN BUG ($590 vs $1,865). Both screens now use the
-  // shared classifier.
-  it("Home 'Spent this month' === Spending 'Total spent' for the current month", async () => {
+  // Was the headline KNOWN BUG ($590 vs $1,865). Both screens use the shared
+  // classifier. Since 0deb04e they differ ONLY by the deliberate Spending
+  // definitions above: Home nets refunds and counts the mortgage, Spending's
+  // "Out" does neither. Pin that exact reconciliation so any other drift fails.
+  it("Home 'Spent this month' = Spending 'Out' + loan payments − refunds for the current month", async () => {
     const home = await homeSpent();
-    expect(home).toBe(await spendingTotal());
     expect(home).toBe(1790);
+    expect(await spendingTotal()).toBe(home - 1500 + 50);
   });
 });
 

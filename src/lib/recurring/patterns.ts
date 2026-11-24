@@ -86,3 +86,7 @@ export function billSubtype(text: string): BillSubtype | null {
 /** Descriptors that strongly imply a once-a-year charge. */
 export const YEARLY_HINT_RE =
   /\b(annual|yearly|renewal|annual\s*fee|membership\s*fee|dmv|bmv|mvd|motor\s*vehicles?|vehicle\s*registration|registration\s*renewal|tag\s*renewal|property\s*tax|prime\s*membership|costco\s*(member|annual)|premium\s*renewal)\b/i;
+
+/** Subscriptions and memberships are the exception to ad-hoc merchants. */
+export const SUBSCRIPTION_RE =
+  /subscri|membership|member\s?fee|\bgym\b|fitness|netflix|spotify|hulu|disney\s*\+?|\bhbo\b|max\.com|youtube\s*(premium|tv)|apple\.com\/bill|icloud|amazon\s*prime|prime\s*video|audible|patreon|adobe|microsoft\s*365|google\s*(storage|one)|dropbox|peloton|costco\s*(member|annual)|sam'?s\s*club|walmart\+|dashpass|uber\s*one|instacart\s*\+|siriusxm|\bnyt\b|duolingo|chatgpt|openai|onlyfans|xbox\s*game\s*pass|playstation\s*plus|nintendo\s*online/i;

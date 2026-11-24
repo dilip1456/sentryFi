@@ -20,11 +20,15 @@ import { CategorySuggestions } from "@/components/finance/CategorySuggestions";
 import { SpendingBudgetView } from "@/components/finance/SpendingBudgetView";
 import { ImportStatementModal } from "@/components/finance/ImportStatementModal";
 import { MyFinancialPicture } from "@/components/finance/MyFinancialPicture";
+import type { PTxn as PictureTxn } from "@/lib/picture/model";
+import { PictureSkeleton } from "@/components/finance/picture/PictureSkeleton";
 import { usePersistTxnClassifications } from "@/hooks/usePersistTxnClassifications";
 import { bankHistory } from "@/lib/relink/history";
 import { retryPendingCarryovers, type RelinkDb } from "@/lib/relink/client";
 import { paycheckAlerts } from "@/lib/paycheck-anomaly";
 import { setDerivedAlerts } from "@/lib/derived-alerts";
+import { usePublishHomeActionItems } from "@/lib/notifications/extras-store";
+import type { CompactItem } from "@/lib/notifications/compact";
 import { CardBenefitsView } from "@/components/finance/CardBenefitsView";
 import {
   type Condition, type ConditionSet, type SmartRule, type RuleAction, type TxnField, type TxnOp, type EvalTxn,
@@ -46,6 +50,7 @@ import { isPlaidDiscretionaryRecurringExcluded } from "@/lib/recurring/spending-
 import { pfcToAppCategory, pfcTrusted } from "@/lib/classify/pfc";
 import { cleanDescription } from "@/lib/statement-import";
 import { demoAccounts, demoItems, demoTransactions } from "@/lib/finance-data";
+import { OPEN_TRANSACTION_EVENT } from "@/lib/txn-nav";
 import { AccountsPage } from "@/components/finance/accounts/AccountsPage";
 import { netWorthTotals } from "@/lib/accounts/totals";
 import { hiddenAccountIds, netWorthExcludedIds, withoutAccounts } from "@/lib/accounts/hidden";
@@ -67,6 +72,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtDayDate, fmtShortDate } from "@/lib/format-date";
 
@@ -95,17 +101,23 @@ type PTxn = {
 // never deleted, just no longer inside the one page being fetched. Paging
 // through in fixed-size chunks until a page comes back short guarantees every
 // row is retrieved regardless of how many years of history are stored.
+// Only the columns the app reads (PTxn), not "*": less to download and parse
+// on every load. If a column is missing (the PFC migration not applied on
+// some database), fall back to "*" for the rest of the load.
+const TXN_COLUMNS = "id,account_id,item_id,transaction_id,amount,date,authorized_date,name,merchant_name,category,pending,payment_channel,pfc_primary,pfc_detailed,pfc_confidence";
 async function fetchAllTransactions(userId: string): Promise<PTxn[]> {
   const PAGE_SIZE = 1000;
   let offset = 0;
+  let allColumns = false;
   const all: PTxn[] = [];
   for (;;) {
-    const { data, error } = await supabase
-      .from("plaid_transactions")
-      .select("*")
-      .eq("user_id", userId)
-      .order("date", { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1);
+    const base = supabase.from("plaid_transactions");
+    // Two typed branches (literal column list vs "*") instead of one dynamic
+    // select string, so the row type stays checked without a double cast.
+    const { data, error } = allColumns
+      ? await base.select("*").eq("user_id", userId).order("date", { ascending: false }).range(offset, offset + PAGE_SIZE - 1)
+      : await base.select(TXN_COLUMNS).eq("user_id", userId).order("date", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
+    if (error && !allColumns && /column/i.test(error.message)) { allColumns = true; continue; }
     if (error) { console.error("[fetchAllTransactions]", error.message); break; }
     const rows = (data ?? []) as PTxn[];
     all.push(...rows);
@@ -283,7 +295,7 @@ const EXPENSE_CATEGORIES_PICKER = EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGO
 const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 
 const priorityMeta = {
-  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative" },
+  urgent: { label: "Urgent", dot: "bg-negative", text: "text-negative", chip: "border-negative/30 bg-negative/10 text-negative-text" },
   soon:   { label: "Soon",   dot: "bg-warning",  text: "text-warning",  chip: "border-warning/30 bg-warning/10 text-warning" },
   info:   { label: "FYI",    dot: "bg-info",     text: "text-info",     chip: "border-info/30 bg-info/10 text-info" },
 };
@@ -484,7 +496,7 @@ const looseClassOf = (
     categoryOverrides: overrides,
     ruleCategory: t => getRuleCategory(t.merchant_name ?? t.name ?? null),
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
   });
   return t => m.get(t.id);
 };
@@ -1498,31 +1510,31 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
     const meta = FIELD_META[c.field];
     if (c.field === "account")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="">Select account…</option>
           {accounts.map(a => <option key={a.account_id} value={a.account_id}>{a.name}</option>)}
-        </select>
+        </NativeSelect>
       );
     if (c.field === "account_type")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Account type" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="">Select type…</option>
           {acctTypes.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+        </NativeSelect>
       );
     if (c.field === "flow")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Money flow" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="expense">Expense</option>
           <option value="income">Income</option>
-        </select>
+        </NativeSelect>
       );
     if (c.field === "pending")
       return (
-        <select value={c.value} onChange={e => patch(c.id, { value: e.target.value })} className={cn(inputCls, "flex-1 min-w-0")}>
+        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Status" value={c.value} onChange={e => patch(c.id, { value: e.target.value })}>
           <option value="true">Pending</option>
           <option value="false">Posted</option>
-        </select>
+        </NativeSelect>
       );
     if (meta.kind === "number")
       return (
@@ -1574,14 +1586,12 @@ const ConditionRows = ({ set, onChange, accounts, categoryOptions, compact }: {
       )}
       {set.conditions.map(c => (
         <div key={c.id} className="flex items-center gap-1.5">
-          <select value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}
-            className={cn(inputCls, "shrink-0", compact ? "w-[92px]" : "w-[110px]")}>
+          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[92px]" : "w-[110px]")} size="sm" aria-label="Condition field" className="pl-2.5 pr-7" value={c.field} onChange={e => onFieldChange(c, e.target.value as TxnField)}>
             {(Object.keys(FIELD_META) as TxnField[]).map(f => <option key={f} value={f}>{FIELD_META[f].label}</option>)}
-          </select>
-          <select value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}
-            className={cn(inputCls, "shrink-0", compact ? "w-[96px]" : "w-[120px]")}>
+          </NativeSelect>
+          <NativeSelect wrapperClassName={cn("shrink-0", compact ? "w-[96px]" : "w-[120px]")} size="sm" aria-label="Condition operator" className="pl-2.5 pr-7" value={c.op} onChange={e => patch(c.id, { op: e.target.value as TxnOp })}>
             {FIELD_META[c.field].ops.map(op => <option key={op} value={op}>{OP_LABEL[op]}</option>)}
-          </select>
+          </NativeSelect>
           {renderValue(c)}
           <button type="button" onClick={() => removeRow(c.id)} aria-label="Remove condition" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-negative shrink-0">
             <X className="h-3.5 w-3.5" />
@@ -1733,17 +1743,16 @@ const RulesManager = ({
                     <div className="text-[12px] uppercase tracking-wider text-muted-foreground font-semibold">Then do</div>
                     {draftRule.actions.map((a, i) => (
                       <div key={i} className="flex items-center gap-1.5">
-                        <select value={a.type} onChange={e => {
+                        <NativeSelect wrapperClassName="w-[130px] shrink-0" size="sm" aria-label="Action" value={a.type} onChange={e => {
                             const type = e.target.value as RuleAction["type"];
                             const next = [...draftRule.actions];
                             next[i] = type === "mark_internal" ? { type } : { type, value: "" } as RuleAction;
                             setDraftRule({ ...draftRule, actions: next });
-                          }}
-                          className="h-8 w-[130px] shrink-0 rounded-lg bg-secondary/40 border border-border/40 text-[13px] text-foreground px-2 outline-none">
+                          }}>
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
-                        </select>
+                        </NativeSelect>
                         {a.type !== "mark_internal" && (
                           <input list={a.type === "set_category" ? "smart-cats" : undefined}
                             value={a.value} onChange={e => {
@@ -1848,12 +1857,11 @@ const RulesManager = ({
                   <div className="text-[13px] font-semibold text-foreground">New category rule</div>
                   <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                     <span className="text-[12.5px] text-muted-foreground">When name</span>
-                    <select value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}
-                      className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                    <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={newMatchType} onChange={e => setNewMatchType(e.target.value as RuleMatchType)}>
                       <option value="contains">contains</option>
                       <option value="starts_with">starts with</option>
                       <option value="exact">is exactly</option>
-                    </select>
+                    </NativeSelect>
                     <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                     <input value={newPattern} onChange={e => setNewPattern(e.target.value)} placeholder="e.g. Amazon, Starbucks…"
                       className="h-8 px-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]" />
@@ -1898,12 +1906,11 @@ const RulesManager = ({
                         <div className="text-[12.5px] font-semibold text-foreground mb-1">Edit rule</div>
                         <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
                           <span className="text-[12.5px] text-muted-foreground">When name</span>
-                          <select value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}
-                            className="h-8 px-2 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                          <NativeSelect wrapperClassName="w-full" size="sm" aria-label="Match type" value={editMatchType} onChange={e => setEditMatchType(e.target.value as RuleMatchType)}>
                             <option value="contains">contains</option>
                             <option value="starts_with">starts with</option>
                             <option value="exact">is exactly</option>
-                          </select>
+                          </NativeSelect>
                           <span className="text-[12.5px] text-muted-foreground">Pattern</span>
                           <input value={editPattern} onChange={e => setEditPattern(e.target.value)}
                             className="h-8 px-2.5 rounded-md bg-background border border-[hsl(var(--primary)/0.4)] text-[12.5px] outline-none focus:border-[hsl(var(--primary)/0.6)]" />
@@ -2334,11 +2341,10 @@ const TxnDetailModal = ({
             placeholder="New category name…"
             onKeyDown={e=>{ if (e.key==="Enter") confirmAddCategory(); if (e.key==="Escape") cancelCatEdit(); }}
             className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50"/>
-          <select value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}
-            className="bg-muted/40 border border-border/50 rounded-xl px-2 py-2.5 text-[13px] text-foreground outline-none shrink-0">
+          <NativeSelect wrapperClassName="shrink-0" aria-label="Category type" value={catDraftType} onChange={e=>setCatDraftType(e.target.value as "income"|"expense")}>
             <option value="expense">Expense</option>
             <option value="income">Income</option>
-          </select>
+          </NativeSelect>
           <button onClick={confirmAddCategory} aria-label="Create category" className="h-10 w-10 grid place-items-center rounded-xl bg-gold shrink-0"><Check className="h-4 w-4"/></button>
           <button onClick={cancelCatEdit} aria-label="Cancel adding category" className="h-10 w-10 grid place-items-center rounded-xl text-muted-foreground hover:text-foreground shrink-0"><X className="h-4 w-4"/></button>
         </div>
@@ -2357,10 +2363,9 @@ const TxnDetailModal = ({
     }
     return (
       <div className="flex items-center gap-1.5">
-        <select
+        <NativeSelect wrapperClassName="flex-1 min-w-0" aria-label="Category"
           value={rawCat ?? "Other"}
-          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}
-          className="flex-1 min-w-0 bg-muted/40 border border-border/50 rounded-xl px-3 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+          onChange={e => { if (e.target.value === "__add_new__") startAddCategory(); else handleCatSelect(e.target.value); }}>
           {/* Grouped the same way as the table's category picker — Expenses,
               Income, Ignored — via native <optgroup>s instead of one long
               flat list. Uses the full classification arrays (not the
@@ -2384,7 +2389,7 @@ const TxnDetailModal = ({
             ))}
           </optgroup>
           <option value="__add_new__">+ Add new category…</option>
-        </select>
+        </NativeSelect>
         {isCustomCat(rawCat) && onRenameCategory && (
           <button onClick={startRenameCategory} aria-label="Rename category" title="Rename category"
             className="h-10 w-10 grid place-items-center rounded-xl border border-border/50 text-muted-foreground hover:text-foreground shrink-0">
@@ -2623,11 +2628,10 @@ const TxnDetailModal = ({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">If</label>
-                    <select value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}
-                      className="h-7 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none">
+                    <NativeSelect size="sm" aria-label="Match all or any conditions" value={txnRuleDraft.match} onChange={e => setTxnRuleDraft(d => ({...d, match: e.target.value as "all"|"any"}))}>
                       <option value="all">ALL match</option>
                       <option value="any">ANY match</option>
-                    </select>
+                    </NativeSelect>
                   </div>
                   <ConditionRows set={txnRuleDraft} onChange={s => setTxnRuleDraft(prev => ({...prev, ...s}))} accounts={accounts} categoryOptions={[...ALL_CATEGORIES.filter(c => !hiddenCategories.includes(c)), ...customCategories.map(cx => cx.name)]}/>
                 </div>
@@ -2639,21 +2643,20 @@ const TxnDetailModal = ({
                   <div className="space-y-2">
                     {txnRuleActions.map((action, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <select value={action.type} onChange={e => {
+                        <NativeSelect wrapperClassName="shrink-0" size="sm" aria-label="Action" value={action.type} onChange={e => {
                           const type = e.target.value as RuleAction["type"];
                           const next = [...txnRuleActions];
                           if (type === "mark_internal" || type === "ignore") next[i] = {type} as RuleAction;
                           else next[i] = {type, value:""} as RuleAction;
                           setTxnRuleActions(next);
-                        }} className="h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none shrink-0">
+                        }}>
                           <option value="set_category">Set category</option>
                           <option value="rename">Rename to</option>
                           <option value="mark_internal">Mark internal</option>
                           <option value="ignore">Ignore / hide</option>
-                        </select>
+                        </NativeSelect>
                         {action.type === "set_category" && (
-                          <select value={action.value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}
-                            className="flex-1 h-9 px-2 rounded-lg bg-muted/40 border border-border/40 text-[12px] text-foreground outline-none min-w-0">
+                          <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Category" value={action.value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"set_category",value:e.target.value}; setTxnRuleActions(n); }}>
                             <option value="">Category...</option>
                             <optgroup label="Expenses">
                               {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
@@ -2664,7 +2667,7 @@ const TxnDetailModal = ({
                             <optgroup label="Ignored">
                               {IGNORED_CATEGORIES.filter(c => !hiddenCategories.includes(c)).map(cat=><option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>)}
                             </optgroup>
-                          </select>
+                          </NativeSelect>
                         )}
                         {action.type === "rename" && (
                           <input value={action.value} onChange={e => { const n=[...txnRuleActions]; n[i]={type:"rename",value:e.target.value}; setTxnRuleActions(n); }}
@@ -2756,8 +2759,7 @@ const TxnDetailModal = ({
                     ) : null}
                   </div>
                 )}
-                <select value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}
-                  className="w-full bg-muted/40 border border-border/50 rounded-xl px-3.5 py-2.5 text-[13px] text-foreground outline-none focus:border-primary/50">
+                <NativeSelect wrapperClassName="w-full" aria-label="Correct category" value={reportMiscatDraft} onChange={e => setReportMiscatDraft(e.target.value)}>
                   <option value="" disabled>Choose the correct category…</option>
                   <optgroup label="Expenses">
                     {uniqueCategoryNames([...EXPENSE_CATEGORIES.filter(c => !IGNORED_CATEGORIES.includes(c) && !hiddenCategories.includes(c)), ...customCategories.filter(c=>c.type==="expense").map(c=>c.name)]).map(cat => (
@@ -2774,7 +2776,7 @@ const TxnDetailModal = ({
                       <option key={cat} value={cat}>{humanizeCategory(cat, Number(txn.amount))}</option>
                     ))}
                   </optgroup>
-                </select>
+                </NativeSelect>
               </div>
               <div className="px-5 py-4 border-t border-border/30 shrink-0">
                 <button onClick={() => handleReportMiscategorized(reportMiscatDraft)}
@@ -3378,7 +3380,7 @@ const AccountTagStack = ({
     <div className="surface-card overflow-hidden">
       <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
         <div>
-          <h3 className="font-display text-[14px] text-primary">Quick-tag accounts</h3>
+          <h3 className="text-[14px] font-semibold text-foreground">Quick-tag accounts</h3>
           <div className="text-[12px] text-muted-foreground mt-0.5">Swipe or tap a category for each one</div>
         </div>
         <span className="text-[12px] text-muted-foreground tabular shrink-0">{clamped + 1} of {list.length}</span>
@@ -3765,6 +3767,10 @@ export const LivePlaidDashboard = ({
   const saveMeta = (accountId: string, meta: Partial<AccountMeta>) => S.setAccountMeta(accountId, meta);
 
   const [loading, setLoading]       = useState(true);
+  // True once transactions have loaded at least once: a later refresh / sync
+  // keeps the Picture on screen (it recomputes in place) instead of
+  // unmounting it behind a skeleton.
+  const [everLoaded, setEverLoaded] = useState(false);
   const [syncing, setSyncing]       = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date|null>(null);
   const [accounts, setAccounts]     = useState<PAccount[]>([]);
@@ -3853,6 +3859,20 @@ export const LivePlaidDashboard = ({
   const [detailTxnOpenCat, setDetailTxnOpenCat] = useState(false);
   const openDetail = (txn: PTxn, openCat = false) => { setDetailTxn(txn); setDetailTxnOpenCat(openCat); };
 
+  // Inbox (and anything else) can open a transaction by id. Match demo rows
+  // on `id` as well — demoTransactions only set `id`, not `transaction_id`.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const id = (e as CustomEvent<{ txnId?: string }>).detail?.txnId;
+      if (!id) return;
+      const txn = txns.find(t => t.id === id || t.transaction_id === id);
+      if (!txn) { toast.error("This transaction is no longer available"); return; }
+      openDetail(txn);
+    };
+    window.addEventListener(OPEN_TRANSACTION_EVENT, on);
+    return () => window.removeEventListener(OPEN_TRANSACTION_EVENT, on);
+  }, [txns]);
+
   // ── Smart rules — evaluate generic multi-condition rules across all txns.
   // Because this is derived state, newly synced transactions are handled
   // automatically on the next render (no manual "run" needed).
@@ -3928,7 +3948,7 @@ export const LivePlaidDashboard = ({
     notInternalIds: manualExternalIds,
     selfNames,
     customCategories,
-    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name),
+    plaidCategory: t => normalisePlaidCategory(t.category, t.merchant_name, t.name, t),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [allTxns, accounts, roles, typeOverrides, catOverridesManual, smartResults, getRuleCategory, manualExternalIds, selfNames, customCategories]);
   const classOf = useCallback((t: { id: string }) => txnClasses.get(t.id), [txnClasses]);
@@ -3982,7 +4002,7 @@ export const LivePlaidDashboard = ({
       const c = txnClasses.get(t.id);
       if (!c) continue;
       const amount = Number(t.amount);
-      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name);
+      const current = catOverridesManual[t.id] ?? smartResults.catById[t.id] ?? getRuleCategory(t.merchant_name ?? t.name ?? null) ?? normalisePlaidCategory(t.category, t.merchant_name, t.name, t);
       const isIgnoredCat = ignored.has(current.toLowerCase());
       const isIncomeCat = isIncomeCategory(current, customCategories, amount);
       const bucket = bucketOf(c.type);
@@ -4060,6 +4080,7 @@ export const LivePlaidDashboard = ({
     }
   };
 
+  const loadSeq = useRef(0);
   const load = useCallback(async()=>{
     // In demo mode: skip Supabase, seed with realistic local data immediately
     if (demo) {
@@ -4068,6 +4089,7 @@ export const LivePlaidDashboard = ({
       setItems(demoItems as unknown as PItem[]);
       setCreditDetails([]);
       setLoading(false);
+      setEverLoaded(true);
       return;
     }
     if (!user) return;
@@ -4093,9 +4115,22 @@ export const LivePlaidDashboard = ({
       if (cdRes.error)   console.error("[load] credit details:", cdRes.error.message);
       // Apply whatever succeeded — one failing table shouldn't blank the rest
       setAccounts((accsRes.data ?? []) as PAccount[]);
-      const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
-      const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
-      setTxns(dedupedTxns);
+      // Show what was fetched right away (known duplicates hidden locally);
+      // the description backfill and duplicate delete run off the load path
+      // and only touch state if they changed something.
+      const seq = ++loadSeq.current;
+      const dupNow = new Set(findDuplicateIds(txnsData));
+      const shown = dupNow.size ? txnsData.filter(t => !dupNow.has(t.id)) : txnsData;
+      setTxns(shown);
+      void (async () => {
+        try {
+          const cleanedTxns = await cleanImportedDescriptions(user.id, txnsData);
+          const dedupedTxns = await dedupeTransactions(user.id, cleanedTxns);
+          // Names were tidied, or the delete failed (rows still in the DB, so
+          // show them again) or found a different set: use the final list.
+          if (seq === loadSeq.current && (cleanedTxns !== txnsData || dedupedTxns.length !== shown.length)) setTxns(dedupedTxns);
+        } catch (e) { console.error("[load] cleanup:", e); }
+      })();
       setItems((itsRes.data ?? []) as PItem[]);
       setCreditDetails((cdRes.data ?? []) as CreditDetail[]);
       // accountMeta auto-updates from settings
@@ -4108,6 +4143,7 @@ export const LivePlaidDashboard = ({
       toast.error("Failed to load data", { description: (e as Error)?.message });
     } finally {
       setLoading(false);
+      setEverLoaded(true);
     }
   },[user, demo]);
 
@@ -4299,6 +4335,37 @@ export const LivePlaidDashboard = ({
 
   const allActions       = generateActions(visibleAccounts, txns, internalTxnIds, overrides, getRuleCategory, budgets, creditDetails, customCategories);
   const visibleActions   = allActions.filter(a=>!dismissedActions.has(a.id));
+  // Publish into the inbox store. Do not clear the store in this effect's
+  // cleanup — visibleActions is a new array every render, and clearing then
+  // re-publishing looped (React #185) on live Home. Demo never published.
+  const homeActionItems = useMemo(() => {
+    if (demo || guestDemo) return [] as CompactItem[];
+    const toType = (id: string): CompactItem["type"] => {
+      if (id.startsWith("low-") || id.includes("low-checking")) return "low_balance";
+      if (id.startsWith("cc-") || id.includes("overdue") || id.includes("cc-due")) return "payment_due";
+      if (id.startsWith("budget")) return "budget_threshold";
+      if (id.includes("spike") || id.includes("dup") || id.includes("duplicate")) return "insight";
+      if (id.includes("large") || id.includes("big")) return "large_txn";
+      return "insight";
+    };
+    return visibleActions.map(a => ({
+      id: `action:${a.id}`,
+      type: toType(a.id),
+      priority: a.priority,
+      title: a.title,
+      body: typeof a.detail === "string" ? a.detail : "",
+      amount: null,
+      at: new Date().toISOString(),
+      account: null,
+      source: "Home",
+      status: a.priority === "urgent" ? "Needs review" : a.cta,
+      stack: null,
+      read: false,
+      payload: a.reviewCategory ? { category: a.reviewCategory } : {},
+    }));
+  }, [demo, guestDemo, visibleActions]);
+  usePublishHomeActionItems(homeActionItems, !(demo || guestDemo));
+
   const visibleInsights  = aiInsights.filter(i=>!dismissedInsights.has(i.id));
   const insightSeverityRank = { high: 3, medium: 2, low: 1 } as const;
   const leadInsight = [...visibleInsights].sort((a, b) =>
@@ -4377,6 +4444,15 @@ export const LivePlaidDashboard = ({
   // ── Tick thinning for dense charts ────────────────────────
   const nwTickEvery = { "1W":1,"1M":5,"3M":2,"1Y":1,"ALL":1 }[period];
 
+  // Stable callbacks for My Financial Picture: an inline arrow is a new
+  // function every render, which busts its model cache (a ~300 ms rebuild
+  // on every dashboard render).
+  const pictureGetCat = useCallback((t: PictureTxn) => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other", [overrides, getRuleCategory]);
+  const pictureOpenTxn = useCallback((t: PictureTxn) => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }, []);
+  const pictureUserId = (demo || guestDemo) ? null : user?.id ?? null;
+
+  const pictureView = view === "myfinances" || view === "insights";
+  if (!demo && !guestDemo && user && !settingsLoaded && pictureView) return <PictureSkeleton insights={view === "insights"} />;
   if (!demo && !guestDemo && user && !settingsLoaded) return (
     <div className="min-h-[40vh] grid place-items-center">
       <div className="flex items-center gap-2 text-muted-foreground text-[13px]">
@@ -4384,8 +4460,9 @@ export const LivePlaidDashboard = ({
       </div>
     </div>
   );
-  if (loading) {
-    if (view === "spending" || view === "myfinances") return <SpendingSkeleton />;
+  if (loading && pictureView && !everLoaded) return <PictureSkeleton insights={view === "insights"} />;
+  if (loading && !pictureView) {
+    if (view === "spending") return <SpendingSkeleton />;
     return <div className="min-h-[40vh] grid place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
@@ -4475,7 +4552,7 @@ export const LivePlaidDashboard = ({
             <div className="flex items-center gap-0.5 mt-2.5 flex-wrap">
               {PERIODS.map(p=>(
                 <button key={p} onClick={()=>setPeriod(p)}
-                  className={cn("px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
+                  className={cn("tap-44 px-2 py-0.5 rounded-full text-[12px] font-medium transition-all",
                     period===p?"bg-gold text-foreground":"text-muted-foreground hover:text-foreground hover:bg-secondary/60")}>
                   {p}
                 </button>
@@ -4585,10 +4662,10 @@ export const LivePlaidDashboard = ({
             const panelActionItems = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
-                  <h3 className="font-display text-[14px] text-primary flex-1">Action items</h3>
+                  <h3 className="text-[14px] font-semibold text-foreground flex-1">Action items</h3>
                   {visibleActions.length>0 && <span className="text-[12px] text-muted-foreground tabular">{visibleActions.length} open</span>}
                 </div>
                 {visibleActions.length===0 ? (
@@ -4627,7 +4704,7 @@ export const LivePlaidDashboard = ({
             const panelSavingOpps = (dragHandle: React.HTMLAttributes<HTMLElement>) => (
               <div className="surface-card overflow-hidden flex flex-col h-full">
                 <div className="px-5 py-3 border-b border-border/30 flex items-center gap-2">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <h3 className="font-display text-[14px] text-foreground flex-1">Key insight</h3>
@@ -4638,7 +4715,7 @@ export const LivePlaidDashboard = ({
                   )}
                   <button onClick={()=>loadInsights(true)} disabled={insightsLoading}
                     title="Refresh AI suggestions" aria-label="Refresh AI suggestions"
-                    className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
+                    className="tap-44 h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-border/30 disabled:opacity-40 transition-colors shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", insightsLoading && "animate-spin")} />
                   </button>
                 </div>
@@ -4699,7 +4776,7 @@ export const LivePlaidDashboard = ({
                 {/* select-none: dragging the grip used to leave the header text
                     (e.g. the "$9.35" total) with a blue selection highlight. */}
                 <div className="px-3.5 py-2 border-b border-border/30 flex items-center gap-2 select-none">
-                  <button {...dragHandle} className="text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
+                  <button {...dragHandle} className="tap-44 grid place-items-center text-muted-foreground/30 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none shrink-0" title="Drag to reorder" aria-label="Drag to reorder">
                     <GripVertical className="h-3.5 w-3.5" />
                   </button>
                   <div className="flex-1 min-w-0">
@@ -4718,7 +4795,7 @@ export const LivePlaidDashboard = ({
                   </div>
                   <button onClick={refreshTxns} disabled={refreshingTxns}
                     aria-label={refreshingTxns ? "Refreshing transactions" : "Refresh transactions"}
-                    className="h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
+                    className="tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 shrink-0">
                     <RefreshCw className={cn("h-3.5 w-3.5", refreshingTxns && "animate-spin")} />
                   </button>
                 </div>
@@ -4782,7 +4859,7 @@ export const LivePlaidDashboard = ({
                           </div>
                           <div className="relative shrink-0">
                             <button onClick={()=>setRecurringMenuFor(m=>m===r.merchantKey?null:r.merchantKey)} title="Remove from recurring list" aria-label={`Remove ${r.merchant} from recurring list`}
-                              className={cn("h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
+                              className={cn("tap-44 h-8 w-8 grid place-items-center rounded text-muted-foreground/50 hover:text-negative hover:bg-negative/10 transition-all",
                                 recurringMenuFor===r.merchantKey ? "opacity-100 text-negative bg-negative/10" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}>
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -4827,7 +4904,7 @@ export const LivePlaidDashboard = ({
             );
 
             const renderPanel = (id: string, dragHandle: React.HTMLAttributes<HTMLElement>) => {
-              if (id === "action-items") return panelActionItems(dragHandle);
+              if (id === "action-items") return null; // moved into the notification inbox
               if (id === "saving-opps") return panelSavingOpps(dragHandle);
               if (id === "upcoming-charges") return panelUpcomingCharges(dragHandle);
               return null;
@@ -5464,13 +5541,12 @@ export const LivePlaidDashboard = ({
                   ) : (
                     <div className="ml-9 space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <select value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}
-                          className="h-8 flex-1 rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                        <NativeSelect wrapperClassName="flex-1 min-w-0" size="sm" aria-label="Cover the overage from" value={chosenId} onChange={e => setFundAllocations(p => ({ ...p, [c.category]: e.target.value }))}>
                           <option value="">Cover from…</option>
                           {fundingAccounts.map(a => (
                             <option key={a.account_id} value={a.account_id}>{a.name ?? a.official_name} ({fmtUSDCompact(Number(a.current_balance) || 0)})</option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         {chosen && !confirmed && (
                           <button onClick={() => {
                               S.confirmOverageFunding({ category: c.category, month: budgetMonthKey, amount: over, fromAccountId: chosen.account_id, fromAccountName: chosen.name ?? chosen.official_name ?? "Account" });
@@ -5961,20 +6037,23 @@ export const LivePlaidDashboard = ({
       <MyFinancialPicture
         txns={txns}
         accounts={nwAccounts}
-        getEffectiveCategory={t => getEffectiveCategory(t as unknown as PTxn, overrides, getRuleCategory) ?? "Other"}
+        getEffectiveCategory={pictureGetCat}
         formatCat={formatCat}
         catColor={catColor}
         classOf={classOf}
         manualIncome={manualIncome}
-        onOpenTxnDetail={t => { setDetailTxn(t as unknown as PTxn); setDetailTxnOpenCat(false); }}
+        onOpenTxnDetail={pictureOpenTxn}
         budgets={budgets}
         cardAutopayFrom={settings.cardAutopayFrom}
         savingsGoals={settings.savingsGoals}
         financialPicture={settings.financialPicture}
         onUpdate={S.update}
+        userId={pictureUserId}
         demo={demo || guestDemo}
         banks={bankHist}
         dismissedInsights={settings.dismissedInsights}
+        manualAccounts={manualAccounts}
+        onNavigate={onViewChange}
       />
       {detailTxn && <TxnDetailModal txn={detailTxn} overrides={overrides} getRuleCategory={getRuleCategory} nameOverride={nameOverrides[detailTxn.id]} nameRules={nameRules} customCategories={customCategories} hiddenCategories={hiddenCategories} allTxns={txns} initialCatOpen={detailTxnOpenCat} onClose={()=>{setDetailTxn(null);setDetailTxnOpenCat(false);}} onSaveNameOverride={setNameOverride} onBulkRename={bulkSetNameOverride} onSaveNameRule={saveNameRule} onAddCategory={addCategory} onAddRule={addRule} onRemoveCustom={removeCategory} onRenameCategory={renameCategory} onSelect={(id,cat)=>{setOverride(id,cat); if (detailTxn) clearConflictingTypeOverride(detailTxn);}} onToggleInternal={toggleManualInternal} isManualInternal={manualInternalIds.has(detailTxn.id)} isAutoInternal={autoInternalIds.has(detailTxn.id)} isManualExternal={manualExternalIds.has(detailTxn.id)} possibleDuplicate={possibleDupIds.has(detailTxn.id)} accounts={accounts} items={items} onFindSimilar={(pattern) => { setTxnSearch(pattern); onViewChange?.("spending"); }}
         tags={settings.txnTags[detailTxn.id] ?? []}
@@ -6158,9 +6237,8 @@ export const LivePlaidDashboard = ({
 
     return (
       <div className="space-y-3 animate-fade-up">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-[18px] text-foreground">Money Map</h2>
-        </div>
+        {/* No in-page "Money Map" title: the page header (desktop) and the top
+            bar (phone) already name the screen (docs/ui-style.md › Headers). */}
 
         {/* ── The headline number ── */}
         <div className="surface-card p-5">
@@ -6200,7 +6278,7 @@ export const LivePlaidDashboard = ({
         <div className="surface-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border/30 flex items-center gap-2">
             <Info className="h-3.5 w-3.5 text-muted-foreground" />
-            <h3 className="font-display text-[14px] text-primary">Suggestions</h3>
+            <h3 className="text-[14px] font-semibold text-foreground">Suggestions</h3>
             <span className="text-[12px] text-muted-foreground ml-auto">{visibleSuggestions.length} active</span>
           </div>
           {visibleSuggestions.length === 0 ? (
@@ -6225,13 +6303,12 @@ export const LivePlaidDashboard = ({
                       const chosen = fundingAccounts.find(x => x.acc.account_id === chosenId);
                       return (
                         <div className="flex items-center gap-2 mt-2">
-                          <select value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}
-                            className="h-8 flex-1 max-w-[240px] rounded-lg bg-secondary/40 border border-border/40 text-[12.5px] text-foreground px-2 outline-none focus:border-[hsl(var(--primary)/0.5)]">
+                          <NativeSelect wrapperClassName="flex-1 min-w-0 max-w-[240px]" size="sm" aria-label="Cover the overage from" value={chosenId ?? ""} onChange={e => setFundAllocations(p => ({ ...p, [s.category!]: e.target.value }))}>
                             <option value="">Cover from…</option>
                             {fundingAccounts.map(x => (
                               <option key={x.acc.account_id} value={x.acc.account_id}>{x.acc.name ?? x.acc.official_name} ({fmtUSDCompact(Number(x.acc.current_balance) || 0)})</option>
                             ))}
-                          </select>
+                          </NativeSelect>
                           {chosen && (
                             <span className="text-[12px] text-muted-foreground truncate">
                               Move {fmtUSD(s.amount)} from {chosen.acc.name ?? chosen.acc.official_name}
@@ -6268,7 +6345,7 @@ export const LivePlaidDashboard = ({
             </div>
           </div>
           <button onClick={() => setShowOrganize(true)}
-            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
+            className={cn("tap-44 h-8 px-3 rounded-full text-[12px] font-semibold shrink-0 inline-flex items-center gap-1.5",
               unassignedAccts.length > 0 ? "bg-gold" : "border border-border text-muted-foreground hover:text-foreground")}>
             <Wallet className="h-3 w-3" />
             {unassignedAccts.length > 0 ? `Tag ${unassignedAccts.length}` : "Edit roles"}
