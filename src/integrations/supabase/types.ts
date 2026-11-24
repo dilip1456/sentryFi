@@ -154,6 +154,69 @@ export type Database = {
         }
         Relationships: []
       }
+      manual_accounts: {
+        Row: {
+          created_at: string
+          current_balance: number | null
+          id: string
+          institution_name: string | null
+          interest_rate: number | null
+          loan_start_date: string | null
+          loan_term_years: number | null
+          monthly_payment: number | null
+          name: string
+          notes: string | null
+          original_loan_amount: number | null
+          property_address: string | null
+          property_value: number | null
+          role: string
+          role_label: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          institution_name?: string | null
+          interest_rate?: number | null
+          loan_start_date?: string | null
+          loan_term_years?: number | null
+          monthly_payment?: number | null
+          name: string
+          notes?: string | null
+          original_loan_amount?: number | null
+          property_address?: string | null
+          property_value?: number | null
+          role?: string
+          role_label?: string | null
+          type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_balance?: number | null
+          id?: string
+          institution_name?: string | null
+          interest_rate?: number | null
+          loan_start_date?: string | null
+          loan_term_years?: number | null
+          monthly_payment?: number | null
+          name?: string
+          notes?: string | null
+          original_loan_amount?: number | null
+          property_address?: string | null
+          property_value?: number | null
+          role?: string
+          role_label?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       obligations: {
         Row: {
           active: boolean
@@ -297,6 +360,63 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      plaid_loan_details: {
+        Row: {
+          account_id: string
+          escrow_balance: number | null
+          interest_rate: number | null
+          is_overdue: boolean | null
+          kind: string
+          last_payment_amount: number | null
+          last_payment_date: string | null
+          minimum_payment_amount: number | null
+          next_monthly_payment: number | null
+          next_payment_due_date: string | null
+          origination_principal: number | null
+          outstanding_principal: number | null
+          updated_at: string
+          user_id: string
+          ytd_interest_paid: number | null
+          ytd_principal_paid: number | null
+        }
+        Insert: {
+          account_id: string
+          escrow_balance?: number | null
+          interest_rate?: number | null
+          is_overdue?: boolean | null
+          kind: string
+          last_payment_amount?: number | null
+          last_payment_date?: string | null
+          minimum_payment_amount?: number | null
+          next_monthly_payment?: number | null
+          next_payment_due_date?: string | null
+          origination_principal?: number | null
+          outstanding_principal?: number | null
+          updated_at?: string
+          user_id: string
+          ytd_interest_paid?: number | null
+          ytd_principal_paid?: number | null
+        }
+        Update: {
+          account_id?: string
+          escrow_balance?: number | null
+          interest_rate?: number | null
+          is_overdue?: boolean | null
+          kind?: string
+          last_payment_amount?: number | null
+          last_payment_date?: string | null
+          minimum_payment_amount?: number | null
+          next_monthly_payment?: number | null
+          next_payment_due_date?: string | null
+          origination_principal?: number | null
+          outstanding_principal?: number | null
+          updated_at?: string
+          user_id?: string
+          ytd_interest_paid?: number | null
+          ytd_principal_paid?: number | null
         }
         Relationships: []
       }

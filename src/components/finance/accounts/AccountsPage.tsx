@@ -70,12 +70,27 @@ export interface AccountsPageProps<M extends ManualAccountLike = ManualAccountLi
   onSeeSpending?: () => void;
 }
 
+/** Explicit PageTxn → ClassifierTxn mapping (the fields the classifier reads). */
+function toClassifierTxn(t: PageTxn, transaction_id: string): ClassifierTxn & { transaction_id: string } {
+  return {
+    transaction_id,
+    account_id: t.account_id,
+    amount: t.amount,
+    date: t.date,
+    name: t.name,
+    merchant_name: t.merchant_name,
+    category: t.category,
+    pfc_primary: t.pfc_primary ?? null,
+    pfc_detailed: t.pfc_detailed ?? null,
+    pfc_confidence: t.pfc_confidence ?? null,
+    pending: t.pending,
+    payment_channel: t.payment_channel ?? null,
+    authorized_date: t.authorized_date ?? null,
+  };
+}
+
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
-
-/** Remember a missing-column error so we don't retry it on every open (before the migration). */
-const HEALTH_COLS = "id,status,updated_at,error_code,error_at,last_synced_at";
-let healthColsMissing = false;
 
 function useItemHealth(userId: string | undefined, demo: boolean | undefined, items: InstitutionItem[], loadedAt: Date | null) {
   const [health, setHealth] = useState<Record<string, ItemHealth>>({});
@@ -85,16 +100,15 @@ function useItemHealth(userId: string | undefined, demo: boolean | undefined, it
     if (!userId || demo) return;
     let live = true;
     (async () => {
-      const db = supabase as unknown as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => PromiseLike<{ data: unknown[] | null; error: { code?: string } | null }> } } };
-      let res = healthColsMissing ? null : await db.from("plaid_items").select(HEALTH_COLS).eq("user_id", userId);
-      if (!res || res.error) {
-        if (res?.error) healthColsMissing = true;
-        res = await db.from("plaid_items").select("id,status,updated_at").eq("user_id", userId);
-      }
-      const ln = await db.from("plaid_loan_details").select("account_id,kind,next_payment_due_date,next_monthly_payment,interest_rate").eq("user_id", userId);
+      // error_code / error_at / last_synced_at arrive with the accounts-data
+      // migration (PR #65); until then sync health is status + updated_at.
+      const res = await supabase.from("plaid_items").select("id,status,updated_at").eq("user_id", userId);
+      const ln = await supabase.from("plaid_loan_details").select("account_id,kind,next_payment_due_date,next_monthly_payment,interest_rate").eq("user_id", userId);
       if (!live) return;
-      setHealth(Object.fromEntries(((res?.data ?? []) as ItemHealth[]).map(h => [h.id, h])));
-      setLoans(ln.error ? [] : ((ln.data ?? []) as LoanDetailLike[]));
+      const rows: ItemHealth[] = res.error ? [] : (res.data ?? []);
+      setHealth(Object.fromEntries(rows.map(h => [h.id, h])));
+      const loanRows: LoanDetailLike[] = ln.error ? [] : (ln.data ?? []);
+      setLoans(loanRows);
     })().catch(() => { /* health is optional: rows just show no sync state */ });
     return () => { live = false; };
   }, [userId, demo, itemKey, loadedAt]);
@@ -124,7 +138,7 @@ export function AccountsPage<M extends ManualAccountLike>(p: AccountsPageProps<M
 
   const detected = useMemo(() => {
     try {
-      const ct = txns.filter((t): t is PageTxn & { transaction_id: string } => !!t.transaction_id) as unknown as (ClassifierTxn & { transaction_id: string })[];
+      const ct = txns.flatMap(t => t.transaction_id ? [toClassifierTxn(t, t.transaction_id)] : []);
       return detectCardAutopays({ txns: ct, accounts, credit, cardAutopayFrom, today });
     } catch { return {}; }
   }, [txns, accounts, credit, cardAutopayFrom, today]);

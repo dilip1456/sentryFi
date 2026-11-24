@@ -60,7 +60,7 @@ describe("accounts/totals: net worth equals Home's", () => {
     ["linked + manual", linked, manuals],
     ["empty", [], []],
     ["only an underwater home loan", [], [manual("r", "home_loan", "debt", 200000, 150000)]],
-    ["demo data", demoAccounts as unknown as LinkedAccount[], []],
+    ["demo data", demoAccounts, []],
   ];
   for (const [name, a, m] of cases) {
     it(name, () => {
@@ -104,10 +104,24 @@ describe("Picture uses the same net worth as Home", () => {
       { id: "m1", name: "Mortgage", institution_name: null, type: "mortgage", role: "debt", current_balance: 200000, property_value: null },
       { id: "m2", name: "House 2", institution_name: null, type: "mortgage", role: "debt", current_balance: 100000, property_value: 150000 },
     ];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pic = netWorthBreakdown(accounts as any, manual as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const home = netWorthTotals(accounts as any, manual as any, {});
+    const pic = netWorthBreakdown(accounts, manual);
+    const home = netWorthTotals(accounts, manual, {});
     expect({ a: pic.assets, l: pic.liabilities, n: pic.netWorth }).toEqual({ a: home.assets, l: home.liabilities, n: home.netWorth });
+  });
+
+  it("demo data: Picture and Accounts show the same $279,300.43 (no casts between the shapes)", () => {
+    // Spread: Picture takes PAccount (index signature), demo rows are an interface.
+    const pic = netWorthBreakdown(demoAccounts.map(a => ({ ...a })));
+    const accounts = netWorthTotals(demoAccounts);
+    expect(pic.netWorth).toBeCloseTo(279300.43, 2);
+    expect(accounts.netWorth).toBeCloseTo(279300.43, 2);
+    expect({ a: pic.assets, l: pic.liabilities }).toEqual({ a: accounts.assets, l: accounts.liabilities });
+  });
+
+  it("string balances (Postgres numeric) total the same on Picture and Accounts", () => {
+    const accounts = [{ id: "s1", account_id: "s1", name: "Chk", official_name: null, type: "depository", subtype: "checking", current_balance: "1000.50" }];
+    const manual = [{ id: "m", name: "House", type: "mortgage", role: "debt", current_balance: "100000", property_value: "250000" }];
+    expect(netWorthBreakdown(accounts, manual).netWorth).toBeCloseTo(netWorthTotals(accounts, manual).netWorth, 6);
+    expect(netWorthTotals(accounts, manual).netWorth).toBeCloseTo(151000.5, 6);
   });
 });
