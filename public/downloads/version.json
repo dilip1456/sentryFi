@@ -1,9 +1,9 @@
 {
   "versionName": "1.1.0",
-  "versionCode": 1252,
-  "sha256": "f9d4c81c7e102ead6826392b84488cfaa4813aa1d66334f7731b96b02910a876",
+  "versionCode": 1253,
+  "sha256": "c8faebbe3576cb196ce6d1a5a5e6e97e524e8bab0719346fcd2dfce4f985cbbd",
   "size": 7510736,
-  "releaseNotes": "fix: main green again (classifier server copy sync + 17 vitest failures)",
+  "releaseNotes": "build(deps): bump actions/setup-java from 6.1.0 to 6.3.0",
   "apkPath": "/downloads/SentryFi.apk",
-  "publishedAt": "2026-11-24T21:10:12.734Z"
+  "publishedAt": "2026-11-24T22:10:30.174Z"
 }
